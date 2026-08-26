@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db
-from analysis import generate_code, find_ticker, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_ticker
+from analysis import generate_code, find_ticker, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_ticker, compute_split_adjusted_shares
 import hashlib
 import openpyxl
 import math
@@ -298,6 +298,8 @@ def build_portfolio_response(code):
     transacties_df = pd.DataFrame(
         rows, columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam"]
     )
+
+    transacties_df = compute_split_adjusted_shares(transacties_df)
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()

@@ -14,6 +14,60 @@ BEURS_MAP = {
     "TSE": ["TOR"], "ASX": ["ASX"], "NDQ": ["NMS"],
 }
 
+def _is_corporate_action_row(row):
+    beurs = str(row.get("beurs", "")).strip().upper()
+    product = str(row.get("product", "")).upper()
+    return beurs == "DEG" or "NON TRADEABLE" in product
+
+
+def compute_split_adjusted_shares(transacties_df):
+    """
+    Corrigeert aandelenaantallen voor stock splits, gedetecteerd via DEGIRO's
+    NON TRADEABLE/DEG-rijen. Voegt een 'adj_aantal' kolom toe die gebruikt moet
+    worden i.p.v. 'aantal' bij alle waarde-berekeningen.
+    """
+    df = transacties_df.copy()
+    df["adj_aantal"] = df["aantal"].astype(float)
+    df["koers"] = df["koers"].fillna(0).astype(float)
+
+    for isin, groep in df.groupby("isin"):
+        groep = groep.sort_values("datum")
+        ca_rows = groep[groep.apply(_is_corporate_action_row, axis=1)]
+        if ca_rows.empty:
+            continue
+
+        real_trades = groep[~groep.apply(_is_corporate_action_row, axis=1)]
+        conversion_rows = real_trades[
+            (real_trades["koers"] == 0) & (real_trades["aantal"] > 0)
+        ].sort_values("datum")
+
+        for _, conv in conversion_rows.iterrows():
+            conv_date = conv["datum"]
+            eerdere_trades = real_trades[(real_trades["datum"] < conv_date) & (real_trades["koers"] > 0)]
+            shares_before = eerdere_trades["aantal"].sum()
+            if shares_before <= 0:
+                continue
+
+            last_real_date = eerdere_trades["datum"].max()
+            new_shares = ca_rows.loc[
+                (ca_rows["datum"] > last_real_date) & (ca_rows["datum"] <= conv_date) & (ca_rows["aantal"] > 0),
+                "aantal",
+            ].sum()
+            if new_shares <= 0:
+                continue
+
+            ratio = (shares_before + new_shares) / shares_before
+            print(f"[split] {isin}: split gedetecteerd op {conv_date}, ratio {ratio:.4f}x")
+
+            mask = (
+                (df["isin"] == isin)
+                & (df["datum"] < conv_date)
+                & (~df.apply(_is_corporate_action_row, axis=1))
+            )
+            df.loc[mask, "adj_aantal"] *= ratio
+
+    return df
+
 
 def generate_code(cur, length=3):
     """Genereert een unieke portfolio-code die nog niet in gebruik is."""
@@ -136,7 +190,7 @@ def compute_value_over_time(transacties_df, price_data):
         while trade_i < len(transacties_df) and pd.Timestamp(transacties_df.loc[trade_i, "datum"]) <= date:
             row = transacties_df.loc[trade_i]
             if row["ticker"] in holdings:
-                holdings[row["ticker"]] += float(row["aantal"])
+                holdings[row["ticker"]] += float(row["adj_aantal"])
             invested += -float(row["totaal_eur"])
             trade_i += 1
 
@@ -168,7 +222,7 @@ def compute_per_ticker(transacties_df, price_data):
         for date in price_data.index:
             while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
                 row = trades.loc[trade_i]
-                holdings += float(row["aantal"])
+                holdings += float(row["adj_aantal"])
                 invested += -float(row["totaal_eur"])
                 trade_i += 1
             # waarde = holdings * price_data.loc[date, ticker]
