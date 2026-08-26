@@ -14,9 +14,9 @@ BEURS_MAP = {
 }
 
 
-def generate_code(cur, length=6):
+def generate_code(cur, length=3):
     """Genereert een unieke portfolio-code die nog niet in gebruik is."""
-    chars = string.ascii_uppercase + string.digits
+    chars = string.ascii_uppercase
     while True:
         code = "".join(random.choices(chars, k=length))
         cur.execute("SELECT 1 FROM portfolios WHERE code = %s", (code,))
