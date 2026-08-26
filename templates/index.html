@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <title>Portfolio Dashboard</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
+    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon/favicon.svg') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon/apple-touch-icon.png') }}">
+    <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('static', filename='favicon/favicon-96x96.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='favicon/site.webmanifest') }}">
 </head>
 <body>
     <div class="container">
@@ -14,11 +19,6 @@
             <label for="naam">Naam (optioneel)</label>
             <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
 
-            <!-- <label for="bestand1">Portfolio-bestand (verplicht)</label>
-            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
-
-            <label for="bestand2">Tweede bestand (optioneel)</label>
-            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls"> -->
             <label for="bestand1">Transacties-export (verplicht)</label>
             <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
             <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
