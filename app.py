@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db
-from analysis import generate_code, find_ticker, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker
+from analysis import generate_code, find_ticker, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_ticker
 
 app = Flask(__name__)
 init_db()  
@@ -70,15 +70,24 @@ def upload():
 
         for _, row in rows_to_insert.iterrows():
             key = (row["Product"], row["ISIN"], row["Beurs"])
+            # cur.execute(
+            #     """INSERT INTO transacties
+            #        (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id)
+            #        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            #        ON CONFLICT (code, order_id) DO NOTHING""",
+            #     (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+            #      ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
+            #      float(row["Totaal EUR"]), row["Order ID"]),
+            # )
             cur.execute(
-                """INSERT INTO transacties
-                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (code, order_id) DO NOTHING""",
-                (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-                 ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
-                 float(row["Totaal EUR"]), row["Order ID"]),
-            )
+            """INSERT INTO transacties
+               (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (code, order_id) DO NOTHING""",
+            (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+             ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
+             float(row["Totaal EUR"]), row["Order ID"], row["Product"]),
+        )
 
     conn.commit()
     cur.close()
@@ -106,8 +115,21 @@ def build_portfolio_response(code):
         return None
     naam = result[0]
 
+    # cur.execute(
+    #     "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur "
+    #     "FROM transacties WHERE code = %s",
+    #     (code,),
+    # )
+    # rows = cur.fetchall()
+    # cur.close()
+    # conn.close()
+
+    # transacties_df = pd.DataFrame(
+    #     rows, columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur"]
+    # )
+
     cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur "
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam "
         "FROM transacties WHERE code = %s",
         (code,),
     )
@@ -116,7 +138,7 @@ def build_portfolio_response(code):
     conn.close()
 
     transacties_df = pd.DataFrame(
-        rows, columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur"]
+        rows, columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam"]
     )
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
@@ -129,12 +151,41 @@ def build_portfolio_response(code):
     resultaat = compute_value_over_time(transacties_df, price_data)
     per_ticker = compute_per_ticker(transacties_df, price_data)
 
+    # ticker_namen = (
+    #     transacties_df.dropna(subset=["ticker"])
+    #     .drop_duplicates(subset=["ticker"])
+    #     .set_index("ticker")["product"]
+    #     .to_dict()
+    # )
     ticker_namen = (
         transacties_df.dropna(subset=["ticker"])
-        .drop_duplicates(subset=["ticker"])
+        .drop_duplicates(subset=["ticker"], keep="last")
         .set_index("ticker")["product"]
         .to_dict()
     )
+    echte_namen = (
+        transacties_df.dropna(subset=["ticker"])
+        .drop_duplicates(subset=["ticker"])
+        .set_index("ticker")["echte_naam"]
+        .to_dict()
+    )
+
+    huidige_holdings = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
+    laatste_prijzen = price_data.iloc[-1]
+
+    verdeling = []
+    for ticker, aantal in huidige_holdings.items():
+        if ticker not in price_data.columns:
+            continue
+        waarde = float(aantal) * float(laatste_prijzen[ticker])
+        if waarde <= 0:
+            continue
+        verdeling.append({
+            "ticker": ticker,
+            "naam": ticker_namen.get(ticker, ticker),
+            "waarde": round(waarde, 2),
+            "is_etf": classify_ticker(ticker),
+        })
 
     return {
         "code": code,
@@ -146,8 +197,51 @@ def build_portfolio_response(code):
             "rendement": resultaat["rendement"].round(2).tolist(),
         },
         "per_ticker": per_ticker,
-        "tickers": [{"ticker": t, "naam": ticker_namen.get(t, t)} for t in per_ticker.keys()],
+        "verdeling": verdeling,
+        # "tickers": [{"ticker": t, "naam": ticker_namen.get(t, t)} for t in per_ticker.keys()],
+        "tickers": [
+            {"ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t)}
+            for t in per_ticker.keys()
+        ],
     }
+
+@app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])
+def set_bijnaam(code):
+    data = request.get_json()
+    ticker = data.get("ticker")
+    bijnaam = (data.get("bijnaam") or "").strip()
+    if not ticker or not bijnaam:
+        return jsonify({"error": "Ticker en bijnaam zijn verplicht."}), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE transacties SET product = %s WHERE code = %s AND ticker = %s",
+        (bijnaam, code, ticker),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify(build_portfolio_response(code))
+
+
+@app.route("/api/portfolio/<code>/reset-bijnaam", methods=["POST"])
+def reset_bijnaam(code):
+    data = request.get_json()
+    ticker = data.get("ticker")
+    if not ticker:
+        return jsonify({"error": "Ticker is verplicht."}), 400
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE transacties SET product = echte_naam WHERE code = %s AND ticker = %s",
+        (code, ticker),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+    return jsonify(build_portfolio_response(code))
 
 if __name__ == "__main__":
     app.run(debug=True)

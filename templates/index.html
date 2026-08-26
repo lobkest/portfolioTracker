@@ -47,6 +47,8 @@
             <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
             <button class="menuBtn" data-view="rendement">Rendement</button>
             <button class="menuBtn" data-view="peraandeel">Per aandeel</button>
+            <button class="menuBtn" data-view="verdeling">Verdeling</button>
+            <button class="menuBtn" data-view="instellingen">Instellingen</button>
         </div>
 
         <div style="flex-grow: 1;">
@@ -55,7 +57,13 @@
             <select id="aandeelSelect" style="display: none; margin-bottom: 15px;"></select>
             <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
 
-            <canvas id="rendementChart"></canvas>
+            <!-- <canvas id="rendementChart"></canvas>
+            <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p> -->
+            <!-- <canvas id="rendementChart"></canvas> -->
+            <div style="height: 400px;">
+                <canvas id="rendementChart"></canvas>
+            </div>
+            <div id="instellingenSectie" style="display: none;"></div>
             <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
         </div>
     </div>
@@ -69,6 +77,30 @@
             return `${dag}-${maand}-${jaar}`;
         }
 
+        // function updateChart(labels, datasets) {
+        //     if (chart) chart.destroy();
+        //     const labelsNL = labels.map(formatDatum);
+        //     datasets = datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, ...ds }));
+
+        //     chart = new Chart(document.getElementById("rendementChart"), {
+        //         type: "line",
+        //         data: { labels: labelsNL, datasets },
+        //         options: {
+        //             responsive: true,
+        //             scales: { y: { beginAtZero: false } },
+        //             plugins: {
+        //                 zoom: {
+        //                     pan: { enabled: true, mode: "x" },
+        //                     zoom: {
+        //                         wheel: { enabled: true },
+        //                         pinch: { enabled: true },
+        //                         mode: "x"
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //     });
+        // }
         function updateChart(labels, datasets) {
             if (chart) chart.destroy();
             const labelsNL = labels.map(formatDatum);
@@ -79,6 +111,7 @@
                 data: { labels: labelsNL, datasets },
                 options: {
                     responsive: true,
+                    maintainAspectRatio: false,
                     scales: { y: { beginAtZero: false } },
                     plugins: {
                         zoom: {
@@ -117,20 +150,123 @@
             ]);
         }
 
+        function kleurVoorIndex(isEtf, i) {
+            const blauw = ["#08519c", "#3182bd", "#6baed6", "#9ecae1", "#c6dbef", "#deebf7"];
+            const rood = ["#a50f15", "#cb181d", "#fb6a4a", "#fc9272", "#fcae91", "#fee5d9"];
+            const palet = isEtf ? blauw : rood;
+            return palet[i % palet.length];
+        }
+
+        function toonVerdeling() {
+            const items = huidigeData.verdeling;
+            if (chart) chart.destroy();
+
+            if (!items || items.length === 0) {
+                document.getElementById("geenData").style.display = "block";
+                return;
+            }
+            document.getElementById("geenData").style.display = "none";
+
+            const totaal = items.reduce((som, i) => som + i.waarde, 0);
+            let etfIdx = 0, stockIdx = 0;
+            const kleuren = items.map(i => kleurVoorIndex(i.is_etf, i.is_etf ? etfIdx++ : stockIdx++));
+
+            // chart = new Chart(document.getElementById("rendementChart"), {
+            //     type: "pie",
+            //     data: {
+            //         labels: items.map(i => i.naam),
+            //         datasets: [{ data: items.map(i => i.waarde), backgroundColor: kleuren }]
+            //     },
+            //     options: {
+            //         responsive: true,
+            //         plugins: {
+            //             legend: { position: "right" },
+            //             tooltip: {
+            //                 callbacks: {
+            //                     label: (ctx) => {
+            //                         const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
+            //                         return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+            //                     }
+            //                 }
+            //             }
+            //         }
+            //     }
+            chart = new Chart(document.getElementById("rendementChart"), {
+            type: "pie",
+            data: {
+                labels: items.map(i => i.naam),
+                datasets: [{ data: items.map(i => i.waarde), backgroundColor: kleuren }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "right" },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => {
+                                const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
+                                return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+                            }
+                        }
+                    }
+                }
+            }
+            });
+        }
+
+        // function wisselView(view) {
+        //     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
+        //         btn.classList.toggle("actief", btn.dataset.view === view);
+        //     });
+        //     document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
+        //     document.getElementById("codeText").style.display = view === "portfolio" ? "block" : "none";
+
+        //     if (view === "portfolio") toonPortfolio();
+        //     else if (view === "rendement") toonRendement();
+        //     else if (view === "peraandeel") {
+        //         const select = document.getElementById("aandeelSelect");
+        //         toonPerAandeel(select.value);
+        //     }
+        // }
+        // function wisselView(view) {
+        //     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
+        //         btn.classList.toggle("actief", btn.dataset.view === view);
+        //     });
+        //     document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
+        //     document.getElementById("codeText").style.display = view === "portfolio" ? "block" : "none";
+        //     document.getElementById("resetZoomBtn").style.display = view === "verdeling" ? "none" : "block";
+
+        //     if (view === "portfolio") toonPortfolio();
+        //     else if (view === "rendement") toonRendement();
+        //     else if (view === "verdeling") toonVerdeling();
+        //     else if (view === "peraandeel") {
+        //         const select = document.getElementById("aandeelSelect");
+        //         toonPerAandeel(select.value);
+        //     }
+        // }
+
+
         function wisselView(view) {
             document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
                 btn.classList.toggle("actief", btn.dataset.view === view);
             });
             document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
             document.getElementById("codeText").style.display = view === "portfolio" ? "block" : "none";
+            document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "instellingen") ? "none" : "block";
+            document.getElementById("rendementChart").style.display = view === "instellingen" ? "none" : "block";
+            document.getElementById("instellingenSectie").style.display = view === "instellingen" ? "block" : "none";
 
             if (view === "portfolio") toonPortfolio();
             else if (view === "rendement") toonRendement();
+            else if (view === "verdeling") toonVerdeling();
+            else if (view === "instellingen") toonInstellingen();
             else if (view === "peraandeel") {
                 const select = document.getElementById("aandeelSelect");
                 toonPerAandeel(select.value);
             }
         }
+
 
         function toonDashboard(data) {
             huidigeData = data;
@@ -199,6 +335,64 @@
             document.getElementById("dashboardSection").style.display = "none";
             document.getElementById("uploadSection").style.display = "block";
         });
+
+
+        async function slaBijnaamOp(ticker, bijnaam) {
+            const res = await fetch(`/api/portfolio/${huidigeData.code}/bijnaam`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ticker, bijnaam })
+            });
+            const data = await res.json();
+            if (res.ok) { huidigeData = data; toonInstellingen(); }
+        }
+
+        async function resetBijnaam(ticker) {
+            const res = await fetch(`/api/portfolio/${huidigeData.code}/reset-bijnaam`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ ticker })
+            });
+            const data = await res.json();
+            if (res.ok) { huidigeData = data; toonInstellingen(); }
+        }
+
+        function toonInstellingen() {
+            const sectie = document.getElementById("instellingenSectie");
+            sectie.innerHTML = "<p>Geef per aandeel/ETF optioneel een eigen bijnaam op.</p>";
+
+            huidigeData.tickers.forEach(t => {
+                const rij = document.createElement("div");
+                rij.style.marginBottom = "12px";
+
+                const label = document.createElement("div");
+                label.textContent = `${t.ticker} (origineel: ${t.echte_naam})`;
+                label.style.fontSize = "0.85em";
+                label.style.color = "#666";
+
+                const input = document.createElement("input");
+                input.type = "text";
+                input.value = t.naam;
+                input.style.width = "300px";
+                input.style.marginRight = "8px";
+
+                const opslaanBtn = document.createElement("button");
+                opslaanBtn.textContent = "Opslaan";
+                opslaanBtn.onclick = () => slaBijnaamOp(t.ticker, input.value.trim());
+
+                const resetBtn = document.createElement("button");
+                resetBtn.textContent = "Reset";
+                resetBtn.style.marginLeft = "6px";
+                resetBtn.onclick = () => resetBijnaam(t.ticker);
+
+                rij.appendChild(label);
+                rij.appendChild(input);
+                rij.appendChild(opslaanBtn);
+                rij.appendChild(resetBtn);
+                sectie.appendChild(rij);
+            });
+        }
+        
     </script>
 </body>
 </html>

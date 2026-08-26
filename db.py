@@ -20,6 +20,22 @@ def init_db():
             aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+    # cur.execute("""
+    #     CREATE TABLE IF NOT EXISTS transacties (
+    #         id SERIAL PRIMARY KEY,
+    #         code TEXT NOT NULL REFERENCES portfolios(code),
+    #         datum DATE NOT NULL,
+    #         product TEXT NOT NULL,
+    #         isin TEXT NOT NULL,
+    #         beurs TEXT,
+    #         ticker TEXT,
+    #         aantal NUMERIC NOT NULL,
+    #         koers NUMERIC,
+    #         totaal_eur NUMERIC NOT NULL,
+    #         order_id TEXT,
+    #         UNIQUE (code, order_id)
+    #     );
+    # """)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS transacties (
             id SERIAL PRIMARY KEY,
@@ -33,6 +49,7 @@ def init_db():
             koers NUMERIC,
             totaal_eur NUMERIC NOT NULL,
             order_id TEXT,
+            echte_naam TEXT,
             UNIQUE (code, order_id)
         );
     """)
