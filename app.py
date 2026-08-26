@@ -4,6 +4,7 @@ from db import get_db_connection, init_db
 from analysis import generate_code, find_ticker, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_ticker
 import hashlib
 import openpyxl
+import math
 
 app = Flask(__name__)
 init_db()  
