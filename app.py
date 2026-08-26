@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db
 from analysis import generate_code, find_ticker, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_ticker
+import hashlib
+import openpyxl
 
 app = Flask(__name__)
 init_db()  
@@ -103,12 +105,51 @@ def upload():
     if not bestand1 or bestand1.filename == "":
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
 
+    # df = pd.read_excel(bestand1)
+    # print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
+    # df.columns = df.columns.str.strip()
+    bestand1.seek(0)
     df = pd.read_excel(bestand1)
     print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
 
     df.columns = df.columns.str.strip()
+
+    # Order ID-kolom kan door merged cells één kolom verschoven staan t.o.v. de header;
+    # lees 'm daarom apart uit met openpyxl, die effectief de waarden onder de merge vindt.
+    bestand1.seek(0)
+    wb = openpyxl.load_workbook(bestand1, data_only=True)
+    ws = wb.active
+    order_ids_ruw = []
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        gevonden = None
+        for cell in row:
+            if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
+                gevonden = cell.value
+                break
+        order_ids_ruw.append(gevonden)
+
+    if len(order_ids_ruw) == len(df):
+        df["Order ID"] = order_ids_ruw
+        print(f"[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
+    else:
+        print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)}), Order ID's mogelijk onbetrouwbaar")
+
+    
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    # df["Order ID"] = df["Order ID"].astype(str)
+
     df["Order ID"] = df["Order ID"].astype(str)
+
+    def maak_order_id(row):
+        if row["Order ID"] and row["Order ID"].lower() != "nan":
+            return row["Order ID"]
+        # synthetische, stabiele ID voor rijen zonder eigen Order ID
+        # (bv. corporate actions of niet-verhandelbare boekingen)
+        basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
+        return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
+
+    df["Order ID"] = df.apply(maak_order_id, axis=1)
+    print(f"[upload] {(df['Order ID'].str.startswith('SYN-')).sum()} rijen kregen een synthetische Order ID")
 
     new_order_ids = set(df["Order ID"])
     print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
