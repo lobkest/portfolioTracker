@@ -4,6 +4,7 @@ import pandas as pd
 import yfinance as yf
 from yahooquery import search
 from db import get_db_connection, save_prices
+import time
 
 BEURS_MAP = {
     "EAM": ["AMS"], "XAMS": ["AMS"], "XET": ["GER"], "FRA": ["GER"],
@@ -47,6 +48,19 @@ def find_ticker(product, isin, beurs):
             return symbol
     return None
 
+def download_met_retry(ticker_of_pair, start_date, pogingen=3, wachttijd=5):
+    """yf.download met automatische retry bij rate limiting."""
+    for poging in range(1, pogingen + 1):
+        try:
+            return yf.download(ticker_of_pair, start=start_date, auto_adjust=True, progress=False)["Close"]
+        except Exception as e:
+            print(f"[koersen] poging {poging}/{pogingen} mislukt voor {ticker_of_pair}: {e}")
+            if poging < pogingen:
+                time.sleep(wachttijd)
+            else:
+                print(f"[koersen] definitief mislukt voor {ticker_of_pair}, sla over")
+                return pd.Series(dtype=float)
+
 
 def get_prices(tickers, start_date):
     """Haalt koersen (in EUR) op voor een lijst tickers, met caching via de database."""
@@ -67,7 +81,8 @@ def get_prices(tickers, start_date):
     missing = [t for t in tickers if t not in cached["ticker"].unique()]
 
     if missing:
-        raw = yf.download(missing, start=start_date, auto_adjust=True, progress=False)["Close"]
+        # raw = yf.download(missing, start=start_date, auto_adjust=True, progress=False)["Close"]
+        raw = download_met_retry(missing, start_date)
         if isinstance(raw, pd.Series):
             raw = raw.to_frame(name=missing[0])
         raw = raw.ffill()
@@ -82,7 +97,8 @@ def get_prices(tickers, start_date):
             if currency in ("USD", "GBP", "GBp"):
                 fx_pair = "USDEUR=X" if currency == "USD" else "GBPEUR=X"
                 # fx = yf.download(fx_pair, start=start_date, auto_adjust=True, progress=False)["Close"]
-                fx = yf.download(fx_pair, start=start_date, auto_adjust=True, progress=False)["Close"].squeeze()
+                # fx = yf.download(fx_pair, start=start_date, auto_adjust=True, progress=False)["Close"].squeeze()
+                fx = download_met_retry(fx_pair, start_date).squeeze()
                 fx = fx.reindex(raw.index).ffill()
                 divisor = 100 if currency == "GBp" else 1
                 raw[t] = raw[t] / divisor * fx
