@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="nl">
 <head>
     <meta charset="UTF-8">
@@ -30,5 +30,113 @@
             <button type="submit">Uploaden</button>
         </form>
     </div>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Portfolio Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+</head>
+<body>
+    <div class="container" id="uploadSection">
+        <h1>Portfolio Dashboard</h1>
+        <p>Upload je portfoliogegevens om te starten.</p>
+
+        <form id="uploadForm">
+            <label for="naam">Naam (optioneel)</label>
+            <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
+
+            <label for="bestand1">Transacties-export (verplicht)</label>
+            <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
+            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
+
+            <button type="submit">Uploaden</button>
+        </form>
+
+        <hr>
+
+        <form id="codeForm">
+            <label for="codeInput">Heb je al een code?</label>
+            <input type="text" id="codeInput" placeholder="Bijv. A3F9K2">
+            <button type="submit">Ophalen</button>
+        </form>
+
+        <p id="errorMsg" style="color: #9C0006;"></p>
+    </div>
+
+    <div class="container" id="dashboardSection" style="display: none; width: 700px;">
+        <button id="terugKnop">&larr; Nieuwe upload</button>
+        <h1 id="dashNaam"></h1>
+        <p>Code: <strong id="dashCode"></strong> — bewaar deze om later terug te komen.</p>
+        <canvas id="rendementChart"></canvas>
+        <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
+    </div>
+
+    <script>
+        let chart = null;
+
+        function toonDashboard(data) {
+            document.getElementById("uploadSection").style.display = "none";
+            document.getElementById("dashboardSection").style.display = "block";
+            document.getElementById("dashNaam").textContent = data.naam || "Portfolio";
+            document.getElementById("dashCode").textContent = data.code;
+
+            if (!data.chart_data) {
+                document.getElementById("geenData").style.display = "block";
+                return;
+            }
+
+            if (chart) chart.destroy();
+            chart = new Chart(document.getElementById("rendementChart"), {
+                type: "line",
+                data: {
+                    labels: data.chart_data.labels,
+                    datasets: [
+                        { label: "Waarde (€)", data: data.chart_data.waarde, borderColor: "#2c7a4b", fill: false },
+                        { label: "Geïnvesteerd (€)", data: data.chart_data.geinvesteerd, borderColor: "#3182bd", fill: false }
+                    ]
+                },
+                options: { responsive: true, scales: { y: { beginAtZero: false } } }
+            });
+        }
+
+        document.getElementById("uploadForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            document.getElementById("errorMsg").textContent = "Bezig met verwerken...";
+            const formData = new FormData(e.target);
+            const res = await fetch("/upload", { method: "POST", body: formData });
+            const data = await res.json();
+            if (!res.ok) {
+                document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
+                return;
+            }
+            document.getElementById("errorMsg").textContent = "";
+            toonDashboard(data);
+        });
+
+        document.getElementById("codeForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const code = document.getElementById("codeInput").value.trim();
+            if (!code) return;
+            const res = await fetch(`/api/portfolio/${code}`);
+            const data = await res.json();
+            if (!res.ok) {
+                document.getElementById("errorMsg").textContent = data.error || "Code niet gevonden.";
+                return;
+            }
+            document.getElementById("errorMsg").textContent = "";
+            toonDashboard(data);
+        });
+
+        document.getElementById("terugKnop").addEventListener("click", () => {
+            document.getElementById("dashboardSection").style.display = "none";
+            document.getElementById("uploadSection").style.display = "block";
+        });
+    </script>
 </body>
 </html>
