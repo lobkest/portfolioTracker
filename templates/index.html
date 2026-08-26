@@ -56,19 +56,18 @@
 
             <select id="aandeelSelect" style="display: none; margin-bottom: 15px;"></select>
             <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
+            <p id="verdelingTekst" style="display: none;"></p>
 
-            <!-- <canvas id="rendementChart"></canvas>
-            <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p> -->
-            <!-- <canvas id="rendementChart"></canvas> -->
-            <div style="height: 400px;">
+            <div id="chartWrapper" style="height: 400px;">
                 <canvas id="rendementChart"></canvas>
             </div>
+
             <div id="instellingenSectie" style="display: none;"></div>
             <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
         </div>
     </div>
 
-    <script>
+    <!-- <script>
         let chart = null;
         let huidigeData = null;
 
@@ -163,55 +162,45 @@
 
             if (!items || items.length === 0) {
                 document.getElementById("geenData").style.display = "block";
+                document.getElementById("verdelingTekst").style.display = "none";
                 return;
             }
             document.getElementById("geenData").style.display = "none";
 
             const totaal = items.reduce((som, i) => som + i.waarde, 0);
+            const etfWaarde = items.filter(i => i.is_etf).reduce((som, i) => som + i.waarde, 0);
+            const aandeelWaarde = totaal - etfWaarde;
+            const etfPct = totaal ? (etfWaarde / totaal * 100).toFixed(1) : 0;
+            const aandeelPct = totaal ? (aandeelWaarde / totaal * 100).toFixed(1) : 0;
+
+            const tekst = document.getElementById("verdelingTekst");
+            tekst.style.display = "block";
+            tekst.textContent = `ETF's: ${etfPct}% — Aandelen: ${aandeelPct}%`;
+
             let etfIdx = 0, stockIdx = 0;
             const kleuren = items.map(i => kleurVoorIndex(i.is_etf, i.is_etf ? etfIdx++ : stockIdx++));
 
-            // chart = new Chart(document.getElementById("rendementChart"), {
-            //     type: "pie",
-            //     data: {
-            //         labels: items.map(i => i.naam),
-            //         datasets: [{ data: items.map(i => i.waarde), backgroundColor: kleuren }]
-            //     },
-            //     options: {
-            //         responsive: true,
-            //         plugins: {
-            //             legend: { position: "right" },
-            //             tooltip: {
-            //                 callbacks: {
-            //                     label: (ctx) => {
-            //                         const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
-            //                         return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
-            //                     }
-            //                 }
-            //             }
-            //         }
-            //     }
             chart = new Chart(document.getElementById("rendementChart"), {
-            type: "pie",
-            data: {
-                labels: items.map(i => i.naam),
-                datasets: [{ data: items.map(i => i.waarde), backgroundColor: kleuren }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: "right" },
-                    tooltip: {
-                        callbacks: {
-                            label: (ctx) => {
-                                const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
-                                return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+                type: "pie",
+                data: {
+                    labels: items.map(i => i.naam),
+                    datasets: [{ data: items.map(i => i.waarde), backgroundColor: kleuren }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: "right" },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => {
+                                    const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
+                                    return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+                                }
                             }
                         }
                     }
                 }
-            }
             });
         }
 
@@ -254,6 +243,9 @@
             document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
             document.getElementById("codeText").style.display = view === "portfolio" ? "block" : "none";
             document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "instellingen") ? "none" : "block";
+            if (view !== "verdeling") {
+                document.getElementById("verdelingTekst").style.display = "none";
+            }
             document.getElementById("rendementChart").style.display = view === "instellingen" ? "none" : "block";
             document.getElementById("instellingenSectie").style.display = view === "instellingen" ? "block" : "none";
 
@@ -393,6 +385,7 @@
             });
         }
         
-    </script>
+    </script> -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
