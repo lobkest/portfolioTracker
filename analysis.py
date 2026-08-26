@@ -154,7 +154,12 @@ def compute_per_ticker(transacties_df, price_data):
             rows.append({"datum": date, "waarde": waarde, "geinvesteerd": invested})
 
         df_t = pd.DataFrame(rows).set_index("datum")
-        df_t = df_t[df_t["geinvesteerd"] > 0]  # snijd de vlakke periode vóór de eerste aankoop af
+
+        nonzero_idx = df_t.index[df_t["geinvesteerd"] > 0]
+        if len(nonzero_idx) > 0:
+            df_t = df_t.loc[nonzero_idx[0]:nonzero_idx[-1]]
+        else:
+            df_t = df_t.iloc[0:0]
 
         result[ticker] = {
             "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
@@ -186,3 +191,11 @@ def find_matching_code(cur, new_order_ids):
         if new_order_ids <= ids:
             return code, set()
     return None, None
+
+def classify_ticker(ticker):
+    """Simpele check: is dit een ETF volgens Yahoo Finance?"""
+    try:
+        info = yf.Ticker(ticker).info
+        return info.get("quoteType") == "ETF"
+    except Exception:
+        return False
