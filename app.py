@@ -116,6 +116,53 @@ def upload():
 
     # Order ID-kolom kan door merged cells één kolom verschoven staan t.o.v. de header;
     # lees 'm daarom apart uit met openpyxl, die effectief de waarden onder de merge vindt.
+    # bestand1.seek(0)
+    # wb = openpyxl.load_workbook(bestand1, data_only=True)
+    # ws = wb.active
+    # order_ids_ruw = []
+    # for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+    #     gevonden = None
+    #     for cell in row:
+    #         if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
+    #             gevonden = cell.value
+    #             break
+    #     order_ids_ruw.append(gevonden)
+
+    # if len(order_ids_ruw) == len(df):
+    #     df["Order ID"] = order_ids_ruw
+    #     print(f"[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
+    # else:
+    #     print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)}), Order ID's mogelijk onbetrouwbaar")
+
+    
+    # df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    # # df["Order ID"] = df["Order ID"].astype(str)
+
+    # df["Order ID"] = df["Order ID"].astype(str)
+
+    # def maak_order_id(row):
+    #     if row["Order ID"] and row["Order ID"].lower() != "nan":
+    #         return row["Order ID"]
+    #     # synthetische, stabiele ID voor rijen zonder eigen Order ID
+    #     # (bv. corporate actions of niet-verhandelbare boekingen)
+    #     basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
+    #     return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
+
+    # df["Order ID"] = df.apply(maak_order_id, axis=1)
+    # print(f"[upload] {(df['Order ID'].str.startswith('SYN-')).sum()} rijen kregen een synthetische Order ID")
+
+    # new_order_ids = set(df["Order ID"])
+    # print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
+
+    bestand1.seek(0)
+    df = pd.read_excel(bestand1)
+    print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
+
+    df.columns = df.columns.str.strip()
+    df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+
+    # Order ID-kolom kan door merged cells één kolom verschoven staan t.o.v. de header;
+    # lees 'm daarom apart uit met openpyxl, die de waarden onder de merge vindt.
     bestand1.seek(0)
     wb = openpyxl.load_workbook(bestand1, data_only=True)
     ws = wb.active
@@ -130,26 +177,24 @@ def upload():
 
     if len(order_ids_ruw) == len(df):
         df["Order ID"] = order_ids_ruw
-        print(f"[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
+        print("[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
     else:
-        print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)}), Order ID's mogelijk onbetrouwbaar")
+        print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)})")
+        df["Order ID"] = None
 
-    
-    df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
-    # df["Order ID"] = df["Order ID"].astype(str)
-
-    df["Order ID"] = df["Order ID"].astype(str)
-
-    def maak_order_id(row):
-        if row["Order ID"] and row["Order ID"].lower() != "nan":
-            return row["Order ID"]
-        # synthetische, stabiele ID voor rijen zonder eigen Order ID
-        # (bv. corporate actions of niet-verhandelbare boekingen)
+    # rijen zonder echte (UUID-vormige) Order ID krijgen een synthetische, stabiele ID
+    def basis_hash(row):
         basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
         return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
 
-    df["Order ID"] = df.apply(maak_order_id, axis=1)
-    print(f"[upload] {(df['Order ID'].str.startswith('SYN-')).sum()} rijen kregen een synthetische Order ID")
+    heeft_order_id = df["Order ID"].notna()
+
+    if (~heeft_order_id).any():
+        synthetische_ids = df.loc[~heeft_order_id].apply(basis_hash, axis=1)
+        volgnummer = synthetische_ids.groupby(synthetische_ids).cumcount()
+        synthetische_ids = synthetische_ids + "-" + volgnummer.astype(str)
+        df.loc[~heeft_order_id, "Order ID"] = synthetische_ids
+        print(f"[upload] {(~heeft_order_id).sum()} rijen kregen een synthetische Order ID")
 
     new_order_ids = set(df["Order ID"])
     print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
