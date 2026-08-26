@@ -1,38 +1,3 @@
-<!-- <!DOCTYPE html>
-<html lang="nl">
-<head>
-    <meta charset="UTF-8">
-    <title>Portfolio Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
-    <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon/favicon.svg') }}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon/apple-touch-icon.png') }}">
-    <link rel="icon" type="image/png" sizes="96x96" href="{{ url_for('static', filename='favicon/favicon-96x96.png') }}">
-    <link rel="manifest" href="{{ url_for('static', filename='favicon/site.webmanifest') }}">
-</head>
-<body>
-    <div class="container">
-        <h1>Portfolio Dashboard</h1>
-        <p>Upload je portfoliogegevens om te starten.</p>
-
-        <form action="/upload" method="POST" enctype="multipart/form-data">
-            <label for="naam">Naam (optioneel)</label>
-            <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
-
-            <label for="bestand1">Transacties-export (verplicht)</label>
-            <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
-            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
-
-            <label for="bestand2">Rekeningoverzicht (optioneel)</label>
-            <p class="hint">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</p>
-            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
-
-            <button type="submit">Uploaden</button>
-        </form>
-    </div>
-</body>
-</html> -->
-
 <!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -41,6 +6,8 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body>
     <div class="container" id="uploadSection">
@@ -54,6 +21,10 @@
             <label for="bestand1">Transacties-export (verplicht)</label>
             <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
             <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
+
+            <!-- <label for="bestand2">Rekeningoverzicht (optioneel)</label>
+            <p class="hint">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls) — wordt binnenkort gebruikt voor dividendanalyse</p>
+            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls"> -->
 
             <button type="submit">Uploaden</button>
         </form>
@@ -69,21 +40,102 @@
         <p id="errorMsg" style="color: #9C0006;"></p>
     </div>
 
-    <div class="container" id="dashboardSection" style="display: none; width: 700px;">
-        <button id="terugKnop">&larr; Nieuwe upload</button>
-        <h1 id="dashNaam"></h1>
-        <p>Code: <strong id="dashCode"></strong> — bewaar deze om later terug te komen.</p>
-        <canvas id="rendementChart"></canvas>
-        <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
+    <div class="container" id="dashboardSection" style="width: 900px; gap: 20px; display: none;">
+        <div style="width: 160px; flex-shrink: 0;">
+            <button id="terugKnop" class="menuBtn">&larr; Nieuwe upload</button>
+            <hr>
+            <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
+            <button class="menuBtn" data-view="rendement">Rendement</button>
+            <button class="menuBtn" data-view="peraandeel">Per aandeel</button>
+        </div>
+
+        <div style="flex-grow: 1;">
+            <p id="codeText" style="display: none;">Code: <strong id="dashCode"></strong> — bewaar deze om later terug te komen.</p>
+
+            <select id="aandeelSelect" style="display: none; margin-bottom: 15px;"></select>
+            <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
+
+            <canvas id="rendementChart"></canvas>
+            <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
+        </div>
     </div>
 
     <script>
         let chart = null;
+        let huidigeData = null;
+
+        function formatDatum(isoDatum) {
+            const [jaar, maand, dag] = isoDatum.split("-");
+            return `${dag}-${maand}-${jaar}`;
+        }
+
+        function updateChart(labels, datasets) {
+            if (chart) chart.destroy();
+            const labelsNL = labels.map(formatDatum);
+            datasets = datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, ...ds }));
+
+            chart = new Chart(document.getElementById("rendementChart"), {
+                type: "line",
+                data: { labels: labelsNL, datasets },
+                options: {
+                    responsive: true,
+                    scales: { y: { beginAtZero: false } },
+                    plugins: {
+                        zoom: {
+                            pan: { enabled: true, mode: "x" },
+                            zoom: {
+                                wheel: { enabled: true },
+                                pinch: { enabled: true },
+                                mode: "x"
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function toonPortfolio() {
+            const d = huidigeData.chart_data;
+            updateChart(d.labels, [
+                { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },
+                { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
+            ]);
+        }
+
+        function toonRendement() {
+            const d = huidigeData.chart_data;
+            updateChart(d.labels, [
+                { label: "Rendement (€)", data: d.rendement, borderColor: "#2c7a4b" }
+            ]);
+        }
+
+        function toonPerAandeel(ticker) {
+            const d = huidigeData.per_ticker[ticker];
+            updateChart(d.labels, [
+                { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },
+                { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
+            ]);
+        }
+
+        function wisselView(view) {
+            document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
+                btn.classList.toggle("actief", btn.dataset.view === view);
+            });
+            document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
+            document.getElementById("codeText").style.display = view === "portfolio" ? "block" : "none";
+
+            if (view === "portfolio") toonPortfolio();
+            else if (view === "rendement") toonRendement();
+            else if (view === "peraandeel") {
+                const select = document.getElementById("aandeelSelect");
+                toonPerAandeel(select.value);
+            }
+        }
 
         function toonDashboard(data) {
+            huidigeData = data;
             document.getElementById("uploadSection").style.display = "none";
-            document.getElementById("dashboardSection").style.display = "block";
-            document.getElementById("dashNaam").textContent = data.naam || "Portfolio";
+            document.getElementById("dashboardSection").style.display = "flex";
             document.getElementById("dashCode").textContent = data.code;
 
             if (!data.chart_data) {
@@ -91,19 +143,29 @@
                 return;
             }
 
-            if (chart) chart.destroy();
-            chart = new Chart(document.getElementById("rendementChart"), {
-                type: "line",
-                data: {
-                    labels: data.chart_data.labels,
-                    datasets: [
-                        { label: "Waarde (€)", data: data.chart_data.waarde, borderColor: "#2c7a4b", fill: false },
-                        { label: "Geïnvesteerd (€)", data: data.chart_data.geinvesteerd, borderColor: "#3182bd", fill: false }
-                    ]
-                },
-                options: { responsive: true, scales: { y: { beginAtZero: false } } }
+            const select = document.getElementById("aandeelSelect");
+            select.innerHTML = "";
+            data.tickers.forEach(t => {
+                const option = document.createElement("option");
+                option.value = t.ticker;
+                option.textContent = t.naam;
+                select.appendChild(option);
             });
+
+            wisselView("portfolio");
         }
+
+        document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
+            btn.addEventListener("click", () => wisselView(btn.dataset.view));
+        });
+
+        document.getElementById("aandeelSelect").addEventListener("change", (e) => {
+            toonPerAandeel(e.target.value);
+        });
+
+        document.getElementById("resetZoomBtn").addEventListener("click", () => {
+            if (chart) chart.resetZoom();
+        });
 
         document.getElementById("uploadForm").addEventListener("submit", async (e) => {
             e.preventDefault();

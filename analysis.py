@@ -131,6 +131,38 @@ def compute_value_over_time(transacties_df, price_data):
     result["rendement"] = result["waarde"] - result["geinvesteerd"]
     return result
 
+def compute_per_ticker(transacties_df, price_data):
+    """Per ticker: waarde en geïnvesteerd bedrag over tijd."""
+    transacties_df = transacties_df.dropna(subset=["ticker"]).sort_values("datum").reset_index(drop=True)
+    tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
+
+    result = {}
+    for ticker in tickers:
+        trades = transacties_df[transacties_df["ticker"] == ticker].reset_index(drop=True)
+        holdings = 0.0
+        invested = 0.0
+        trade_i = 0
+        rows = []
+
+        for date in price_data.index:
+            while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
+                row = trades.loc[trade_i]
+                holdings += float(row["aantal"])
+                invested += -float(row["totaal_eur"])
+                trade_i += 1
+            waarde = holdings * price_data.loc[date, ticker]
+            rows.append({"datum": date, "waarde": waarde, "geinvesteerd": invested})
+
+        df_t = pd.DataFrame(rows).set_index("datum")
+        df_t = df_t[df_t["geinvesteerd"] > 0]  # snijd de vlakke periode vóór de eerste aankoop af
+
+        result[ticker] = {
+            "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
+            "waarde": df_t["waarde"].round(2).tolist(),
+            "geinvesteerd": df_t["geinvesteerd"].round(2).tolist(),
+        }
+    return result
+
 def get_order_id_sets(cur):
     """Geeft per portfolio-code de set van al opgeslagen Order ID's terug."""
     cur.execute("SELECT code, order_id FROM transacties WHERE order_id IS NOT NULL")
