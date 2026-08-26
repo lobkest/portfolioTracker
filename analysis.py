@@ -140,7 +140,12 @@ def compute_value_over_time(transacties_df, price_data):
             invested += -float(row["totaal_eur"])
             trade_i += 1
 
-        waarde = sum(holdings[t] * price_data.loc[date, t] for t in tickers)
+        # waarde = sum(holdings[t] * price_data.loc[date, t] for t in tickers)
+        waarde = sum(
+            holdings[t] * price_data.loc[date, t]
+            for t in tickers
+            if pd.notna(price_data.loc[date, t])
+        )
         rows.append({"datum": date, "waarde": waarde, "geinvesteerd": invested})
 
     result = pd.DataFrame(rows).set_index("datum")
@@ -166,7 +171,9 @@ def compute_per_ticker(transacties_df, price_data):
                 holdings += float(row["aantal"])
                 invested += -float(row["totaal_eur"])
                 trade_i += 1
-            waarde = holdings * price_data.loc[date, ticker]
+            # waarde = holdings * price_data.loc[date, ticker]
+            prijs = price_data.loc[date, ticker]
+            waarde = holdings * prijs if pd.notna(prijs) else 0.0
             rows.append({"datum": date, "waarde": waarde, "geinvesteerd": invested})
 
         df_t = pd.DataFrame(rows).set_index("datum")
