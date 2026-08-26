@@ -24,6 +24,77 @@ def db_test():
         return f"Verbinding mislukt: {e}"
 
 
+# @app.route("/upload", methods=["POST"])
+# def upload():
+#     naam = request.form.get("naam", "").strip()
+#     bestand1 = request.files.get("bestand1")
+
+#     if not bestand1 or bestand1.filename == "":
+#         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
+
+#     df = pd.read_excel(bestand1)
+#     df.columns = df.columns.str.strip()
+#     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+#     df["Order ID"] = df["Order ID"].astype(str)
+
+#     new_order_ids = set(df["Order ID"])
+
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+
+#     match_code, missing_ids = find_matching_code(cur, new_order_ids)
+
+#     if match_code:
+#         code = match_code
+#         if naam:
+#             cur.execute(
+#                 "UPDATE portfolios SET naam = %s WHERE code = %s",
+#                 (naam, code),
+#             )
+#         rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
+
+#     else:
+#         code = generate_code(cur)
+#         cur.execute(
+#             "INSERT INTO portfolios (code, naam) VALUES (%s, %s)",
+#             (code, naam or None),
+#         )
+#         rows_to_insert = df
+
+#     if not rows_to_insert.empty:
+#         combos = rows_to_insert[["Product", "ISIN", "Beurs"]].drop_duplicates()
+#         ticker_map = {}
+#         for _, row in combos.iterrows():
+#             key = (row["Product"], row["ISIN"], row["Beurs"])
+#             ticker_map[key] = find_ticker(row["Product"], row["ISIN"], row["Beurs"])
+
+#         for _, row in rows_to_insert.iterrows():
+#             key = (row["Product"], row["ISIN"], row["Beurs"])
+#             # cur.execute(
+#             #     """INSERT INTO transacties
+#             #        (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id)
+#             #        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+#             #        ON CONFLICT (code, order_id) DO NOTHING""",
+#             #     (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+#             #      ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
+#             #      float(row["Totaal EUR"]), row["Order ID"]),
+#             # )
+#             cur.execute(
+#             """INSERT INTO transacties
+#                (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam)
+#                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+#                ON CONFLICT (code, order_id) DO NOTHING""",
+#             (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+#              ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
+#              float(row["Totaal EUR"]), row["Order ID"], row["Product"]),
+#         )
+
+#     conn.commit()
+#     cur.close()
+#     conn.close()
+
+#     return jsonify(build_portfolio_response(code))
+
 @app.route("/upload", methods=["POST"])
 def upload():
     naam = request.form.get("naam", "").strip()
@@ -33,61 +104,61 @@ def upload():
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
 
     df = pd.read_excel(bestand1)
+    print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
+
     df.columns = df.columns.str.strip()
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
     df["Order ID"] = df["Order ID"].astype(str)
 
     new_order_ids = set(df["Order ID"])
+    print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
 
     conn = get_db_connection()
     cur = conn.cursor()
 
     match_code, missing_ids = find_matching_code(cur, new_order_ids)
+    print(f"[upload] match_code={match_code}, aantal missing_ids={len(missing_ids) if missing_ids is not None else 'N/A'}")
 
     if match_code:
         code = match_code
         if naam:
-            cur.execute(
-                "UPDATE portfolios SET naam = %s WHERE code = %s",
-                (naam, code),
-            )
+            cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
         rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
-
     else:
         code = generate_code(cur)
-        cur.execute(
-            "INSERT INTO portfolios (code, naam) VALUES (%s, %s)",
-            (code, naam or None),
-        )
+        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam or None))
         rows_to_insert = df
 
-    if not rows_to_insert.empty:
-        combos = rows_to_insert[["Product", "ISIN", "Beurs"]].drop_duplicates()
-        ticker_map = {}
-        for _, row in combos.iterrows():
-            key = (row["Product"], row["ISIN"], row["Beurs"])
-            ticker_map[key] = find_ticker(row["Product"], row["ISIN"], row["Beurs"])
+    print(f"[upload] code={code}, rows_to_insert={len(rows_to_insert)} rijen")
 
+    if not rows_to_insert.empty:
+        ticker_by_isin = {}
+        for isin, groep in rows_to_insert.groupby("ISIN"):
+            ticker = None
+            for _, row in groep.iterrows():
+                ticker = find_ticker(row["Product"], row["ISIN"], row["Beurs"])
+                if ticker:
+                    break
+            ticker_by_isin[isin] = ticker
+            print(f"[upload] ISIN {isin} -> ticker {ticker}")
+
+        ingevoegd = 0
         for _, row in rows_to_insert.iterrows():
-            key = (row["Product"], row["ISIN"], row["Beurs"])
-            # cur.execute(
-            #     """INSERT INTO transacties
-            #        (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id)
-            #        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            #        ON CONFLICT (code, order_id) DO NOTHING""",
-            #     (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-            #      ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
-            #      float(row["Totaal EUR"]), row["Order ID"]),
-            # )
-            cur.execute(
-            """INSERT INTO transacties
-               (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-               ON CONFLICT (code, order_id) DO NOTHING""",
-            (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-             ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
-             float(row["Totaal EUR"]), row["Order ID"], row["Product"]),
-        )
+            try:
+                cur.execute(
+                    """INSERT INTO transacties
+                       (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (code, order_id) DO NOTHING""",
+                    (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+                     ticker_by_isin[row["ISIN"]], float(row["Aantal"]), float(row["Koers"]),
+                     float(row["Totaal EUR"]), row["Order ID"], row["Product"]),
+                )
+                ingevoegd += 1
+            except Exception as e:
+                print(f"[upload] FOUT bij invoegen rij (Order ID {row['Order ID']}): {e}")
+
+        print(f"[upload] {ingevoegd}/{len(rows_to_insert)} rijen succesvol verwerkt")
 
     conn.commit()
     cur.close()
