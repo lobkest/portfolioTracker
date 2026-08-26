@@ -239,9 +239,12 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     toonDashboard(data);
 });
 
+// document.getElementById("codeForm").addEventListener("submit", async (e) => {
+//     e.preventDefault();
+//     const code = document.getElementById("codeInput").value.trim();
 document.getElementById("codeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const code = document.getElementById("codeInput").value.trim();
+    const code = document.getElementById("codeInput").value.trim().toUpperCase();
     if (!code) return;
     const res = await fetch(`/api/portfolio/${code}`);
     const data = await res.json();
