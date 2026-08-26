@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <title>Portfolio Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Portfolio Dashboard</h1>
+        <p>Upload je portfoliogegevens om te starten.</p>
+
+        <form action="/upload" method="POST" enctype="multipart/form-data">
+            <label for="naam">Naam (optioneel)</label>
+            <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
+
+            <!-- <label for="bestand1">Portfolio-bestand (verplicht)</label>
+            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
+
+            <label for="bestand2">Tweede bestand (optioneel)</label>
+            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls"> -->
+            <label for="bestand1">Transacties-export (verplicht)</label>
+            <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
+            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
+
+            <label for="bestand2">Rekeningoverzicht (optioneel)</label>
+            <p class="hint">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</p>
+            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
+
+            <button type="submit">Uploaden</button>
+        </form>
+    </div>
+</body>
+</html>
