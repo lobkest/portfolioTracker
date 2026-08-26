@@ -48,3 +48,25 @@ button:hover {
     margin-top: 2px;
     margin-bottom: 0;
 }
+
+.menuBtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 10px 8px;
+    margin: 2px 0;
+    cursor: pointer;
+    border-radius: 4px;
+    color: #333;
+}
+
+.menuBtn:hover {
+    background-color: #eee;
+}
+
+.menuBtn.actief {
+    background-color: #2c7a4b;
+    color: white;
+}
