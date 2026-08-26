@@ -130,3 +130,27 @@ def compute_value_over_time(transacties_df, price_data):
     result = pd.DataFrame(rows).set_index("datum")
     result["rendement"] = result["waarde"] - result["geinvesteerd"]
     return result
+
+def get_order_id_sets(cur):
+    """Geeft per portfolio-code de set van al opgeslagen Order ID's terug."""
+    cur.execute("SELECT code, order_id FROM transacties WHERE order_id IS NOT NULL")
+    sets = {}
+    for code, order_id in cur.fetchall():
+        sets.setdefault(code, set()).add(order_id)
+    return sets
+
+
+def find_matching_code(cur, new_order_ids):
+    """
+    Zoekt een bestaande portfolio die dezelfde persoon vertegenwoordigt:
+    - bestaande data zit volledig in de nieuwe upload (update met extra transacties), of
+    - de nieuwe upload zit volledig in de bestaande data (niets nieuws)
+    Geeft (code, ontbrekende_order_ids) terug, of (None, None) als er geen match is.
+    """
+    existing = get_order_id_sets(cur)
+    for code, ids in existing.items():
+        if ids <= new_order_ids:
+            return code, new_order_ids - ids
+        if new_order_ids <= ids:
+            return code, set()
+    return None, None
