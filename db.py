@@ -31,7 +31,9 @@ def init_db():
             ticker TEXT,
             aantal NUMERIC NOT NULL,
             koers NUMERIC,
-            totaal_eur NUMERIC NOT NULL
+            totaal_eur NUMERIC NOT NULL,
+            order_id TEXT,
+            UNIQUE (code, order_id)
         );
     """)
     cur.execute("""

@@ -26,6 +26,48 @@ def db_test():
         return f"Verbinding mislukt: {e}"
 
 
+# @app.route("/upload", methods=["POST"])
+# def upload():
+#     naam = request.form.get("naam", "").strip()
+#     bestand1 = request.files.get("bestand1")
+
+#     if not bestand1 or bestand1.filename == "":
+#         return "Fout: het eerste bestand (transacties) is verplicht.", 400
+
+#     df = pd.read_excel(bestand1)
+#     df.columns = df.columns.str.strip()  # "Koers " -> "Koers"
+#     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+
+#     conn = get_db_connection()
+#     cur = conn.cursor()
+#     code = generate_code(cur)
+#     cur.execute(
+#         "INSERT INTO portfolios (code, naam) VALUES (%s, %s)",
+#         (code, naam or None),
+#     )
+
+#     combos = df[["Product", "ISIN", "Beurs"]].drop_duplicates()
+#     ticker_map = {}
+#     for _, row in combos.iterrows():
+#         key = (row["Product"], row["ISIN"], row["Beurs"])
+#         ticker_map[key] = find_ticker(row["Product"], row["ISIN"], row["Beurs"])
+
+#     for _, row in df.iterrows():
+#         key = (row["Product"], row["ISIN"], row["Beurs"])
+#         cur.execute(
+#             """INSERT INTO transacties
+#                (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur)
+#                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+#             (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+#              ticker_map[key], float(row["Aantal"]), float(row["Koers"]), float(row["Totaal EUR"])),
+#         )
+
+#     conn.commit()
+#     cur.close()
+#     conn.close()
+
+#     return redirect(url_for("dashboard", code=code))
+
 @app.route("/upload", methods=["POST"])
 def upload():
     naam = request.form.get("naam", "").strip()
@@ -35,31 +77,49 @@ def upload():
         return "Fout: het eerste bestand (transacties) is verplicht.", 400
 
     df = pd.read_excel(bestand1)
-    df.columns = df.columns.str.strip()  # "Koers " -> "Koers"
+    df.columns = df.columns.str.strip()
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    df["Order ID"] = df["Order ID"].astype(str)
+
+    new_order_ids = set(df["Order ID"])
 
     conn = get_db_connection()
     cur = conn.cursor()
-    code = generate_code(cur)
-    cur.execute(
-        "INSERT INTO portfolios (code, naam) VALUES (%s, %s)",
-        (code, naam or None),
-    )
 
-    combos = df[["Product", "ISIN", "Beurs"]].drop_duplicates()
+    match_code, missing_ids = find_matching_code(cur, new_order_ids)
+
+    if match_code:
+        code = match_code
+        if not missing_ids:
+            # Alles zat al in de database, niets nieuws te doen
+            cur.close()
+            conn.close()
+            return redirect(url_for("dashboard", code=code))
+        rows_to_insert = df[df["Order ID"].isin(missing_ids)]
+    else:
+        code = generate_code(cur)
+        cur.execute(
+            "INSERT INTO portfolios (code, naam) VALUES (%s, %s)",
+            (code, naam or None),
+        )
+        rows_to_insert = df
+
+    combos = rows_to_insert[["Product", "ISIN", "Beurs"]].drop_duplicates()
     ticker_map = {}
     for _, row in combos.iterrows():
         key = (row["Product"], row["ISIN"], row["Beurs"])
         ticker_map[key] = find_ticker(row["Product"], row["ISIN"], row["Beurs"])
 
-    for _, row in df.iterrows():
+    for _, row in rows_to_insert.iterrows():
         key = (row["Product"], row["ISIN"], row["Beurs"])
         cur.execute(
             """INSERT INTO transacties
-               (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur)
-               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+               (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               ON CONFLICT (code, order_id) DO NOTHING""",
             (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-             ticker_map[key], float(row["Aantal"]), float(row["Koers"]), float(row["Totaal EUR"])),
+             ticker_map[key], float(row["Aantal"]), float(row["Koers"]),
+             float(row["Totaal EUR"]), row["Order ID"]),
         )
 
     conn.commit()
@@ -67,7 +127,6 @@ def upload():
     conn.close()
 
     return redirect(url_for("dashboard", code=code))
-
 
 @app.route("/dashboard/<code>")
 def dashboard(code):
