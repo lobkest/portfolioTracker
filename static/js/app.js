@@ -656,6 +656,151 @@ async function toonInstellingenTicker() {
     renderTickerZekerheid(data.posities);
 }
 
+// Kleur per ticker consistent met de rest van het dashboard: dezelfde
+// volgorde als huidigeData.tickers (die ook de Verdeling-taart en de
+// aandeel-select vult), zodat eenzelfde positie overal dezelfde kleur heeft.
+function kleurVoorTicker(ticker) {
+    const idx = huidigeData.tickers.findIndex(t => t.ticker === ticker);
+    return kleurVoorIndex(idx >= 0 ? idx : 0);
+}
+
+function maakDividendTabel(perTicker) {
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.9em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.marginTop = "8px";
+
+    const kop = document.createElement("tr");
+    ["Aandeel/ETF", "Netto dividend"].forEach(tekst => {
+        const th = document.createElement("th");
+        th.textContent = tekst;
+        th.style.textAlign = "left";
+        th.style.padding = "3px 20px 3px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        kop.appendChild(th);
+    });
+    tabel.appendChild(kop);
+
+    perTicker.forEach(item => {
+        const rij = document.createElement("tr");
+        const naamTd = document.createElement("td");
+        naamTd.textContent = item.bijnaam;
+        naamTd.style.padding = "3px 20px 3px 0";
+        const bedragTd = document.createElement("td");
+        bedragTd.textContent = `€${item.totaal_netto.toFixed(2)}`;
+        bedragTd.style.padding = "3px 20px 3px 0";
+        rij.appendChild(naamTd);
+        rij.appendChild(bedragTd);
+        tabel.appendChild(rij);
+    });
+
+    return tabel;
+}
+
+function renderDividendStats(data) {
+    const sectie = document.getElementById("dividendStatsSectie");
+    sectie.innerHTML = "";
+
+    const totaalDiv = document.createElement("div");
+    totaalDiv.style.fontSize = "1.8em";
+    totaalDiv.style.fontWeight = "bold";
+    totaalDiv.style.color = "#2c7a4b";
+    totaalDiv.textContent = `€${data.totaal_netto.toFixed(2)} totaal ontvangen dividend`;
+    sectie.appendChild(totaalDiv);
+
+    if (!data.per_ticker || data.per_ticker.length === 0) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Nog geen dividend ontvangen.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    sectie.appendChild(maakDividendTabel(data.per_ticker));
+}
+
+function toonDividendChart(cumulatief) {
+    if (chart) chart.destroy();
+    const labelsNL = cumulatief.datums.map(formatDatum);
+    const tickers = Object.keys(cumulatief.per_ticker);
+
+    const datasets = tickers.map(ticker => {
+        const kleur = kleurVoorTicker(ticker);
+        const naam = (huidigeData.tickers.find(t => t.ticker === ticker) || {}).naam || ticker;
+        return {
+            label: naam,
+            data: cumulatief.per_ticker[ticker],
+            borderColor: kleur,
+            backgroundColor: kleur,
+            fill: true,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            borderWidth: 1.5,
+        };
+    });
+
+    chart = new Chart(document.getElementById("rendementChart"), {
+        type: "line",
+        data: { labels: labelsNL, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                y: { stacked: true, beginAtZero: true, title: { display: true, text: "Cumulatief dividend (€)" } }
+            },
+            plugins: {
+                zoom: {
+                    pan: { enabled: true, mode: "x" },
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" }
+                },
+                datalabels: { display: false }
+            }
+        }
+    });
+}
+
+async function toonDividend() {
+    const sectie = document.getElementById("dividendStatsSectie");
+    document.getElementById("chartWrapper").style.display = "block";
+    sectie.innerHTML = "<p>Bezig met laden...</p>";
+
+    if (!huidigeData.code) {
+        if (chart) { chart.destroy(); chart = null; }
+        document.getElementById("chartWrapper").style.display = "none";
+        sectie.innerHTML = "";
+        const p = document.createElement("p");
+        p.textContent = "Geen rekeningoverzicht geüpload — dividendanalyse niet beschikbaar. Upload opnieuw met het rekeningoverzicht erbij om dit te zien.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    let res, data;
+    try {
+        res = await fetch(`/api/portfolio/${huidigeData.code}/dividend`);
+        data = await res.json();
+    } catch (e) {
+        sectie.innerHTML = "";
+        const p = document.createElement("p");
+        p.style.color = "#9C0006";
+        p.textContent = "Kon dividendgegevens niet ophalen.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    if (!res.ok || !data.beschikbaar) {
+        if (chart) { chart.destroy(); chart = null; }
+        document.getElementById("chartWrapper").style.display = "none";
+        sectie.innerHTML = "";
+        const p = document.createElement("p");
+        p.textContent = "Geen rekeningoverzicht geüpload — dividendanalyse niet beschikbaar. Upload opnieuw met het rekeningoverzicht erbij om dit te zien.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    renderDividendStats(data);
+    toonDividendChart(data.cumulatief);
+}
+
 function wisselView(view) {
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker";
 
@@ -670,6 +815,7 @@ function wisselView(view) {
     document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
+    document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
 
     if (view !== "instellingen-bijnamen") {
         document.getElementById("instellingenMsg").style.display = "none";
@@ -691,6 +837,7 @@ function wisselView(view) {
     else if (view === "sector") toonSector();
     else if (view === "instellingen-bijnamen") toonInstellingen();
     else if (view === "instellingen-ticker") toonInstellingenTicker();
+    else if (view === "dividend") toonDividend();
     else if (view === "peraandeel") {
         const select = document.getElementById("aandeelSelect");
         toonPerAandeel(select.value);
@@ -705,8 +852,14 @@ function toonDashboard(data) {
 
     const instellingenBtn = document.querySelector('.menuBtn[data-view="instellingen"]');
     const bijnamenBtn = document.querySelector('.menuBtn[data-view="instellingen-bijnamen"]');
+    const dividendBtn = document.querySelector('.menuBtn[data-view="dividend"]');
     instellingenBtn.style.display = data.code ? "" : "none";
     bijnamenBtn.style.display = data.code ? "" : "none";
+    // Dividend is DB-backed (bereken_dividend_samenvatting leest de
+    // dividenden-tabel via de code) — een 'niet opslaan'-analyse heeft geen
+    // code en dus nooit dividenddata, dus verberg de knop net als bij
+    // Instellingen/Bijnamen.
+    dividendBtn.style.display = data.code ? "" : "none";
 
     if (!data.chart_data) {
         document.getElementById("geenData").style.display = "block";
@@ -733,6 +886,14 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     document.getElementById("errorMsg").textContent = "Bezig met verwerken...";
     const formData = new FormData(e.target);
+    // FormData(form) neemt bestand2 altijd mee, ook als er niets is
+    // geselecteerd (dan als lege file-entry) — expliciet verwijderen zodat
+    // een niet-ingevuld (optioneel) rekeningoverzicht niet als "leeg bestand"
+    // bij Flask binnenkomt.
+    const bestand2Input = document.getElementById("bestand2");
+    if (!bestand2Input.files || bestand2Input.files.length === 0) {
+        formData.delete("bestand2");
+    }
     const res = await fetch("/upload", { method: "POST", body: formData });
     const data = await res.json();
     if (!res.ok) {

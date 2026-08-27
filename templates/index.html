@@ -25,9 +25,9 @@
             <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
             <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
 
-            <!-- <label for="bestand2">Rekeningoverzicht (optioneel)</label>
-            <p class="hint">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls) — wordt binnenkort gebruikt voor dividendanalyse</p>
-            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls"> -->
+            <label for="bestand2">Rekeningoverzicht (optioneel)</label>
+            <p class="hint">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</p>
+            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
 
             <label class="checkboxLabel"><input type="checkbox" id="nietOpslaan" name="niet_opslaan"> Niet opslaan (eenmalige analyse, er wordt niets bewaard)</label>
 
@@ -57,7 +57,7 @@
             <button class="menuBtn" data-view="land">Land</button>
             <button class="menuBtn" data-view="sector">Sector</button>
             <!-- <button class="menuBtn" data-view="statistieken">Statistieken</button> -->
-            <!-- <button class="menuBtn" data-view="Dividend">Dividend</button> -->
+            <button class="menuBtn" data-view="dividend">Dividend</button>
             <button class="menuBtn" data-view="instellingen">Instellingen</button>
             <button class="menuBtn subMenuBtn" data-view="instellingen-bijnamen">Bijnamen</button>
             <button class="menuBtn subMenuBtn" data-view="instellingen-ticker">Ticker-zekerheid</button>
@@ -71,6 +71,8 @@
             <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
             <p id="verdelingTekst" style="display: none;"></p>
             <p id="landDekkingTekst" style="display: none; font-size: 0.85em; color: #888;"></p>
+
+            <div id="dividendStatsSectie" style="display: none; margin-bottom: 20px;"></div>
 
             <div id="chartWrapper" class="chart-wrapper">
                 <canvas id="rendementChart"></canvas>

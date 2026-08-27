@@ -116,6 +116,21 @@ def init_db():
             PRIMARY KEY (ticker, datum)
         );
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS dividenden (
+            id SERIAL PRIMARY KEY,
+            code TEXT NOT NULL,
+            dividend_id TEXT NOT NULL,
+            datum DATE NOT NULL,
+            product TEXT,
+            isin TEXT,
+            valuta TEXT,
+            bruto_eur NUMERIC,
+            belasting_eur NUMERIC,
+            netto_eur NUMERIC,
+            UNIQUE (code, dividend_id)
+        );
+    """)
     conn.commit()
     cur.close()
     conn.close()
@@ -373,16 +388,67 @@ def save_ticker_match(isin, ticker, zekerheid, alternatieven):
 
 
 def delete_portfolio(code):
-    """Verwijdert een portfolio en al zijn transacties permanent. Laat de
-    gedeelde caches (prijzen, ticker_info, ticker_matches) met rust — dat is
-    anonieme marktdata, geen persoonlijke portfoliodata."""
+    """Verwijdert een portfolio en al zijn transacties/dividenden permanent.
+    Laat de gedeelde caches (prijzen, ticker_info, ticker_matches) met rust
+    — dat is anonieme marktdata, geen persoonlijke portfoliodata."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM transacties WHERE code = %s", (code,))
+    cur.execute("DELETE FROM dividenden WHERE code = %s", (code,))
     cur.execute("DELETE FROM portfolios WHERE code = %s", (code,))
     conn.commit()
     cur.close()
     conn.close()
+
+
+def save_dividenden(code, records):
+    """records: lijst van dicts zoals analysis.verwerk_rekeningoverzicht() teruggeeft.
+    ON CONFLICT DO NOTHING op (code, dividend_id) — zelfde dedup-patroon als
+    UNIQUE (code, order_id) bij transacties, zodat een herhaalde upload van
+    hetzelfde rekeningoverzicht geen dubbele rijen oplevert."""
+    if not records:
+        return
+    conn = get_db_connection()
+    cur = conn.cursor()
+    execute_values(
+        cur,
+        "INSERT INTO dividenden (code, dividend_id, datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur) "
+        "VALUES %s ON CONFLICT (code, dividend_id) DO NOTHING",
+        [
+            (code, r["dividend_id"], r["datum"], r["product"], r["isin"], r["valuta"],
+             r["bruto_eur"], r["belasting_eur"], r["netto_eur"])
+            for r in records
+        ],
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_dividenden(code):
+    """Geeft alle dividendrijen voor deze code terug, gesorteerd op datum."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur "
+        "FROM dividenden WHERE code = %s ORDER BY datum",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [
+        {
+            "datum": datum,
+            "product": product,
+            "isin": isin,
+            "valuta": valuta,
+            "bruto_eur": float(bruto_eur) if bruto_eur is not None else None,
+            "belasting_eur": float(belasting_eur) if belasting_eur is not None else None,
+            "netto_eur": float(netto_eur) if netto_eur is not None else None,
+        }
+        for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur in rows
+    ]
 
 
 def save_prices(rows):
