@@ -38,21 +38,21 @@ def compute_split_adjusted_shares(transacties_df):
 
         real_trades = groep[~groep.apply(_is_corporate_action_row, axis=1)]
         conversion_rows = real_trades[
-            (real_trades["koers"] == 0) & (real_trades["aantal"] > 0)
+            (real_trades["koers"] == 0) & (real_trades["adj_aantal"] > 0)
         ].sort_values("datum")
 
         for _, conv in conversion_rows.iterrows():
             conv_date = conv["datum"]
             eerdere_trades = real_trades[(real_trades["datum"] < conv_date) & (real_trades["koers"] > 0)]
-            shares_before = eerdere_trades["aantal"].sum()
+            shares_before = float(eerdere_trades["adj_aantal"].sum())
             if shares_before <= 0:
                 continue
 
             last_real_date = eerdere_trades["datum"].max()
-            new_shares = ca_rows.loc[
-                (ca_rows["datum"] > last_real_date) & (ca_rows["datum"] <= conv_date) & (ca_rows["aantal"] > 0),
-                "aantal",
-            ].sum()
+            new_shares = float(ca_rows.loc[
+                (ca_rows["datum"] > last_real_date) & (ca_rows["datum"] <= conv_date) & (ca_rows["adj_aantal"] > 0),
+                "adj_aantal",
+            ].sum())
             if new_shares <= 0:
                 continue
 
@@ -173,7 +173,31 @@ def get_prices(tickers, start_date):
 
     cached["datum"] = pd.to_datetime(cached["datum"])
     cached["koers_eur"] = cached["koers_eur"].astype(float)
-    return cached.pivot(index="datum", columns="ticker", values="koers_eur").sort_index().ffill()
+    pivot = cached.pivot(index="datum", columns="ticker", values="koers_eur").sort_index().ffill()
+
+    for t in tickers:
+        if t not in pivot.columns:
+            print(f"[koersen] GEEN data gevonden voor ticker {t}")
+            continue
+        eerste_geldige = pivot[t].first_valid_index()
+        print(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
+
+    return pivot
+
+    # if cached.empty:
+    #     return pd.DataFrame()
+
+    # cached["datum"] = pd.to_datetime(cached["datum"])
+    # cached["koers_eur"] = cached["koers_eur"].astype(float)
+
+    # for t in tickers:
+    #     if t not in cached.columns:
+    #         print(f"[koersen] GEEN data gevonden voor ticker {t}")
+    #         continue
+    #     eerste_geldige = cached[t].first_valid_index()
+    #     print(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
+    
+    # return cached.pivot(index="datum", columns="ticker", values="koers_eur").sort_index().ffill()
 
 
 def compute_value_over_time(transacties_df, price_data):
