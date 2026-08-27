@@ -1,6 +1,7 @@
 import random
 import string
 import io
+import hashlib
 import pandas as pd
 import requests
 import yfinance as yf
@@ -8,7 +9,7 @@ from yahooquery import search
 from db import (get_db_connection, save_prices, get_cached_classifications, save_classification,
                  get_cached_land_sector, save_land_sector, get_cached_etf_sector_verdeling,
                  save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
-                 get_ticker_details, get_cached_prijscheck, save_prijscheck)
+                 get_ticker_details, get_cached_prijscheck, save_prijscheck, get_dividenden)
 import time
 
 # Zet op True om overal in dit bestand debug-prints aan te zetten.
@@ -1386,4 +1387,180 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
         result["aanbevolen_alternatief"] = aanbevolen_alternatief
     return result
 
-    return result
+
+def verwerk_rekeningoverzicht(file_object):
+    """
+    Leest een DeGiro-rekeningoverzicht in en geeft een lijst van
+    dividendrecords terug: {datum, product, isin, valuta, bruto_eur,
+    belasting_eur, netto_eur, dividend_id}.
+
+    Kolom-quirk (anders dan bij het transactiebestand): "Mutatie" en
+    "Saldo" zijn elk samengevoegde headers over twee kolommen (valutacode +
+    bedrag) — pandas geeft de tweede kolom van elk paar de naam
+    "Unnamed: 8" / "Unnamed: 10" i.p.v. verkeerd uitgelijnd te zijn, dus die
+    hernoemen we hier expliciet naar leesbare namen.
+    """
+    file_object.seek(0)
+    df = pd.read_excel(file_object)
+    df.columns = df.columns.str.strip()
+    df = df.rename(columns={
+        "Mutatie": "valuta_mutatie",
+        "Unnamed: 8": "mutatie",
+        "Saldo": "valuta_saldo",
+        "Unnamed: 10": "saldo",
+    })
+    df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    df["Valutadatum"] = pd.to_datetime(df["Valutadatum"], dayfirst=True)
+    df["mutatie"] = pd.to_numeric(df["mutatie"], errors="coerce")
+
+    # FX-lookup (Valutadatum, valuta) -> koers, uit de "Valuta Debitering"/
+    # "Valuta Creditering"-rijen — de enige rijen met een ingevulde
+    # FX-kolom in het rekeningoverzicht.
+    fx_rows = df[df["Omschrijving"].isin(["Valuta Debitering", "Valuta Creditering"])]
+    fx_lookup = {}
+    for _, row in fx_rows.iterrows():
+        fx = pd.to_numeric(row.get("FX"), errors="coerce")
+        if pd.isna(fx) or fx == 0 or pd.isna(row["Valutadatum"]):
+            continue
+        fx_lookup[(row["Valutadatum"].date(), row["valuta_mutatie"])] = float(fx)
+
+    def rij_naar_eur(row):
+        """Geeft het EUR-bedrag van 1 rij terug, of None als de valuta niet
+        EUR is en er geen FX-koers gevonden is voor die (Valutadatum,
+        valuta) — dan liever expliciet 'onbekend' dan een gok."""
+        if pd.isna(row["mutatie"]):
+            return None
+        if row["valuta_mutatie"] == "EUR":
+            return float(row["mutatie"])
+        fx = fx_lookup.get((row["Valutadatum"].date(), row["valuta_mutatie"]))
+        if fx is None:
+            return None
+        return float(row["mutatie"]) / fx
+
+    dividend_rows = df[df["Omschrijving"].isin(["Dividend", "Dividendbelasting"])]
+
+    records = []
+    for (datum, isin), groep in dividend_rows.groupby(["Datum", "ISIN"]):
+        bruto_rijen = groep[groep["Omschrijving"] == "Dividend"]
+        belasting_rijen = groep[groep["Omschrijving"] == "Dividendbelasting"]
+
+        product = groep["Product"].iloc[0]
+        valuta = groep["valuta_mutatie"].dropna().iloc[0] if groep["valuta_mutatie"].notna().any() else "EUR"
+
+        # Ruwe (niet-EUR-geconverteerde) bedragen — gebruikt voor de
+        # synthetische dividend_id, zodat die stabiel blijft ongeacht of de
+        # FX-lookup op een herhaalde upload dezelfde koers teruggeeft.
+        bruto_ruw = float(bruto_rijen["mutatie"].sum()) if not bruto_rijen.empty else 0.0
+        belasting_ruw = float(belasting_rijen["mutatie"].sum()) if not belasting_rijen.empty else 0.0
+
+        bruto_eur_per_rij = [rij_naar_eur(r) for _, r in bruto_rijen.iterrows()]
+        belasting_eur_per_rij = [rij_naar_eur(r) for _, r in belasting_rijen.iterrows()]
+
+        bruto_eur = sum(bruto_eur_per_rij) if bruto_eur_per_rij and all(v is not None for v in bruto_eur_per_rij) else (0.0 if not bruto_eur_per_rij else None)
+        belasting_eur = sum(belasting_eur_per_rij) if belasting_eur_per_rij and all(v is not None for v in belasting_eur_per_rij) else (0.0 if not belasting_eur_per_rij else None)
+        netto_eur = (bruto_eur + belasting_eur) if bruto_eur is not None and belasting_eur is not None else None
+
+        dividend_id = "DIV-" + hashlib.md5(
+            f"{datum.date()}|{isin}|{bruto_ruw:.6f}|{belasting_ruw:.6f}".encode()
+        ).hexdigest()[:16]
+
+        records.append({
+            "datum": datum.date(),
+            "product": product,
+            "isin": isin,
+            "valuta": valuta,
+            "bruto_eur": bruto_eur,
+            "belasting_eur": belasting_eur,
+            "netto_eur": netto_eur,
+            "dividend_id": dividend_id,
+        })
+
+    print(f"[dividend] rekeningoverzicht verwerkt: {len(records)} dividenduitkering(en) gevonden")
+    return records
+
+
+def bereken_dividend_samenvatting(code):
+    """
+    Samenvatting van alle opgeslagen dividenden voor deze code: totaal
+    netto-ontvangen, per ticker/bijnaam, en een gezamenlijke cumulatieve
+    tijdreeks per ticker voor de gestapelde grafiek.
+
+    Geeft None terug als er geen dividenden zijn opgeslagen — de aanroeper
+    (app.py) weet dan dat er nooit een rekeningoverzicht is geüpload voor
+    deze code, i.p.v. dat te verwarren met "wel geüpload, maar toevallig
+    geen dividend ontvangen".
+    """
+    dividenden = get_dividenden(code)
+    if not dividenden:
+        return None
+
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT isin, ticker, product FROM transacties WHERE code = %s AND ticker IS NOT NULL",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    # ISIN is de sleutel voor de koppeling, niet de naam — zelfde aanpak als
+    # elders in dit project (zie find_ticker_detailed/verifieer_ticker_met_prijs).
+    # Bij meerdere transactierijen voor dezelfde ISIN wint de eerste
+    # (willekeurige volgorde uit de query) — voor dividend-koppeling is dat
+    # voldoende precisie, in tegenstelling tot de rendementsberekening is er
+    # hier geen aparte behandeling per beursnotering nodig.
+    isin_naar_ticker = {}
+    isin_naar_bijnaam = {}
+    for isin, ticker, product in rows:
+        isin_naar_ticker.setdefault(isin, ticker)
+        isin_naar_bijnaam.setdefault(isin, product)
+
+    per_ticker_info = {}
+    per_ticker_punten = {}
+    totaal_netto = 0.0
+
+    for d in dividenden:
+        if d["netto_eur"] is None:
+            continue
+        netto = float(d["netto_eur"])
+        totaal_netto += netto
+
+        ticker = isin_naar_ticker.get(d["isin"]) or d["isin"]
+        bijnaam = isin_naar_bijnaam.get(d["isin"]) or d["product"] or ticker
+
+        info = per_ticker_info.setdefault(ticker, {"bijnaam": bijnaam, "totaal": 0.0})
+        info["totaal"] += netto
+        per_ticker_punten.setdefault(ticker, []).append((d["datum"], netto))
+
+    per_ticker = sorted(
+        (
+            {"ticker": t, "bijnaam": v["bijnaam"], "totaal_netto": round(v["totaal"], 2)}
+            for t, v in per_ticker_info.items()
+        ),
+        key=lambda x: x["totaal_netto"], reverse=True,
+    )
+
+    # Alle tickers uitlijnen op dezelfde datumas (unie van alle dividend-
+    # datums) en forward-fillen, zodat de gestapelde grafiek geen gaten heeft.
+    alle_datums = sorted({datum for punten in per_ticker_punten.values() for datum, _ in punten})
+    cumulatief_per_ticker = {}
+    for ticker, punten in per_ticker_punten.items():
+        per_datum = {}
+        for datum, netto in punten:
+            per_datum[datum] = per_datum.get(datum, 0.0) + netto
+        cum = 0.0
+        reeks = []
+        for datum in alle_datums:
+            cum += per_datum.get(datum, 0.0)
+            reeks.append(round(cum, 2))
+        cumulatief_per_ticker[ticker] = reeks
+
+    return {
+        "totaal_netto": round(totaal_netto, 2),
+        "per_ticker": per_ticker,
+        "cumulatief": {
+            "datums": [d.strftime("%Y-%m-%d") for d in alle_datums],
+            "per_ticker": cumulatief_per_ticker,
+        },
+    }

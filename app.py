@@ -1,7 +1,8 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio
-from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_ticker_met_prijs
+from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting
+from db import save_dividenden
 import hashlib
 import openpyxl
 import math
@@ -186,6 +187,12 @@ def upload():
     cur.close()
     conn.close()
 
+    bestand2 = request.files.get("bestand2")
+    if bestand2 and bestand2.filename != "":
+        dividend_records = verwerk_rekeningoverzicht(bestand2)
+        save_dividenden(code, dividend_records)
+        print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
+
     return jsonify(build_portfolio_response(code))
 
 
@@ -250,6 +257,27 @@ def ticker_zekerheid(code):
         posities.append(resultaat)
 
     return jsonify({"posities": posities})
+
+
+@app.route("/api/portfolio/<code>/dividend")
+def dividend(code):
+    code = code.strip().upper()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+    if cur.fetchone() is None:
+        cur.close()
+        conn.close()
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    cur.close()
+    conn.close()
+
+    samenvatting = bereken_dividend_samenvatting(code)
+    if samenvatting is None:
+        return jsonify({"beschikbaar": False})
+
+    samenvatting["beschikbaar"] = True
+    return jsonify(samenvatting)
 
 
 def build_portfolio_response(code):
