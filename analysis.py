@@ -27,6 +27,31 @@ def dprint(*args, **kwargs):
 # taartpunten in de legenda. Zie _voeg_kleine_landen_samen().
 LAND_OVERIG_DREMPEL = 0.005
 
+# Landen die meetellen als "Europa" voor de Europa-samenvoeg-toggle op het
+# Land-tabblad (zie _groepeer_europa_samen). EU-landen plus de gebruikelijke
+# niet-EU-Europese landen (UK, Zwitserland, Noorse/Balkan-landen, micro-
+# staten). Namen zoals ze typisch terugkomen uit Yahoo's .info["country"]
+# en pycountry se .name — bewust een paar synoniemen (bv. "Czechia" én
+# "Czech Republic") omdat beide bronnen niet altijd dezelfde naam geven.
+#
+# Bewuste keuzes (geen omissie): Rusland en Turkije zijn NIET meegenomen —
+# beide worden in investeringscontext (MSCI e.d.) als Emerging Markets
+# geclassificeerd, niet als (Westers) Europa, en dat is hier de relevante
+# maatstaf, niet pure aardrijkskunde.
+EUROPESE_LANDEN = frozenset({
+    # EU-landen
+    "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czech Republic",
+    "Czechia", "Denmark", "Estonia", "Finland", "France", "Germany",
+    "Greece", "Hungary", "Ireland", "Italy", "Latvia", "Lithuania",
+    "Luxembourg", "Malta", "Netherlands", "Poland", "Portugal", "Romania",
+    "Slovakia", "Slovenia", "Spain", "Sweden",
+    # Niet-EU, wel gebruikelijk "Europa"
+    "United Kingdom", "Switzerland", "Norway", "Iceland", "Liechtenstein",
+    "Monaco", "Andorra", "San Marino", "Vatican City", "Jersey", "Guernsey",
+    "Isle of Man", "Ukraine", "Belarus", "Serbia", "Bosnia and Herzegovina",
+    "Montenegro", "North Macedonia", "Albania", "Kosovo", "Moldova",
+})
+
 BEURS_MAP = {
     "EAM": ["AMS"], "XAMS": ["AMS"], "XET": ["GER"], "FRA": ["GER"],
     "TDG": ["GER", "MUN", "FRA"], "LSE": ["LSE"], "XLON": ["LSE"],
@@ -1302,7 +1327,7 @@ def get_etf_holdings(ticker):
     return holdings
 
 
-def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL):
+def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL, uitgezonderd=frozenset()):
     """Voegt landen met een aandeel onder 'drempel' (fractie van het totaal,
     dus 0.005 = 0.5%) samen tot één 'Overig'-post — voorkomt een taart met
     tientallen verwaarloosbare taartpunten in de legenda.
@@ -1312,6 +1337,12 @@ def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL):
     Unknown >= drempel, dan blijft die als eigen categorie bestaan naast
     Overig (frontend geeft beide dezelfde neutrale grijze stijl + plek
     onderaan de legenda, zie ONBEKEND_GRIJS in app.js).
+
+    'uitgezonderd' zijn sleutels die NOOIT in Overig terechtkomen, ongeacht
+    hun aandeel — gebruikt door compute_land_sector_verdeling() om de
+    (bewust door de gebruiker aangezette) "Europe"-post altijd als eigen
+    taartpunt te tonen, ook als die toevallig <0.5% is: dat is dan een
+    expliciete keuze van de gebruiker, geen toevallig verwaarloosbaar land.
 
     Geeft GEEN 'Overig'-sleutel terug als niets onder de drempel valt (dus
     nooit een lege/0%-Overig-punt). Bij een leeg/nul-totaal wordt de dict
@@ -1323,13 +1354,32 @@ def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL):
     resultaat = {}
     overig = 0.0
     for land, bedrag in land_dict.items():
-        if bedrag / totaal < drempel:
+        if land not in uitgezonderd and bedrag / totaal < drempel:
             overig += bedrag
         else:
             resultaat[land] = bedrag
 
     if overig > 0:
         resultaat["Overig"] = resultaat.get("Overig", 0.0) + overig
+    return resultaat
+
+
+def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
+    """Voegt alle landen uit 'europese_landen' samen tot één 'Europe'-post;
+    niet-Europese landen (en 'Unknown') blijven ongewijzigd los staan.
+
+    Geeft GEEN 'Europe'-sleutel terug als geen enkel land in land_dict
+    Europees is (dus nooit een lege/0%-Europe-punt)."""
+    resultaat = {}
+    europa_totaal = 0.0
+    for land, bedrag in land_dict.items():
+        if land in europese_landen:
+            europa_totaal += bedrag
+        else:
+            resultaat[land] = bedrag
+
+    if europa_totaal > 0:
+        resultaat["Europe"] = resultaat.get("Europe", 0.0) + europa_totaal
     return resultaat
 
 
@@ -1344,6 +1394,11 @@ def compute_land_sector_verdeling(transacties_df, price_data):
     Geeft terug:
         {
             "land":   {"United States": 1234.56, ..., "Unknown": 88.00},
+            "land_europa": {"United States": 1234.56, ..., "Europe": 456.00},
+                # zelfde als "land", maar met alle EUROPESE_LANDEN samengevoegd
+                # tot één "Europe"-post — voor de Europa-samenvoeg-toggle op
+                # het Land-tabblad (frontend kiest tussen de twee, geen
+                # her-berekening nodig bij het aan/uit-zetten van de toggle)
             "sector": {"Technology": 999.00, ..., "Unknown": 45.00},
             "per_etf": {
                 "CSPX.AS": {"land": {...}, "sector": {...}},   # fracties 0-1, dit fonds z'n eigen verdeling
@@ -1408,7 +1463,16 @@ def compute_land_sector_verdeling(transacties_df, price_data):
             optellen(land, aandeel_land, waarde)
             optellen(sector, aandeel_sector, waarde)
 
-    return {"land": _voeg_kleine_landen_samen(land), "sector": sector, "per_etf": per_etf}
+    land_europa_gegroepeerd = _groepeer_europa_samen(land)
+    return {
+        "land": _voeg_kleine_landen_samen(land),
+        "land_europa": _voeg_kleine_landen_samen(
+            land_europa_gegroepeerd,
+            uitgezonderd={"Europe"} if "Europe" in land_europa_gegroepeerd else frozenset(),
+        ),
+        "sector": sector,
+        "per_etf": per_etf,
+    }
 
 
 def classify_ticker(ticker):

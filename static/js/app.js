@@ -325,7 +325,14 @@ function toonPlatteVerdeling(verdelingObj) {
 
 function toonLand() {
     const lsv = huidigeData.land_sector_verdeling;
-    toonPlatteVerdeling(lsv && lsv.land);
+    const europaCheckbox = document.getElementById("europaCheckbox");
+    document.getElementById("europaCheckboxWrapper").style.display = "block";
+    // land_europa is server-side voorberekend (zelfde als "land" maar met
+    // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie
+    // analysis.compute_land_sector_verdeling) — geen her-berekening of
+    // extra API-call nodig bij het aan/uit-zetten van de toggle.
+    const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
+    toonPlatteVerdeling(bron);
 
     // Welke ETF's hebben nog de beperkte (top-10-only) landdekking? Puur
     // informatief, zodat duidelijk is welk deel van "Unknown" hier
@@ -1111,6 +1118,7 @@ function wisselView(view) {
     }
     if (view !== "land") {
         document.getElementById("landDekkingTekst").style.display = "none";
+        document.getElementById("europaCheckboxWrapper").style.display = "none";
     }
     if (view !== "peraandeel") {
         document.getElementById("etfDrilldown").style.display = "none";
@@ -1167,6 +1175,10 @@ document.getElementById("aandeelSelect").addEventListener("change", (e) => {
 
 document.getElementById("resetZoomBtn").addEventListener("click", () => {
     if (chart) chart.resetZoom();
+});
+
+document.getElementById("europaCheckbox").addEventListener("change", () => {
+    toonLand();
 });
 
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
