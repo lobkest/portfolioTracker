@@ -132,7 +132,34 @@ ETF_HOLDINGS_BRON = {
         "locale": "nl",
         "url": "https://www.vaneck.com/nl/nl/investments/gold-miners-etf/downloads/holdings/",
     },
+    "EUEA.AS": {
+        "provider": "ishares",
+        "locale": "nl",
+        "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/251781/ishares-euro-stoxx-50-ucits-etf-inc-fund/1497735778849.ajax?fileType=csv&fileName=EUEA_holdings&dataType=fund",
+    },
+    # TDT.AS' bron is de Engelstalige VanEck NL-site (url-pad /nl/en/), dus
+    # locale="en" — i.t.t. GDX.L/VE6I.DE die via de Nederlandstalige site
+    # (/nl/nl/) gaan. Kolomkop is hier ook net anders ("Holding Name" i.p.v.
+    # "Naam positie"/"Naam"), zie _parse_vaneck_holdings().
+    "TDT.AS": {
+        "provider": "vaneck",
+        "locale": "en",
+        "url": "https://www.vaneck.com/nl/en/investments/aex-etf/downloads/holdings",
+    },
+    "VE6I.DE": {
+        "provider": "vaneck",
+        "locale": "nl",
+        "url": "https://www.vaneck.com/nl/nl/investments/food-etf/downloads/holdings/",
+    },
 }
+
+# Bewust NIET toegevoegd: VWCE.AS en VUSA.AS (Vanguard). Vanguard's site
+# haalt de holdings-download op via een GraphQL-API met een complexe query
+# in de request-body, niet via een simpele GET-URL zoals bij iShares/VanEck
+# — te fragiel (kan breken bij elke Vanguard-site-update) en te complex
+# voor de meerwaarde. Deze twee draaien bewust op de yfinance-top-10-
+# fallback voor land (~30-40% dekking); dit is een geaccepteerde beperking,
+# geen openstaande bug.
 
 _PROVIDER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -379,7 +406,9 @@ def _parse_vaneck_holdings(content, locale="en"):
     )
     if gewicht_kolom is None:
         raise ValueError(f"geen bekende gewicht-kolom gevonden in VanEck-bestand: {list(df.columns)}")
-    naam_kolom = next((k for k in ("Naam positie", "Naam", "Name", "Holding") if k in df.columns), None)
+    naam_kolom = next(
+        (k for k in ("Naam positie", "Naam", "Name", "Holding", "Holding Name") if k in df.columns), None,
+    )
     land_kolom = next((k for k in ("Land", "Country", "Location") if k in df.columns), None)
     isin_kolom = "ISIN" if "ISIN" in df.columns else None
 
