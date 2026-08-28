@@ -269,16 +269,21 @@ function toonPlatteVerdeling(verdelingObj) {
     }
     document.getElementById("geenData").style.display = "none";
 
-    // "Unknown" altijd als laatste in de legenda, de rest aflopend op bedrag.
+    // "Overig" (kleine landen samengevoegd, zie analysis._voeg_kleine_landen_samen)
+    // en "Unknown" krijgen altijd de laatste plekken in de legenda — Overig
+    // vlak vóór Unknown, de rest aflopend op bedrag. Dezelfde volgorde-/
+    // kleurbehandeling voor allebei, voor visuele consistentie.
+    const NEUTRALE_VOLGORDE = { "Overig": 1, "Unknown": 2 };
     entries.sort((a, b) => {
-        if (a[0] === "Unknown") return 1;
-        if (b[0] === "Unknown") return -1;
+        const va = NEUTRALE_VOLGORDE[a[0]] || 0;
+        const vb = NEUTRALE_VOLGORDE[b[0]] || 0;
+        if (va !== vb) return va - vb;
         return b[1] - a[1];
     });
 
     const totaal = entries.reduce((som, [, bedrag]) => som + bedrag, 0);
     let kleurIdx = 0;
-    const kleuren = entries.map(([naam]) => naam === "Unknown" ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++));
+    const kleuren = entries.map(([naam]) => (naam === "Unknown" || naam === "Overig") ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++));
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "pie",

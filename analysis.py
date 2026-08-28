@@ -21,6 +21,12 @@ def dprint(*args, **kwargs):
         print(*args, **kwargs)
 
 
+# Landen met een aandeel onder deze drempel (fractie van de totale
+# portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
+# tot één "Overig"-taartpunt — anders eindig je met tientallen verwaarloosbare
+# taartpunten in de legenda. Zie _voeg_kleine_landen_samen().
+LAND_OVERIG_DREMPEL = 0.005
+
 BEURS_MAP = {
     "EAM": ["AMS"], "XAMS": ["AMS"], "XET": ["GER"], "FRA": ["GER"],
     "TDG": ["GER", "MUN", "FRA"], "LSE": ["LSE"], "XLON": ["LSE"],
@@ -97,9 +103,6 @@ ETF_HOLDINGS_BRON = {
         "url": "https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v1/get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=ishares-uk&locale=en_GB&portfolioId=253741&userType=individual&component=holdings",
     },
     "GDX.L": {
-        # De 'downloads/holdings'-paginalink is zelf al de directe download
-        # (content-type xlsx, geen HTML) — geen aparte 'echte' downloadlink
-        # nodig, ondanks dat de URL eruitziet als een paginalink.
         "provider": "vaneck",
         "locale": "nl",
         "url": "https://www.vaneck.com/nl/nl/investments/gold-miners-etf/downloads/holdings/",
@@ -1299,6 +1302,37 @@ def get_etf_holdings(ticker):
     return holdings
 
 
+def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL):
+    """Voegt landen met een aandeel onder 'drempel' (fractie van het totaal,
+    dus 0.005 = 0.5%) samen tot één 'Overig'-post — voorkomt een taart met
+    tientallen verwaarloosbare taartpunten in de legenda.
+
+    'Unknown' is GEEN uitzondering: valt die zelf ook onder de drempel, dan
+    telt 'ie gewoon mee in de Overig-som net als elk ander klein land; is
+    Unknown >= drempel, dan blijft die als eigen categorie bestaan naast
+    Overig (frontend geeft beide dezelfde neutrale grijze stijl + plek
+    onderaan de legenda, zie ONBEKEND_GRIJS in app.js).
+
+    Geeft GEEN 'Overig'-sleutel terug als niets onder de drempel valt (dus
+    nooit een lege/0%-Overig-punt). Bij een leeg/nul-totaal wordt de dict
+    ongewijzigd teruggegeven (kan niet zinnig een percentage berekenen)."""
+    totaal = sum(land_dict.values())
+    if totaal <= 0:
+        return dict(land_dict)
+
+    resultaat = {}
+    overig = 0.0
+    for land, bedrag in land_dict.items():
+        if bedrag / totaal < drempel:
+            overig += bedrag
+        else:
+            resultaat[land] = bedrag
+
+    if overig > 0:
+        resultaat["Overig"] = resultaat.get("Overig", 0.0) + overig
+    return resultaat
+
+
 def compute_land_sector_verdeling(transacties_df, price_data):
     """
     Land- en sectorverdeling van de hele portfolio (huidige holdings x
@@ -1374,7 +1408,7 @@ def compute_land_sector_verdeling(transacties_df, price_data):
             optellen(land, aandeel_land, waarde)
             optellen(sector, aandeel_sector, waarde)
 
-    return {"land": land, "sector": sector, "per_etf": per_etf}
+    return {"land": _voeg_kleine_landen_samen(land), "sector": sector, "per_etf": per_etf}
 
 
 def classify_ticker(ticker):
