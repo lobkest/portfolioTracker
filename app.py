@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio
-from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting
+from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
 from db import save_dividenden
 import hashlib
 import openpyxl
@@ -335,6 +335,7 @@ def analyze_transacties(transacties_df, code, naam):
 
     is_etf_map = classify_tickers(list(per_ticker.keys()))
     land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data)
+    statistieken = bereken_statistieken(transacties_df, price_data, resultaat)
 
     huidige_holdings = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
@@ -365,6 +366,7 @@ def analyze_transacties(transacties_df, code, naam):
         "per_ticker": per_ticker,
         "verdeling": verdeling,
         "land_sector_verdeling": land_sector_verdeling,
+        "statistieken": statistieken,
         "tickers": [
             {"ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t)}
             for t in per_ticker.keys()
