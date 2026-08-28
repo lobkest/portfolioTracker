@@ -5,6 +5,7 @@ import hashlib
 import pandas as pd
 import requests
 import yfinance as yf
+from pyxirr import xirr
 from yahooquery import search
 from db import (get_db_connection, save_prices, get_cached_classifications, save_classification,
                  get_cached_land_sector, save_land_sector, get_cached_etf_sector_verdeling,
@@ -1388,11 +1389,166 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     return result
 
 
+def _koppel_valutaconversie_paren(df):
+    """
+    Bouwt de lijst van valutaconversie-'paren' uit een rekeningoverzicht:
+    een 'Valuta Debitering'-rij (vreemde valuta, negatief bedrag) en een
+    'Valuta Creditering'-rij (EUR, positief bedrag) die bij elkaar horen.
+
+    De koppeling gaat via een EXACT gelijke (Datum, Tijd) — DEGIRO boekt
+    zo'n conversie altijd als twee rijen met identiek tijdstip. Dit is
+    bewust NIET gekoppeld via Valutadatum: de 'Dividend'-rij die tot deze
+    conversie leidde heeft vaak een Valutadatum van 1 (bank-)dag eerder dan
+    de conversie zelf (de conversie wordt pas de volgende werkdag
+    afgewikkeld) — matchen op Valutadatum was precies de eerdere bug (zie
+    verwerk_rekeningoverzicht).
+
+    Geeft een lijst van dicts terug: {datum, tijd, valuta, vreemd_bedrag
+    (positief), eur_bedrag (positief), gebruikt (bool, wordt True gezet
+    zodra een dividendgroep hem claimt)}.
+    """
+    fx_rows = df[df["Omschrijving"].isin(["Valuta Debitering", "Valuta Creditering"])]
+    paren = []
+    for (datum, tijd), groep in fx_rows.groupby(["Datum", "Tijd"]):
+        debitering = groep[groep["Omschrijving"] == "Valuta Debitering"]
+        creditering = groep[groep["Omschrijving"] == "Valuta Creditering"]
+        if debitering.empty or creditering.empty:
+            print(f"[dividend-debug] ⚠️ onvolledig valutaconversie-paar op {datum.date()} {tijd}: "
+                  f"{len(debitering)}x Debitering, {len(creditering)}x Creditering — overgeslagen")
+            continue
+        deb = debitering.iloc[0]
+        cred = creditering.iloc[0]
+        paar = {
+            "datum": datum,
+            "tijd": tijd,
+            "valuta": deb["valuta_mutatie"],
+            "vreemd_bedrag": abs(float(deb["mutatie"])),
+            "eur_bedrag": float(cred["mutatie"]),
+            "gebruikt": False,
+        }
+        paren.append(paar)
+        print(f"[dividend-debug] valutaconversie-paar: {datum.date()} {tijd} — "
+              f"{paar['vreemd_bedrag']:.2f} {paar['valuta']} -> €{paar['eur_bedrag']:.2f}")
+    return paren
+
+
+def _match_valutaconversie(paren, valuta, netto_ruw, datum, tolerantie=0.02):
+    """Zoekt in 'paren' (zie _koppel_valutaconversie_paren) het nog niet
+    gebruikte paar met dezelfde valuta en (bijna) hetzelfde bedrag als
+    'netto_ruw' — dat is het paar dat DEZE dividenduitkering heeft
+    omgewisseld naar EUR. Bij meerdere kandidaten (zelfde valuta+bedrag,
+    bv. twee identieke dividendbedragen in dezelfde periode) wint de
+    kandidaat die qua datum het dichtst bij de dividenddatum ligt. Geeft
+    None terug als er geen match binnen tolerantie is."""
+    kandidaten = [
+        p for p in paren
+        if not p["gebruikt"] and p["valuta"] == valuta and abs(p["vreemd_bedrag"] - abs(netto_ruw)) <= tolerantie
+    ]
+    if not kandidaten:
+        return None
+    kandidaten.sort(key=lambda p: abs((p["datum"] - datum).days))
+    gekozen = kandidaten[0]
+    gekozen["gebruikt"] = True
+    return gekozen
+
+
+def verwerk_rekeningoverzicht_df(df):
+    """
+    Doet het eigenlijke werk van verwerk_rekeningoverzicht() op een AL
+    ingelezen en hernoemde DataFrame (kolommen: Datum, Tijd, Valutadatum,
+    Product, ISIN, Omschrijving, FX, valuta_mutatie, mutatie, valuta_saldo,
+    saldo, Order Id — Datum/Valutadatum als datetime, mutatie als float).
+    Losgetrokken van het Excel-inlezen zodat dit met een handgemaakte
+    DataFrame te unittesten is (zie tests/test_dividend.py), zonder een
+    echt .xlsx-bestand te hoeven bouwen.
+
+    Per dividenduitkering (gegroepeerd op Datum+ISIN, want correcties/
+    meerdere boekingen voor dezelfde uitkering delen dezelfde Datum):
+    - alle 'Dividend'- en 'Dividendbelasting'-rijen worden genet (inclusief
+      eventuele negatieve correctierijen) tot één bedrag in de eigen valuta
+    - is die valuta EUR, dan is dat meteen het EUR-bedrag
+    - is die valuta NIET EUR, dan wordt het GEKOPPELDE 'Valuta Creditering'-
+      bedrag gebruikt (via _match_valutaconversie) — NIET een eigen
+      FX-herberekening. Bruto/belasting worden naar rato van hun aandeel in
+      het netto ruwe bedrag verdeeld over dat EUR-bedrag, zodat bruto_eur +
+      belasting_eur altijd optelt tot netto_eur.
+    - is er geen gekoppeld conversieparen gevonden, dan blijven bruto_eur/
+      belasting_eur/netto_eur expliciet None ('onbekend') — nooit een gok.
+    """
+    conversie_paren = _koppel_valutaconversie_paren(df)
+
+    dividend_rows = df[df["Omschrijving"].isin(["Dividend", "Dividendbelasting"])]
+    print(f"[dividend-debug] {len(dividend_rows)} ruwe Dividend/Dividendbelasting-rij(en) gevonden")
+    for _, r in dividend_rows.iterrows():
+        print(f"[dividend-debug]   {r['Datum'].date()} | {r['Omschrijving']} | {r.get('Product')} | "
+              f"{r['mutatie']} {r['valuta_mutatie']}")
+
+    records = []
+    for (datum, isin), groep in dividend_rows.groupby(["Datum", "ISIN"]):
+        bruto_rijen = groep[groep["Omschrijving"] == "Dividend"]
+        belasting_rijen = groep[groep["Omschrijving"] == "Dividendbelasting"]
+
+        product = groep["Product"].iloc[0]
+        valuta = groep["valuta_mutatie"].dropna().iloc[0] if groep["valuta_mutatie"].notna().any() else "EUR"
+
+        bruto_ruw = float(bruto_rijen["mutatie"].sum()) if not bruto_rijen.empty else 0.0
+        belasting_ruw = float(belasting_rijen["mutatie"].sum()) if not belasting_rijen.empty else 0.0
+        netto_ruw = bruto_ruw + belasting_ruw
+
+        print(f"[dividend-debug] groep {datum.date()} / {isin} ({product}): "
+              f"{len(bruto_rijen)}x Dividend + {len(belasting_rijen)}x Dividendbelasting -> "
+              f"netto {netto_ruw:.2f} {valuta} (bruto {bruto_ruw:.2f}, belasting {belasting_ruw:.2f})")
+
+        if valuta == "EUR":
+            bruto_eur, belasting_eur, netto_eur = bruto_ruw, belasting_ruw, netto_ruw
+            print(f"[dividend-debug]   -> al in EUR, netto_eur=€{netto_eur:.2f}")
+        else:
+            match = _match_valutaconversie(conversie_paren, valuta, netto_ruw, datum)
+            if match is None:
+                bruto_eur = belasting_eur = netto_eur = None
+                print(f"[dividend-debug]   ❌ GEEN valutaconversie-paar gevonden voor {netto_ruw:.2f} {valuta} "
+                      f"— netto_eur=None, deze uitkering wordt niet meegeteld in de totalen")
+            else:
+                netto_eur = match["eur_bedrag"]
+                if netto_ruw != 0:
+                    bruto_eur = netto_eur * (bruto_ruw / netto_ruw)
+                    belasting_eur = netto_eur * (belasting_ruw / netto_ruw)
+                else:
+                    bruto_eur = belasting_eur = 0.0
+                print(f"[dividend-debug]   ✓ gekoppeld aan conversie {match['datum'].date()} {match['tijd']} "
+                      f"-> netto_eur=€{netto_eur:.2f}")
+
+        # Ruwe (niet-EUR-geconverteerde) bedragen in de dividend_id, zodat die
+        # stabiel blijft ongeacht welk valutaconversie-paar er (opnieuw)
+        # aan gekoppeld wordt bij een herhaalde upload.
+        dividend_id = "DIV-" + hashlib.md5(
+            f"{datum.date()}|{isin}|{bruto_ruw:.6f}|{belasting_ruw:.6f}".encode()
+        ).hexdigest()[:16]
+
+        records.append({
+            "datum": datum.date(),
+            "product": product,
+            "isin": isin,
+            "valuta": valuta,
+            "bruto_eur": bruto_eur,
+            "belasting_eur": belasting_eur,
+            "netto_eur": netto_eur,
+            "dividend_id": dividend_id,
+        })
+
+    totaal = sum(r["netto_eur"] for r in records if r["netto_eur"] is not None)
+    print(f"[dividend-debug] TOTAAL: {len(records)} dividendgroep(en), "
+          f"€{totaal:.2f} netto (som van de rijen met een bekend netto_eur)")
+    return records
+
+
 def verwerk_rekeningoverzicht(file_object):
     """
     Leest een DeGiro-rekeningoverzicht in en geeft een lijst van
     dividendrecords terug: {datum, product, isin, valuta, bruto_eur,
-    belasting_eur, netto_eur, dividend_id}.
+    belasting_eur, netto_eur, dividend_id}. Het eigenlijke rekenwerk zit in
+    verwerk_rekeningoverzicht_df() hierboven; deze functie doet alleen het
+    Excel-inlezen en de kolom-normalisatie.
 
     Kolom-quirk (anders dan bij het transactiebestand): "Mutatie" en
     "Saldo" zijn elk samengevoegde headers over twee kolommen (valutacode +
@@ -1413,70 +1569,7 @@ def verwerk_rekeningoverzicht(file_object):
     df["Valutadatum"] = pd.to_datetime(df["Valutadatum"], dayfirst=True)
     df["mutatie"] = pd.to_numeric(df["mutatie"], errors="coerce")
 
-    # FX-lookup (Valutadatum, valuta) -> koers, uit de "Valuta Debitering"/
-    # "Valuta Creditering"-rijen — de enige rijen met een ingevulde
-    # FX-kolom in het rekeningoverzicht.
-    fx_rows = df[df["Omschrijving"].isin(["Valuta Debitering", "Valuta Creditering"])]
-    fx_lookup = {}
-    for _, row in fx_rows.iterrows():
-        fx = pd.to_numeric(row.get("FX"), errors="coerce")
-        if pd.isna(fx) or fx == 0 or pd.isna(row["Valutadatum"]):
-            continue
-        fx_lookup[(row["Valutadatum"].date(), row["valuta_mutatie"])] = float(fx)
-
-    def rij_naar_eur(row):
-        """Geeft het EUR-bedrag van 1 rij terug, of None als de valuta niet
-        EUR is en er geen FX-koers gevonden is voor die (Valutadatum,
-        valuta) — dan liever expliciet 'onbekend' dan een gok."""
-        if pd.isna(row["mutatie"]):
-            return None
-        if row["valuta_mutatie"] == "EUR":
-            return float(row["mutatie"])
-        fx = fx_lookup.get((row["Valutadatum"].date(), row["valuta_mutatie"]))
-        if fx is None:
-            return None
-        return float(row["mutatie"]) / fx
-
-    dividend_rows = df[df["Omschrijving"].isin(["Dividend", "Dividendbelasting"])]
-
-    records = []
-    for (datum, isin), groep in dividend_rows.groupby(["Datum", "ISIN"]):
-        bruto_rijen = groep[groep["Omschrijving"] == "Dividend"]
-        belasting_rijen = groep[groep["Omschrijving"] == "Dividendbelasting"]
-
-        product = groep["Product"].iloc[0]
-        valuta = groep["valuta_mutatie"].dropna().iloc[0] if groep["valuta_mutatie"].notna().any() else "EUR"
-
-        # Ruwe (niet-EUR-geconverteerde) bedragen — gebruikt voor de
-        # synthetische dividend_id, zodat die stabiel blijft ongeacht of de
-        # FX-lookup op een herhaalde upload dezelfde koers teruggeeft.
-        bruto_ruw = float(bruto_rijen["mutatie"].sum()) if not bruto_rijen.empty else 0.0
-        belasting_ruw = float(belasting_rijen["mutatie"].sum()) if not belasting_rijen.empty else 0.0
-
-        bruto_eur_per_rij = [rij_naar_eur(r) for _, r in bruto_rijen.iterrows()]
-        belasting_eur_per_rij = [rij_naar_eur(r) for _, r in belasting_rijen.iterrows()]
-
-        bruto_eur = sum(bruto_eur_per_rij) if bruto_eur_per_rij and all(v is not None for v in bruto_eur_per_rij) else (0.0 if not bruto_eur_per_rij else None)
-        belasting_eur = sum(belasting_eur_per_rij) if belasting_eur_per_rij and all(v is not None for v in belasting_eur_per_rij) else (0.0 if not belasting_eur_per_rij else None)
-        netto_eur = (bruto_eur + belasting_eur) if bruto_eur is not None and belasting_eur is not None else None
-
-        dividend_id = "DIV-" + hashlib.md5(
-            f"{datum.date()}|{isin}|{bruto_ruw:.6f}|{belasting_ruw:.6f}".encode()
-        ).hexdigest()[:16]
-
-        records.append({
-            "datum": datum.date(),
-            "product": product,
-            "isin": isin,
-            "valuta": valuta,
-            "bruto_eur": bruto_eur,
-            "belasting_eur": belasting_eur,
-            "netto_eur": netto_eur,
-            "dividend_id": dividend_id,
-        })
-
-    print(f"[dividend] rekeningoverzicht verwerkt: {len(records)} dividenduitkering(en) gevonden")
-    return records
+    return verwerk_rekeningoverzicht_df(df)
 
 
 def bereken_dividend_samenvatting(code):
@@ -1562,5 +1655,254 @@ def bereken_dividend_samenvatting(code):
         "cumulatief": {
             "datums": [d.strftime("%Y-%m-%d") for d in alle_datums],
             "per_ticker": cumulatief_per_ticker,
+        },
+    }
+
+
+# ---------------------------------------------------------------------------
+# Statistieken-tabblad
+#
+# De onderstaande "bereken_*"-functies zijn bewust pure functies (getallen in,
+# getallen uit, geen DataFrame/DB-toegang) — dat maakt ze met de hand na te
+# rekenen en apart te unittesten (zie tests/test_rendement.py) zonder een
+# databaseverbinding of live yfinance-data nodig te hebben. bereken_statistieken()
+# hieronder is de orkestratie die er transacties_df/price_data/resultaat
+# (al berekend in analyze_transacties) voor voedt.
+# ---------------------------------------------------------------------------
+
+def bereken_positie_rendement(gak, aantal, huidige_koers):
+    """Rendement van 1 positie op basis van GAK (gemiddelde aankoopkoers).
+    geinvesteerd = kostenbasis van de nu aangehouden stukken (GAK x aantal),
+    NIET het historische netto-ingelegde bedrag (dat kan door eerdere
+    verkopen anders zijn) — voor 'wat heb ik betaald voor wat ik nu heb' is
+    de kostenbasis van de huidige positie de juiste noemer."""
+    geinvesteerd = gak * aantal
+    waarde = aantal * huidige_koers
+    rendement_pct = ((waarde - geinvesteerd) / geinvesteerd * 100) if geinvesteerd else None
+    return {"waarde": waarde, "geinvesteerd": geinvesteerd, "rendement_pct": rendement_pct}
+
+
+def bereken_totaal_rendement(geinvesteerd, waarde):
+    """Rendement% als simpele ratio winst/geïnvesteerd — houdt GEEN rekening
+    met WANNEER er is ingelegd (dat is XIRR, zie bereken_xirr)."""
+    rendement_eur = waarde - geinvesteerd
+    rendement_pct = (rendement_eur / geinvesteerd * 100) if geinvesteerd else None
+    return {"rendement_eur": rendement_eur, "rendement_pct": rendement_pct}
+
+
+def bereken_jaar_rendement(startwaarde, ingelegd, eindwaarde):
+    """Winst van 1 kalenderjaar. winst_pct deelt door (startwaarde + ingelegd)
+    — het bedrag dat aan het eind van het jaar 'ingezet' is, niet het
+    gemiddelde over het hele jaar — zelfde ratio-methode als
+    bereken_totaal_rendement, nu toegepast op dit ene jaar i.p.v. de hele
+    portefeuille."""
+    winst_eur = eindwaarde - startwaarde - ingelegd
+    noemer = startwaarde + ingelegd
+    winst_pct = (winst_eur / noemer * 100) if noemer else None
+    return {"winst_eur": winst_eur, "winst_pct": winst_pct}
+
+
+def bereken_xirr(cashflows):
+    """cashflows: lijst van (datum, bedrag)-tuples vanuit het perspectief van
+    de belegger — aankopen negatief, verkopen positief, plus een laatste
+    fictieve 'verkoop' van de huidige waarde op vandaag. Geeft de
+    geannualiseerde, tijdgewogen rentevoet terug (als fractie, dus 0.10 =
+    10%), of None als pyxirr geen oplossing kan vinden (bv. te weinig of
+    tegenstrijdige cashflows)."""
+    if len(cashflows) < 2:
+        return None
+    datums = [c[0] for c in cashflows]
+    bedragen = [c[1] for c in cashflows]
+    try:
+        return xirr(datums, bedragen)
+    except Exception as e:
+        print(f"[statistieken] XIRR-berekening mislukt: {e}")
+        return None
+
+
+def bereken_holdings_gak(transacties_df):
+    """Per ticker: huidige aantal + GAK (gemiddelde aankoopkoers) via de
+    lopende-gemiddelde-kostprijs-methode (zelfde methode als DEGIRO zelf
+    hanteert).
+
+    ALLE rijen tellen mee voor het aantal — ook DEGIRO's
+    corporate-action-boekingsrijen (zie _is_corporate_action_row): die
+    overslaan zou bij een split het aandelenaantal dubbel tellen (oude +
+    nieuwe stukken blijven dan allebei meetellen). Of een negatieve rij de
+    kostenbasis evenredig verlaagt, hangt af van of er een ECHTE cashflow
+    bij zit (totaal_eur != 0): bij een verkoop realiseer je een deel van de
+    kostenbasis (dat deel gaat eraf), maar bij een split-boekingsrij (aantal
+    negatief, totaal_eur=0, geen geld dat van eigenaar wisselt) blijft de
+    kostenbasis intact — alleen het aantal daalt tijdelijk, om vervolgens via
+    de bijbehorende conversie-rij weer (met meer stukken) aangevuld te
+    worden. Zo verdunt een split de GAK per aandeel vanzelf correct, zonder
+    de kostenbasis aan te tasten. Posities die volledig verkocht zijn
+    (aantal <= 0) komen niet in het resultaat terecht.
+
+    Geeft {ticker: {"aantal": float, "gak": float}} terug."""
+    result = {}
+    df = transacties_df.dropna(subset=["ticker"])
+    for ticker, groep in df.groupby("ticker"):
+        groep = groep.sort_values("datum")
+        aantal_lopend = 0.0
+        kostprijs_lopend = 0.0
+        for _, row in groep.iterrows():
+            delta_aantal = float(row["aantal"])
+            delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
+            if delta_aantal > 0:
+                aantal_lopend += delta_aantal
+                kostprijs_lopend += delta_cash
+            elif delta_aantal < 0:
+                if delta_cash != 0 and aantal_lopend > 0:
+                    gak_op_dat_moment = kostprijs_lopend / aantal_lopend
+                    kostprijs_lopend -= gak_op_dat_moment * min(-delta_aantal, aantal_lopend)
+                aantal_lopend += delta_aantal
+        if aantal_lopend > 1e-9:
+            result[ticker] = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
+    return result
+
+
+def bereken_jaren_overzicht(resultaat):
+    """resultaat: DataFrame zoals compute_value_over_time() teruggeeft
+    (index=datum, kolommen 'waarde'/'geinvesteerd'). Geeft per kalenderjaar
+    waarin belegd is een overzicht terug (zie bereken_jaar_rendement)."""
+    if resultaat.empty:
+        return []
+
+    def waarde_op_of_voor(datum, kolom):
+        subset = resultaat.loc[:datum, kolom]
+        return float(subset.iloc[-1]) if len(subset) else 0.0
+
+    laatste_datum = resultaat.index.max()
+    eerste_jaar = resultaat.index.min().year
+    laatste_jaar = laatste_datum.year
+
+    jaren = []
+    for jaar in range(eerste_jaar, laatste_jaar + 1):
+        jaar_start = pd.Timestamp(year=jaar, month=1, day=1)
+        jaar_eind = pd.Timestamp(year=jaar, month=12, day=31)
+        dagen_in_jaar = 366 if pd.Timestamp(year=jaar, month=12, day=31).is_leap_year else 365
+        is_huidig_jaar = jaar_eind > laatste_datum
+
+        dagen_verstreken = (laatste_datum - jaar_start).days + 1 if is_huidig_jaar else dagen_in_jaar
+        pct_van_jaar = dagen_verstreken / dagen_in_jaar * 100
+
+        eind_lookup = min(jaar_eind, laatste_datum)
+        startwaarde = waarde_op_of_voor(jaar_start - pd.Timedelta(days=1), "waarde")
+        geinvesteerd_voor = waarde_op_of_voor(jaar_start - pd.Timedelta(days=1), "geinvesteerd")
+        geinvesteerd_na = waarde_op_of_voor(eind_lookup, "geinvesteerd")
+        ingelegd = geinvesteerd_na - geinvesteerd_voor
+        eindwaarde = waarde_op_of_voor(eind_lookup, "waarde")
+
+        rendement = bereken_jaar_rendement(startwaarde, ingelegd, eindwaarde)
+        jaren.append({
+            "jaar": jaar,
+            "dagen_verstreken": dagen_verstreken,
+            "pct_van_jaar": round(pct_van_jaar, 1),
+            "startwaarde": round(startwaarde, 2),
+            "ingelegd": round(ingelegd, 2),
+            "eindwaarde": round(eindwaarde, 2),
+            "winst_eur": round(rendement["winst_eur"], 2),
+            "winst_pct": round(rendement["winst_pct"], 2) if rendement["winst_pct"] is not None else None,
+        })
+    return jaren
+
+
+def _bouw_xirr_cashflows(transacties_df, resultaat):
+    """Bouwt de cashflow-lijst voor bereken_xirr(): elke echte transactie
+    (geen corporate-action-boekingsrij, geen €0-splitconversie) plus een
+    laatste fictieve cashflow op de laatste bekende datum ter grootte van de
+    huidige portfoliowaarde (alsof alles vandaag verkocht wordt — nodig om
+    XIRR een eindpunt te geven)."""
+    if resultaat.empty:
+        return []
+    df = transacties_df.dropna(subset=["ticker"])
+    df = df[~df.apply(_is_corporate_action_row, axis=1)]
+    cashflows = [
+        (pd.Timestamp(row["datum"]).date(), float(row["totaal_eur"]))
+        for _, row in df.iterrows() if float(row["totaal_eur"]) != 0
+    ]
+    if not cashflows:
+        return []
+    laatste_datum = resultaat.index.max()
+    laatste_waarde = float(resultaat["waarde"].iloc[-1])
+    cashflows.append((pd.Timestamp(laatste_datum).date(), laatste_waarde))
+    cashflows.sort(key=lambda c: c[0])
+    return cashflows
+
+
+def bereken_statistieken(transacties_df, price_data, resultaat):
+    """
+    Bouwt alle data voor het Statistieken-tabblad. Gebruikt uitsluitend data
+    die analyze_transacties() (app.py) al berekend heeft (transacties_df ná
+    compute_split_adjusted_shares, price_data van get_prices(), resultaat van
+    compute_value_over_time()) — geen extra yfinance-calls, dus dit hoeft
+    (anders dan Ticker-zekerheid) niet lui/lazy geladen te worden.
+
+    Let op: voor 'huidig aantal per positie' wordt (net als bij de
+    Verdeling-taart, zie compute_land_sector_verdeling) de ruwe 'aantal'-
+    kolom gebruikt, niet 'adj_aantal' — DEGIRO's splitconversierijen zijn
+    al ECHTE transactierijen die het aandelenaantal optellen, adj_aantal is
+    alleen nodig om HISTORISCHE (vóór-split) waardepunten te corrigeren.
+    """
+    laatste_prijzen = price_data.iloc[-1] if not price_data.empty else pd.Series(dtype=float)
+    holdings = bereken_holdings_gak(transacties_df)
+
+    posities = []
+    for ticker, info in holdings.items():
+        if ticker not in price_data.columns or pd.isna(laatste_prijzen.get(ticker)):
+            continue
+        huidige_koers = float(laatste_prijzen[ticker])
+        r = bereken_positie_rendement(info["gak"], info["aantal"], huidige_koers)
+        posities.append({
+            "ticker": ticker,
+            "aantal": round(info["aantal"], 4),
+            "gak": round(info["gak"], 4),
+            "huidige_koers": round(huidige_koers, 4),
+            "huidige_waarde": round(r["waarde"], 2),
+            "geinvesteerd": round(r["geinvesteerd"], 2),
+            "rendement_pct": round(r["rendement_pct"], 2) if r["rendement_pct"] is not None else None,
+        })
+    posities.sort(key=lambda p: p["huidige_waarde"], reverse=True)
+
+    totaal_geinvesteerd = float(resultaat["geinvesteerd"].iloc[-1]) if not resultaat.empty else 0.0
+    totaal_waarde = float(resultaat["waarde"].iloc[-1]) if not resultaat.empty else 0.0
+    totaal = bereken_totaal_rendement(totaal_geinvesteerd, totaal_waarde)
+
+    all_time_high = {"waarde": None, "datum": None}
+    if not resultaat.empty:
+        ath_idx = resultaat["waarde"].idxmax()
+        all_time_high = {
+            "waarde": round(float(resultaat["waarde"].max()), 2),
+            "datum": ath_idx.strftime("%Y-%m-%d"),
+        }
+
+    jaren = bereken_jaren_overzicht(resultaat)
+    geldige_pcts = [j["winst_pct"] for j in jaren if j["winst_pct"] is not None]
+    gemiddeld_jaarrendement = round(sum(geldige_pcts) / len(geldige_pcts), 2) if geldige_pcts else None
+
+    cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
+    xirr_fractie = bereken_xirr(cashflows) if cashflows else None
+
+    aantal_jaren = None
+    if not resultaat.empty:
+        eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
+        aantal_jaren = round((resultaat.index.max() - pd.Timestamp(eerste_datum)).days / 365.25, 2)
+
+    return {
+        "posities": posities,
+        "totalen": {
+            "geinvesteerd": round(totaal_geinvesteerd, 2),
+            "waarde": round(totaal_waarde, 2),
+            "rendement_eur": round(totaal["rendement_eur"], 2),
+            "rendement_pct": round(totaal["rendement_pct"], 2) if totaal["rendement_pct"] is not None else None,
+            "all_time_high": all_time_high,
+            "transactiekosten_beschikbaar": False,
+        },
+        "jaren": jaren,
+        "geavanceerd": {
+            "gemiddeld_jaarrendement_pct": gemiddeld_jaarrendement,
+            "xirr_pct": round(xirr_fractie * 100, 2) if xirr_fractie is not None else None,
+            "aantal_jaren": aantal_jaren,
         },
     }

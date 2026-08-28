@@ -24,6 +24,7 @@ protobuf==7.36.0
 psycopg2-binary==2.9.12
 pycountry==26.2.16
 pycparser==3.0
+pyxirr==0.10.8
 python-dateutil==2.9.0.post0
 python-dotenv==1.2.3
 pytz==2026.3.post1

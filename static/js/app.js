@@ -759,6 +759,25 @@ function toonDividendChart(cumulatief) {
     });
 }
 
+// Losstaand van de rest van het dashboard: alleen het Dividend-tabblad
+// heeft een Account-overzicht nodig, dus alleen déze weergave valt terug
+// op deze melding — andere tabbladen (Portfolio-home, Verdeling, ...)
+// blijven gewoon werken zonder Account-bestand.
+function maakGeenRekeningoverzichtMelding() {
+    const container = document.createElement("div");
+
+    const p = document.createElement("p");
+    p.textContent = "Dividendgegevens niet beschikbaar — upload eerst je Account-overzicht (Excel) om dit te kunnen zien.";
+    container.appendChild(p);
+
+    const knop = document.createElement("button");
+    knop.textContent = "Terug naar upload";
+    knop.onclick = gaTerugNaarUpload;
+    container.appendChild(knop);
+
+    return container;
+}
+
 async function toonDividend() {
     const sectie = document.getElementById("dividendStatsSectie");
     document.getElementById("chartWrapper").style.display = "block";
@@ -768,9 +787,7 @@ async function toonDividend() {
         if (chart) { chart.destroy(); chart = null; }
         document.getElementById("chartWrapper").style.display = "none";
         sectie.innerHTML = "";
-        const p = document.createElement("p");
-        p.textContent = "Geen rekeningoverzicht geüpload — dividendanalyse niet beschikbaar. Upload opnieuw met het rekeningoverzicht erbij om dit te zien.";
-        sectie.appendChild(p);
+        sectie.appendChild(maakGeenRekeningoverzichtMelding());
         return;
     }
 
@@ -791,14 +808,262 @@ async function toonDividend() {
         if (chart) { chart.destroy(); chart = null; }
         document.getElementById("chartWrapper").style.display = "none";
         sectie.innerHTML = "";
-        const p = document.createElement("p");
-        p.textContent = "Geen rekeningoverzicht geüpload — dividendanalyse niet beschikbaar. Upload opnieuw met het rekeningoverzicht erbij om dit te zien.";
-        sectie.appendChild(p);
+        sectie.appendChild(maakGeenRekeningoverzichtMelding());
         return;
     }
 
     renderDividendStats(data);
     toonDividendChart(data.cumulatief);
+}
+
+function formatEur(bedrag) {
+    if (bedrag === null || bedrag === undefined) return "onbekend";
+    const teken = bedrag < 0 ? "-" : "";
+    return `${teken}€${Math.abs(bedrag).toFixed(2)}`;
+}
+
+function formatPct(pct) {
+    return (pct === null || pct === undefined) ? "onbekend" : `${pct.toFixed(2)}%`;
+}
+
+function kleurVoorRendement(pct) {
+    if (pct === null || pct === undefined) return "#333";
+    return pct >= 0 ? "#2c7a4b" : "#9C0006";
+}
+
+function maakStatTegel(label, waardeTekst, kleur) {
+    const tegel = document.createElement("div");
+    tegel.style.minWidth = "160px";
+
+    const labelDiv = document.createElement("div");
+    labelDiv.textContent = label;
+    labelDiv.style.fontSize = "0.85em";
+    labelDiv.style.color = "#666";
+    tegel.appendChild(labelDiv);
+
+    const waardeDiv = document.createElement("div");
+    waardeDiv.textContent = waardeTekst;
+    waardeDiv.style.fontSize = "1.4em";
+    waardeDiv.style.fontWeight = "bold";
+    waardeDiv.style.color = kleur || "#333";
+    tegel.appendChild(waardeDiv);
+
+    return tegel;
+}
+
+function maakTotalenSectie(totalen) {
+    const rij = document.createElement("div");
+    rij.style.display = "flex";
+    rij.style.flexWrap = "wrap";
+    rij.style.gap = "24px";
+    rij.style.marginBottom = "24px";
+
+    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatEur(totalen.geinvesteerd)));
+    rij.appendChild(maakStatTegel("Totale huidige waarde", formatEur(totalen.waarde)));
+    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatEur(totalen.rendement_eur), kleurVoorRendement(totalen.rendement_eur)));
+    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), kleurVoorRendement(totalen.rendement_pct)));
+
+    if (totalen.all_time_high && totalen.all_time_high.waarde !== null) {
+        rij.appendChild(maakStatTegel(
+            "All-time high",
+            `${formatEur(totalen.all_time_high.waarde)} (${formatDatum(totalen.all_time_high.datum)})`
+        ));
+    }
+
+    const container = document.createElement("div");
+    container.appendChild(rij);
+
+    if (!totalen.transactiekosten_beschikbaar) {
+        const kostenNotitie = document.createElement("p");
+        kostenNotitie.style.fontSize = "0.85em";
+        kostenNotitie.style.color = "#888";
+        kostenNotitie.textContent = "Totale transactiekosten: data ontbreekt — het geüploade transactiebestand bevat geen aparte kostenkolom.";
+        container.appendChild(kostenNotitie);
+    }
+
+    return container;
+}
+
+function maakPositieTabel(posities, tickerNamen) {
+    if (!posities || posities.length === 0) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Geen open posities.";
+        return p;
+    }
+
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.9em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.width = "100%";
+
+    const kop = document.createElement("tr");
+    ["Naam/ticker", "Aantal", "Huidige waarde", "GAK", "Rendement"].forEach(tekst => {
+        const th = document.createElement("th");
+        th.textContent = tekst;
+        th.style.textAlign = "left";
+        th.style.padding = "4px 16px 4px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        kop.appendChild(th);
+    });
+    tabel.appendChild(kop);
+
+    posities.forEach(p => {
+        const rij = document.createElement("tr");
+        const naam = (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
+        [
+            `${naam} (${p.ticker})`,
+            p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 }),
+            formatEur(p.huidige_waarde),
+            `€${p.gak.toFixed(4)}`,
+        ].forEach(tekst => {
+            const td = document.createElement("td");
+            td.textContent = tekst;
+            td.style.padding = "4px 16px 4px 0";
+            rij.appendChild(td);
+        });
+        const rendementTd = document.createElement("td");
+        rendementTd.textContent = formatPct(p.rendement_pct);
+        rendementTd.style.padding = "4px 16px 4px 0";
+        rendementTd.style.color = kleurVoorRendement(p.rendement_pct);
+        rendementTd.style.fontWeight = "bold";
+        rij.appendChild(rendementTd);
+        tabel.appendChild(rij);
+    });
+
+    return tabel;
+}
+
+function maakJarenTabel(jaren) {
+    if (!jaren || jaren.length === 0) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Geen jaargegevens beschikbaar.";
+        return p;
+    }
+
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.9em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.width = "100%";
+
+    const kop = document.createElement("tr");
+    ["Jaar", "Startwaarde", "Ingelegd", "Eindwaarde", "Winst"].forEach(tekst => {
+        const th = document.createElement("th");
+        th.textContent = tekst;
+        th.style.textAlign = "left";
+        th.style.padding = "4px 16px 4px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        kop.appendChild(th);
+    });
+    tabel.appendChild(kop);
+
+    [...jaren].reverse().forEach(j => {
+        const rij = document.createElement("tr");
+        const jaarTd = document.createElement("td");
+        jaarTd.style.padding = "4px 16px 4px 0";
+        const jaarStrong = document.createElement("strong");
+        jaarStrong.textContent = j.jaar;
+        jaarTd.appendChild(jaarStrong);
+        const detail = document.createElement("div");
+        detail.style.fontSize = "0.85em";
+        detail.style.color = "#888";
+        detail.textContent = `${j.dagen_verstreken}d, ${j.pct_van_jaar}% van jaar`;
+        jaarTd.appendChild(detail);
+        rij.appendChild(jaarTd);
+
+        [formatEur(j.startwaarde), formatEur(j.ingelegd), formatEur(j.eindwaarde)].forEach(tekst => {
+            const td = document.createElement("td");
+            td.textContent = tekst;
+            td.style.padding = "4px 16px 4px 0";
+            rij.appendChild(td);
+        });
+
+        const winstTd = document.createElement("td");
+        winstTd.style.padding = "4px 16px 4px 0";
+        winstTd.style.color = kleurVoorRendement(j.winst_eur);
+        winstTd.style.fontWeight = "bold";
+        winstTd.textContent = `${formatEur(j.winst_eur)} (${formatPct(j.winst_pct)})`;
+        rij.appendChild(winstTd);
+
+        tabel.appendChild(rij);
+    });
+
+    return tabel;
+}
+
+function maakGeavanceerdSectie(geavanceerd) {
+    const rij = document.createElement("div");
+    rij.style.display = "flex";
+    rij.style.flexWrap = "wrap";
+    rij.style.gap = "24px";
+    rij.style.margin = "16px 0 8px 0";
+
+    rij.appendChild(maakStatTegel("Gemiddeld jaarrendement", formatPct(geavanceerd.gemiddeld_jaarrendement_pct), kleurVoorRendement(geavanceerd.gemiddeld_jaarrendement_pct)));
+    rij.appendChild(maakStatTegel("XIRR", formatPct(geavanceerd.xirr_pct), kleurVoorRendement(geavanceerd.xirr_pct)));
+    rij.appendChild(maakStatTegel("Aantal jaren", geavanceerd.aantal_jaren !== null ? geavanceerd.aantal_jaren.toFixed(2) : "onbekend"));
+
+    return rij;
+}
+
+function maakUitlegSectie() {
+    const box = document.createElement("div");
+    box.style.fontSize = "0.85em";
+    box.style.color = "#666";
+    box.style.background = "#f4f4f4";
+    box.style.borderRadius = "4px";
+    box.style.padding = "10px 14px";
+    box.style.marginTop = "8px";
+
+    const p1 = document.createElement("p");
+    p1.style.margin = "0 0 6px 0";
+    p1.innerHTML = "<strong>XIRR</strong> is de eerlijkste rendementsmaatstaf hierboven — die houdt (anders dan de andere percentages) rekening met WANNEER je geld hebt ingelegd, in plaats van alleen met hoeveel.";
+    box.appendChild(p1);
+
+    const p2 = document.createElement("p");
+    p2.style.margin = "0";
+    p2.innerHTML = "<strong>Jaarrendement</strong> (per jaar, en het gemiddelde daarvan) wordt gedeeld door het bedrag dat dát jaar ingezet was (startwaarde + dat jaar ingelegd) — niet door het totaal over alle jaren. Dit is, net als het totaalrendement, een simpele ratio zonder tijdweging.";
+    box.appendChild(p2);
+
+    return box;
+}
+
+function toonStatistieken() {
+    const sectie = document.getElementById("statistiekenSectie");
+    sectie.innerHTML = "";
+
+    const stats = huidigeData.statistieken;
+    if (!stats) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Geen statistieken beschikbaar voor deze portfolio.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    const tickerNamen = {};
+    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+
+    sectie.appendChild(maakTotalenSectie(stats.totalen));
+
+    const positiesKop = document.createElement("h3");
+    positiesKop.textContent = "Posities";
+    positiesKop.style.marginBottom = "6px";
+    sectie.appendChild(positiesKop);
+    sectie.appendChild(maakPositieTabel(stats.posities, tickerNamen));
+
+    const jarenKop = document.createElement("h3");
+    jarenKop.textContent = "Rendement per jaar";
+    jarenKop.style.margin = "24px 0 6px 0";
+    sectie.appendChild(jarenKop);
+    sectie.appendChild(maakJarenTabel(stats.jaren));
+
+    const geavanceerdKop = document.createElement("h3");
+    geavanceerdKop.textContent = "Samengesteld rendement";
+    geavanceerdKop.style.margin = "24px 0 0 0";
+    sectie.appendChild(geavanceerdKop);
+    sectie.appendChild(maakGeavanceerdSectie(stats.geavanceerd));
+    sectie.appendChild(maakUitlegSectie());
 }
 
 function wisselView(view) {
@@ -810,12 +1075,13 @@ function wisselView(view) {
     document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
-    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || isInstellingenView) ? "none" : "block";
-    document.getElementById("chartWrapper").style.display = isInstellingenView ? "none" : "block";
+    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "statistieken" || isInstellingenView) ? "none" : "block";
+    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken") ? "none" : "block";
     document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
+    document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
 
     if (view !== "instellingen-bijnamen") {
         document.getElementById("instellingenMsg").style.display = "none";
@@ -838,6 +1104,7 @@ function wisselView(view) {
     else if (view === "instellingen-bijnamen") toonInstellingen();
     else if (view === "instellingen-ticker") toonInstellingenTicker();
     else if (view === "dividend") toonDividend();
+    else if (view === "statistieken") toonStatistieken();
     else if (view === "peraandeel") {
         const select = document.getElementById("aandeelSelect");
         toonPerAandeel(select.value);
@@ -919,10 +1186,12 @@ document.getElementById("codeForm").addEventListener("submit", async (e) => {
     toonDashboard(data);
 });
 
-document.getElementById("terugKnop").addEventListener("click", () => {
+function gaTerugNaarUpload() {
     document.getElementById("dashboardSection").style.display = "none";
     document.getElementById("uploadSection").style.display = "block";
-});
+}
+
+document.getElementById("terugKnop").addEventListener("click", gaTerugNaarUpload);
 
 document.getElementById("verwijderPortfolioBtn").addEventListener("click", async () => {
     if (!huidigeData || !huidigeData.code) return;
