@@ -11,7 +11,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from db import (get_db_connection, save_prices, get_cached_classifications, save_classification,
                  get_cached_land_sector, save_land_sector, get_cached_etf_sector_verdeling,
                  save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
-                 get_ticker_details, get_cached_prijscheck, save_prijscheck, get_dividenden)
+                 get_ticker_details, get_cached_prijscheck, save_prijscheck, get_dividenden,
+                 get_cached_splits, save_splits)
 import time
 
 # Zet op True om overal in dit bestand debug-prints aan te zetten.
@@ -21,6 +22,18 @@ def dprint(*args, **kwargs):
     if DEBUG:
         print(*args, **kwargs)
 
+
+# Drempels voor de prijscontrole op de Ticker-zekerheid-pagina (zie
+# vergelijk_prijs_op_datum): Yahoo's SLOTkoers wordt vergeleken met een
+# intraday-transactieprijs uit het Excel-bestand, dus een kleine afwijking
+# is normaal en geen teken van een foute ticker.
+#   < PRIJSCHECK_DREMPEL_OK              -> "ok" (✓)
+#   PRIJSCHECK_DREMPEL_OK..DREMPEL_WAARSCHUWING -> "mild" (🔍, wel even
+#     bekijken, maar degradeert een beurs-bevestigde match niet naar Onzeker)
+#   >= PRIJSCHECK_DREMPEL_WAARSCHUWING   -> "waarschuwing" (⚠️, telt mee
+#     voor het Zeker/Onzeker-oordeel)
+PRIJSCHECK_DREMPEL_OK = 0.02
+PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 
 # Landen met een aandeel onder deze drempel (fractie van de totale
 # portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
@@ -1623,13 +1636,74 @@ def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=3, wachttijd=8):
     return float(geldig.iloc[0])
 
 
+def _haal_splits_op(ticker):
+    """
+    Haalt de bekende aandelensplitsingen van 'ticker' op via yfinance,
+    gecachet (tabel ticker_splits, max 30 dagen oud — anders dan
+    ticker_prijscheck kan een ticker in de TOEKOMST een nieuwe split doen,
+    dus deze cache mag niet voor altijd blijven staan). Geeft {iso_datum:
+    ratio} terug — een leeg dict betekent "voor zover bekend geen splits",
+    en wordt net als bij ticker_prijscheck gewoon gecachet. Bij een
+    mislukte lookup ook een leeg dict, maar dan NIET gecached (geen crash,
+    gewoon geen correctie toepassen; wel opnieuw proberen bij de volgende
+    aanroep in plaats van een tijdelijke netwerkfout te bevriezen).
+    """
+    cached = get_cached_splits(ticker)
+    if cached is not None:
+        dprint(f"[splits] '{ticker}': uit cache -> {len(cached)} split(s)")
+        return cached
+    try:
+        splits = yf.Ticker(ticker).splits
+    except Exception as e:
+        print(f"[splits] kon split-geschiedenis niet ophalen voor '{ticker}': {e}")
+        return {}
+    resultaat = {pd.Timestamp(datum).date().isoformat(): float(ratio) for datum, ratio in splits.items()}
+    print(f"[splits] '{ticker}': opgehaald -> {len(resultaat)} split(s)")
+    save_splits(ticker, resultaat)
+    return resultaat
+
+
+def _cumulatieve_split_factor(ticker, vanaf_datum):
+    """
+    Cumulatieve vermenigvuldigingsfactor van alle splits die voor 'ticker'
+    hebben plaatsgevonden NA 'vanaf_datum' (tot nu).
+
+    Nodig omdat _haal_slotkoers_op met auto_adjust=True werkt: een
+    historische Yahoo-slotkoers van vóór een latere split komt terug op de
+    HUIDIGE aandelen-basis (dus bv. 1/3e van de destijds werkelijk
+    verhandelde prijs na een 3-voor-1-split), terwijl de Excel/DEGIRO-
+    transactieprijs de ruwe, ongecorrigeerde prijs van dat moment is.
+    Zonder deze correctie lijkt elke split op een (soms drastisch) foute
+    ticker — zie het BYD/BY6.MU-voorbeeld waar één oude transactiedatum
+    71% "afweek" terwijl een recentere datum prima klopte.
+    """
+    splits = _haal_splits_op(ticker)
+    if not splits:
+        return 1.0
+    vanaf_datum = pd.Timestamp(vanaf_datum)
+    factor = 1.0
+    for datum_str, ratio in splits.items():
+        if pd.Timestamp(datum_str) > vanaf_datum:
+            factor *= ratio
+    return factor
+
+
 def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     """
     Vergelijkt de DEGIRO-transactieprijs (bekende_koers) met de historische
-    Yahoo-slotkoers van 'ticker' op diezelfde datum. Een grote afwijking is
-    een sterker signaal dat de ticker fout is dan beurs-string-matching
-    alleen — een verkeerde ticker op de "juiste" beurs geeft alsnog een
-    compleet andere koers.
+    Yahoo-slotkoers van 'ticker' op diezelfde datum (gecorrigeerd voor
+    eventuele splits sindsdien, zie _cumulatieve_split_factor). Een grote
+    afwijking is een sterker signaal dat de ticker fout is dan beurs-
+    string-matching alleen — een verkeerde ticker op de "juiste" beurs
+    geeft alsnog een compleet andere koers.
+
+    Drie afwijkingsniveaus (zie PRIJSCHECK_DREMPEL_OK/_WAARSCHUWING
+    bovenaan dit bestand) i.p.v. simpelweg goed/fout: Yahoo's SLOTkoers
+    wordt vergeleken met een intraday-transactieprijs, dus een kleine
+    afwijking (tot een paar procent) is normaal en geen teken van een
+    foute ticker. 'match' (bool) blijft bestaan voor de bestaande
+    zeker/onzeker- en kandidaat-vergelijkingslogica: True voor "ok"/"mild",
+    False alleen voor een echte "waarschuwing".
 
     Permanent gecached (tabel ticker_prijscheck) — zie db.save_prijscheck
     voor waarom ook een mislukte lookup hier wél gecached wordt, anders dan
@@ -1647,14 +1721,34 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         save_prijscheck(ticker, datum, yahoo_koers, valuta)
 
     if yahoo_koers is None or not bekende_koers:
-        return {"yahoo_koers": yahoo_koers, "bekende_koers": bekende_koers, "afwijking_pct": None, "match": None}
+        return {
+            "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
+            "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
+        }
 
-    afwijking_pct = abs(yahoo_koers - bekende_koers) / bekende_koers * 100
+    split_factor = _cumulatieve_split_factor(ticker, datum)
+    yahoo_koers_gecorrigeerd = yahoo_koers * split_factor
+    if split_factor != 1.0:
+        print(f"[prijscheck] '{ticker}' op {datum}: split-correctie toegepast (factor {split_factor:.4f}) "
+              f"-> yahoo_koers {yahoo_koers} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
+
+    afwijking_pct = abs(yahoo_koers_gecorrigeerd - bekende_koers) / bekende_koers * 100
+    afwijking_fractie = afwijking_pct / 100
+    if afwijking_fractie < PRIJSCHECK_DREMPEL_OK:
+        niveau = "ok"
+    elif afwijking_fractie < PRIJSCHECK_DREMPEL_WAARSCHUWING:
+        niveau = "mild"
+    else:
+        niveau = "waarschuwing"
+
     return {
         "yahoo_koers": yahoo_koers,
+        "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if split_factor != 1.0 else None,
+        "split_factor": split_factor,
         "bekende_koers": bekende_koers,
         "afwijking_pct": afwijking_pct,
-        "match": afwijking_pct < 2,
+        "niveau": niveau,
+        "match": niveau != "waarschuwing",
     }
 
 
@@ -1765,10 +1859,12 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     waarschuwing = None
     if zekerheid == "zeker" and prijs_bekend and not prijs_klopt:
         zekerheid = "onzeker"
-        afwijkende = next((c for c in prijs_checks if c["match"] is False), prijs_checks[0])
+        afwijkende = [c for c in prijs_checks if c["match"] is False]
+        grootste = max(afwijkende, key=lambda c: c["afwijking_pct"])
         waarschuwing = (
-            f"Beurs komt overeen, maar koers wijkt {afwijkende['afwijking_pct']:.1f}% af "
-            f"op {afwijkende['datum']} — mogelijk toch de verkeerde ticker."
+            f"Beurs komt overeen, maar {len(afwijkende)} van de {len(bekende_matches)} gecontroleerde "
+            f"datums wijkt meer dan {PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:.0f}% af (grootste afwijking "
+            f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
         )
         print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
 

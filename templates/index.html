@@ -51,7 +51,9 @@
     </div>
 
     <div class="container dashboard" id="dashboardSection" style="display: none;">
-        <div class="sidebar">
+        <button id="hamburgerBtn" class="hamburgerBtn" aria-label="Menu openen" aria-expanded="false">&#9776;</button>
+        <div id="menuOverlay" class="menuOverlay"></div>
+        <div class="sidebar" id="sidebarMenu">
             <button id="terugKnop" class="menuBtn">&larr; Nieuwe upload</button>
             <hr>
             <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
@@ -107,6 +109,7 @@
         </div>
     </div>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

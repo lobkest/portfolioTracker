@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: "20"
 
-      # Geen package.json/dependencies nodig: prognose.js is dependency-vrij
-      # en gebruikt Node's ingebouwde testrunner.
+      # Geen package.json/dependencies nodig: prognose.js/menu.js zijn
+      # dependency-vrij en gebruiken Node's ingebouwde testrunner.
       - name: JS unit tests draaien
-        run: node --test tests/test_prognose.js
+        run: node --test tests/test_prognose.js tests/test_menu.js

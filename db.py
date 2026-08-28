@@ -122,6 +122,13 @@ def init_db():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS ticker_splits (
+            ticker TEXT PRIMARY KEY,
+            splits JSONB NOT NULL,
+            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS dividenden (
             id SERIAL PRIMARY KEY,
             code TEXT NOT NULL,
@@ -353,6 +360,41 @@ def save_prijscheck(ticker, datum, koers, valuta):
         "ON CONFLICT (ticker, datum) DO UPDATE SET yahoo_slotkoers = EXCLUDED.yahoo_slotkoers, "
         "valuta = EXCLUDED.valuta, opgehaald_op = CURRENT_TIMESTAMP",
         (ticker, datum, koers, valuta),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_cached_splits(ticker):
+    """
+    Geeft de gecachte split-geschiedenis van 'ticker' terug als {iso_datum:
+    ratio}, of None als er geen (niet-verlopen, <30 dagen) cache is. Zelfde
+    leeftijdscheck als land/sector hierboven (CACHE_GELDIGHEID) — in
+    tegenstelling tot ticker_prijscheck (historische koersen veranderen
+    nooit) kan een ticker in de toekomst een NIEUWE split doen, dus deze
+    cache mag niet voor altijd blijven staan.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT splits FROM ticker_splits WHERE ticker = %s AND bijgewerkt_op > NOW() - INTERVAL '{CACHE_GELDIGHEID}'",
+        (ticker,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else None
+
+
+def save_splits(ticker, splits):
+    """splits: {iso_datum: ratio} — ook een leeg dict cachen (bevestigd geen splits), zie get_cached_splits."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ticker_splits (ticker, splits) VALUES (%s, %s) "
+        "ON CONFLICT (ticker) DO UPDATE SET splits = EXCLUDED.splits, bijgewerkt_op = CURRENT_TIMESTAMP",
+        (ticker, Json(splits)),
     )
     conn.commit()
     cur.close()

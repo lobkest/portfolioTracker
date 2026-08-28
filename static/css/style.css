@@ -20,21 +20,48 @@ body {
     width: 100%;
 }
 
+/* App-shell-layout: het menu blijft op zijn plek, alleen .content scrolt.
+   .dashboard krijgt een vaste hoogte (viewport min de padding-top van body
+   plus wat ruimte eronder) zodat .sidebar en .content (align-items: stretch,
+   de flex-default) daar precies in passen i.p.v. dat de hele pagina
+   meescrolt. */
 .dashboard {
     display: flex;
     width: 900px;
     max-width: 100%;
     gap: 20px;
+    position: relative;
+    height: calc(100vh - 100px);
+    height: calc(100dvh - 100px);
+    min-height: 400px;
 }
 
 .sidebar {
     width: 160px;
     flex-shrink: 0;
+    overflow-y: auto;
 }
 
 .content {
     flex-grow: 1;
     min-width: 0;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.hamburgerBtn {
+    display: none;
+}
+
+.menuOverlay {
+    display: none;
+}
+
+/* Brede tabellen (Posities, Rendement per jaar) scrollen zelf horizontaal
+   i.p.v. de hele pagina breder te maken op smalle schermen. */
+.tabelWrapper {
+    overflow-x: auto;
+    max-width: 100%;
 }
 
 .chart-wrapper {
@@ -161,7 +188,7 @@ button:hover {
 /* De landscape-tak dekt ook telefoon-breedtes tussen 768 en 900px: in
    landscape is de "breedte" van een telefoon net zo groot als anders de
    hoogte (bv. iPhone 14 landscape = 844px), dus zonder deze tak zou de
-   topbar-layout hieronder überhaupt niet aanslaan in landscape. */
+   hamburger-layout hieronder überhaupt niet aanslaan in landscape. */
 @media (max-width: 768px), (max-width: 900px) and (orientation: landscape) {
     body {
         padding-top: 0;
@@ -175,47 +202,79 @@ button:hover {
     .dashboard {
         flex-direction: column;
         width: 100%;
+        height: 100vh;
+        height: 100dvh;
+        min-height: 0;
         gap: 0;
+        /* Ruimte voor de vaste hamburgerbalk bovenaan. */
+        padding-top: calc(56px + env(safe-area-inset-top));
     }
 
-    .sidebar {
-        display: flex;
-        flex-direction: row;
-        overflow-x: auto;
-        white-space: nowrap;
-        width: calc(100% + 32px);
-        flex-shrink: 1;
-        position: sticky;
-        top: 0;
-        z-index: 10;
-        background: white;
-        padding-top: env(safe-area-inset-top);
-        margin: -16px -16px 16px -16px;
-    }
-
-    .sidebar hr {
-        display: none;
-    }
-
-    .sidebar .menuBtn {
-        width: auto;
-        flex-shrink: 0;
-        min-height: 44px;
+    /* Hamburger-icoon: vaste balk bovenaan, blijft zichtbaar terwijl
+       .content eronder zelfstandig scrolt (z-index boven .sidebar zodat
+       'm ook dienstdoet als sluitknop als het menu open staat). */
+    .hamburgerBtn {
         display: flex;
         align-items: center;
+        justify-content: center;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 56px;
+        height: calc(56px + env(safe-area-inset-top));
+        padding-top: env(safe-area-inset-top);
         margin: 0;
+        background: white;
+        color: #2c7a4b;
+        font-size: 1.6em;
+        line-height: 1;
+        border: none;
+        border-bottom: 1px solid #eee;
         border-radius: 0;
+        z-index: 50;
     }
 
-    #terugKnop {
-        padding-left: 12px;
-        padding-right: 12px;
-        font-size: 1.2em;
-        color: #666;
+    /* Menu is standaard een off-canvas paneel (buiten beeld geschoven);
+       .open (via app.js) schuift het in. */
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: 240px;
+        max-width: 80vw;
+        background: white;
+        box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
+        transform: translateX(-100%);
+        transition: transform 0.25s ease;
+        z-index: 40;
+        overflow-y: auto;
+        padding: calc(56px + env(safe-area-inset-top)) 8px 16px 8px;
     }
 
-    .subMenuBtn {
-        padding-left: 12px;
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .menuOverlay {
+        display: block;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.4);
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+        z-index: 35;
+    }
+
+    .menuOverlay.open {
+        opacity: 1;
+        pointer-events: auto;
+    }
+
+    .content {
+        flex-grow: 1;
+        min-height: 0;
     }
 
     .chart-wrapper {
@@ -231,12 +290,6 @@ button:hover {
 }
 
 @media (max-width: 900px) and (orientation: landscape) {
-    .sidebar .menuBtn {
-        padding: 6px 8px;
-        font-size: 0.85em;
-        min-height: 36px;
-    }
-
     .chart-wrapper {
         height: 80vh;
         height: 80dvh;

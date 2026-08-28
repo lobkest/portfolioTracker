@@ -542,10 +542,14 @@ function maakPrijscontroleTabel(prijsChecks) {
         return p;
     }
 
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+
     const tabel = document.createElement("table");
     tabel.style.fontSize = "0.85em";
     tabel.style.borderCollapse = "collapse";
     tabel.style.marginTop = "4px";
+    wrapper.appendChild(tabel);
 
     const kop = document.createElement("tr");
     ["Datum", "Excel-koers", "Yahoo-koers", "Afwijking", ""].forEach(tekst => {
@@ -558,27 +562,46 @@ function maakPrijscontroleTabel(prijsChecks) {
     });
     tabel.appendChild(kop);
 
+    let heeftSplitCorrectie = false;
+
     prijsChecks.forEach(c => {
         const rij = document.createElement("tr");
+        const gecorrigeerd = c.yahoo_koers_gecorrigeerd != null;
+        if (gecorrigeerd) heeftSplitCorrectie = true;
+        const yahooKoersTekst = c.yahoo_koers == null
+            ? "onbekend"
+            : gecorrigeerd ? `${c.yahoo_koers_gecorrigeerd.toFixed(3)} *` : c.yahoo_koers.toFixed(3);
+
         [
             c.datum,
             c.bekende_koers != null ? c.bekende_koers.toFixed(3) : "-",
-            c.yahoo_koers != null ? c.yahoo_koers.toFixed(3) : "onbekend",
+            yahooKoersTekst,
             c.afwijking_pct != null ? `${c.afwijking_pct.toFixed(1)}%` : "-",
-        ].forEach(tekst => {
+        ].forEach((tekst, i) => {
             const td = document.createElement("td");
             td.textContent = tekst;
             td.style.padding = "2px 14px 2px 0";
+            if (i === 2 && gecorrigeerd) {
+                td.title = `Ruwe Yahoo-koers ${c.yahoo_koers.toFixed(3)}, gecorrigeerd voor een split sinds deze `
+                    + `datum (factor ×${c.split_factor.toFixed(4)}).`;
+            }
             rij.appendChild(td);
         });
 
         const iconTd = document.createElement("td");
-        if (c.match === true) {
+        if (c.niveau === "ok") {
             iconTd.textContent = "✓";
             iconTd.style.color = "#2c7a4b";
-        } else if (c.match === false) {
+            iconTd.title = "Prijs komt overeen";
+        } else if (c.niveau === "mild") {
+            iconTd.textContent = "🔍";
+            iconTd.style.color = "#B8860B";
+            iconTd.title = "Klein verschil — waarschijnlijk normaal (Yahoo's slotkoers vs. een "
+                + "intraday-transactieprijs), geen reden om de ticker te wantrouwen";
+        } else if (c.niveau === "waarschuwing") {
             iconTd.textContent = "⚠️";
             iconTd.style.color = "#9C0006";
+            iconTd.title = "Grote afwijking — mogelijk toch de verkeerde ticker";
         } else {
             iconTd.textContent = "?";
             iconTd.style.color = "#999";
@@ -587,7 +610,17 @@ function maakPrijscontroleTabel(prijsChecks) {
         tabel.appendChild(rij);
     });
 
-    return tabel;
+    if (heeftSplitCorrectie) {
+        const voetnoot = document.createElement("p");
+        voetnoot.style.fontSize = "0.85em";
+        voetnoot.style.color = "#999";
+        voetnoot.style.marginTop = "4px";
+        voetnoot.textContent = "* gecorrigeerd voor een aandelensplitsing die na deze datum heeft plaatsgevonden "
+            + "(zweef over de koers voor details).";
+        wrapper.appendChild(voetnoot);
+    }
+
+    return wrapper;
 }
 
 function maakTickerZekerheidKaart(p) {
@@ -1029,7 +1062,13 @@ function maakPositieTabel(posities, tickerNamen) {
         tabel.appendChild(rij);
     });
 
-    return tabel;
+    // Wrapper i.p.v. de tabel direct teruggeven: laat de tabel op smalle
+    // schermen zelf horizontaal scrollen (overflow-x: auto in style.css)
+    // i.p.v. de hele pagina breder te maken.
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabel);
+    return wrapper;
 }
 
 function maakJarenTabel(jaren) {
@@ -1087,7 +1126,10 @@ function maakJarenTabel(jaren) {
         tabel.appendChild(rij);
     });
 
-    return tabel;
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabel);
+    return wrapper;
 }
 
 function maakGeavanceerdSectie(geavanceerd) {
@@ -1476,8 +1518,33 @@ function toonDashboard(data) {
     wisselView("portfolio");
 }
 
+// Hamburger-menu (alleen zichtbaar op mobiel, zie style.css): open/dicht-
+// status wordt berekend door static/js/menu.js (puur, apart getest), deze
+// functie past dat resultaat toe op de DOM.
+let menuOpen = false;
+const hamburgerBtn = document.getElementById("hamburgerBtn");
+const sidebarMenu = document.getElementById("sidebarMenu");
+const menuOverlay = document.getElementById("menuOverlay");
+
+function pasMenuStatusToe(open) {
+    menuOpen = open;
+    sidebarMenu.classList.toggle("open", open);
+    menuOverlay.classList.toggle("open", open);
+    hamburgerBtn.setAttribute("aria-expanded", String(open));
+    hamburgerBtn.innerHTML = open ? "&times;" : "&#9776;";
+}
+
+hamburgerBtn.addEventListener("click", () => pasMenuStatusToe(volgendeMenuOpenStatus(menuOpen)));
+menuOverlay.addEventListener("click", () => pasMenuStatusToe(false));
+document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && menuOpen) pasMenuStatusToe(false);
+});
+
 document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
-    btn.addEventListener("click", () => wisselView(btn.dataset.view));
+    btn.addEventListener("click", () => {
+        wisselView(btn.dataset.view);
+        pasMenuStatusToe(menuOpenStatusNaViewKeuze());
+    });
 });
 
 document.getElementById("aandeelSelect").addEventListener("change", (e) => {
