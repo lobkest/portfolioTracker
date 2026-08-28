@@ -118,13 +118,63 @@
         return { geldig: fouten.length === 0, fouten, waarschuwing };
     }
 
+    // Bouwt uit historische data (chartData, = de chart_data van de op dat
+    // moment actieve portfolio) + berekenPrognose() de labels/datasets voor de
+    // gedeelde rendementChart-canvas. Neemt chartData expliciet als parameter
+    // i.p.v. een globale variabele te lezen, zodat dit voor twee verschillende
+    // portfolio's aantoonbaar verschillende resultaten geeft (zie
+    // tests/test_prognose.js) en nooit per ongeluk data van een eerder geladen
+    // portfolio kan hergebruiken.
+    // Verleden- en toekomst-reeksen delen het laatste historische punt
+    // (index H-1) zodat de lijnen zonder gat op elkaar aansluiten.
+    // Datasets als {x, y}-punten (x = ISO-datumstring) i.p.v. een gedeelde
+    // labels-array — nodig voor de echte tijd-as in de browser.
+    function bouwPrognoseGrafiekData(chartData, invoer) {
+        const d = chartData;
+        const H = d.labels.length;
+        const laatsteDatum = d.labels[H - 1];
+        const startWaarde = d.waarde[H - 1];
+        const startGeinvesteerd = d.geinvesteerd[H - 1];
+
+        const prognose = berekenPrognose({
+            startWaarde, startGeinvesteerd,
+            jaren: invoer.jaren,
+            rendementPct: invoer.rendement,
+            laagPct: invoer.laag,
+            hoogPct: invoer.hoog,
+            jaarlijkseInleg: invoer.jaarlijks,
+            maandelijkseInleg: invoer.maandelijks
+        });
+
+        const totaalMaanden = Math.round(invoer.jaren * 12);
+        const toekomstDatums = genereerToekomstDatums(laatsteDatum, totaalMaanden);
+
+        const historischPad = (reeks) => d.labels.map((iso, i) => ({ x: iso, y: reeks[i] }));
+        // pad[0] is het startpunt (== laatsteDatum), dus die slaan we hier over en
+        // beginnen bij het boundary-punt zelf om aan te sluiten op historischPad.
+        const toekomstPad = (pad) =>
+            [{ x: laatsteDatum, y: pad[0] }].concat(toekomstDatums.map((iso, i) => ({ x: iso, y: pad[i + 1] })));
+
+        const datasets = [
+            { label: "Waarde (€)", data: historischPad(d.waarde), borderColor: "#2c7a4b" },
+            { label: "Waarde — prognose (€)", data: toekomstPad(prognose.midden), borderColor: "#2c7a4b", borderDash: [6, 4] },
+            { label: "Bandbreedte (hoog)", data: toekomstPad(prognose.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
+            { label: "Bandbreedte laag–hoog", data: toekomstPad(prognose.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" },
+            { label: "Geïnvesteerd (€)", data: historischPad(d.geinvesteerd), borderColor: "#3182bd" },
+            { label: "Geïnvesteerd — prognose (€)", data: toekomstPad(prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
+        ];
+
+        return { datasets };
+    }
+
     const exportsObj = {
         maandRenteVanJaarPct,
         berekenPrognosePad,
         berekenGeinvesteerdPad,
         berekenPrognose,
         genereerToekomstDatums,
-        valideerPrognoseInvoer
+        valideerPrognoseInvoer,
+        bouwPrognoseGrafiekData
     };
 
     if (typeof module !== "undefined" && module.exports) {

@@ -11,7 +11,8 @@ const {
     berekenGeinvesteerdPad,
     berekenPrognose,
     genereerToekomstDatums,
-    valideerPrognoseInvoer
+    valideerPrognoseInvoer,
+    bouwPrognoseGrafiekData
 } = require("../static/js/prognose.js");
 
 const EPS = 1e-6;
@@ -146,4 +147,60 @@ test("valideerPrognoseInvoer: rendement buiten eigen bandbreedte -> waarschuwing
     });
     assert.equal(r.geldig, true);
     assert.ok(r.waarschuwing);
+});
+
+// Regressietests voor de bug waarbij het Prognose-tabblad data van een eerder
+// geopende portfolio (code "RNA") bleef tonen i.p.v. de actief geladen
+// portfolio: bouwPrognoseGrafiekData nam voorheen zijn brondata uit de
+// globale `huidigeData` i.p.v. als parameter, waardoor een niet-gereset
+// prognoseResultaat in app.js data van de vorige portfolio kon hergebruiken.
+// Deze tests bewijzen dat de functie zelf zuiver is: ze gebruikt precies de
+// chart_data die wordt meegegeven, nooit een vaste/onthouden waarde.
+const eenvoudigeInvoer = { jaren: 1, rendement: 0, laag: 0, hoog: 0, jaarlijks: 0, maandelijks: 0 };
+
+function chartDataVoor(portfolio) {
+    // Twee duidelijk verschillende, plausibele portfolio's (zoals twee echte
+    // codes zouden zijn) om te bevestigen dat de output per portfolio verschilt.
+    if (portfolio === "RNA") {
+        return { labels: ["2024-01-01", "2024-02-01"], waarde: [1000, 1200], geinvesteerd: [1000, 1000] };
+    }
+    return { labels: ["2025-06-01", "2025-07-01"], waarde: [8000, 8500], geinvesteerd: [7000, 7200] };
+}
+
+function historischeWaardeReeks(resultaat) {
+    return resultaat.datasets.find(ds => ds.label === "Waarde (€)").data;
+}
+
+function prognoseWaardeReeks(resultaat) {
+    return resultaat.datasets.find(ds => ds.label === "Waarde — prognose (€)").data;
+}
+
+test("bouwPrognoseGrafiekData: gebruikt de meegegeven chart_data, niet een vaste/vorige waarde", () => {
+    const resultaatRNA = bouwPrognoseGrafiekData(chartDataVoor("RNA"), eenvoudigeInvoer);
+    const resultaatAndereCode = bouwPrognoseGrafiekData(chartDataVoor("ABC"), eenvoudigeInvoer);
+
+    assert.notDeepEqual(resultaatRNA, resultaatAndereCode);
+
+    const historischRNA = historischeWaardeReeks(resultaatRNA);
+    assert.equal(historischRNA[historischRNA.length - 1].x, "2024-02-01");
+    assert.equal(historischRNA[historischRNA.length - 1].y, 1200);
+
+    const historischAndereCode = historischeWaardeReeks(resultaatAndereCode);
+    assert.equal(historischAndereCode[historischAndereCode.length - 1].x, "2025-07-01");
+    assert.equal(historischAndereCode[historischAndereCode.length - 1].y, 8500);
+});
+
+test("bouwPrognoseGrafiekData: prognosereeks sluit aan op het laatste historische punt van de meegegeven data", () => {
+    const resultaat = bouwPrognoseGrafiekData(chartDataVoor("ABC"), eenvoudigeInvoer);
+    const prognose = prognoseWaardeReeks(resultaat);
+    // Eerste punt van de prognosereeks is het boundary-punt: zelfde datum en
+    // waarde als het laatste historische punt van de meegegeven chart_data.
+    assert.equal(prognose[0].x, "2025-07-01");
+    assert.equal(prognose[0].y, 8500);
+});
+
+test("bouwPrognoseGrafiekData: twee aanroepen met dezelfde code/data geven identiek resultaat (determinisme, geen verborgen state)", () => {
+    const a = bouwPrognoseGrafiekData(chartDataVoor("RNA"), eenvoudigeInvoer);
+    const b = bouwPrognoseGrafiekData(chartDataVoor("RNA"), eenvoudigeInvoer);
+    assert.deepEqual(a, b);
 });

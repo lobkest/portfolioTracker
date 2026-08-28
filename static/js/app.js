@@ -15,9 +15,13 @@ window.addEventListener("orientationchange", () => {
     setTimeout(() => { if (chart) chart.resize(); }, 200);
 });
 
-// Herbruikbare full-page laad-overlay, bv. tijdens een write-actie (bijnaam
-// opslaan/resetten, data verwijderen) zodat de gebruiker niet dubbel klikt
-// of naar een ander tabblad navigeert terwijl het verzoek nog loopt.
+// Herbruikbare full-page laad-overlay, gebruikt voor elke actie die een
+// serververzoek doet dat merkbaar kan duren (upload/analyseren, code
+// ophalen, bijnaam opslaan/resetten, ticker-zekerheid ophalen, data
+// verwijderen) zodat de gebruiker niet dubbel klikt of naar een ander
+// tabblad navigeert terwijl het verzoek nog loopt. Bewust NIET gebruikt
+// voor de Prognose-berekening: die is puur client-side rekenwerk zonder
+// netwerk-call en in de praktijk instant.
 function toonLaadOverlay(tekst) {
     verbergLaadOverlay();
     const overlay = document.createElement("div");
@@ -742,20 +746,24 @@ async function toonInstellingenTicker() {
     }
 
     const sectie = document.getElementById("instellingenTickerSectie");
-    sectie.innerHTML = "<p>Bezig met controleren van tickers (prijsvergelijking met Yahoo Finance)... "
-        + "dit kan een paar seconden duren.</p>";
+    sectie.innerHTML = "";
+    // Dit kan een paar seconden duren (meerdere Yahoo-calls per positie),
+    // vandaar dezelfde gedeelde laad-overlay als bij de rest van de app
+    // i.p.v. een eigen inline statustekst.
+    toonLaadOverlay("Bezig met controleren van tickers...");
 
     let res, data;
     try {
         res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid`);
         data = await res.json();
     } catch (e) {
-        sectie.innerHTML = "";
         const foutmelding = document.createElement("p");
         foutmelding.style.color = "#9C0006";
         foutmelding.textContent = "Kon ticker-zekerheid niet ophalen.";
         sectie.appendChild(foutmelding);
         return;
+    } finally {
+        verbergLaadOverlay();
     }
 
     if (!res.ok) {
@@ -1298,52 +1306,11 @@ function renderPrognoseFormulier() {
     sectie.appendChild(legenda);
 }
 
-// Bouwt uit historische data (huidigeData.chart_data) + berekenPrognose() de
-// labels/datasets voor de gedeelde rendementChart-canvas. Verleden- en
-// toekomst-reeksen delen het laatste historische punt (index H-1) zodat de
-// lijnen zonder gat op elkaar aansluiten.
-// Datasets als {x, y}-punten (x = ISO-datumstring) i.p.v. een gedeelde
-// labels-array — nodig voor de echte tijd-as (zie tekenPrognoseChart).
-// Verleden en prognose hebben bewust een verschillende puntdichtheid
-// (dagelijks resp. maandelijks); ze delen het laatste historische punt als
-// gemeenschappelijk beginpunt zodat de lijnen zonder gat aansluiten.
-function bouwPrognoseGrafiekData(invoer) {
-    const d = huidigeData.chart_data;
-    const H = d.labels.length;
-    const laatsteDatum = d.labels[H - 1];
-    const startWaarde = d.waarde[H - 1];
-    const startGeinvesteerd = d.geinvesteerd[H - 1];
-
-    const prognose = berekenPrognose({
-        startWaarde, startGeinvesteerd,
-        jaren: invoer.jaren,
-        rendementPct: invoer.rendement,
-        laagPct: invoer.laag,
-        hoogPct: invoer.hoog,
-        jaarlijkseInleg: invoer.jaarlijks,
-        maandelijkseInleg: invoer.maandelijks
-    });
-
-    const totaalMaanden = Math.round(invoer.jaren * 12);
-    const toekomstDatums = genereerToekomstDatums(laatsteDatum, totaalMaanden);
-
-    const historischPad = (reeks) => d.labels.map((iso, i) => ({ x: iso, y: reeks[i] }));
-    // pad[0] is het startpunt (== laatsteDatum), dus die slaan we hier over en
-    // beginnen bij het boundary-punt zelf om aan te sluiten op historischPad.
-    const toekomstPad = (pad) =>
-        [{ x: laatsteDatum, y: pad[0] }].concat(toekomstDatums.map((iso, i) => ({ x: iso, y: pad[i + 1] })));
-
-    const datasets = [
-        { label: "Waarde (€)", data: historischPad(d.waarde), borderColor: "#2c7a4b" },
-        { label: "Waarde — prognose (€)", data: toekomstPad(prognose.midden), borderColor: "#2c7a4b", borderDash: [6, 4] },
-        { label: "Bandbreedte (hoog)", data: toekomstPad(prognose.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
-        { label: "Bandbreedte laag–hoog", data: toekomstPad(prognose.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" },
-        { label: "Geïnvesteerd (€)", data: historischPad(d.geinvesteerd), borderColor: "#3182bd" },
-        { label: "Geïnvesteerd — prognose (€)", data: toekomstPad(prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
-    ];
-
-    return { datasets };
-}
+// bouwPrognoseGrafiekData zelf staat in static/js/prognose.js (puur, met
+// chart_data als expliciete parameter i.p.v. de globale huidigeData) zodat
+// hij via tests/test_prognose.js onder Node getest kan worden en nooit meer
+// per ongeluk data van een eerder geladen portfolio kan hergebruiken — zie
+// prognoseResultaat = null in toonDashboard() voor de andere helft van die fix.
 
 // Los van updateChart() (die de category-as gebruikt voor de andere
 // tabbladen, waar dat prima werkt omdat die series allemaal dezelfde
@@ -1430,7 +1397,7 @@ function berekenEnToonPrognose() {
         waarschuwingEl.style.display = "block";
     }
 
-    prognoseResultaat = bouwPrognoseGrafiekData(invoer);
+    prognoseResultaat = bouwPrognoseGrafiekData(huidigeData.chart_data, invoer);
     tekenPrognoseChart(prognoseResultaat.datasets);
 }
 
@@ -1444,6 +1411,29 @@ function toonPrognose() {
 }
 
 function wisselView(view) {
+    // Korte fade i.p.v. een abrupte wissel: content eerst naar opacity 0
+    // laten faden (CSS transition, .tabWisselt in style.css), pas ná die
+    // 90ms de content daadwerkelijk wisselen en weer laten infaden. Een
+    // ECHTE setTimeout-pauze (i.p.v. bv. dubbele requestAnimationFrame of
+    // een geforceerde reflow via offsetHeight) bleek in de praktijk de
+    // enige betrouwbare manier: browsers kunnen een class die binnen
+    // hetzelfde renderframe wordt toegevoegd én weer verwijderd (zoals bij
+    // de eerdere, snellere pogingen) samenvoegen tot "geen wijziging",
+    // waardoor er nooit een zichtbare transitie start. Bij snel
+    // achter-elkaar wisselen (nieuwe klik terwijl de fade-out van de
+    // vorige nog loopt) slaan we die wachttijd over, anders voelt
+    // navigeren traag aan.
+    const content = document.querySelector(".content");
+    if (content.classList.contains("tabWisselt")) {
+        pasViewToe(view);
+        return;
+    }
+    content.classList.add("tabWisselt");
+    setTimeout(() => pasViewToe(view), 90);
+}
+
+function pasViewToe(view) {
+    const content = document.querySelector(".content");
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker";
 
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
@@ -1475,6 +1465,12 @@ function wisselView(view) {
     if (view !== "peraandeel") {
         document.getElementById("etfDrilldown").style.display = "none";
     }
+    // toonVerdeling()/toonPlatteVerdeling() zetten dit bericht aan als er
+    // voor Verdeling/Land/Sector geen data is — zonder reset bleef het
+    // staan bij het wisselen naar een compleet ander tabblad.
+    if (view !== "verdeling" && view !== "land" && view !== "sector") {
+        document.getElementById("geenData").style.display = "none";
+    }
 
     if (view === "portfolio") toonPortfolio();
     else if (view === "rendement") toonRendement();
@@ -1490,10 +1486,17 @@ function wisselView(view) {
         const select = document.getElementById("aandeelSelect");
         toonPerAandeel(select.value);
     }
+
+    content.classList.remove("tabWisselt");
 }
 
 function toonDashboard(data) {
     huidigeData = data;
+    // Zonder reset bleef een eerder berekende prognose (van een andere
+    // portfolio, of van vóór "Terug naar upload" + een nieuwe code) gewoon
+    // staan: toonPrognose() hergebruikt prognoseResultaat zolang die niet
+    // null is, en dat werd nooit bijgewerkt bij het wisselen van portfolio.
+    prognoseResultaat = null;
     document.getElementById("uploadSection").style.display = "none";
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
@@ -1561,7 +1564,7 @@ document.getElementById("europaCheckbox").addEventListener("change", () => {
 
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    document.getElementById("errorMsg").textContent = "Bezig met verwerken...";
+    document.getElementById("errorMsg").textContent = "";
     const formData = new FormData(e.target);
     // FormData(form) neemt bestand2 altijd mee, ook als er niets is
     // geselecteerd (dan als lege file-entry) — expliciet verwijderen zodat
@@ -1571,29 +1574,37 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     if (!bestand2Input.files || bestand2Input.files.length === 0) {
         formData.delete("bestand2");
     }
-    const res = await fetch("/upload", { method: "POST", body: formData });
-    const data = await res.json();
-    if (!res.ok) {
-        document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
-        return;
+    toonLaadOverlay("Analyseren...");
+    try {
+        const res = await fetch("/upload", { method: "POST", body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+            document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
+            return;
+        }
+        toonDashboard(data);
+    } finally {
+        verbergLaadOverlay();
     }
-    document.getElementById("errorMsg").textContent = "";
-    toonDashboard(data);
 });
 
 document.getElementById("codeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     const code = document.getElementById("codeInput").value.trim().toUpperCase();
     if (!code) return;
-    document.getElementById("errorMsg").textContent = "Bezig met laden...";
-    const res = await fetch(`/api/portfolio/${code}`);
-    const data = await res.json();
-    if (!res.ok) {
-        document.getElementById("errorMsg").textContent = data.error || "Code niet gevonden.";
-        return;
-    }
     document.getElementById("errorMsg").textContent = "";
-    toonDashboard(data);
+    toonLaadOverlay("Ophalen...");
+    try {
+        const res = await fetch(`/api/portfolio/${code}`);
+        const data = await res.json();
+        if (!res.ok) {
+            document.getElementById("errorMsg").textContent = data.error || "Code niet gevonden.";
+            return;
+        }
+        toonDashboard(data);
+    } finally {
+        verbergLaadOverlay();
+    }
 });
 
 function gaTerugNaarUpload() {
@@ -1608,13 +1619,18 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
     const zeker = confirm(`Weet je zeker dat je portfolio ${huidigeData.code} permanent wilt verwijderen? Dit kan niet ongedaan worden gemaakt.`);
     if (!zeker) return;
 
-    const res = await fetch(`/api/portfolio/${huidigeData.code}`, { method: "DELETE" });
-    if (res.ok) {
-        huidigeData = null;
-        document.getElementById("dashboardSection").style.display = "none";
-        document.getElementById("uploadSection").style.display = "block";
-        alert("Portfolio verwijderd.");
-    } else {
-        alert("Verwijderen is niet gelukt, probeer het later opnieuw.");
+    toonLaadOverlay("Verwijderen...");
+    try {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}`, { method: "DELETE" });
+        if (res.ok) {
+            huidigeData = null;
+            document.getElementById("dashboardSection").style.display = "none";
+            document.getElementById("uploadSection").style.display = "block";
+            alert("Portfolio verwijderd.");
+        } else {
+            alert("Verwijderen is niet gelukt, probeer het later opnieuw.");
+        }
+    } finally {
+        verbergLaadOverlay();
     }
 });
