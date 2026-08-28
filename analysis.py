@@ -1,4 +1,5 @@
 import random
+import re
 import string
 import io
 import hashlib
@@ -630,7 +631,17 @@ def compute_split_adjusted_shares(transacties_df):
     return df
 
 
-def generate_code(cur, length=3):
+CODE_LENGTH = 3
+
+
+def is_geldige_code(code):
+    """Zelfde regels als een gegenereerde code (zie generate_code): exact
+    CODE_LENGTH hoofdletters A-Z. Wordt hergebruikt bij het valideren van
+    een door de gebruiker zelf gekozen nieuwe code (code-wijzigen)."""
+    return bool(re.fullmatch(rf"[A-Z]{{{CODE_LENGTH}}}", code or ""))
+
+
+def generate_code(cur, length=CODE_LENGTH):
     """Genereert een unieke portfolio-code die nog niet in gebruik is."""
     chars = string.ascii_uppercase
     while True:

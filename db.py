@@ -1,5 +1,6 @@
 import os
 import psycopg2
+from psycopg2 import errors as pg_errors
 from psycopg2.extras import execute_values, Json
 from dotenv import load_dotenv
 
@@ -446,6 +447,46 @@ def delete_portfolio(code):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def wijzig_portfolio_code(oude_code, nieuwe_code):
+    """Hernoemt een portfolio-code en alle gekoppelde tabellen (transacties,
+    dividenden). transacties.code heeft een FK naar portfolios(code) zonder
+    ON UPDATE CASCADE, en die check gebeurt meteen aan het eind van elke
+    UPDATE-statement (niet pas bij commit) — de portfolios-rij kan dus niet
+    zomaar hernoemd worden zolang transacties nog naar de oude code wijst.
+    Daarom eerst een nieuwe portfolios-rij met de nieuwe code aanmaken, dan
+    transacties/dividenden ernaartoe verhuizen, en pas daarna de oude
+    portfolios-rij weggooien — allemaal in dezelfde transactie.
+
+    Geeft (True, None) bij succes, (False, foutmelding) als de nieuwe code
+    al in gebruik is of de oude code niet bestaat."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT naam, aangemaakt_op FROM portfolios WHERE code = %s", (oude_code,))
+        row = cur.fetchone()
+        if row is None:
+            return False, f"Geen portfolio gevonden met code '{oude_code}'."
+        naam, aangemaakt_op = row
+
+        try:
+            cur.execute(
+                "INSERT INTO portfolios (code, naam, aangemaakt_op) VALUES (%s, %s, %s)",
+                (nieuwe_code, naam, aangemaakt_op),
+            )
+        except pg_errors.UniqueViolation:
+            conn.rollback()
+            return False, f"Code '{nieuwe_code}' is al in gebruik."
+
+        cur.execute("UPDATE transacties SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
+        cur.execute("UPDATE dividenden SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
+        cur.execute("DELETE FROM portfolios WHERE code = %s", (oude_code,))
+        conn.commit()
+        return True, None
+    finally:
+        cur.close()
+        conn.close()
 
 
 def save_dividenden(code, records):

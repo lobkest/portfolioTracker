@@ -3,7 +3,7 @@ let huidigeData = null;
 
 // Prognose-tabblad: invoer blijft bewaard zolang de pagina open is (ook als je
 // naar een ander tabblad en terug gaat), berekening gebeurt pas na "Bereken".
-let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 1000, maandelijks: 0 };
+let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 };
 let prognoseResultaat = null;
 
 Chart.register(ChartDataLabels);
@@ -1268,7 +1268,7 @@ function renderPrognoseFormulier() {
     rij.style.gap = "16px";
     rij.style.marginTop = "10px";
 
-    rij.appendChild(maakPrognoseInputVeld("prognoseJaren", "Aantal jaren vooruit", prognoseInvoer.jaren, { min: 0, max: 60, step: 1 }));
+    rij.appendChild(maakPrognoseInputVeld("prognoseJaren", "Aantal jaren vooruit", prognoseInvoer.jaren, { min: 0, max: 100, step: 1 }));
     rij.appendChild(maakPrognoseInputVeld("prognoseRendement", "Verwacht rendement per jaar (%)", prognoseInvoer.rendement, { step: 0.1 }));
     rij.appendChild(maakPrognoseInputVeld("prognoseLaag", "Bandbreedte — laag (%)", prognoseInvoer.laag, { step: 0.1 }));
     rij.appendChild(maakPrognoseInputVeld("prognoseHoog", "Bandbreedte — hoog (%)", prognoseInvoer.hoog, { step: 0.1 }));
@@ -1630,6 +1630,41 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
         } else {
             alert("Verwijderen is niet gelukt, probeer het later opnieuw.");
         }
+    } finally {
+        verbergLaadOverlay();
+    }
+});
+
+document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
+    if (!huidigeData || !huidigeData.code) return;
+    const input = document.getElementById("nieuweCodeInput");
+    const nieuweCode = input.value.trim().toUpperCase();
+    if (!nieuweCode) return;
+
+    const msg = document.getElementById("instellingenMsg");
+    toonLaadOverlay("Aanpassen...");
+    try {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/wijzig-code`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ nieuwe_code: nieuweCode })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            msg.style.color = "#9C0006";
+            msg.textContent = data.error || "Code wijzigen mislukt.";
+            msg.style.display = "block";
+            return;
+        }
+        // huidigeData bevat de code waarmee alle andere tabbladen (Statistieken,
+        // Dividend, Ticker-zekerheid) hun API-calls doen -- meteen bijwerken zodat
+        // de rest van de sessie de nieuwe code gebruikt zonder herladen.
+        huidigeData = data;
+        document.getElementById("dashCode").textContent = data.code || "";
+        input.value = "";
+        msg.style.color = "#2c7a4b";
+        msg.textContent = `Code gewijzigd naar ${data.code} — bewaar deze om later terug te komen.`;
+        msg.style.display = "block";
     } finally {
         verbergLaadOverlay();
     }
