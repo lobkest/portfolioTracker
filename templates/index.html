@@ -57,6 +57,7 @@
             <button class="menuBtn" data-view="land">Land</button>
             <button class="menuBtn" data-view="sector">Sector</button>
             <button class="menuBtn" data-view="statistieken">Statistieken</button>
+            <button class="menuBtn" data-view="prognose">Prognose</button>
             <button class="menuBtn" data-view="dividend">Dividend</button>
             <button class="menuBtn" data-view="instellingen">Instellingen</button>
             <button class="menuBtn subMenuBtn" data-view="instellingen-bijnamen">Bijnamen</button>
@@ -85,6 +86,8 @@
 
             <div id="statistiekenSectie" style="display: none;"></div>
 
+            <div id="prognoseSectie" style="display: none;"></div>
+
             <div id="etfDrilldown" style="display: none; margin-top: 20px;"></div>
 
             <div id="instellingenHoofdSectie" style="display: none;">
@@ -98,6 +101,7 @@
             <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
         </div>
     </div>
+    <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

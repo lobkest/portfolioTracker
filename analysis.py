@@ -7,6 +7,7 @@ import requests
 import yfinance as yf
 from pyxirr import xirr
 from yahooquery import search
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from db import (get_db_connection, save_prices, get_cached_classifications, save_classification,
                  get_cached_land_sector, save_land_sector, get_cached_etf_sector_verdeling,
                  save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
@@ -1787,11 +1788,24 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
             alt_ticker = alt.get("symbol")
             if not alt_ticker:
                 continue
-            alt_checks = [vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"])) for t in steekproef]
+
+            alt_checks = []
+            for t in steekproef:
+                check = vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"]))
+                alt_checks.append(check)
+                # Geen koersdata voor deze datum (bv. '4BY1.F': "Data doesn't
+                # exist for startDate/endDate") betekent meestal dat Yahoo
+                # helemaal geen historie heeft voor deze kandidaat — de
+                # overige steekproefdatums nog proberen kost dan alleen tijd
+                # zonder kans op een match.
+                if check["yahoo_koers"] is None:
+                    break
+
             alt_matches = [c["match"] for c in alt_checks if c["match"] is not None]
             afwijkingen = [c["afwijking_pct"] for c in alt_checks if c["afwijking_pct"] is not None]
             alt_details = _ticker_details_met_cache(alt_ticker)
             alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
+            alt_beurs_klopt = (alt.get("exchange") in verwachte_beurzen) if verwachte_beurzen else None
 
             alternatieven.append({
                 "ticker": alt_ticker,
@@ -1805,6 +1819,13 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
 
             if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
                 aanbevolen_alternatief = alt_ticker
+
+            if alt_beurs_klopt and alt_matches and all(alt_matches):
+                # Overtuigende match (juiste beurs + kloppende prijs op alle
+                # gecheckte datums) — de overige kandidaten checken kan het
+                # resultaat niet meer verbeteren, alleen nog meer Yahoo-calls
+                # kosten.
+                break
 
     result = {
         "ticker": ticker,
@@ -1826,6 +1847,44 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     if aanbevolen_alternatief:
         result["aanbevolen_alternatief"] = aanbevolen_alternatief
     return result
+
+
+def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):
+    """
+    Voert verifieer_ticker_met_prijs() voor meerdere posities tegelijk uit
+    (ThreadPoolExecutor) i.p.v. na elkaar in een for-loop — dit is vrijwel
+    allemaal I/O-wachttijd (Yahoo-calls + DB-round-trips naar Neon), geen
+    zware CPU-berekening, dus meerdere posities tegelijk verwerken levert
+    een groot deel van de tijdswinst zonder de logica per positie aan te
+    hoeven passen.
+
+    Nodig bovenop spoor 1 (stop bij overtuigende match) en spoor 2
+    (prijscheck-cache) voor de Ticker-zekerheid-worker-timeout: bij een
+    fonds dat op meerdere beurzen genoteerd staat (bv. Vanguard/iShares-
+    varianten als VWCE.AS/VWCE.DE/VWCE.MI) liggen de koersen vaak zo dicht
+    bij elkaar dat GEEN enkele kandidaat een "overtuigende" match oplevert
+    (elke datum net onder de 2%-drempel, maar nooit alle datums tegelijk) —
+    dan wordt alsnog de hele kandidatenlijst doorgerekend en helpt spoor 1
+    niet. Gemeten op de echte portfolio (12 posities, kandidatenlijsten tot
+    7 kandidaten): zelfs met een volledig warme cache (geen Yahoo-calls
+    meer nodig, puur DB-round-trips) duurde de sequentiële versie ~84s —
+    al ruim boven de standaard gunicorn-timeout van 30s. Parallel over de
+    posities (elke positie is onafhankelijk, geen gedeelde staat behalve de
+    database, en elke DB-functie opent zijn eigen connectie) is dan de
+    volgende logische stap.
+
+    Geeft een lijst van resultaat-dicts terug, in dezelfde volgorde als
+    'posities' (dus niet per se de volgorde waarin ze klaar zijn).
+    """
+    resultaten = [None] * len(posities)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_naar_index = {
+            executor.submit(verifieer_ticker_met_prijs, naam, isin, beurs, transacties): i
+            for i, (naam, isin, beurs, transacties) in enumerate(posities)
+        }
+        for future in as_completed(future_naar_index):
+            resultaten[future_naar_index[future]] = future.result()
+    return resultaten
 
 
 def _koppel_valutaconversie_paren(df):

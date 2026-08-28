@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio
-from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
+from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
 from db import save_dividenden
 import hashlib
 import openpyxl
@@ -74,18 +74,21 @@ def upload():
         # hier meteen de volle, prijsgeverifieerde Ticker-zekerheid-data
         # opbouwen i.p.v. alleen de kale beurs-match — dat scheelt een aparte
         # "basis"-weergave voor een eenmalige analyse zonder code.
+        groepen = list(df.groupby(["ISIN", "Beurs"]))
+        namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
+        posities_voor_verificatie = [
+            (naam, isin, beurs_val, [{"datum": row["Datum"], "koers": row["Koers"]} for _, row in groep.iterrows()])
+            for naam, ((isin, beurs_val), groep) in zip(namen, groepen)
+        ]
+        resultaten = verifieer_tickers_met_prijs_parallel(posities_voor_verificatie)
+
         ticker_by_isin_beurs = {}
         ticker_zekerheid = []
-        for (isin, beurs_val), groep in df.groupby(["ISIN", "Beurs"]):
-            representatieve_naam = groep["Product"].iloc[0]
-            transacties_voor_verificatie = [
-                {"datum": row["Datum"], "koers": row["Koers"]} for _, row in groep.iterrows()
-            ]
-            resultaat = verifieer_ticker_met_prijs(representatieve_naam, isin, beurs_val, transacties_voor_verificatie)
+        for naam, ((isin, beurs_val), _groep), resultaat in zip(namen, groepen, resultaten):
             ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
             resultaat["isin"] = isin
-            resultaat["naam"] = representatieve_naam
-            resultaat["echte_naam"] = representatieve_naam
+            resultaat["naam"] = naam
+            resultaat["echte_naam"] = naam
             ticker_zekerheid.append(resultaat)
             print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
                   f"(zekerheid={resultaat['zekerheid']})")
@@ -262,10 +265,14 @@ def ticker_zekerheid(code):
         )
         groep["transacties"].append({"datum": datum, "koers": koers})
 
+    groepen = list(per_isin_beurs.items())
+    print(f"[ticker-zekerheid] {len(groepen)} positie(s) parallel verifiëren voor code={code}")
+    resultaten = verifieer_tickers_met_prijs_parallel(
+        [(info["echte_naam"], isin, info["beurs"], info["transacties"]) for (isin, beurs), info in groepen]
+    )
+
     posities = []
-    for (isin, beurs), info in per_isin_beurs.items():
-        print(f"[ticker-zekerheid] verifiëren: {isin} (beurs={beurs}, {info['naam']})")
-        resultaat = verifieer_ticker_met_prijs(info["echte_naam"], isin, info["beurs"], info["transacties"])
+    for ((isin, beurs), info), resultaat in zip(groepen, resultaten):
         resultaat["isin"] = isin
         resultaat["naam"] = info["naam"]
         resultaat["echte_naam"] = info["echte_naam"]
