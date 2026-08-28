@@ -33,7 +33,10 @@ from analysis import (
     NL_LAND_VERTALING,
 )
 
-NIEUWE_TICKERS = ["IWDA.AS", "IMAE.AS", "EMIM.AS", "CNDX.AS", "GDX.L"]
+NIEUWE_TICKERS = [
+    "IWDA.AS", "IMAE.AS", "EMIM.AS", "CNDX.AS", "GDX.L",
+    "EUEA.AS", "TDT.AS", "VE6I.DE",
+]
 
 
 class TestEtfHoldingsBronFormaat(unittest.TestCase):
@@ -70,6 +73,15 @@ class TestEtfHoldingsBronFormaat(unittest.TestCase):
             # Bekende valkuil (zie projectnotities): een hardcoded asOfDate
             # breekt de blackrock.com-link na een dag.
             self.assertNotIn("asOfDate", url)
+
+    def test_vanguard_fondsen_bewust_niet_toegevoegd(self):
+        # VWCE.AS/VUSA.AS: Vanguard's holdings-download gaat via een
+        # GraphQL-API (complexe request-body), niet via een simpele GET-URL
+        # zoals iShares/VanEck — bewust niet geïmplementeerd (te fragiel/
+        # complex voor de meerwaarde). Regressietest zodat dit niet per
+        # ongeluk als "vergeten" wordt gezien en zonder overleg toegevoegd.
+        self.assertNotIn("VWCE.AS", ETF_HOLDINGS_BRON)
+        self.assertNotIn("VUSA.AS", ETF_HOLDINGS_BRON)
 
 
 # --- Voorbeeld-CSV's, exact de structuur van de twee echte iShares-bronnen ---
@@ -209,6 +221,38 @@ class TestParseVaneckHoldings(unittest.TestCase):
         # 'Custom Land Value' (expliciete kolom) i.p.v. 'Canada' (wat de
         # ISIN-afleiding zou geven) — bewijst dat de land-kolom voorrang heeft.
         self.assertEqual(holdings[0]["land"], "Custom Land Value")
+
+    def test_holding_name_kolom_zoals_tdt_as(self):
+        # Regressietest voor TDT.AS (VanEck AEX UCITS ETF, Engelstalige
+        # VanEck-NL-site): kolomkop is hier "Holding Name" i.p.v. de eerder
+        # geziene "Naam positie"/"Naam"/"Name"/"Holding" — zonder deze
+        # variant in naam_kolom werden alle rijen stilzwijgend overgeslagen
+        # (naam=None -> pd.isna-check faalt de rij), dus 0 holdings i.p.v.
+        # een foutmelding.
+        content = _maak_vaneck_xlsx(
+            header=["Number", "Holding Name", "Ticker", "ISIN", "Shares", "Market Value", "% of Net Assets"],
+            rows=[
+                [1, "Shell Plc", "SHEL LN", "GB00BP6MXD84", 100, "$ 1.00", "16.10%"],
+                [2, "Asml Holding Nv", "ASML NA", "NL0010273215", 200, "$ 2.00", "13.09%"],
+            ],
+        )
+        holdings = _parse_vaneck_holdings(content, locale="en")
+        self.assertEqual(len(holdings), 2)
+        shell = next(h for h in holdings if h["naam"] == "Shell Plc")
+        self.assertAlmostEqual(shell["gewicht"], 16.10)
+        self.assertEqual(shell["land"], "United Kingdom")
+
+
+class TestFetchProviderHoldingsFallback(unittest.TestCase):
+    def test_ticker_zonder_bron_geeft_none_zonder_crash(self):
+        # VWCE.AS/VUSA.AS (en elke andere ticker zonder ETF_HOLDINGS_BRON-
+        # entry) moeten hier gewoon None opleveren, zodat de aanroeper
+        # (get_etf_holdings) netjes terugvalt op yfinance-top-10 i.p.v. een
+        # KeyError/crash.
+        from analysis import fetch_provider_holdings
+        self.assertIsNone(fetch_provider_holdings("VWCE.AS"))
+        self.assertIsNone(fetch_provider_holdings("VUSA.AS"))
+        self.assertIsNone(fetch_provider_holdings("EEN.TICKER.DIE.NIET.BESTAAT"))
 
 
 class TestDedupliceerHoldings(unittest.TestCase):

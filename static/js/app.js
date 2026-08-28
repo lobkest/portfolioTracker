@@ -10,6 +10,31 @@ window.addEventListener("orientationchange", () => {
     setTimeout(() => { if (chart) chart.resize(); }, 200);
 });
 
+// Herbruikbare full-page laad-overlay, bv. tijdens een write-actie (bijnaam
+// opslaan/resetten, data verwijderen) zodat de gebruiker niet dubbel klikt
+// of naar een ander tabblad navigeert terwijl het verzoek nog loopt.
+function toonLaadOverlay(tekst) {
+    verbergLaadOverlay();
+    const overlay = document.createElement("div");
+    overlay.id = "laadOverlay";
+    overlay.className = "laadOverlay";
+    const spinner = document.createElement("div");
+    spinner.className = "laadSpinner";
+    const label = document.createElement("div");
+    label.className = "laadOverlayTekst";
+    label.textContent = tekst;
+    overlay.appendChild(spinner);
+    overlay.appendChild(label);
+    document.body.appendChild(overlay);
+}
+
+function verbergLaadOverlay() {
+    const overlay = document.getElementById("laadOverlay");
+    if (overlay) {
+        overlay.remove();
+    }
+}
+
 function formatDatum(isoDatum) {
     const [jaar, maand, dag] = isoDatum.split("-");
     return `${dag}-${maand}-${jaar}`;
@@ -67,8 +92,14 @@ function updateChart(labels, datasets) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            locale: "nl-NL",
             scales: { y: { beginAtZero: false } },
             plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
+                    }
+                },
                 zoom: {
                     pan: { enabled: true, mode: "x" },
                     zoom: {
@@ -236,7 +267,7 @@ function toonVerdeling() {
                     callbacks: {
                         label: (ctx) => {
                             const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
-                            return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+                            return `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${pct}%)`;
                         }
                     }
                 },
@@ -305,7 +336,7 @@ function toonPlatteVerdeling(verdelingObj) {
                     callbacks: {
                         label: (ctx) => {
                             const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
-                            return `${ctx.label}: €${ctx.parsed.toFixed(2)} (${pct}%)`;
+                            return `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${pct}%)`;
                         }
                     }
                 },
@@ -371,33 +402,56 @@ function ververAandeelSelect() {
 }
 
 async function slaBijnaamOp(ticker, bijnaam) {
-    const res = await fetch(`/api/portfolio/${huidigeData.code}/bijnaam`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker, bijnaam })
-    });
-    const data = await res.json();
-    if (res.ok) {
+    toonLaadOverlay("Aanpassen...");
+    try {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/bijnaam`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticker, bijnaam })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || "Opslaan mislukt.");
+        }
         huidigeData = data;
         ververAandeelSelect();
         toonInstellingen();
         const msg = document.getElementById("instellingenMsg");
+        msg.style.color = "#2c7a4b";
         msg.textContent = "Bijnaam opgeslagen.";
         msg.style.display = "block";
+    } catch (e) {
+        const msg = document.getElementById("instellingenMsg");
+        msg.style.color = "#9C0006";
+        msg.textContent = "Bijnaam opslaan mislukt. Probeer het opnieuw.";
+        msg.style.display = "block";
+    } finally {
+        verbergLaadOverlay();
     }
 }
 
 async function resetBijnaam(ticker) {
-    const res = await fetch(`/api/portfolio/${huidigeData.code}/reset-bijnaam`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ticker })
-    });
-    const data = await res.json();
-    if (res.ok) {
+    toonLaadOverlay("Aanpassen...");
+    try {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/reset-bijnaam`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ticker })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || "Reset mislukt.");
+        }
         huidigeData = data;
         ververAandeelSelect();
         toonInstellingen();
+    } catch (e) {
+        const msg = document.getElementById("instellingenMsg");
+        msg.style.color = "#9C0006";
+        msg.textContent = "Bijnaam resetten mislukt. Probeer het opnieuw.";
+        msg.style.display = "block";
+    } finally {
+        verbergLaadOverlay();
     }
 }
 
@@ -709,7 +763,7 @@ function maakDividendTabel(perTicker) {
         naamTd.textContent = item.bijnaam;
         naamTd.style.padding = "3px 20px 3px 0";
         const bedragTd = document.createElement("td");
-        bedragTd.textContent = `€${item.totaal_netto.toFixed(2)}`;
+        bedragTd.textContent = formatteerEuro(item.totaal_netto);
         bedragTd.style.padding = "3px 20px 3px 0";
         rij.appendChild(naamTd);
         rij.appendChild(bedragTd);
@@ -727,7 +781,7 @@ function renderDividendStats(data) {
     totaalDiv.style.fontSize = "1.8em";
     totaalDiv.style.fontWeight = "bold";
     totaalDiv.style.color = "#2c7a4b";
-    totaalDiv.textContent = `€${data.totaal_netto.toFixed(2)} totaal ontvangen dividend`;
+    totaalDiv.textContent = `${formatteerEuro(data.totaal_netto)} totaal ontvangen dividend`;
     sectie.appendChild(totaalDiv);
 
     if (!data.per_ticker || data.per_ticker.length === 0) {
@@ -767,10 +821,16 @@ function toonDividendChart(cumulatief) {
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            locale: "nl-NL",
             scales: {
                 y: { stacked: true, beginAtZero: true, title: { display: true, text: "Cumulatief dividend (€)" } }
             },
             plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
+                    }
+                },
                 zoom: {
                     pan: { enabled: true, mode: "x" },
                     zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" }
@@ -838,10 +898,17 @@ async function toonDividend() {
     toonDividendChart(data.cumulatief);
 }
 
-function formatEur(bedrag) {
-    if (bedrag === null || bedrag === undefined) return "onbekend";
+// Centrale plek voor alle euro-opmaak in de app — Nederlandse notatie
+// (punt als duizendtal-scheiding, komma als decimaalteken), bv. €20.966,43.
+// Minteken vóór het €-teken bij negatieve bedragen (-€1.234,56), niet erna.
+function formatteerEuro(bedrag, decimalen = 2) {
+    if (bedrag === null || bedrag === undefined || Number.isNaN(bedrag)) return "onbekend";
     const teken = bedrag < 0 ? "-" : "";
-    return `${teken}€${Math.abs(bedrag).toFixed(2)}`;
+    const getalTekst = new Intl.NumberFormat("nl-NL", {
+        minimumFractionDigits: decimalen,
+        maximumFractionDigits: decimalen,
+    }).format(Math.abs(bedrag));
+    return `${teken}€${getalTekst}`;
 }
 
 function formatPct(pct) {
@@ -880,20 +947,20 @@ function maakTotalenSectie(totalen) {
     rij.style.gap = "24px";
     rij.style.marginBottom = "24px";
 
-    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatEur(totalen.geinvesteerd)));
-    rij.appendChild(maakStatTegel("Totale huidige waarde", formatEur(totalen.waarde)));
-    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatEur(totalen.rendement_eur), kleurVoorRendement(totalen.rendement_eur)));
+    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatteerEuro(totalen.geinvesteerd)));
+    rij.appendChild(maakStatTegel("Totale huidige waarde", formatteerEuro(totalen.waarde)));
+    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), kleurVoorRendement(totalen.rendement_eur)));
     rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), kleurVoorRendement(totalen.rendement_pct)));
 
     if (totalen.all_time_high && totalen.all_time_high.waarde !== null) {
         rij.appendChild(maakStatTegel(
             "All-time high",
-            `${formatEur(totalen.all_time_high.waarde)} (${formatDatum(totalen.all_time_high.datum)})`
+            `${formatteerEuro(totalen.all_time_high.waarde)} (${formatDatum(totalen.all_time_high.datum)})`
         ));
     }
 
     if (totalen.transactiekosten_beschikbaar) {
-        rij.appendChild(maakStatTegel("Totale transactiekosten", formatEur(totalen.totale_transactiekosten)));
+        rij.appendChild(maakStatTegel("Totale transactiekosten", formatteerEuro(totalen.totale_transactiekosten)));
     }
 
     const container = document.createElement("div");
@@ -940,8 +1007,8 @@ function maakPositieTabel(posities, tickerNamen) {
         [
             `${naam} (${p.ticker})`,
             p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 }),
-            formatEur(p.huidige_waarde),
-            `€${p.gak.toFixed(4)}`,
+            formatteerEuro(p.huidige_waarde),
+            formatteerEuro(p.gak, 4),
         ].forEach(tekst => {
             const td = document.createElement("td");
             td.textContent = tekst;
@@ -998,7 +1065,7 @@ function maakJarenTabel(jaren) {
         jaarTd.appendChild(detail);
         rij.appendChild(jaarTd);
 
-        [formatEur(j.startwaarde), formatEur(j.ingelegd), formatEur(j.eindwaarde)].forEach(tekst => {
+        [formatteerEuro(j.startwaarde), formatteerEuro(j.ingelegd), formatteerEuro(j.eindwaarde)].forEach(tekst => {
             const td = document.createElement("td");
             td.textContent = tekst;
             td.style.padding = "4px 16px 4px 0";
@@ -1009,7 +1076,7 @@ function maakJarenTabel(jaren) {
         winstTd.style.padding = "4px 16px 4px 0";
         winstTd.style.color = kleurVoorRendement(j.winst_eur);
         winstTd.style.fontWeight = "bold";
-        winstTd.textContent = `${formatEur(j.winst_eur)} (${formatPct(j.winst_pct)})`;
+        winstTd.textContent = `${formatteerEuro(j.winst_eur)} (${formatPct(j.winst_pct)})`;
         rij.appendChild(winstTd);
 
         tabel.appendChild(rij);
