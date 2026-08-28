@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
-from db import get_db_connection, init_db, delete_portfolio
-from analysis import generate_code, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
+from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
 from db import save_dividenden
 import hashlib
 import openpyxl
@@ -443,6 +443,24 @@ def verwijder_portfolio(code):
     code = code.strip().upper()
     delete_portfolio(code)
     return jsonify({"success": True})
+
+
+@app.route("/api/portfolio/<code>/wijzig-code", methods=["POST"])
+def wijzig_code(code):
+    code = code.strip().upper()
+    data = request.get_json()
+    nieuwe_code = (data.get("nieuwe_code") or "").strip().upper()
+
+    if not is_geldige_code(nieuwe_code):
+        return jsonify({"error": f"Ongeldige code. Gebruik precies {CODE_LENGTH} hoofdletters (A-Z)."}), 400
+    if nieuwe_code == code:
+        return jsonify({"error": "De nieuwe code is gelijk aan de huidige code."}), 400
+
+    success, foutmelding = wijzig_portfolio_code(code, nieuwe_code)
+    if not success:
+        return jsonify({"error": foutmelding}), 400
+
+    return jsonify(build_portfolio_response(nieuwe_code))
 
 if __name__ == "__main__":
     app.run(debug=True)
