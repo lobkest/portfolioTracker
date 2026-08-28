@@ -8,7 +8,13 @@ import openpyxl
 import math
 
 app = Flask(__name__)
-init_db()  
+init_db()
+
+# Kolomnaam exact zoals DeGiro 'm in het transactiebestand zet (na
+# df.columns.str.strip(), dat evt. rondom-spaties in de header wegwerkt).
+# Ontbreekt in oudere DeGiro-exportformaten — daarom overal met een
+# beschikbaarheids-check behandeld i.p.v. als verplichte kolom.
+KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
 
 @app.route("/")
 def home():
@@ -47,6 +53,12 @@ def upload():
 
     df.columns = df.columns.str.strip()
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+
+    if KOSTEN_KOLOM in df.columns:
+        df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
+    else:
+        df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
+        print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
 
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     if niet_opslaan:
@@ -89,6 +101,7 @@ def upload():
             "koers": df["Koers"].astype(float),
             "totaal_eur": df["Totaal EUR"].astype(float),
             "echte_naam": df["Product"],
+            "transactiekosten": df["_kosten_eur"],
         })
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
@@ -168,14 +181,16 @@ def upload():
         ingevoegd = 0
         for _, row in rows_to_insert.iterrows():
             try:
+                kosten_waarde = row["_kosten_eur"]
                 cur.execute(
                     """INSERT INTO transacties
-                       (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (code, order_id) DO NOTHING""",
                     (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
                      ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["Koers"]),
-                     float(row["Totaal EUR"]), row["Order ID"], row["Product"]),
+                     float(row["Totaal EUR"]), row["Order ID"], row["Product"],
+                     float(kosten_waarde) if pd.notna(kosten_waarde) else None),
                 )
                 ingevoegd += 1
             except Exception as e:
@@ -292,7 +307,7 @@ def build_portfolio_response(code):
     naam = result[0]
 
     cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam "
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten "
         "FROM transacties WHERE code = %s",
         (code,),
     )
@@ -301,8 +316,10 @@ def build_portfolio_response(code):
     conn.close()
 
     transacties_df = pd.DataFrame(
-        rows, columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam"]
+        rows,
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten"],
     )
+    transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
 
     return analyze_transacties(transacties_df, code, naam)
 

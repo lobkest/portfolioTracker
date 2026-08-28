@@ -53,20 +53,57 @@ MANUAL_TICKER_OVERRIDES = {
 # stap voor stap aan naarmate je meer ETF's tegenkomt; een ticker die hier
 # niet in staat valt automatisch terug op de yfinance-top-10-aanpak.
 ETF_HOLDINGS_BRON = {
-    # LET OP: geen asOfDate-parameter in deze URL's — die moet exact de
-    # huidige datum zijn (getest: een andere/oude datum geeft een lege CSV
-    # terug, geen fout), dus een hardcoded datum zou na vandaag stil stuk
-    # gaan. Zonder asOfDate geeft BlackRock automatisch de meest recente
-    # holdings terug.
+    # LET OP: geen asOfDate-parameter in de blackrock.com-URL's — die moet
+    # exact de huidige datum zijn (getest: een andere/oude datum geeft een
+    # lege CSV terug, geen fout), dus een hardcoded datum zou na vandaag
+    # stil stuk gaan. Zonder asOfDate geeft BlackRock automatisch de meest
+    # recente holdings terug.
+    #
+    # "locale" (optioneel, default "en" — zie fetch_provider_holdings()):
+    # bepaalt zowel het GETALFORMAAT (Nederlands: punt=duizendtal,
+    # komma=decimaal; Engels: komma=duizendtal, punt=decimaal) als de TAAL
+    # van landnamen in de brondata. Is een eigenschap van de bron-URL/site,
+    # niet van het fonds — de blackrock.com/varnish-api-bron (CSPX.AS,
+    # CNDX.AS, expliciet locale=en_GB in de URL) is Engels; de
+    # ishares.com/nl/-site (IWDA.AS, IMAE.AS, EMIM.AS) en VanEck se
+    # Nederlandse site (GDX.L) zijn Nederlands. Dit ontdekten we pas door
+    # test_holdings_url() te draaien: zonder locale="nl" werd bv. "5,25%"
+    # stilzwijgend als 525 gelezen (komma weggehaald als duizendtal-
+    # scheidingsteken) — een gewichten-som van ~10000% i.p.v. ~100%. Zie
+    # _parse_ishares_holdings()/_parse_vaneck_holdings() voor de details.
     "CSPX.AS": {
         "provider": "ishares",
         "url": "https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v1/"
                "get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=ishares-uk"
                "&locale=en_GB&portfolioId=253743&userType=individual&component=holdings",
     },
-    # "IWDA.AS": {"provider": "ishares", "url": "https://www.ishares.com/..."},
-    # "EMIM.AS": {"provider": "ishares", "url": "https://www.ishares.com/..."},
-    # "VUSA.AS": {"provider": "vanguard", "url": "https://www.vanguard..."},
+    "IWDA.AS": {
+        "provider": "ishares",
+        "locale": "nl",
+        "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/251882/ishares-msci-world-ucits-etf-acc-fund/1497735778849.ajax?fileType=csv&fileName=IWDA_holdings&dataType=fund",
+    },
+    "IMAE.AS": {
+        "provider": "ishares",
+        "locale": "nl",
+        "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/251861/ishares-msci-europe-ucits-etf-acc-fund/1497735778849.ajax?fileType=csv&fileName=IMAE_holdings&dataType=fund",
+    },
+    "EMIM.AS": {
+        "provider": "ishares",
+        "locale": "nl",
+        "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/264659/ishares-msci-emerging-markets-imi-ucits-etf/1497735778849.ajax?fileType=csv&fileName=EMIM_holdings&dataType=fund",
+    },
+    "CNDX.AS": {
+        "provider": "ishares",
+        "url": "https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v1/get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=ishares-uk&locale=en_GB&portfolioId=253741&userType=individual&component=holdings",
+    },
+    "GDX.L": {
+        # De 'downloads/holdings'-paginalink is zelf al de directe download
+        # (content-type xlsx, geen HTML) — geen aparte 'echte' downloadlink
+        # nodig, ondanks dat de URL eruitziet als een paginalink.
+        "provider": "vaneck",
+        "locale": "nl",
+        "url": "https://www.vaneck.com/nl/nl/investments/gold-miners-etf/downloads/holdings/",
+    },
 }
 
 _PROVIDER_USER_AGENT = (
@@ -89,11 +126,44 @@ def _holding_rij(naam, gewicht, land, sector):
     }
 
 
-def _parse_ishares_holdings(content):
+def _parse_percentage_waarde(waarde, locale="en"):
+    """Zet een gewicht-celwaarde om naar een float-percentage (bv. 5.25
+    voor 5,25%). Twee vormen komen voor: een kant-en-klaar getal (Engelse
+    bronnen, bv. iShares' blackrock.com-CSV geeft al '7.68'), of een string
+    met een %-teken en Nederlandse komma-decimaal (bv. VanEck se
+    Nederlandse XLSX geeft '10,74%') — die laatste wordt eerst opgeschoond
+    (%-teken eraf, duizendtal-punten eraf, komma -> punt) voordat
+    pd.to_numeric() 'm kan parsen. Zonder deze opschoning leest
+    pd.to_numeric zo'n string simpelweg niet (geeft NaN, geen fout) —
+    precies zo werd de eerdere iShares-locale-bug pas zichtbaar via
+    test_holdings_url()'s gewichtensom (~10000% i.p.v. ~100%)."""
+    if isinstance(waarde, str):
+        waarde = waarde.strip().rstrip("%").strip()
+        if locale == "nl":
+            waarde = waarde.replace(".", "").replace(",", ".")
+    return pd.to_numeric(waarde, errors="coerce")
+
+
+def _parse_ishares_holdings(content, locale="en"):
     """iShares full-holdings CSV. Header staat meestal vanaf regel 3
     (skiprows=2). Kolommen: Name, Weight (%), Sector, Location (of
-    Country) — afhankelijk van het fonds."""
-    df = pd.read_csv(io.BytesIO(content), skiprows=2, thousands=",")
+    Country) — afhankelijk van het fonds.
+
+    'locale' is een eigenschap van de BRON-URL (zie ETF_HOLDINGS_BRON), niet
+    van het fonds: dezelfde iShares-CSV-structuur komt terug in twee
+    varianten. De blackrock.com/varnish-api-bron (expliciet locale=en_GB in
+    de URL) geeft Engels getalformaat (komma=duizendtal, punt=decimaal) en
+    Engelse landnamen ('United States'). De ishares.com/nl/-site geeft
+    Nederlands getalformaat (punt=duizendtal, komma=decimaal) én
+    Nederlandse landnamen ('Verenigde Staten') — die laatste worden via
+    _vertaal_land_nl() vertaald, anders zou hetzelfde land in de
+    portfoliobrede landverdeling (compute_land_sector_verdeling, die alle
+    ETF's optelt op landnaam) als twee aparte taartpunten verschijnen
+    afhankelijk van welk fonds het aanlevert."""
+    if locale == "nl":
+        df = pd.read_csv(io.BytesIO(content), skiprows=2, thousands=".", decimal=",")
+    else:
+        df = pd.read_csv(io.BytesIO(content), skiprows=2, thousands=",")
     df.columns = df.columns.str.strip()
 
     land_kolom = "Location" if "Location" in df.columns else "Country"
@@ -104,13 +174,120 @@ def _parse_ishares_holdings(content):
         naam = row.get("Name")
         if pd.isna(naam) or not str(naam).strip():
             continue
-        gewicht = pd.to_numeric(row.get("Weight (%)"), errors="coerce")
+        gewicht = _parse_percentage_waarde(row.get("Weight (%)"), locale)
         if pd.isna(gewicht):
             continue
+        land = row.get(land_kolom)
+        if locale == "nl" and pd.notna(land) and str(land).strip():
+            land = _vertaal_land_nl(str(land).strip())
         holdings.append(_holding_rij(
-            naam, gewicht, row.get(land_kolom), row.get(sector_kolom) if sector_kolom else None,
+            naam, gewicht, land, row.get(sector_kolom) if sector_kolom else None,
         ))
     return holdings
+
+
+# Vertaaltabel Nederlandse -> Engelse landnamen, voor iShares-bronnen met
+# locale="nl" (zie _parse_ishares_holdings) — Engelse namen omdat de rest
+# van het project (yfinance's land-veld, de blackrock.com/varnish-api-
+# Engelse CSV's) al die conventie gebruikt, en dezelfde-land-twee-buckets-
+# bug (zie hierboven) alleen voorkomen wordt als ALLE bronnen naar één
+# gemeenschappelijke taal vertalen. Bewust de informele/gangbare Engelse
+# namen (bv. "South Korea", niet ISO's officiële "Korea, Republic of") om
+# aan te sluiten bij yfinance's conventie, niet bij pycountry's ISO-namen.
+# Samengesteld uit de daadwerkelijke landnamen in de IWDA/IMAE/EMIM-CSV's
+# (opgehaald en gecontroleerd tijdens het toevoegen van deze bronnen) —
+# vul aan als een nieuw fonds een landnaam gebruikt die hier nog niet in
+# staat (_vertaal_land_nl hieronder waarschuwt dan expliciet).
+NL_LAND_VERTALING = {
+    "-": "Unknown",
+    "Australië": "Australia",
+    "België": "Belgium",
+    "Brazilië": "Brazil",
+    "Canada": "Canada",
+    "Chili": "Chile",
+    "China": "China",
+    "Colombia": "Colombia",
+    "Denemarken": "Denmark",
+    "Duitsland": "Germany",
+    "Egypte": "Egypt",
+    "Europese Unie": "European Union",
+    "Filipijnen": "Philippines",
+    "Finland": "Finland",
+    "Frankrijk": "France",
+    "Griekenland": "Greece",
+    "Hong Kong": "Hong Kong",
+    "Hongarije": "Hungary",
+    "Ierland": "Ireland",
+    "India": "India",
+    "Indonesië": "Indonesia",
+    "Israël": "Israel",
+    "Italië": "Italy",
+    "Japan": "Japan",
+    "Koeweit": "Kuwait",
+    "Maleisië": "Malaysia",
+    "Mexico": "Mexico",
+    "Nederland": "Netherlands",
+    "Nieuw-Zeeland": "New Zealand",
+    "Noorwegen": "Norway",
+    "Oostenrijk": "Austria",
+    "Peru": "Peru",
+    "Polen": "Poland",
+    "Portugal": "Portugal",
+    "Qatar": "Qatar",
+    "Rusland": "Russia",
+    "Saoedi-Arabië": "Saudi Arabia",
+    "Singapore": "Singapore",
+    "Spanje": "Spain",
+    "Taiwan": "Taiwan",
+    "Thailand": "Thailand",
+    "Tsjechië": "Czech Republic",
+    "Turkije": "Turkey",
+    "Verenigd Koninkrijk": "United Kingdom",
+    "Verenigde Arabische Emiraten": "United Arab Emirates",
+    "Verenigde Staten": "United States",
+    "Zuid-Afrika": "South Africa",
+    "Zuid-Korea": "South Korea",
+    "Zweden": "Sweden",
+    "Zwitserland": "Switzerland",
+}
+
+
+def _vertaal_land_nl(land):
+    """Vertaalt een Nederlandse landnaam (uit een ishares.com/nl/- of
+    VanEck-NL-bron) naar de Engelse naam die de rest van het project
+    gebruikt (zie NL_LAND_VERTALING hierboven). Een onbekende naam blijft
+    bewust ONVERTAALD i.p.v. stilzwijgend 'Unknown' te worden — zo blijft
+    hij als aparte, herkenbare bucket zichtbaar in de UI i.p.v. op te gaan
+    in een verkeerde categorie, en de waarschuwing hieronder maakt
+    duidelijk dat NL_LAND_VERTALING aangevuld moet worden."""
+    if land in NL_LAND_VERTALING:
+        return NL_LAND_VERTALING[land]
+    print(f"[etf-holdings-provider] ⚠️ onbekende Nederlandse landnaam '{land}' — "
+          f"NL_LAND_VERTALING aanvullen, blijft voor nu onvertaald staan")
+    return land
+
+
+def _land_via_isin(isin):
+    """Land afgeleid van de eerste 2 tekens van een ISIN — het land van
+    registratie van de uitgevende instelling, een wereldwijd
+    gestandaardiseerde conventie (ISO 6166). Gebruikt als een holdings-
+    bron geen aparte land/country-kolom heeft (bv. VanEck's GDX-bestand,
+    dat alleen Ticker/ISIN geeft, geen Land) — een redelijke proxy, geen
+    garantie dat het land van registratie exact overeenkomt met waar een
+    bedrijf economisch actief is (bv. een Britse ISIN voor een
+    Zuid-Afrikaans mijnbouwbedrijf, zie AngloGold Ashanti), maar veel beter
+    dan alles op 'Unknown' laten staan."""
+    if not isin or not isinstance(isin, str) or len(isin) < 2:
+        return "Unknown"
+    code = isin[:2].upper()
+    try:
+        import pycountry
+        land = pycountry.countries.get(alpha_2=code)
+        if land:
+            return land.name
+    except Exception as e:
+        dprint(f"[etf-holdings-provider] pycountry-lookup faalde voor ISIN-prefix '{code}': {e}")
+    return "Unknown"
 
 
 def _regio_naar_land(regio_code):
@@ -131,10 +308,13 @@ def _regio_naar_land(regio_code):
     return regio_code
 
 
-def _parse_vanguard_holdings(content):
+def _parse_vanguard_holdings(content, locale="en"):
     """Vanguard full-holdings XLSX. Header staat vanaf regel 7
     (skiprows=6). Kolommen: Holding name, % of market value, Sector,
-    Region (regiocode, omgezet naar landnaam via _regio_naar_land)."""
+    Region (regiocode, omgezet naar landnaam via _regio_naar_land).
+    'locale' wordt (nog) niet gebruikt door deze parser — parameter erbij
+    voor een uniforme aanroep-signatuur met de andere parsers, zie
+    fetch_provider_holdings()."""
     df = pd.read_excel(io.BytesIO(content), skiprows=6)
     df.columns = df.columns.str.strip()
 
@@ -152,10 +332,17 @@ def _parse_vanguard_holdings(content):
     return holdings
 
 
-def _parse_vaneck_holdings(content):
+def _parse_vaneck_holdings(content, locale="en"):
     """VanEck full-holdings XLSX. Header staat vanaf regel 3 (skiprows=2).
-    De gewicht-kolomnaam varieert per fonds/taal — probeer bekende
-    varianten in plaats van er blind 1 aan te nemen."""
+    Kolomnamen EN getalformaat variëren per fonds/site-locale — probeer
+    bekende varianten i.p.v. er blind 1 aan te nemen (zie
+    _parse_percentage_waarde() voor het getalformaat).
+
+    Sommige VanEck-exports (bv. GDX via de Nederlandse site) hebben GEEN
+    aparte land/country-kolom, alleen Ticker/ISIN — land wordt dan
+    afgeleid uit de ISIN via _land_via_isin() (zie die functie voor de
+    kanttekening). Is er wél een expliciete land-kolom, dan heeft die
+    voorrang (preciezer dan een ISIN-afleiding)."""
     df = pd.read_excel(io.BytesIO(content), skiprows=2)
     df.columns = df.columns.str.strip()
 
@@ -164,19 +351,26 @@ def _parse_vaneck_holdings(content):
     )
     if gewicht_kolom is None:
         raise ValueError(f"geen bekende gewicht-kolom gevonden in VanEck-bestand: {list(df.columns)}")
-    naam_kolom = next((k for k in ("Naam", "Name", "Holding") if k in df.columns), None)
+    naam_kolom = next((k for k in ("Naam positie", "Naam", "Name", "Holding") if k in df.columns), None)
     land_kolom = next((k for k in ("Land", "Country", "Location") if k in df.columns), None)
+    isin_kolom = "ISIN" if "ISIN" in df.columns else None
 
     holdings = []
     for _, row in df.iterrows():
         naam = row.get(naam_kolom) if naam_kolom else None
         if pd.isna(naam) or not str(naam).strip():
             continue
-        gewicht = pd.to_numeric(row.get(gewicht_kolom), errors="coerce")
+        gewicht = _parse_percentage_waarde(row.get(gewicht_kolom), locale)
         if pd.isna(gewicht):
             continue
+        if land_kolom:
+            land = row.get(land_kolom)
+        elif isin_kolom:
+            land = _land_via_isin(row.get(isin_kolom))
+        else:
+            land = None
         holdings.append(_holding_rij(
-            naam, gewicht, row.get(land_kolom) if land_kolom else None, row.get("Sector"),
+            naam, gewicht, land, row.get("Sector"),
         ))
     return holdings
 
@@ -186,6 +380,28 @@ _PROVIDER_PARSERS = {
     "vanguard": _parse_vanguard_holdings,
     "vaneck": _parse_vaneck_holdings,
 }
+
+
+def _dedupliceer_holdings(holdings):
+    """Voegt holdings met dezelfde naam samen (som van hun gewicht) — sommige
+    providers geven meerdere posities onder exact dezelfde (vaak afgekapte)
+    naam terug: bv. verschillende aandelenklassen van hetzelfde bedrijf, of
+    meerdere FX-hedge-contracten met verschillende looptijd/tranche onder
+    dezelfde naam (ontdekt bij EMIM.AS: 'INDUSTRIAL AND COMMERCIAL BANK OF'
+    2x, 'INR/USD' zelfs 29x). etf_holdings' primary key is (etf_ticker,
+    holding_naam) — zonder deze samenvoeging crasht het opslaan met een
+    UniqueViolation zodra een fonds dit patroon heeft. Voor de landverdeling
+    (waar dit uiteindelijk voor gebruikt wordt) maakt het niet uit of zulke
+    duplicaten apart blijven of samengevoegd worden — het gewicht per land
+    telt sowieso bij elkaar op."""
+    per_naam = {}
+    for h in holdings:
+        bestaand = per_naam.get(h["naam"])
+        if bestaand is None:
+            per_naam[h["naam"]] = dict(h)
+        else:
+            bestaand["gewicht"] += h["gewicht"]
+    return list(per_naam.values())
 
 
 def fetch_provider_holdings(etf_ticker):
@@ -207,6 +423,7 @@ def fetch_provider_holdings(etf_ticker):
 
     provider = bron["provider"]
     url = bron["url"]
+    locale = bron.get("locale", "en")
     parser = _PROVIDER_PARSERS.get(provider)
     if parser is None:
         print(f"[etf-holdings-provider] ❌ onbekende provider '{provider}' voor '{etf_ticker}'")
@@ -215,7 +432,7 @@ def fetch_provider_holdings(etf_ticker):
     try:
         response = requests.get(url, headers={"User-Agent": _PROVIDER_USER_AGENT}, timeout=30)
         response.raise_for_status()
-        holdings = parser(response.content)
+        holdings = parser(response.content, locale=locale)
     except Exception as e:
         print(f"[etf-holdings-provider] ❌ kon holdings niet ophalen/parsen voor '{etf_ticker}' "
               f"(provider={provider}, url={url}): {e}")
@@ -225,23 +442,30 @@ def fetch_provider_holdings(etf_ticker):
         print(f"[etf-holdings-provider] ⚠️ lege holdings-lijst voor '{etf_ticker}' (provider={provider})")
         return None
 
+    aantal_voor_dedup = len(holdings)
+    holdings = _dedupliceer_holdings(holdings)
+    if len(holdings) != aantal_voor_dedup:
+        print(f"[etf-holdings-provider] '{etf_ticker}': {aantal_voor_dedup - len(holdings)} "
+              f"dubbele holding-naam/namen samengevoegd ({aantal_voor_dedup} -> {len(holdings)})")
+
     totaal_gewicht = sum(h["gewicht"] for h in holdings)
     print(f"[etf-holdings-provider] '{etf_ticker}': {len(holdings)} holdings opgehaald via {provider}, "
           f"totaal gewicht {totaal_gewicht:.1f}%")
     return holdings
 
 
-def test_holdings_url(url, provider):
+def test_holdings_url(url, provider, locale="en"):
     """
     Test-helper: haalt een provider-URL op en parset 'm, ZONDER 'm aan
     ETF_HOLDINGS_BRON toe te voegen of iets te cachen — gebruik dit om een
     gevonden download-link te checken vóórdat je 'm toevoegt, bv.:
 
-        test_holdings_url("https://www.ishares.com/.../download", "ishares")
+        test_holdings_url("https://www.ishares.com/.../download", "ishares", locale="nl")
 
     Print het aantal gevonden holdings en de som van de gewichten (moet
     dicht bij 100 liggen) plus de eerste paar rijen, zodat meteen duidelijk
-    is of de kolom-aannames (skiprows, kolomnamen) voor dit bestand kloppen.
+    is of de kolom-aannames (skiprows, kolomnamen, getalformaat) voor dit
+    bestand kloppen.
     """
     parser = _PROVIDER_PARSERS.get(provider)
     if parser is None:
@@ -250,7 +474,7 @@ def test_holdings_url(url, provider):
 
     response = requests.get(url, headers={"User-Agent": _PROVIDER_USER_AGENT}, timeout=30)
     response.raise_for_status()
-    holdings = parser(response.content)
+    holdings = parser(response.content, locale=locale)
 
     print(f"[test-holdings-url] {len(holdings)} holdings gevonden")
     print(f"[test-holdings-url] som van gewichten: {sum(h['gewicht'] for h in holdings):.2f}%")
@@ -345,6 +569,105 @@ def generate_code(cur, length=3):
             return code
 
 
+def _yahoo_search(query):
+    """Wrapper rond yahooquery.search() — geeft altijd een lijst van quotes
+    terug (leeg bij een fout), zodat aanroepers geen try/except nodig
+    hebben."""
+    try:
+        return search(query).get("quotes", [])
+    except Exception as e:
+        dprint(f"[ticker]   query='{query}' faalde: {e}")
+        return []
+
+
+def _kies_beurs_match(quotes, targets):
+    """Geeft (symbol, exchange) van de eerste kandidaat op een van de
+    'targets'-beurzen, of None als die er niet tussen zit."""
+    for exch in targets:
+        for q in quotes:
+            if q.get("exchange") == exch:
+                return q.get("symbol"), exch
+    return None
+
+
+def _onzeker_fallback(quotes):
+    """Kiest het eerste resultaat als 'onzeker'-fallback (wel iets
+    gevonden, maar niets op de verwachte beurs) — geeft (symbol,
+    alternatieven) terug."""
+    symbol = quotes[0].get("symbol")
+    alternatieven = [{"symbol": q.get("symbol"), "exchange": q.get("exchange")} for q in quotes[1:]]
+    return symbol, alternatieven
+
+
+def _woorden_varianten(product, min_woorden=2):
+    """Productnaam-varianten van vol naar ingekort: de volledige naam,
+    dan met het laatste woord weggehaald, net zo lang tot 'min_woorden'
+    woorden over zijn. Bijv. 'VANECK GOLD MINERS UCITS ETF USD A' (7
+    woorden, min_woorden=2) geeft 6 varianten: 7, 6, 5, 4, 3, 2 woorden.
+    Heeft de naam al minder dan/gelijk aan 'min_woorden' woorden, dan is er
+    niets in te korten en komt er maar 1 variant terug (de naam zelf)."""
+    woorden = product.split()
+    if len(woorden) <= min_woorden:
+        return [product]
+    return [" ".join(woorden[:n]) for n in range(len(woorden), min_woorden - 1, -1)]
+
+
+def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
+    """
+    Zoekt op de productnaam; levert de volledige naam geen kandidaat op de
+    verwachte beurs op, dan wordt de naam PROGRESSIEF ingekort (laatste
+    woord eraf, opnieuw zoeken) tot een kandidaat op de juiste beurs
+    gevonden wordt, of tot 'min_woorden' bereikt is. Voorkomt dat een fonds
+    waarvan Yahoo's zoekindex de volledige naam niet herkent (en dus maar 1,
+    verkeerde kandidaat teruggeeft) blind op die ene verkeerde kandidaat
+    terechtkomt — bv. 'VANECK GOLD MINERS UCITS ETF USD A' vindt niets op
+    de Duitse beurs, maar het ingekorte 'VANECK GOLD MINERS' vindt wel
+    VEF5.MU (MUN).
+
+    Stopt zodra een beurs-match gevonden is (geen reden om nog verder in te
+    korten). Vindt geen enkele poging een beurs-match, dan valt dit terug op
+    het eerste resultaat van de EERSTE poging die iets opleverde (niet per
+    se de allereerste/langste poging — die kan zelf 0 resultaten hebben
+    gehad, zoals in het voorbeeld hierboven).
+
+    Geeft (symbol, zekerheid, alternatieven) terug, of (None, None, []) als
+    geen enkele poging ook maar iets vond.
+    """
+    varianten = _woorden_varianten(product, min_woorden)
+    eerste_quotes, eerste_query = None, None
+
+    for i, variant in enumerate(varianten):
+        quotes = _yahoo_search(variant)
+        dprint(f"[ticker]   poging {i + 1}/{len(varianten)} ({len(variant.split())} woorden): "
+               f"query='{variant}' -> {[(q.get('symbol'), q.get('exchange')) for q in quotes]}")
+
+        if eerste_quotes is None and quotes:
+            eerste_quotes, eerste_query = quotes, variant
+
+        match = _kies_beurs_match(quotes, targets)
+        if match:
+            symbol, exch = match
+            dprint(f"[ticker]   ✅ beurs-match ({len(variant.split())} woorden): "
+                   f"'{variant}' -> {symbol} ({exch})")
+            alternatieven = [
+                {"symbol": q.get("symbol"), "exchange": q.get("exchange")}
+                for q in quotes if q.get("symbol") != symbol
+            ]
+            return symbol, "zeker", alternatieven
+
+    if eerste_quotes:
+        symbol, alternatieven = _onzeker_fallback(eerste_quotes)
+        dprint(f"[ticker]   ⚠️ '{product}': GEEN match voor beurs '{beurs}' (verwacht {targets}) na "
+               f"{len(varianten)} poging(en) (progressief ingekort tot {min_woorden} woorden) — "
+               f"val terug op eerste resultaat van query '{eerste_query}': "
+               f"{symbol} ({eerste_quotes[0].get('exchange')}) — mogelijk fout! "
+               f"Alle kandidaten van die zoekopdracht: "
+               f"{[(q.get('symbol'), q.get('exchange')) for q in eerste_quotes]}")
+        return symbol, "onzeker", alternatieven
+
+    return None, None, []
+
+
 def find_ticker_detailed(product, isin, beurs):
     """
     Zoekt de Yahoo Finance ticker op basis van productnaam of ISIN, en geeft
@@ -366,54 +689,43 @@ def find_ticker_detailed(product, isin, beurs):
 
     targets = BEURS_MAP.get(beurs, [])
 
-    def best_match(quotes, query):
-        for exch in targets:
-            for q in quotes:
-                if q.get("exchange") == exch:
-                    dprint(f"[ticker]   query='{query}': exact beurs-match "
-                           f"{q.get('symbol')} ({exch})")
-                    gekozen = q.get("symbol")
-                    alternatieven = [
-                        {"symbol": qu.get("symbol"), "exchange": qu.get("exchange")}
-                        for qu in quotes if qu.get("symbol") != gekozen
-                    ]
-                    return gekozen, "zeker", alternatieven
-        if quotes:
-            dprint(f"[ticker]   ⚠️ query='{query}': GEEN match voor beurs '{beurs}' "
-                   f"(verwacht {targets}), val terug op eerste resultaat "
-                   f"{quotes[0].get('symbol')} ({quotes[0].get('exchange')}) — mogelijk fout! "
-                   f"Alle kandidaten: "
-                   f"{[(q.get('symbol'), q.get('exchange')) for q in quotes]}")
-            gekozen = quotes[0].get("symbol")
-            alternatieven = [
-                {"symbol": qu.get("symbol"), "exchange": qu.get("exchange")}
-                for qu in quotes[1:]
-            ]
-            return gekozen, "onzeker", alternatieven
-        return None, None, []
+    # Productnaam: progressief inkorten bij een mislukte beurs-match (zie
+    # _zoek_product_progressief hierboven). ISIN: één enkele zoekopdracht —
+    # een ISIN heeft geen 'woorden' om weg te laten.
+    kandidaten = [_zoek_product_progressief(product, beurs, targets)]
 
-    # Probeer beide queries en bewaar het beste resultaat. Eerder stopte dit
-    # bij de EERSTE query die iets opleverde — ook een zwakke "onzeker"
-    # fallback — waardoor de isin-query nooit meer geprobeerd werd als de
-    # productnaam toevallig al een (foute) kandidaat vond. Typisch geval:
-    # zoeken op productnaam vindt alleen de Amerikaanse ADR (bv. "ASML" op
-    # NMS) terwijl zoeken op ISIN daarna de juiste Europese notering (bv.
-    # "ASML.AS" op AMS) had gevonden. Nu: "zeker" wint altijd van "onzeker",
-    # ongeacht welke van de twee queries het vond.
+    # Alleen de ISIN erbij proberen als de productnaam nog geen "zeker"
+    # resultaat opleverde — kan toch niet beter worden, en scheelt een
+    # yahooquery-call (rate limiting is een bekend pijnpunt in dit project).
+    # Zelfde volgorde-onafhankelijke voorrangsregel als voorheen: "zeker"
+    # wint altijd van "onzeker", ongeacht welke van de twee het vond — zo
+    # kan bv. een ISIN-zoekopdracht alsnog de juiste Europese notering
+    # vinden als de productnaam alleen een Amerikaanse ADR oplevert.
+    if kandidaten[0][1] != "zeker":
+        isin_quotes = _yahoo_search(isin)
+        isin_match = _kies_beurs_match(isin_quotes, targets)
+        if isin_match:
+            symbol, exch = isin_match
+            dprint(f"[ticker]   query='{isin}': exact beurs-match {symbol} ({exch})")
+            alternatieven = [
+                {"symbol": q.get("symbol"), "exchange": q.get("exchange")}
+                for q in isin_quotes if q.get("symbol") != symbol
+            ]
+            kandidaten.append((symbol, "zeker", alternatieven))
+        elif isin_quotes:
+            symbol, alternatieven = _onzeker_fallback(isin_quotes)
+            dprint(f"[ticker]   ⚠️ query='{isin}': GEEN match voor beurs '{beurs}' (verwacht {targets}), "
+                   f"val terug op eerste resultaat {symbol} ({isin_quotes[0].get('exchange')}) — "
+                   f"mogelijk fout! Alle kandidaten: "
+                   f"{[(q.get('symbol'), q.get('exchange')) for q in isin_quotes]}")
+            kandidaten.append((symbol, "onzeker", alternatieven))
+
     beste = None  # (symbol, zekerheid, alternatieven)
-    for query in [product, isin]:
-        try:
-            quotes = search(query).get("quotes", [])
-        except Exception as e:
-            dprint(f"[ticker]   query='{query}' faalde: {e}")
-            quotes = []
-        symbol, zekerheid, alternatieven = best_match(quotes, query)
+    for symbol, zekerheid, alternatieven in kandidaten:
         if symbol is None:
             continue
         if beste is None or (zekerheid == "zeker" and beste[1] != "zeker"):
             beste = (symbol, zekerheid, alternatieven)
-        if zekerheid == "zeker":
-            break  # kan niet beter worden, geen reden om de andere query nog te proberen
 
     if beste is not None and beste[1] == "zeker":
         symbol, zekerheid, alternatieven = beste
@@ -1831,6 +2143,22 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
     return cashflows
 
 
+def bereken_totale_transactiekosten(transacties_df):
+    """
+    Somt de 'transactiekosten'-kolom op (negatieve waarden in de brondata,
+    zie KOSTEN_KOLOM in app.py) tot een positief totaalbedrag. Geeft
+    beschikbaar=False terug als de kolom ontbreekt of enkel NaN bevat — bv.
+    een ouder DeGiro-exportformaat zonder aparte kostenkolom — zodat de UI
+    dan een eerlijke 'data ontbreekt'-melding kan tonen i.p.v. een verzonnen
+    €0,00."""
+    if "transactiekosten" not in transacties_df.columns:
+        return {"totaal": None, "beschikbaar": False}
+    kosten = pd.to_numeric(transacties_df["transactiekosten"], errors="coerce").dropna()
+    if kosten.empty:
+        return {"totaal": None, "beschikbaar": False}
+    return {"totaal": round(abs(float(kosten.sum())), 2), "beschikbaar": True}
+
+
 def bereken_statistieken(transacties_df, price_data, resultaat):
     """
     Bouwt alle data voor het Statistieken-tabblad. Gebruikt uitsluitend data
@@ -1889,6 +2217,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
         eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
         aantal_jaren = round((resultaat.index.max() - pd.Timestamp(eerste_datum)).days / 365.25, 2)
 
+    kosten_info = bereken_totale_transactiekosten(transacties_df)
+
     return {
         "posities": posities,
         "totalen": {
@@ -1897,7 +2227,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
             "rendement_eur": round(totaal["rendement_eur"], 2),
             "rendement_pct": round(totaal["rendement_pct"], 2) if totaal["rendement_pct"] is not None else None,
             "all_time_high": all_time_high,
-            "transactiekosten_beschikbaar": False,
+            "totale_transactiekosten": kosten_info["totaal"],
+            "transactiekosten_beschikbaar": kosten_info["beschikbaar"],
         },
         "jaren": jaren,
         "geavanceerd": {
