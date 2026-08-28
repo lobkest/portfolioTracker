@@ -20,33 +20,31 @@ body {
     width: 100%;
 }
 
-/* App-shell-layout: het menu blijft op zijn plek, alleen .content scrolt.
-   .dashboard krijgt een vaste hoogte (viewport min de padding-top van body
-   plus wat ruimte eronder) zodat .sidebar en .content (align-items: stretch,
-   de flex-default) daar precies in passen i.p.v. dat de hele pagina
-   meescrolt. */
 .dashboard {
     display: flex;
     width: 900px;
     max-width: 100%;
     gap: 20px;
-    position: relative;
-    height: calc(100vh - 100px);
-    height: calc(100dvh - 100px);
-    min-height: 400px;
 }
 
+/* Sidebar blijft op zijn plek terwijl de HELE pagina scrolt (position:
+   sticky t.o.v. de gewone document-flow) — geen eigen scrollcontainer met
+   een geforceerde hoogte, dat gaf een dubbele scrollbar (één voor de pagina,
+   één binnen de content-kolom). align-self: flex-start i.p.v. de flex-
+   default (stretch) zodat de sidebar-box zijn eigen (korte) hoogte
+   aanhoudt i.p.v. mee te rekken met de lange content-kolom ernaast. Op
+   mobiel wordt dit overschreven door het off-canvas paneel hieronder. */
 .sidebar {
     width: 160px;
     flex-shrink: 0;
-    overflow-y: auto;
+    position: sticky;
+    top: 20px;
+    align-self: flex-start;
 }
 
 .content {
     flex-grow: 1;
     min-width: 0;
-    overflow-y: auto;
-    padding-right: 4px;
     transition: opacity 0.09s ease;
 }
 
@@ -280,9 +278,14 @@ button:hover {
         pointer-events: auto;
     }
 
+    /* Op mobiel heeft .dashboard wél een vaste hoogte (100dvh, zie hierboven)
+       zodat de vaste hamburgerbalk en het off-canvas menu correct t.o.v. het
+       scherm blijven staan — .content scrolt daarom hier WEL zelfstandig
+       binnen die hoogte (i.t.t. desktop, waar de hele pagina scrolt). */
     .content {
         flex-grow: 1;
         min-height: 0;
+        overflow-y: auto;
     }
 
     .chart-wrapper {
