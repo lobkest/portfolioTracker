@@ -11,6 +11,11 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+    <!-- Alleen voor de Prognose-grafiek: die zet de x-as op een echte tijdschaal
+         (i.p.v. de category-as die de rest van de grafieken gebruikt), en dat
+         vereist een date-adapter. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.7.2/luxon.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-luxon/1.3.1/chartjs-adapter-luxon.umd.min.js"></script>
 </head>
 <body>
     <div class="container" id="uploadSection">

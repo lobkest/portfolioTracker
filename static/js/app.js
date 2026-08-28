@@ -100,14 +100,6 @@ function updateChart(labels, datasets) {
             locale: "nl-NL",
             scales: { y: { beginAtZero: false } },
             plugins: {
-                legend: {
-                    labels: {
-                        // Datasets met _verbergInLegenda (bv. de losse boven-lijn van een
-                        // gearceerde bandbreedte) tonen wel in de grafiek maar niet als
-                        // los legenda-item.
-                        filter: (item, data) => !(data.datasets[item.datasetIndex] || {})._verbergInLegenda
-                    }
-                },
                 tooltip: {
                     callbacks: {
                         label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
@@ -1268,6 +1260,11 @@ function renderPrognoseFormulier() {
 // labels/datasets voor de gedeelde rendementChart-canvas. Verleden- en
 // toekomst-reeksen delen het laatste historische punt (index H-1) zodat de
 // lijnen zonder gat op elkaar aansluiten.
+// Datasets als {x, y}-punten (x = ISO-datumstring) i.p.v. een gedeelde
+// labels-array — nodig voor de echte tijd-as (zie tekenPrognoseChart).
+// Verleden en prognose hebben bewust een verschillende puntdichtheid
+// (dagelijks resp. maandelijks); ze delen het laatste historische punt als
+// gemeenschappelijk beginpunt zodat de lijnen zonder gat aansluiten.
 function bouwPrognoseGrafiekData(invoer) {
     const d = huidigeData.chart_data;
     const H = d.labels.length;
@@ -1287,21 +1284,82 @@ function bouwPrognoseGrafiekData(invoer) {
 
     const totaalMaanden = Math.round(invoer.jaren * 12);
     const toekomstDatums = genereerToekomstDatums(laatsteDatum, totaalMaanden);
-    const labels = d.labels.concat(toekomstDatums);
 
-    const vulNaBoundary = (historischeReeks, pad) =>
-        new Array(H - 1).fill(null).concat([historischeReeks[H - 1]]).concat(pad.slice(1));
+    const historischPad = (reeks) => d.labels.map((iso, i) => ({ x: iso, y: reeks[i] }));
+    // pad[0] is het startpunt (== laatsteDatum), dus die slaan we hier over en
+    // beginnen bij het boundary-punt zelf om aan te sluiten op historischPad.
+    const toekomstPad = (pad) =>
+        [{ x: laatsteDatum, y: pad[0] }].concat(toekomstDatums.map((iso, i) => ({ x: iso, y: pad[i + 1] })));
 
     const datasets = [
-        { label: "Waarde (€)", data: d.waarde.concat(new Array(totaalMaanden).fill(null)), borderColor: "#2c7a4b" },
-        { label: "Waarde — prognose (€)", data: vulNaBoundary(d.waarde, prognose.midden), borderColor: "#2c7a4b", borderDash: [6, 4] },
-        { label: "Bandbreedte (hoog)", data: vulNaBoundary(d.waarde, prognose.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
-        { label: "Bandbreedte laag–hoog", data: vulNaBoundary(d.waarde, prognose.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" },
-        { label: "Geïnvesteerd (€)", data: d.geinvesteerd.concat(new Array(totaalMaanden).fill(null)), borderColor: "#3182bd" },
-        { label: "Geïnvesteerd — prognose (€)", data: vulNaBoundary(d.geinvesteerd, prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
+        { label: "Waarde (€)", data: historischPad(d.waarde), borderColor: "#2c7a4b" },
+        { label: "Waarde — prognose (€)", data: toekomstPad(prognose.midden), borderColor: "#2c7a4b", borderDash: [6, 4] },
+        { label: "Bandbreedte (hoog)", data: toekomstPad(prognose.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
+        { label: "Bandbreedte laag–hoog", data: toekomstPad(prognose.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" },
+        { label: "Geïnvesteerd (€)", data: historischPad(d.geinvesteerd), borderColor: "#3182bd" },
+        { label: "Geïnvesteerd — prognose (€)", data: toekomstPad(prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
     ];
 
-    return { labels, datasets };
+    return { datasets };
+}
+
+// Los van updateChart() (die de category-as gebruikt voor de andere
+// tabbladen, waar dat prima werkt omdat die series allemaal dezelfde
+// (dagelijkse) puntdichtheid hebben): de Prognose-grafiek combineert
+// dagelijkse historische punten met maandelijkse prognosepunten in één
+// grafiek, en dat vereist een echte tijd-as (type: 'time') zodat elk punt
+// op de plek staat die met zijn werkelijke datum overeenkomt i.p.v. een
+// vaste breedte per punt te krijgen.
+function tekenPrognoseChart(datasets) {
+    if (chart) chart.destroy();
+    datasets = datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, ...ds }));
+
+    chart = new Chart(document.getElementById("rendementChart"), {
+        type: "line",
+        data: { datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            locale: "nl-NL",
+            scales: {
+                x: {
+                    type: "time",
+                    time: {
+                        tooltipFormat: "dd-MM-yyyy",
+                        displayFormats: {
+                            day: "dd-MM-yyyy",
+                            week: "dd-MM-yyyy",
+                            month: "MM-yyyy",
+                            quarter: "MM-yyyy",
+                            year: "yyyy"
+                        }
+                    }
+                },
+                y: { beginAtZero: false }
+            },
+            plugins: {
+                legend: {
+                    labels: {
+                        filter: (item, data) => !(data.datasets[item.datasetIndex] || {})._verbergInLegenda
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
+                    }
+                },
+                zoom: {
+                    pan: { enabled: true, mode: "x" },
+                    zoom: {
+                        wheel: { enabled: true },
+                        pinch: { enabled: true },
+                        mode: "x"
+                    }
+                },
+                datalabels: { display: false }
+            }
+        }
+    });
 }
 
 function berekenEnToonPrognose() {
@@ -1331,13 +1389,13 @@ function berekenEnToonPrognose() {
     }
 
     prognoseResultaat = bouwPrognoseGrafiekData(invoer);
-    updateChart(prognoseResultaat.labels, prognoseResultaat.datasets);
+    tekenPrognoseChart(prognoseResultaat.datasets);
 }
 
 function toonPrognose() {
     renderPrognoseFormulier();
     if (prognoseResultaat) {
-        updateChart(prognoseResultaat.labels, prognoseResultaat.datasets);
+        tekenPrognoseChart(prognoseResultaat.datasets);
     } else {
         berekenEnToonPrognose();
     }
