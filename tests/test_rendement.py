@@ -22,6 +22,8 @@ from analysis import (
     bereken_xirr,
     bereken_holdings_gak,
     bereken_jaren_overzicht,
+    bereken_totale_transactiekosten,
+    bereken_statistieken,
 )
 
 
@@ -157,6 +159,82 @@ class TestJarenOverzicht(unittest.TestCase):
 
     def test_leeg_resultaat_geeft_lege_lijst(self):
         self.assertEqual(bereken_jaren_overzicht(pd.DataFrame()), [])
+
+
+class TestTotaleTransactiekosten(unittest.TestCase):
+    """Dekt de bug waarbij de kolom 'Transactiekosten en/of kosten van
+    derden EUR' wel in het Excel-bestand stond, maar nergens werd
+    opgepikt/gesommeerd (zie opdracht 'transactiekosten worden niet
+    gevonden')."""
+
+    def test_som_van_bekende_kosten_als_positief_bedrag(self):
+        # brondata is negatief (kosten worden afgeboekt), UI moet een
+        # positief totaalbedrag tonen: -3, -1, -1 -> €5
+        df = pd.DataFrame({"transactiekosten": [-3, -1, -1]})
+        r = bereken_totale_transactiekosten(df)
+        self.assertTrue(r["beschikbaar"])
+        self.assertAlmostEqual(r["totaal"], 5.0)
+
+    def test_kolom_ontbreekt_geeft_data_ontbreekt_zonder_crash(self):
+        df = pd.DataFrame({"ticker": ["X", "Y"], "aantal": [1.0, 2.0]})
+        r = bereken_totale_transactiekosten(df)
+        self.assertFalse(r["beschikbaar"])
+        self.assertIsNone(r["totaal"])
+
+    def test_alleen_nan_waarden_geeft_data_ontbreekt_zonder_crash(self):
+        df = pd.DataFrame({"transactiekosten": [None, None, float("nan")]})
+        r = bereken_totale_transactiekosten(df)
+        self.assertFalse(r["beschikbaar"])
+        self.assertIsNone(r["totaal"])
+
+
+class TestStatistiekenTransactiekosten(unittest.TestCase):
+    """bereken_statistieken() levert precies dezelfde totalen-dict die zowel
+    het Statistieken-tabblad als het totalenblok op Portfolio-home
+    rechtstreeks renderen (zie app.js toonStatistieken/toonPortfolio) — deze
+    tests bevestigen dat die ene bron van waarheid het kosten-veld correct
+    doorgeeft, zodat de twee weergaven niet uit elkaar kunnen lopen."""
+
+    def _transacties(self, met_kosten):
+        rijen = [
+            {"ticker": "X", "datum": pd.Timestamp("2023-01-01"), "aantal": 10.0,
+             "koers": 10.0, "totaal_eur": -100.0, "beurs": "EAM", "product": "X"},
+            {"ticker": "X", "datum": pd.Timestamp("2023-02-01"), "aantal": 5.0,
+             "koers": 12.0, "totaal_eur": -60.0, "beurs": "EAM", "product": "X"},
+        ]
+        if met_kosten:
+            rijen[0]["transactiekosten"] = -3.0
+            rijen[1]["transactiekosten"] = -1.0
+        return pd.DataFrame(rijen)
+
+    def _resultaat(self):
+        return pd.DataFrame(
+            {"waarde": [180.0], "geinvesteerd": [160.0]},
+            index=[pd.Timestamp("2023-06-01")],
+        )
+
+    def _price_data(self):
+        return pd.DataFrame({"X": [12.0]}, index=[pd.Timestamp("2023-06-01")])
+
+    def test_totalen_bevat_correct_kostenbedrag(self):
+        stats = bereken_statistieken(self._transacties(met_kosten=True), self._price_data(), self._resultaat())
+        self.assertTrue(stats["totalen"]["transactiekosten_beschikbaar"])
+        self.assertAlmostEqual(stats["totalen"]["totale_transactiekosten"], 4.0)
+
+    def test_totalen_zonder_kostenkolom_geeft_data_ontbreekt(self):
+        stats = bereken_statistieken(self._transacties(met_kosten=False), self._price_data(), self._resultaat())
+        self.assertFalse(stats["totalen"]["transactiekosten_beschikbaar"])
+        self.assertIsNone(stats["totalen"]["totale_transactiekosten"])
+
+    def test_totalen_komt_overeen_met_losse_kostenberekening(self):
+        # Portfolio-home en Statistieken lezen letterlijk hetzelfde
+        # totalen-object (huidigeData.statistieken.totalen) — dit borgt dat
+        # dat object zelf consistent is met bereken_totale_transactiekosten().
+        transacties_df = self._transacties(met_kosten=True)
+        stats = bereken_statistieken(transacties_df, self._price_data(), self._resultaat())
+        losse_berekening = bereken_totale_transactiekosten(transacties_df)
+        self.assertEqual(stats["totalen"]["totale_transactiekosten"], losse_berekening["totaal"])
+        self.assertEqual(stats["totalen"]["transactiekosten_beschikbaar"], losse_berekening["beschikbaar"])
 
 
 if __name__ == "__main__":

@@ -89,6 +89,16 @@ function toonPortfolio() {
         { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },
         { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
     ]);
+
+    // Hergebruikt exact dezelfde totalen-data en -weergave als het
+    // Statistieken-tabblad (huidigeData.statistieken, al standaard
+    // meegestuurd bij het laden van een portfolio) — geen aparte
+    // berekening of API-call.
+    const homeSectie = document.getElementById("homeTotalenSectie");
+    homeSectie.innerHTML = "";
+    if (huidigeData.statistieken) {
+        homeSectie.appendChild(maakTotalenSectie(huidigeData.statistieken.totalen));
+    }
 }
 
 function toonRendement() {
@@ -870,6 +880,10 @@ function maakTotalenSectie(totalen) {
         ));
     }
 
+    if (totalen.transactiekosten_beschikbaar) {
+        rij.appendChild(maakStatTegel("Totale transactiekosten", formatEur(totalen.totale_transactiekosten)));
+    }
+
     const container = document.createElement("div");
     container.appendChild(rij);
 
@@ -1082,6 +1096,7 @@ function wisselView(view) {
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
+    document.getElementById("homeTotalenSectie").style.display = view === "portfolio" ? "block" : "none";
 
     if (view !== "instellingen-bijnamen") {
         document.getElementById("instellingenMsg").style.display = "none";

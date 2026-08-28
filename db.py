@@ -34,9 +34,14 @@ def init_db():
             totaal_eur NUMERIC NOT NULL,
             order_id TEXT,
             echte_naam TEXT,
+            transactiekosten NUMERIC,
             UNIQUE (code, order_id)
         );
     """)
+    # transacties bestond al vóór transactiekosten erbij kwam — bestaande
+    # (Neon-)tabellen missen deze kolom dus nog, CREATE TABLE IF NOT EXISTS
+    # raakt een bestaande tabel niet aan.
+    cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS transactiekosten NUMERIC;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS prijzen (
             ticker TEXT NOT NULL,
@@ -403,9 +408,20 @@ def delete_portfolio(code):
 
 def save_dividenden(code, records):
     """records: lijst van dicts zoals analysis.verwerk_rekeningoverzicht() teruggeeft.
-    ON CONFLICT DO NOTHING op (code, dividend_id) — zelfde dedup-patroon als
-    UNIQUE (code, order_id) bij transacties, zodat een herhaalde upload van
-    hetzelfde rekeningoverzicht geen dubbele rijen oplevert."""
+
+    ON CONFLICT (code, dividend_id) DO UPDATE — bewust een upsert, GEEN DO
+    NOTHING. dividend_id is afgeleid van de RUWE (niet-EUR-geconverteerde)
+    bedragen (zie verwerk_rekeningoverzicht), die niet veranderen als er
+    later iets verbetert aan de EUR-omrekenlogica zelf. Met DO NOTHING zou
+    een bugfix in die omrekenlogica dus nooit een al opgeslagen rij
+    corrigeren: een eerdere (foutieve, bv. NULL) waarde zou voor altijd
+    blijven staan omdat een latere, juiste herberekening exact dezelfde
+    dividend_id oplevert en dus als 'duplicaat' genegeerd werd. Dit was
+    precies de oorzaak van een bug waarbij de Dividend-pagina €0,00 bleef
+    tonen ondanks een gefixte berekening: de upload-log toonde het juiste
+    vers-berekende totaal, maar de oude NULL-rijen in de database bleven
+    intact staan omdat DO NOTHING de nieuwe (juiste) waarden nooit liet
+    doorschrijven."""
     if not records:
         return
     conn = get_db_connection()
@@ -413,7 +429,10 @@ def save_dividenden(code, records):
     execute_values(
         cur,
         "INSERT INTO dividenden (code, dividend_id, datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur) "
-        "VALUES %s ON CONFLICT (code, dividend_id) DO NOTHING",
+        "VALUES %s ON CONFLICT (code, dividend_id) DO UPDATE SET "
+        "datum = EXCLUDED.datum, product = EXCLUDED.product, isin = EXCLUDED.isin, "
+        "valuta = EXCLUDED.valuta, bruto_eur = EXCLUDED.bruto_eur, "
+        "belasting_eur = EXCLUDED.belasting_eur, netto_eur = EXCLUDED.netto_eur",
         [
             (code, r["dividend_id"], r["datum"], r["product"], r["isin"], r["valuta"],
              r["bruto_eur"], r["belasting_eur"], r["netto_eur"])
@@ -421,6 +440,9 @@ def save_dividenden(code, records):
         ],
     )
     conn.commit()
+    aantal_bekend = sum(1 for r in records if r["netto_eur"] is not None)
+    print(f"[dividend-debug] save_dividenden: code='{code}', {len(records)} record(s) ge-upsert "
+          f"({aantal_bekend} met een bekende netto_eur, {len(records) - aantal_bekend} met netto_eur=None)")
     cur.close()
     conn.close()
 
@@ -437,7 +459,7 @@ def get_dividenden(code):
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [
+    resultaat = [
         {
             "datum": datum,
             "product": product,
@@ -449,6 +471,10 @@ def get_dividenden(code):
         }
         for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur in rows
     ]
+    aantal_bekend = sum(1 for r in resultaat if r["netto_eur"] is not None)
+    print(f"[dividend-debug] get_dividenden: code='{code}', {len(resultaat)} rij(en) opgehaald "
+          f"({aantal_bekend} met een bekende netto_eur, {len(resultaat) - aantal_bekend} met netto_eur=None)")
+    return resultaat
 
 
 def save_prices(rows):
