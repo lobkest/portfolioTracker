@@ -47,6 +47,14 @@ body {
     min-width: 0;
     overflow-y: auto;
     padding-right: 4px;
+    transition: opacity 0.09s ease;
+}
+
+/* Korte fade tussen tabbladen (app.js: wisselView zet deze class aan, wacht
+   90ms — gelijk aan deze transitieduur — wisselt dan de content en haalt de
+   class weer weg) i.p.v. een harde, abrupte wissel. Totale overgang ~180ms. */
+.content.tabWisselt {
+    opacity: 0;
 }
 
 .hamburgerBtn {
