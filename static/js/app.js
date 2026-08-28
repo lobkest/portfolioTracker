@@ -1,6 +1,11 @@
 let chart = null;
 let huidigeData = null;
 
+// Prognose-tabblad: invoer blijft bewaard zolang de pagina open is (ook als je
+// naar een ander tabblad en terug gaat), berekening gebeurt pas na "Bereken".
+let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 1000, maandelijks: 0 };
+let prognoseResultaat = null;
+
 Chart.register(ChartDataLabels);
 
 // Chart.js herschaalt niet altijd meteen na een rotatie op mobiele Safari;
@@ -95,6 +100,14 @@ function updateChart(labels, datasets) {
             locale: "nl-NL",
             scales: { y: { beginAtZero: false } },
             plugins: {
+                legend: {
+                    labels: {
+                        // Datasets met _verbergInLegenda (bv. de losse boven-lijn van een
+                        // gearceerde bandbreedte) tonen wel in de grafiek maar niet als
+                        // los legenda-item.
+                        filter: (item, data) => !(data.datasets[item.datasetIndex] || {})._verbergInLegenda
+                    }
+                },
                 tooltip: {
                     callbacks: {
                         label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
@@ -1159,6 +1172,177 @@ function toonStatistieken() {
     sectie.appendChild(maakUitlegSectie());
 }
 
+function maakPrognoseInputVeld(id, labelTekst, waarde, opts) {
+    opts = opts || {};
+    const wrapper = document.createElement("div");
+    wrapper.style.width = "170px";
+
+    const label = document.createElement("label");
+    label.setAttribute("for", id);
+    label.textContent = labelTekst;
+    label.style.marginTop = "0";
+    label.style.fontSize = "0.85em";
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.id = id;
+    input.value = waarde;
+    if (opts.step !== undefined) input.step = opts.step;
+    if (opts.min !== undefined) input.min = opts.min;
+    if (opts.max !== undefined) input.max = opts.max;
+
+    wrapper.appendChild(label);
+    wrapper.appendChild(input);
+    return wrapper;
+}
+
+function leesPrognoseInvoer() {
+    const getal = (id) => parseFloat(document.getElementById(id).value);
+    prognoseInvoer = {
+        jaren: getal("prognoseJaren"),
+        rendement: getal("prognoseRendement"),
+        laag: getal("prognoseLaag"),
+        hoog: getal("prognoseHoog"),
+        jaarlijks: getal("prognoseJaarlijks"),
+        maandelijks: getal("prognoseMaandelijks")
+    };
+    return prognoseInvoer;
+}
+
+function renderPrognoseFormulier() {
+    const sectie = document.getElementById("prognoseSectie");
+    sectie.innerHTML = "";
+
+    const uitleg = document.createElement("p");
+    uitleg.style.color = "#666";
+    uitleg.style.fontSize = "0.9em";
+    uitleg.style.marginTop = "0";
+    uitleg.textContent = "Projectie op basis van je huidige portfoliowaarde en -geschiedenis, aangevuld met instelbare aannames voor de toekomst. Rendement wordt maandelijks samengesteld; inleg wordt telkens ná de groei van die periode toegevoegd.";
+    sectie.appendChild(uitleg);
+
+    const rij = document.createElement("div");
+    rij.style.display = "flex";
+    rij.style.flexWrap = "wrap";
+    rij.style.gap = "16px";
+    rij.style.marginTop = "10px";
+
+    rij.appendChild(maakPrognoseInputVeld("prognoseJaren", "Aantal jaren vooruit", prognoseInvoer.jaren, { min: 0, max: 60, step: 1 }));
+    rij.appendChild(maakPrognoseInputVeld("prognoseRendement", "Verwacht rendement per jaar (%)", prognoseInvoer.rendement, { step: 0.1 }));
+    rij.appendChild(maakPrognoseInputVeld("prognoseLaag", "Bandbreedte — laag (%)", prognoseInvoer.laag, { step: 0.1 }));
+    rij.appendChild(maakPrognoseInputVeld("prognoseHoog", "Bandbreedte — hoog (%)", prognoseInvoer.hoog, { step: 0.1 }));
+    rij.appendChild(maakPrognoseInputVeld("prognoseJaarlijks", "Jaarlijkse inleg (€)", prognoseInvoer.jaarlijks, { min: 0, step: 50 }));
+    rij.appendChild(maakPrognoseInputVeld("prognoseMaandelijks", "Maandelijkse inleg (€)", prognoseInvoer.maandelijks, { min: 0, step: 10 }));
+    sectie.appendChild(rij);
+
+    const berekenBtn = document.createElement("button");
+    berekenBtn.textContent = "Bereken";
+    berekenBtn.style.marginTop = "14px";
+    berekenBtn.onclick = berekenEnToonPrognose;
+    sectie.appendChild(berekenBtn);
+
+    const fout = document.createElement("p");
+    fout.id = "prognoseFoutmelding";
+    fout.style.display = "none";
+    fout.style.color = "#9C0006";
+    fout.style.fontSize = "0.9em";
+    fout.style.marginTop = "10px";
+    sectie.appendChild(fout);
+
+    const waarschuwing = document.createElement("p");
+    waarschuwing.id = "prognoseWaarschuwing";
+    waarschuwing.style.display = "none";
+    waarschuwing.style.color = "#a66a00";
+    waarschuwing.style.fontSize = "0.9em";
+    waarschuwing.style.marginTop = "10px";
+    sectie.appendChild(waarschuwing);
+
+    const legenda = document.createElement("p");
+    legenda.style.color = "#888";
+    legenda.style.fontSize = "0.8em";
+    legenda.style.marginTop = "10px";
+    legenda.textContent = "Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).";
+    sectie.appendChild(legenda);
+}
+
+// Bouwt uit historische data (huidigeData.chart_data) + berekenPrognose() de
+// labels/datasets voor de gedeelde rendementChart-canvas. Verleden- en
+// toekomst-reeksen delen het laatste historische punt (index H-1) zodat de
+// lijnen zonder gat op elkaar aansluiten.
+function bouwPrognoseGrafiekData(invoer) {
+    const d = huidigeData.chart_data;
+    const H = d.labels.length;
+    const laatsteDatum = d.labels[H - 1];
+    const startWaarde = d.waarde[H - 1];
+    const startGeinvesteerd = d.geinvesteerd[H - 1];
+
+    const prognose = berekenPrognose({
+        startWaarde, startGeinvesteerd,
+        jaren: invoer.jaren,
+        rendementPct: invoer.rendement,
+        laagPct: invoer.laag,
+        hoogPct: invoer.hoog,
+        jaarlijkseInleg: invoer.jaarlijks,
+        maandelijkseInleg: invoer.maandelijks
+    });
+
+    const totaalMaanden = Math.round(invoer.jaren * 12);
+    const toekomstDatums = genereerToekomstDatums(laatsteDatum, totaalMaanden);
+    const labels = d.labels.concat(toekomstDatums);
+
+    const vulNaBoundary = (historischeReeks, pad) =>
+        new Array(H - 1).fill(null).concat([historischeReeks[H - 1]]).concat(pad.slice(1));
+
+    const datasets = [
+        { label: "Waarde (€)", data: d.waarde.concat(new Array(totaalMaanden).fill(null)), borderColor: "#2c7a4b" },
+        { label: "Waarde — prognose (€)", data: vulNaBoundary(d.waarde, prognose.midden), borderColor: "#2c7a4b", borderDash: [6, 4] },
+        { label: "Bandbreedte (hoog)", data: vulNaBoundary(d.waarde, prognose.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
+        { label: "Bandbreedte laag–hoog", data: vulNaBoundary(d.waarde, prognose.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" },
+        { label: "Geïnvesteerd (€)", data: d.geinvesteerd.concat(new Array(totaalMaanden).fill(null)), borderColor: "#3182bd" },
+        { label: "Geïnvesteerd — prognose (€)", data: vulNaBoundary(d.geinvesteerd, prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
+    ];
+
+    return { labels, datasets };
+}
+
+function berekenEnToonPrognose() {
+    const invoer = leesPrognoseInvoer();
+    const validatie = valideerPrognoseInvoer({
+        jaren: invoer.jaren,
+        rendementPct: invoer.rendement,
+        laagPct: invoer.laag,
+        hoogPct: invoer.hoog,
+        jaarlijkseInleg: invoer.jaarlijks,
+        maandelijkseInleg: invoer.maandelijks
+    });
+
+    const foutEl = document.getElementById("prognoseFoutmelding");
+    const waarschuwingEl = document.getElementById("prognoseWaarschuwing");
+    foutEl.style.display = "none";
+    waarschuwingEl.style.display = "none";
+
+    if (!validatie.geldig) {
+        foutEl.textContent = validatie.fouten.join(" ");
+        foutEl.style.display = "block";
+        return;
+    }
+    if (validatie.waarschuwing) {
+        waarschuwingEl.textContent = validatie.waarschuwing;
+        waarschuwingEl.style.display = "block";
+    }
+
+    prognoseResultaat = bouwPrognoseGrafiekData(invoer);
+    updateChart(prognoseResultaat.labels, prognoseResultaat.datasets);
+}
+
+function toonPrognose() {
+    renderPrognoseFormulier();
+    if (prognoseResultaat) {
+        updateChart(prognoseResultaat.labels, prognoseResultaat.datasets);
+    } else {
+        berekenEnToonPrognose();
+    }
+}
+
 function wisselView(view) {
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker";
 
@@ -1175,6 +1359,7 @@ function wisselView(view) {
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
+    document.getElementById("prognoseSectie").style.display = view === "prognose" ? "block" : "none";
     document.getElementById("homeTotalenSectie").style.display = view === "portfolio" ? "block" : "none";
 
     if (view !== "instellingen-bijnamen") {
@@ -1200,6 +1385,7 @@ function wisselView(view) {
     else if (view === "instellingen-ticker") toonInstellingenTicker();
     else if (view === "dividend") toonDividend();
     else if (view === "statistieken") toonStatistieken();
+    else if (view === "prognose") toonPrognose();
     else if (view === "peraandeel") {
         const select = document.getElementById("aandeelSelect");
         toonPerAandeel(select.value);
