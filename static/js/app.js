@@ -1172,7 +1172,7 @@ function maakPositieTabel(posities, tickerNamen) {
             waarde: p => p.gak,
             renderTd: p => {
                 const td = document.createElement("td");
-                td.textContent = formatteerEuro(p.gak, 4);
+                td.textContent = formatteerEuro(p.gak);
                 td.style.padding = "4px 16px 4px 0";
                 return td;
             },
@@ -1182,7 +1182,7 @@ function maakPositieTabel(posities, tickerNamen) {
             waarde: p => p.huidige_koers,
             renderTd: p => {
                 const td = document.createElement("td");
-                td.textContent = formatteerEuro(p.huidige_koers, 4);
+                td.textContent = formatteerEuro(p.huidige_koers);
                 td.style.padding = "4px 16px 4px 0";
                 return td;
             },
@@ -1234,7 +1234,7 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
             waarde: p => p.gemiddelde_aankoopkoers,
             renderTd: p => {
                 const td = document.createElement("td");
-                td.textContent = formatteerEuro(p.gemiddelde_aankoopkoers, 4);
+                td.textContent = formatteerEuro(p.gemiddelde_aankoopkoers);
                 td.style.padding = "4px 16px 4px 0";
                 return td;
             },
@@ -1244,7 +1244,7 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
             waarde: p => p.gemiddelde_verkoopkoers,
             renderTd: p => {
                 const td = document.createElement("td");
-                td.textContent = p.gemiddelde_verkoopkoers !== null ? formatteerEuro(p.gemiddelde_verkoopkoers, 4) : "onbekend";
+                td.textContent = p.gemiddelde_verkoopkoers !== null ? formatteerEuro(p.gemiddelde_verkoopkoers) : "onbekend";
                 td.style.padding = "4px 16px 4px 0";
                 return td;
             },
