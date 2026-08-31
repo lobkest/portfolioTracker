@@ -852,6 +852,24 @@ def download_met_retry(ticker_of_pair, start_date, pogingen=3, wachttijd=5):
                 return pd.Series(dtype=float)
 
 
+def _converteer_naar_eur(raw, tickers_kolommen, vanaf):
+    """Past USD/GBP/GBp -> EUR-conversie toe op raw[t] voor elke t in
+    tickers_kolommen, in-place. 'vanaf' is de startdatum voor de FX-reeks."""
+    for t in tickers_kolommen:
+        if t not in raw.columns:
+            continue
+        try:
+            currency = yf.Ticker(t).info.get("currency")
+        except Exception:
+            currency = "EUR"
+        if currency in ("USD", "GBP", "GBp"):
+            fx_pair = "USDEUR=X" if currency == "USD" else "GBPEUR=X"
+            fx = download_met_retry(fx_pair, vanaf).squeeze()
+            fx = fx.reindex(raw.index).ffill()
+            divisor = 100 if currency == "GBp" else 1
+            raw[t] = raw[t] / divisor * fx
+
+
 def get_prices(tickers, start_date):
     """Haalt koersen (in EUR) op voor een lijst tickers, met caching via de database."""
     tickers = [t for t in tickers if t]
@@ -859,21 +877,27 @@ def get_prices(tickers, start_date):
         return pd.DataFrame()
 
     start_date = pd.Timestamp(start_date)
+    vandaag = pd.Timestamp.now().normalize()
 
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Vroegste gecachte datum per ticker (ongefilterd op start_date!) — nodig
-    # om te kunnen zien of de cache al ver genoeg teruggaat, in plaats van
-    # alleen te checken of de ticker uberhaupt in de cache voorkomt. Zonder
-    # deze check bleef een ticker met een eerdere, onvolledige download
-    # (bv. door rate limiting) voor altijd "incompleet" gecachet, met
-    # waarde=0 voor alle datums vóór de eerst gecachte datum als gevolg.
+    # Vroegste én laatste gecachte datum per ticker (ongefilterd op
+    # start_date!) — de vroegste om te kunnen zien of de cache al ver
+    # genoeg teruggaat, de laatste om te zien of de cache nog ACTUEEL is.
+    # Zonder de eerste check bleef een ticker met een eerdere, onvolledige
+    # download (bv. door rate limiting) voor altijd "incompleet" gecachet,
+    # met waarde=0 voor alle datums vóór de eerst gecachte datum als gevolg.
+    # Zonder de tweede check werd een ticker die eenmaal ver genoeg terugging
+    # nooit meer ververst, waardoor nieuwe transacties na de laatst gecachte
+    # datum stilzwijgend buiten price_data.index vielen (zie compute_value_
+    # over_time/compute_per_ticker, die simpelweg over price_data.index
+    # itereren).
     cur.execute(
-        "SELECT ticker, MIN(datum) FROM prijzen WHERE ticker = ANY(%s) GROUP BY ticker",
+        "SELECT ticker, MIN(datum), MAX(datum) FROM prijzen WHERE ticker = ANY(%s) GROUP BY ticker",
         (tickers,),
     )
-    eerste_datum_cache = {row[0]: pd.Timestamp(row[1]) for row in cur.fetchall()}
+    datums_cache = {row[0]: (pd.Timestamp(row[1]), pd.Timestamp(row[2])) for row in cur.fetchall()}
 
     cur.execute(
         "SELECT ticker, datum, koers_eur FROM prijzen WHERE ticker = ANY(%s) AND datum >= %s",
@@ -884,12 +908,14 @@ def get_prices(tickers, start_date):
     conn.close()
 
     missing = []
+    # ticker -> datum vanaf waar incrementeel ververst moet worden
+    stale = {}
     for t in tickers:
-        if t not in eerste_datum_cache:
+        if t not in datums_cache:
             missing.append(t)
             dprint(f"[koersen] '{t}' nog niet in cache, wordt gedownload")
             continue
-        eerste = eerste_datum_cache[t]
+        eerste, laatste = datums_cache[t]
         # kleine marge voor weekenden/feestdagen rond de gevraagde startdatum
         if eerste > start_date + pd.Timedelta(days=5):
             missing.append(t)
@@ -897,6 +923,11 @@ def get_prices(tickers, start_date):
                   f"vanaf {start_date.date()} nodig is — cache lijkt incompleet (eerdere "
                   f"download waarschijnlijk mislukt/afgebroken), wordt opnieuw volledig "
                   f"gedownload")
+            continue
+        # marge van een paar dagen voor weekenden/feestdagen rond vandaag
+        if laatste < vandaag - pd.Timedelta(days=4):
+            stale[t] = laatste + pd.Timedelta(days=1)
+            print(f"[koersen] ⚠️ '{t}' cache loopt tot {laatste.date()}, ververst tot vandaag")
 
     if missing:
         raw = download_met_retry(missing, start_date)
@@ -912,16 +943,8 @@ def get_prices(tickers, start_date):
             eerste_ruw = raw[t].first_valid_index()
             dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
                    f"gevraagd vanaf {start_date}")
-            try:
-                currency = yf.Ticker(t).info.get("currency")
-            except Exception:
-                currency = "EUR"
-            if currency in ("USD", "GBP", "GBp"):
-                fx_pair = "USDEUR=X" if currency == "USD" else "GBPEUR=X"
-                fx = download_met_retry(fx_pair, start_date).squeeze()
-                fx = fx.reindex(raw.index).ffill()
-                divisor = 100 if currency == "GBp" else 1
-                raw[t] = raw[t] / divisor * fx
+
+        _converteer_naar_eur(raw, missing, start_date)
 
         fresh_rows = []
         for t in missing:
@@ -938,6 +961,31 @@ def get_prices(tickers, start_date):
         # (ticker, datum) combinaties opleveren waar pivot() straks op stukloopt.
         cached = pd.concat([cached, fresh_df], ignore_index=True)
         cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
+
+    if stale:
+        # Per ticker apart gedownload (i.p.v. één bulk-call zoals bij
+        # 'missing') omdat elke stale ticker een eigen 'vanaf'-datum heeft
+        # (zijn eigen laatst gecachte datum + 1 dag) — een bulk-download
+        # met yfinance ondersteunt geen per-ticker startdatum.
+        stale_rows = []
+        for t, vanaf in stale.items():
+            raw_t = download_met_retry(t, vanaf)
+            if isinstance(raw_t, pd.Series):
+                raw_t = raw_t.to_frame(name=t)
+            raw_t = raw_t.ffill()
+            if t not in raw_t.columns or raw_t[t].dropna().empty:
+                dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
+                       f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
+                continue
+            _converteer_naar_eur(raw_t, [t], vanaf)
+            for datum, koers in raw_t[t].dropna().items():
+                stale_rows.append((t, datum.date(), float(koers)))
+
+        if stale_rows:
+            save_prices(stale_rows)
+            stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
+            cached = pd.concat([cached, stale_df], ignore_index=True)
+            cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
     if cached.empty:
         return pd.DataFrame()
@@ -970,6 +1018,15 @@ def compute_value_over_time(transacties_df, price_data):
     if ontbrekend:
         print(f"[waarde] ⚠️ tickers zonder koersdata, worden genegeerd in totale waarde: {ontbrekend}")
 
+    if not price_data.empty:
+        laatste_koersdatum = price_data.index.max()
+        na_laatste_koers = transacties_df[pd.to_datetime(transacties_df["datum"]) > laatste_koersdatum]
+        if not na_laatste_koers.empty:
+            print(f"[waarde] ⚠️ {len(na_laatste_koers)} transactie(s) met datum ná de laatste "
+                  f"beschikbare koersdatum ({laatste_koersdatum.date()}) — deze tellen NIET mee "
+                  f"in de waarde-tijdreeks (price_data.index loopt niet ver genoeg door). "
+                  f"Mogelijk is de koersencache verouderd.")
+
     holdings = {t: 0.0 for t in tickers}
     invested = 0.0
     rows = []
@@ -999,6 +1056,14 @@ def compute_per_ticker(transacties_df, price_data):
     """Per ticker: waarde en geïnvesteerd bedrag over tijd."""
     transacties_df = transacties_df.dropna(subset=["ticker"]).sort_values("datum").reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
+
+    if not price_data.empty:
+        laatste_koersdatum = price_data.index.max()
+        na_laatste_koers = transacties_df[pd.to_datetime(transacties_df["datum"]) > laatste_koersdatum]
+        if not na_laatste_koers.empty:
+            print(f"[per-ticker] ⚠️ {len(na_laatste_koers)} transactie(s) met datum ná de laatste "
+                  f"beschikbare koersdatum ({laatste_koersdatum.date()}) — deze tellen NIET mee "
+                  f"in de per-ticker-tijdreeks. Mogelijk is de koersencache verouderd.")
 
     result = {}
     for ticker in tickers:
