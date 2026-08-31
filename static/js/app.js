@@ -1037,7 +1037,7 @@ function maakPositieTabel(posities, tickerNamen) {
     tabel.style.width = "100%";
 
     const kop = document.createElement("tr");
-    ["Naam/ticker", "Aantal", "Huidige waarde", "GAK", "Rendement"].forEach(tekst => {
+    ["Naam/ticker", "Aantal", "Huidige waarde", "GAK", "Rendement", "Dividend ontvangen"].forEach(tekst => {
         const th = document.createElement("th");
         th.textContent = tekst;
         th.style.textAlign = "left";
@@ -1067,12 +1067,72 @@ function maakPositieTabel(posities, tickerNamen) {
         rendementTd.style.color = kleurVoorRendement(p.rendement_pct);
         rendementTd.style.fontWeight = "bold";
         rij.appendChild(rendementTd);
+        const dividendTd = document.createElement("td");
+        dividendTd.textContent = formatteerEuro(p.dividend_ontvangen || 0);
+        dividendTd.style.padding = "4px 16px 4px 0";
+        rij.appendChild(dividendTd);
         tabel.appendChild(rij);
     });
 
     // Wrapper i.p.v. de tabel direct teruggeven: laat de tabel op smalle
     // schermen zelf horizontaal scrollen (overflow-x: auto in style.css)
     // i.p.v. de hele pagina breder te maken.
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabel);
+    return wrapper;
+}
+
+function maakGeslotenPositiesTabel(geslotenPosities) {
+    if (!geslotenPosities || geslotenPosities.length === 0) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Geen verkochte posities.";
+        return p;
+    }
+
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.9em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.width = "100%";
+
+    const kop = document.createElement("tr");
+    ["Naam/ticker", "Aantal", "Gem. aankoopkoers", "Gem. verkoopkoers", "Rendement (koers)", "Dividend ontvangen"].forEach(tekst => {
+        const th = document.createElement("th");
+        th.textContent = tekst;
+        th.style.textAlign = "left";
+        th.style.padding = "4px 16px 4px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        kop.appendChild(th);
+    });
+    tabel.appendChild(kop);
+
+    geslotenPosities.forEach(p => {
+        const rij = document.createElement("tr");
+        [
+            `${p.naam} (${p.ticker})`,
+            p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 }),
+            formatteerEuro(p.gemiddelde_aankoopkoers, 4),
+            p.gemiddelde_verkoopkoers !== null ? formatteerEuro(p.gemiddelde_verkoopkoers, 4) : "onbekend",
+        ].forEach(tekst => {
+            const td = document.createElement("td");
+            td.textContent = tekst;
+            td.style.padding = "4px 16px 4px 0";
+            rij.appendChild(td);
+        });
+        const rendementTd = document.createElement("td");
+        rendementTd.textContent = formatPct(p.rendement_pct);
+        rendementTd.style.padding = "4px 16px 4px 0";
+        rendementTd.style.color = kleurVoorRendement(p.rendement_pct);
+        rendementTd.style.fontWeight = "bold";
+        rij.appendChild(rendementTd);
+        const dividendTd = document.createElement("td");
+        dividendTd.textContent = formatteerEuro(p.dividend_ontvangen || 0);
+        dividendTd.style.padding = "4px 16px 4px 0";
+        rij.appendChild(dividendTd);
+        tabel.appendChild(rij);
+    });
+
     const wrapper = document.createElement("div");
     wrapper.className = "tabelWrapper";
     wrapper.appendChild(tabel);
@@ -1199,6 +1259,12 @@ function toonStatistieken() {
     positiesKop.style.marginBottom = "6px";
     sectie.appendChild(positiesKop);
     sectie.appendChild(maakPositieTabel(stats.posities, tickerNamen));
+
+    const geslotenKop = document.createElement("h3");
+    geslotenKop.textContent = "Verkochte posities";
+    geslotenKop.style.margin = "24px 0 6px 0";
+    sectie.appendChild(geslotenKop);
+    sectie.appendChild(maakGeslotenPositiesTabel(stats.gesloten_posities));
 
     const jarenKop = document.createElement("h3");
     jarenKop.textContent = "Rendement per jaar";
