@@ -471,6 +471,52 @@ class TestDividendEnGeslotenPositiesInStatistieken(unittest.TestCase):
         self.assertAlmostEqual(y_positie["rendement_pct"], 20.0)
         self.assertAlmostEqual(y_positie["dividend_ontvangen"], 5.0)
 
+    def test_gesloten_positie_heeft_rendement_eur_gelijk_aan_gerealiseerd(self):
+        # Y: gekocht voor 100, verkocht voor 120 -> gerealiseerd/rendement_eur = 20.
+        stats = bereken_statistieken(
+            self._transacties(), self._price_data(), self._resultaat(),
+        )
+        y_positie = next(p for p in stats["gesloten_posities"] if p["ticker"] == "Y")
+        self.assertAlmostEqual(y_positie["rendement_eur"], 20.0)
+
+
+class TestRendementEurInPosities(unittest.TestCase):
+    """rendement_eur op een open positie moet gelijk zijn aan huidige_waarde
+    - geinvesteerd, zowel bij winst als bij verlies (teken/afronding)."""
+
+    def _transacties(self):
+        return pd.DataFrame([
+            # WIN: 10 stuks gekocht a 10, nu 12 -> winst
+            {"ticker": "WIN", "datum": pd.Timestamp("2023-01-01"), "aantal": 10.0,
+             "koers": 10.0, "totaal_eur": -100.0, "beurs": "EAM", "product": "WIN"},
+            # VERLIES: 10 stuks gekocht a 10, nu 7 -> verlies
+            {"ticker": "VERLIES", "datum": pd.Timestamp("2023-01-01"), "aantal": 10.0,
+             "koers": 10.0, "totaal_eur": -100.0, "beurs": "EAM", "product": "VERLIES"},
+        ])
+
+    def _resultaat(self):
+        return pd.DataFrame(
+            {"waarde": [190.0], "geinvesteerd": [200.0], "rendement": [-10.0]},
+            index=[pd.Timestamp("2023-06-01")],
+        )
+
+    def _price_data(self):
+        return pd.DataFrame(
+            {"WIN": [12.0], "VERLIES": [7.0]}, index=[pd.Timestamp("2023-06-01")],
+        )
+
+    def test_winst_positie(self):
+        stats = bereken_statistieken(self._transacties(), self._price_data(), self._resultaat())
+        win = next(p for p in stats["posities"] if p["ticker"] == "WIN")
+        self.assertAlmostEqual(win["rendement_eur"], win["huidige_waarde"] - win["geinvesteerd"])
+        self.assertAlmostEqual(win["rendement_eur"], 20.0)
+
+    def test_verlies_positie(self):
+        stats = bereken_statistieken(self._transacties(), self._price_data(), self._resultaat())
+        verlies = next(p for p in stats["posities"] if p["ticker"] == "VERLIES")
+        self.assertAlmostEqual(verlies["rendement_eur"], verlies["huidige_waarde"] - verlies["geinvesteerd"])
+        self.assertAlmostEqual(verlies["rendement_eur"], -30.0)
+
 
 if __name__ == "__main__":
     unittest.main()

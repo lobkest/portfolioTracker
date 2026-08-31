@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
 from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
-from db import save_dividenden, backfill_transactiekosten
+from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
 import math
@@ -15,6 +15,18 @@ init_db()
 # Ontbreekt in oudere DeGiro-exportformaten — daarom overal met een
 # beschikbaarheids-check behandeld i.p.v. als verplichte kolom.
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
+
+
+def _normaliseer_tijd(waarde):
+    """Zet de 'Tijd'-kolom uit het transactiebestand om naar een string die
+    Postgres' TIME-kolom kan opslaan. Pandas/openpyxl kan een tijdcel als
+    string ("13:39"), datetime.time of datetime.datetime teruggeven,
+    afhankelijk van hoe de cel in Excel geformatteerd is."""
+    if pd.isna(waarde):
+        return None
+    if hasattr(waarde, "strftime"):
+        return waarde.strftime("%H:%M:%S")
+    return str(waarde)
 
 @app.route("/")
 def home():
@@ -105,6 +117,7 @@ def upload():
             "totaal_eur": df["Totaal EUR"].astype(float),
             "echte_naam": df["Product"],
             "transactiekosten": df["_kosten_eur"],
+            "tijd": df["Tijd"],
         })
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
@@ -193,13 +206,14 @@ def upload():
                 kosten_waarde = row["_kosten_eur"]
                 cur.execute(
                     """INSERT INTO transacties
-                       (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                       (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, tijd)
+                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                        ON CONFLICT (code, order_id) DO NOTHING""",
                     (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
                      ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["Koers"]),
                      float(row["Totaal EUR"]), row["Order ID"], row["Product"],
-                     float(kosten_waarde) if pd.notna(kosten_waarde) else None),
+                     float(kosten_waarde) if pd.notna(kosten_waarde) else None,
+                     _normaliseer_tijd(row["Tijd"])),
                 )
                 ingevoegd += 1
             except Exception as e:
@@ -219,6 +233,14 @@ def upload():
         gebackfilld = backfill_transactiekosten(code, order_id_kosten)
         if gebackfilld:
             print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
+
+        order_id_tijd = [
+            (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
+            for _, row in rows_bestaand.iterrows()
+        ]
+        tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
+        if tijd_gebackfilld:
+            print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
 
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
@@ -329,7 +351,7 @@ def build_portfolio_response(code):
     naam = result[0]
 
     cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten "
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, tijd "
         "FROM transacties WHERE code = %s",
         (code,),
     )
@@ -339,7 +361,7 @@ def build_portfolio_response(code):
 
     transacties_df = pd.DataFrame(
         rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten"],
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "tijd"],
     )
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
 

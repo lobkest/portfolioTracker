@@ -43,6 +43,12 @@ def init_db():
     # (Neon-)tabellen missen deze kolom dus nog, CREATE TABLE IF NOT EXISTS
     # raakt een bestaande tabel niet aan.
     cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS transactiekosten NUMERIC;")
+    # Zelfde migratiepatroon: 'tijd' kwam later bij, nodig om transacties op
+    # dezelfde kalenderdag chronologisch te kunnen sorteren (zie
+    # bereken_holdings_en_gesloten/compute_value_over_time in analysis.py —
+    # zonder tijdstip kon een verkoop vóór de bijbehorende koop van diezelfde
+    # dag verwerkt worden, afhankelijk van de (willekeurige) SELECT-volgorde).
+    cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS tijd TIME;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS prijzen (
             ticker TEXT NOT NULL,
@@ -513,6 +519,34 @@ def backfill_transactiekosten(code, order_id_kosten):
             "UPDATE transacties SET transactiekosten = %s "
             "WHERE code = %s AND order_id = %s AND transactiekosten IS NULL",
             (kosten_waarde, code, order_id),
+        )
+        aantal += cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return aantal
+
+
+def backfill_tijd(code, order_id_tijd):
+    """order_id_tijd: lijst van (order_id, tijd_waarde) tuples uit een
+    hernieuwde upload. 'tijd' kwam net als transactiekosten pas via een
+    latere migratie bij (zie ALTER TABLE ... ADD COLUMN hierboven) —
+    bestaande rijen missen dit veld dus structureel. Zelfde backfill-
+    patroon als backfill_transactiekosten() hierboven: vult tijd alleen in
+    waar het nog NULL is, overschrijft nooit een al bekende waarde. Geeft
+    het aantal daadwerkelijk bijgewerkte rijen terug."""
+    if not order_id_tijd:
+        return 0
+    conn = get_db_connection()
+    cur = conn.cursor()
+    aantal = 0
+    for order_id, tijd_waarde in order_id_tijd:
+        if tijd_waarde is None:
+            continue
+        cur.execute(
+            "UPDATE transacties SET tijd = %s "
+            "WHERE code = %s AND order_id = %s AND tijd IS NULL",
+            (tijd_waarde, code, order_id),
         )
         aantal += cur.rowcount
     conn.commit()
