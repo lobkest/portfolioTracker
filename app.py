@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
 from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
-from db import save_dividenden
+from db import save_dividenden, backfill_transactiekosten
 import hashlib
 import openpyxl
 import math
@@ -159,10 +159,16 @@ def upload():
         if naam:
             cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
         rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
+        # Rijen die al bestonden (order_id niet in missing_ids) maar toen
+        # zonder transactiekosten zijn opgeslagen (kolom kwam er pas later
+        # bij, DO NOTHING liet oude rijen dus voor altijd NULL) alsnog
+        # backfillen met de waarde uit deze upload.
+        rows_bestaand = df[~df["Order ID"].isin(missing_ids)]
     else:
         code = generate_code(cur)
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam or None))
         rows_to_insert = df
+        rows_bestaand = df.iloc[0:0]
 
     print(f"[upload] code={code}, rows_to_insert={len(rows_to_insert)} rijen")
 
@@ -204,6 +210,15 @@ def upload():
     conn.commit()
     cur.close()
     conn.close()
+
+    if not rows_bestaand.empty:
+        order_id_kosten = [
+            (row["Order ID"], float(row["_kosten_eur"]) if pd.notna(row["_kosten_eur"]) else None)
+            for _, row in rows_bestaand.iterrows()
+        ]
+        gebackfilld = backfill_transactiekosten(code, order_id_kosten)
+        if gebackfilld:
+            print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
 
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
