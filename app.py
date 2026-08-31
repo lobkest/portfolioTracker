@@ -1,11 +1,12 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
 import math
+import time
 
 app = Flask(__name__)
 init_db()
@@ -47,6 +48,26 @@ def db_test():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    """
+    Dunne wrapper om _upload_impl() die ELKE onverwachte fout (bv. een
+    trage/falende Yahoo-call die uiteindelijk toch een exception geeft, of
+    iets onvoorziens in de Excel-parsing) omzet in een nette JSON-
+    foutrespons i.p.v. een kale 500 zonder body of een hangende request die
+    de frontend nooit als 'klaar' ziet. Zie CLAUDE.md, Statistieken-incident
+    2026-08-31: een 'niet opslaan'-analyse van een grotere portfolio bleef
+    zo stil hangen dat er zelfs geen foutmelding verscheen.
+    """
+    try:
+        return _upload_impl()
+    except Exception as e:
+        print(f"[upload] ONVERWACHTE FOUT: {e}")
+        return jsonify({
+            "error": "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
+                     "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
+        }), 500
+
+
+def _upload_impl():
     naam = request.form.get("naam", "").strip()
     bestand1 = request.files.get("bestand1")
 
@@ -81,29 +102,56 @@ def upload():
         # verschillende tickers — één ticker per ISIN voor de hele groep zou
         # de tweede notering stilzwijgend de ticker van de eerste geven.
         #
-        # verifieer_ticker_met_prijs() heeft geen code/database nodig (het is
-        # een pure functie op de aangeleverde transacties), dus kunnen we
-        # hier meteen de volle, prijsgeverifieerde Ticker-zekerheid-data
-        # opbouwen i.p.v. alleen de kale beurs-match — dat scheelt een aparte
-        # "basis"-weergave voor een eenmalige analyse zonder code.
+        # Bewust de GOEDKOPE find_ticker_detailed()-match + lichte, standaard
+        # prijscontrole (via basis_ticker_zekerheid_parallel ->
+        # find_ticker_met_snelle_prijscheck: 1 gecachete call per positie in
+        # het gangbare geval, escaleert alleen bij een echte afwijking),
+        # niet de volledige, dure verifieer_tickers_met_prijs_parallel() —
+        # die liep bij een grotere portfolio met een koude cache ruim over
+        # de gunicorn-timeout heen doordat hij hier ALTIJD synchroon voor de
+        # volle portfolio draaide (zie CLAUDE.md, Statistieken-incident
+        # 2026-08-31). PARALLEL over de posities (niet sequentieel): ook al
+        # kost de lichte check meestal maar 1 call per positie, bij een
+        # portfolio met veel unieke, nog nooit gecontroleerde tickers (koude
+        # ticker_prijscheck-cache) kan die ene call per positie sequentieel
+        # opgeteld alsnog richting de timeout lopen (zie CLAUDE.md, vervolg
+        # op hetzelfde incident). De normale (opslaande) upload koppelt de
+        # VOLLEDIGE check nog steeds lui aan de Ticker-zekerheid-pagina (zie
+        # de /ticker-zekerheid-route hieronder) — dat kan hier niet op
+        # dezelfde manier (geen opgeslagen code om later transacties bij op
+        # te halen), dus krijgt de eenmalige analyse in plaats daarvan een
+        # losse /api/ticker-zekerheid-check-aanroep vanuit de frontend, met
+        # de transactiedata die hieronder als 'ticker_posities_ruw' meegaat.
         groepen = list(df.groupby(["ISIN", "Beurs"]))
         namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
-        posities_voor_verificatie = [
-            (naam, isin, beurs_val, [{"datum": row["Datum"], "koers": row["Koers"]} for _, row in groep.iterrows()])
-            for naam, ((isin, beurs_val), groep) in zip(namen, groepen)
+
+        t0 = time.time()
+        posities_voor_check = [
+            (naam_positie, isin, beurs_val, [
+                {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
+                for _, row in groep.iterrows()
+            ])
+            for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
         ]
-        resultaten = verifieer_tickers_met_prijs_parallel(posities_voor_verificatie)
+        resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
 
         ticker_by_isin_beurs = {}
         ticker_zekerheid = []
-        for naam, ((isin, beurs_val), _groep), resultaat in zip(namen, groepen, resultaten):
-            ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
+        ticker_posities_ruw = []
+        for (naam_positie, isin, beurs_val, transacties_lijst), resultaat in zip(posities_voor_check, resultaten):
             resultaat["isin"] = isin
-            resultaat["naam"] = naam
-            resultaat["echte_naam"] = naam
+            resultaat["naam"] = naam_positie
+            resultaat["echte_naam"] = naam_positie
+            ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
             ticker_zekerheid.append(resultaat)
+            ticker_posities_ruw.append({
+                "naam": naam_positie, "isin": isin, "beurs": beurs_val,
+                "transacties": transacties_lijst,
+            })
             print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
-                  f"(zekerheid={resultaat['zekerheid']})")
+                  f"(zekerheid={resultaat['zekerheid']}, basis)")
+        print(f"[upload] {len(groepen)} positie(s) basis-ticker-resolutie (incl. snelle prijscheck, parallel) "
+              f"klaar in {time.time() - t0:.1f}s")
 
         transacties_df = pd.DataFrame({
             "datum": df["Datum"],
@@ -121,6 +169,7 @@ def upload():
         })
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
+        result["ticker_posities_ruw"] = ticker_posities_ruw
         return jsonify(result)
 
     # Order ID-kolom kan door merged cells één kolom verschoven staan t.o.v. de header;
@@ -189,16 +238,47 @@ def upload():
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen — zie de
         # 'niet_opslaan'-tak hierboven voor de reden (een ISIN kan op
         # meerdere beurzen genoteerd staan, met een écht andere ticker).
+        # find_ticker_met_snelle_prijscheck (i.p.v. de kale
+        # find_ticker_detailed) doet er een lichte, standaard prijscontrole
+        # bovenop — in het gangbare geval maar 1 extra, gecachete Yahoo-call
+        # per groep, warmt meteen de ticker_prijscheck-cache die
+        # prijswaarschuwing_voor_ticker() hieronder (in analyze_transacties)
+        # bij elk bezoek hergebruikt. PARALLEL over de groepen — zie de
+        # 'niet_opslaan'-tak hierboven voor de reden (koude-cache-
+        # timeoutrisico bij veel unieke tickers).
+        t_tickers = time.time()
+        groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
+        transacties_per_groep = {
+            key: [
+                {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
+                for _, row in groep.iterrows()
+            ]
+            for key, groep in groepen
+        }
+        eerste_poging = [
+            (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
+            for key, groep in groepen
+        ]
+        resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging)
+
         ticker_by_isin_beurs = {}
-        for (isin, beurs_val), groep in rows_to_insert.groupby(["ISIN", "Beurs"]):
-            detail = {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
-            for _, row in groep.iterrows():
-                detail = find_ticker_detailed(row["Product"], row["ISIN"], row["Beurs"])
-                if detail["ticker"]:
-                    break
-            ticker_by_isin_beurs[(isin, beurs_val)] = detail["ticker"]
+        for (key, groep), detail in zip(groepen, resultaten):
+            if not detail["ticker"]:
+                # Zeldzame fallback: de eerste Product-naam van de groep gaf
+                # geen match, probeer de overige rijen (zelfde gedrag als
+                # voorheen). Goedkoop: zonder ticker doet find_ticker_met_
+                # snelle_prijscheck() geen enkele prijscheck.
+                for _, row in groep.iterrows():
+                    detail = find_ticker_met_snelle_prijscheck(
+                        row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key]
+                    )
+                    if detail["ticker"]:
+                        break
+            ticker_by_isin_beurs[key] = detail["ticker"]
+            isin, beurs_val = key
             print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {detail['ticker']} "
                   f"(zekerheid={detail['zekerheid']})")
+        print(f"[upload] ticker-resolutie (incl. snelle prijscheck, parallel) klaar in {time.time() - t_tickers:.1f}s")
 
         ingevoegd = 0
         for _, row in rows_to_insert.iterrows():
@@ -304,9 +384,17 @@ def ticker_zekerheid(code):
 
     groepen = list(per_isin_beurs.items())
     print(f"[ticker-zekerheid] {len(groepen)} positie(s) parallel verifiëren voor code={code}")
-    resultaten = verifieer_tickers_met_prijs_parallel(
-        [(info["echte_naam"], isin, info["beurs"], info["transacties"]) for (isin, beurs), info in groepen]
-    )
+    t0 = time.time()
+    try:
+        resultaten = verifieer_tickers_met_prijs_parallel(
+            [(info["echte_naam"], isin, info["beurs"], info["transacties"]) for (isin, beurs), info in groepen]
+        )
+    except Exception as e:
+        print(f"[ticker-zekerheid] FOUT bij verifiëren voor code={code}: {e}")
+        return jsonify({
+            "error": "Ticker-zekerheid controleren duurde te lang of is mislukt. Probeer het opnieuw."
+        }), 500
+    print(f"[ticker-zekerheid] {len(groepen)} positie(s) geverifieerd in {time.time() - t0:.1f}s")
 
     posities = []
     for ((isin, beurs), info), resultaat in zip(groepen, resultaten):
@@ -316,6 +404,54 @@ def ticker_zekerheid(code):
         posities.append(resultaat)
 
     return jsonify({"posities": posities})
+
+
+@app.route("/api/ticker-zekerheid-check", methods=["POST"])
+def ticker_zekerheid_check():
+    """
+    Uitgebreide, prijs-geverifieerde ticker-zekerheid voor een 'niet
+    opslaan'-analyse. Die heeft geen opgeslagen code om de route hierboven
+    mee aan te roepen (die leest transacties uit de database) — maar
+    verifieer_ticker_met_prijs() is een pure functie op aangeleverde
+    transacties, dus laat de frontend die data hier los meesturen
+    (huidigeData.ticker_posities_ruw, meegegeven door de niet_opslaan-tak
+    van /upload). Losse, expliciet door de gebruiker aangevraagde actie
+    i.p.v. synchroon in de hoofd-/upload-flow — zie de niet_opslaan-tak in
+    _upload_impl() voor de reden (gunicorn-timeout-risico bij grotere/
+    koude-cache-portfolio's, CLAUDE.md Statistieken-incident 2026-08-31).
+    """
+    data = request.get_json(silent=True) or {}
+    posities = data.get("posities") or []
+    if not posities:
+        return jsonify({"error": "Geen posities meegestuurd."}), 400
+
+    print(f"[ticker-zekerheid-check] {len(posities)} positie(s) parallel verifiëren (niet-opgeslagen analyse)")
+    t0 = time.time()
+    try:
+        input_tuples = [
+            (
+                p.get("naam"), p.get("isin"), p.get("beurs"),
+                [{"datum": t.get("datum"), "koers": t.get("koers")} for t in (p.get("transacties") or [])],
+            )
+            for p in posities
+        ]
+        resultaten = verifieer_tickers_met_prijs_parallel(input_tuples)
+    except Exception as e:
+        print(f"[ticker-zekerheid-check] FOUT: {e}")
+        return jsonify({
+            "error": "Ticker-zekerheid controleren duurde te lang of is mislukt. Probeer het opnieuw, eventueel "
+                     "met minder posities tegelijk."
+        }), 500
+    print(f"[ticker-zekerheid-check] {len(posities)} positie(s) geverifieerd in {time.time() - t0:.1f}s")
+
+    uitkomst = []
+    for p, resultaat in zip(posities, resultaten):
+        resultaat["isin"] = p.get("isin")
+        resultaat["naam"] = p.get("naam")
+        resultaat["echte_naam"] = p.get("naam")
+        uitkomst.append(resultaat)
+
+    return jsonify({"posities": uitkomst})
 
 
 @app.route("/api/portfolio/<code>/dividend")
@@ -373,7 +509,9 @@ def analyze_transacties(transacties_df, code, naam):
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
+    t_prices = time.time()
     price_data = get_prices(tickers, start_date)
+    print(f"[upload] koersen opgehaald voor {len(tickers)} ticker(s) in {time.time() - t_prices:.1f}s")
 
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None}
@@ -396,6 +534,13 @@ def analyze_transacties(transacties_df, code, naam):
 
     is_etf_map = classify_tickers(list(per_ticker.keys()))
     land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data)
+
+    # Prijswaarschuwingen zichtbaar maken bij ELK bezoek (niet alleen direct
+    # na de upload): ticker_waarschuwingen_voor_transacties() leest alleen
+    # de al gecachete ticker_prijscheck-check (gevuld door find_ticker_met_
+    # snelle_prijscheck bij upload), dus dit kost hier geen nieuwe Yahoo-
+    # calls in het gangbare geval.
+    ticker_waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
 
     # Bij de 'niet opslaan'-analyse (zie de niet_opslaan-tak in /upload) is
     # code None -- er is dan nooit dividendhistorie (die zit in de database),
@@ -444,6 +589,7 @@ def analyze_transacties(transacties_df, code, naam):
             {"ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t)}
             for t in per_ticker.keys()
         ],
+        "ticker_waarschuwingen": ticker_waarschuwingen,
     }
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])

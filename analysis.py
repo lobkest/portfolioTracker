@@ -36,6 +36,12 @@ def dprint(*args, **kwargs):
 PRIJSCHECK_DREMPEL_OK = 0.02
 PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 
+# Drempel voor de standaard, LICHTE prijscontrole (find_ticker_met_snelle_
+# prijscheck, i.t.t. de volledige verifieer_ticker_met_prijs hierboven):
+# pas boven deze afwijking (ná de stap-2-steekproef) worden ook alternatieve
+# tickers doorgerekend -- zie find_ticker_met_snelle_prijscheck().
+PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10
+
 # Landen met een aandeel onder deze drempel (fractie van de totale
 # portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
 # tot één "Overig"-taartpunt — anders eindig je met tientallen verwaarloosbare
@@ -836,6 +842,76 @@ def find_ticker_detailed(product, isin, beurs):
 def find_ticker(product, isin, beurs):
     """Backwards-compatible wrapper rond find_ticker_detailed() die alleen de ticker teruggeeft."""
     return find_ticker_detailed(product, isin, beurs)["ticker"]
+
+
+def _naar_basis_vorm(beurs, resultaat):
+    """
+    Wikkelt een find_ticker_met_snelle_prijscheck()-resultaat in dezelfde
+    placeholder-vorm als verifieer_ticker_met_prijs(), zodat de frontend-
+    kaart (maakTickerZekerheidKaart) dit zonder aanpassing kan tonen. Velden
+    die alleen de VOLLEDIGE prijsverificatie kan invullen (land, sector,
+    valuta, ...) staan hier bewust op None i.p.v. weggelaten.
+    'prijs_checks'/'waarschuwing'/'aanbevolen_alternatief' komen wél uit de
+    lichte check, dus een positie met een echte afwijking laat dat hier
+    alsnog zien. Gedeeld door basis_ticker_zekerheid() (1 positie) en
+    basis_ticker_zekerheid_parallel() (meerdere tegelijk).
+    """
+    basis = {
+        "ticker": resultaat["ticker"],
+        "zekerheid": resultaat["zekerheid"],
+        "waarschuwing": resultaat.get("prijswaarschuwing"),
+        "land": None, "sector": None, "top_holding_land": None, "valuta": None,
+        "fondsfamilie": None, "category": None, "quote_type": None,
+        "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
+        "prijs_checks": resultaat.get("prijs_checks", []), "alternatieven": [],
+        "basis_alleen": True,
+    }
+    if resultaat.get("aanbevolen_alternatief"):
+        basis["aanbevolen_alternatief"] = resultaat["aanbevolen_alternatief"]
+    return basis
+
+
+def basis_ticker_zekerheid(product, isin, beurs, transacties_van_dit_isin=None):
+    """
+    Lichtgewicht ticker-zekerheid-dict, in dezelfde vorm als
+    verifieer_ticker_met_prijs() maar zonder de dure, volledige Yahoo-
+    prijsverificatie (die alle 3 steekproefdatums én alle kandidaten
+    doorrekent) -- gebruikt find_ticker_met_snelle_prijscheck(), dat in het
+    gangbare geval (geen afwijking) maar 1 extra, gecachete Yahoo-call
+    kost. Bedoeld voor het 'niet opslaan'-pad in app.py: de VOLLEDIGE check
+    mag daar niet meer standaard/synchroon voor de hele portfolio draaien
+    (kan bij een grotere portfolio met een koude cache ruim over de
+    gunicorn-timeout heen lopen, zie verifieer_tickers_met_prijs_parallel()
+    hieronder). De uitgebreide check blijft beschikbaar als losse, door de
+    gebruiker aangevraagde actie.
+
+    Voor MEERDERE posities tegelijk: gebruik basis_ticker_zekerheid_parallel()
+    hieronder, niet deze functie in een for-loop -- zie die docstring voor
+    waarom (koude-cache-timeoutrisico).
+    """
+    resultaat = find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_isin or [])
+    return _naar_basis_vorm(beurs, resultaat)
+
+
+def basis_ticker_zekerheid_parallel(posities, max_workers=8):
+    """
+    basis_ticker_zekerheid() voor meerdere posities tegelijk
+    (ThreadPoolExecutor) -- zie vind_tickers_met_snelle_prijscheck_parallel()
+    hieronder voor de reden: de lichte prijscheck (find_ticker_met_snelle_
+    prijscheck) draait nu bij ELKE upload, dus bij een portfolio met veel
+    unieke, nog nooit gecontroleerde tickers (koude ticker_prijscheck-cache)
+    zou zelfs 1 Yahoo-call per positie SEQUENTIEEL al genoeg kunnen optellen
+    om de 'niet opslaan'-gunicorn-timeoutfix weer te ondermijnen (zie
+    CLAUDE.md, vervolg op het Statistieken-incident van 2026-08-31).
+
+    posities: lijst van (product, isin, beurs, transacties_van_dit_isin).
+    Geeft een lijst van basis-vorm-dicts terug, in dezelfde volgorde.
+    """
+    ruwe_resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, max_workers=max_workers)
+    return [
+        _naar_basis_vorm(beurs, resultaat)
+        for (_product, _isin, beurs, _transacties), resultaat in zip(posities, ruwe_resultaten)
+    ]
 
 
 def download_met_retry(ticker_of_pair, start_date, pogingen=3, wachttijd=5):
@@ -1938,6 +2014,72 @@ def _land_sector_voor_weergave(ticker):
     return land, sector, None
 
 
+def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_beurzen):
+    """
+    Rekent kandidaat-tickers (vorm {'symbol','exchange'}, zoals
+    find_ticker_detailed()'s 'alternatieven') één voor één door tegen de
+    prijssteekproef, en stopt zodra een kandidaat een overtuigende match
+    oplevert (juiste beurs + alle steekproefdatums kloppen) — anders wordt
+    de hele lijst doorgerekend. Geëxtraheerd uit verifieer_ticker_met_prijs()
+    zodat zowel die volledige (lui, alleen op de Ticker-zekerheid-pagina)
+    verificatie als de lichte, standaard find_ticker_met_snelle_prijscheck()
+    (stap 3, alleen bij een forse afwijking) dezelfde logica hergebruiken.
+
+    Geeft (alternatieven, aanbevolen_alternatief) terug:
+      alternatieven: lijst van {"ticker","beurs","land","sector","valuta",
+        "gemiddelde_afwijking_pct","aantal_matches"} — voor weergave op de
+        Ticker-zekerheid-pagina.
+      aanbevolen_alternatief: ticker-symbool van de eerste kandidaat die op
+        alle geteste datums matcht, of None.
+    """
+    alternatieven = []
+    aanbevolen_alternatief = None
+    for alt in alternatieven_kandidaten:
+        alt_ticker = alt.get("symbol")
+        if not alt_ticker:
+            continue
+
+        alt_checks = []
+        for t in steekproef:
+            check = vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"]))
+            alt_checks.append(check)
+            # Geen koersdata voor deze datum (bv. '4BY1.F': "Data doesn't
+            # exist for startDate/endDate") betekent meestal dat Yahoo
+            # helemaal geen historie heeft voor deze kandidaat — de overige
+            # steekproefdatums nog proberen kost dan alleen tijd zonder kans
+            # op een match.
+            if check["yahoo_koers"] is None:
+                break
+
+        alt_matches = [c["match"] for c in alt_checks if c["match"] is not None]
+        afwijkingen = [c["afwijking_pct"] for c in alt_checks if c["afwijking_pct"] is not None]
+        alt_details = _ticker_details_met_cache(alt_ticker)
+        alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
+        alt_beurs_klopt = (alt.get("exchange") in verwachte_beurzen) if verwachte_beurzen else None
+
+        alternatieven.append({
+            "ticker": alt_ticker,
+            "beurs": alt.get("exchange"),
+            "land": alt_land,
+            "sector": alt_sector,
+            "valuta": alt_details.get("valuta"),
+            "gemiddelde_afwijking_pct": (sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None,
+            "aantal_matches": sum(1 for m in alt_matches if m),
+        })
+
+        if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
+            aanbevolen_alternatief = alt_ticker
+
+        if alt_beurs_klopt and alt_matches and all(alt_matches):
+            # Overtuigende match (juiste beurs + kloppende prijs op alle
+            # gecheckte datums) — de overige kandidaten checken kan het
+            # resultaat niet meer verbeteren, alleen nog meer Yahoo-calls
+            # kosten.
+            break
+
+    return alternatieven, aanbevolen_alternatief
+
+
 def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     """
     Zoekt de ticker zoals find_ticker_detailed(), maar herbeoordeelt de
@@ -1997,48 +2139,9 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     alternatieven = []
     aanbevolen_alternatief = None
     if zekerheid != "zeker":
-        for alt in basis["alternatieven"]:
-            alt_ticker = alt.get("symbol")
-            if not alt_ticker:
-                continue
-
-            alt_checks = []
-            for t in steekproef:
-                check = vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"]))
-                alt_checks.append(check)
-                # Geen koersdata voor deze datum (bv. '4BY1.F': "Data doesn't
-                # exist for startDate/endDate") betekent meestal dat Yahoo
-                # helemaal geen historie heeft voor deze kandidaat — de
-                # overige steekproefdatums nog proberen kost dan alleen tijd
-                # zonder kans op een match.
-                if check["yahoo_koers"] is None:
-                    break
-
-            alt_matches = [c["match"] for c in alt_checks if c["match"] is not None]
-            afwijkingen = [c["afwijking_pct"] for c in alt_checks if c["afwijking_pct"] is not None]
-            alt_details = _ticker_details_met_cache(alt_ticker)
-            alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
-            alt_beurs_klopt = (alt.get("exchange") in verwachte_beurzen) if verwachte_beurzen else None
-
-            alternatieven.append({
-                "ticker": alt_ticker,
-                "beurs": alt.get("exchange"),
-                "land": alt_land,
-                "sector": alt_sector,
-                "valuta": alt_details.get("valuta"),
-                "gemiddelde_afwijking_pct": (sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None,
-                "aantal_matches": sum(1 for m in alt_matches if m),
-            })
-
-            if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
-                aanbevolen_alternatief = alt_ticker
-
-            if alt_beurs_klopt and alt_matches and all(alt_matches):
-                # Overtuigende match (juiste beurs + kloppende prijs op alle
-                # gecheckte datums) — de overige kandidaten checken kan het
-                # resultaat niet meer verbeteren, alleen nog meer Yahoo-calls
-                # kosten.
-                break
+        alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
+            basis["alternatieven"], steekproef, verwachte_beurzen
+        )
 
     result = {
         "ticker": ticker,
@@ -2060,6 +2163,177 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     if aanbevolen_alternatief:
         result["aanbevolen_alternatief"] = aanbevolen_alternatief
     return result
+
+
+def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_isin):
+    """
+    Lichte, STANDAARD prijscontrole — draait bij ELKE upload (opslaand én
+    'niet opslaan'), in tegenstelling tot verifieer_ticker_met_prijs()
+    hierboven, die bewust duur is en alleen lui/on-demand draait op de
+    Ticker-zekerheid-pagina. Moet daarom in het gangbare geval (geen
+    afwijking) maar 1 extra, via ticker_prijscheck gecachete Yahoo-call
+    kosten per unieke (ISIN, Beurs) — vergelijkbaar met de kosten die er al
+    waren vóór de 'niet opslaan'-timeoutfix (CLAUDE.md, Statistieken-
+    incident 2026-08-31).
+
+    Escalatietrapje, alleen bij een daadwerkelijke afwijking:
+      1. Alleen de LAATSTE transactiedatum controleren.
+      2. > PRIJSCHECK_DREMPEL_WAARSCHUWING (6%) afwijking -> ook de rest van
+         de steekproef (eerste/middelste/laatste) controleren — een
+         eenmalige, onschuldige uitschieter (bv. een corporate action rond
+         die datum) mag niet meteen als een foute ticker gelden.
+      3. Nog steeds > PRIJSCHECK_DREMPEL_ALTERNATIEVEN (10%) afwijking (over
+         de bredere steekproef) -> ook alternatieve tickers doorrekenen,
+         via dezelfde _zoek_betere_alternatieven() als de volledige check —
+         maar dan alleen voor DEZE positie, niet voor de hele portfolio.
+
+    Geeft basis (ticker/zekerheid/alternatieven van find_ticker_detailed())
+    terug, aangevuld met 'prijs_checks' (lijst, 1-3 checks naargelang de
+    escalatie) en 'prijswaarschuwing' (None als er niets aan de hand is).
+    Bij escalatie naar stap 3 met een geslaagd alternatief staat er ook een
+    'aanbevolen_alternatief' in — puur informatief, er wordt nooit
+    automatisch een andere ticker gekozen.
+    """
+    basis = find_ticker_detailed(product, isin, beurs)
+    ticker = basis["ticker"]
+
+    # Corporate-action-/splitrijen (koers 0 of leeg) horen niet in de
+    # prijscontrole thuis — zelfde filter als _kies_steekproef_transacties.
+    geldige_transacties = [
+        t for t in transacties_van_dit_isin if t.get("koers") and float(t["koers"]) > 0
+    ]
+    if ticker is None or not geldige_transacties:
+        return {**basis, "prijs_checks": [], "prijswaarschuwing": None}
+
+    laatste = max(geldige_transacties, key=lambda t: t["datum"])
+    check_laatste = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
+    check_laatste["datum"] = str(laatste["datum"])
+    prijs_checks = [check_laatste]
+
+    if check_laatste["afwijking_pct"] is None or check_laatste["afwijking_pct"] <= PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:
+        # Geen Yahoo-data om te vergelijken, of de koers klopt -- het
+        # gangbare geval, klaar na 1 (gecachete) call.
+        return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
+
+    # Stap 2: afwijking >6% op de laatste datum -- ook de rest van de
+    # steekproef controleren.
+    steekproef = _kies_steekproef_transacties(geldige_transacties)
+    for t in steekproef:
+        if str(t["datum"]) == check_laatste["datum"]:
+            continue  # laatste datum al gecheckt hierboven
+        c = vergelijk_prijs_op_datum(ticker, t["datum"], float(t["koers"]))
+        c["datum"] = str(t["datum"])
+        prijs_checks.append(c)
+
+    grootste_afwijking = max(
+        (c["afwijking_pct"] for c in prijs_checks if c["afwijking_pct"] is not None),
+        default=None,
+    )
+    if grootste_afwijking is None:
+        return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
+
+    zekerheid = "onzeker" if basis["zekerheid"] == "zeker" else basis["zekerheid"]
+    prijswaarschuwing = (
+        f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
+        f"controleer op het Ticker-zekerheid-tabblad."
+    )
+    print(f"[snelle-prijscheck] ⚠️ '{ticker}' ({isin}): {prijswaarschuwing}")
+
+    resultaat = {
+        **basis, "zekerheid": zekerheid, "prijs_checks": prijs_checks,
+        "prijswaarschuwing": prijswaarschuwing,
+    }
+
+    # Stap 3: nog steeds fors afwijkend (>10%) na de bredere steekproef --
+    # nu pas de duurdere kandidaten-doorrekening, en alleen voor DEZE
+    # positie (niet voor de hele portfolio).
+    if grootste_afwijking > PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100:
+        verwachte_beurzen = BEURS_MAP.get(beurs, [])
+        _alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
+            basis["alternatieven"], steekproef, verwachte_beurzen
+        )
+        if aanbevolen_alternatief:
+            resultaat["aanbevolen_alternatief"] = aanbevolen_alternatief
+
+    return resultaat
+
+
+def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin):
+    """
+    Leest (via vergelijk_prijs_op_datum's eigen ticker_prijscheck-cache) of
+    de laatste transactieprijs van deze positie afwijkt van Yahoo — voor
+    gebruik bij ELK bezoek aan een opgeslagen portfolio (analyze_transacties
+    in app.py), niet alleen direct na de upload. Roept BEWUST
+    find_ticker_detailed() niet aan (dat doet altijd een live yahooquery-
+    zoekopdracht, nooit gecached) en doet geen kandidaten-escalatie (die
+    heeft dezelfde beperking) — de ticker is hier al bekend (opgeslagen in
+    de transacties-tabel), dus dat is niet nodig. In de praktijk is dit een
+    cache-hit: find_ticker_met_snelle_prijscheck() heeft de cache voor de
+    laatste transactiedatum meestal al gevuld bij upload.
+    """
+    geldige_transacties = [
+        t for t in transacties_van_dit_isin if t.get("koers") and float(t["koers"]) > 0
+    ]
+    if not ticker or not geldige_transacties:
+        return None
+
+    laatste = max(geldige_transacties, key=lambda t: t["datum"])
+    check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
+    if check["afwijking_pct"] is None or check["afwijking_pct"] <= PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:
+        return None
+
+    return (
+        f"Koers van {ticker} wijkt {check['afwijking_pct']:.1f}% af van Yahoo — "
+        f"controleer op het Ticker-zekerheid-tabblad."
+    )
+
+
+def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
+    """
+    Verzamelt prijswaarschuwing_voor_ticker()-meldingen voor elke unieke
+    ticker in transacties_df — gebruikt door analyze_transacties() in app.py
+    bij ELK bezoek aan een portfolio (niet alleen direct na de upload), zie
+    prijswaarschuwing_voor_ticker() hierboven voor waarom dat in het
+    gangbare geval geen nieuwe Yahoo-calls kost.
+
+    transacties_df: moet minstens de kolommen 'ticker', 'datum', 'koers'
+    bevatten. ticker_namen: {ticker: weergavenaam}, voor de UI. Geeft een
+    lijst van {"ticker", "naam", "boodschap"} terug (leeg als niets afwijkt).
+    """
+    waarschuwingen = []
+    for ticker, groep in transacties_df.dropna(subset=["ticker"]).groupby("ticker"):
+        transacties_van_ticker = [{"datum": d, "koers": k} for d, k in zip(groep["datum"], groep["koers"])]
+        boodschap = prijswaarschuwing_voor_ticker(ticker, transacties_van_ticker)
+        if boodschap:
+            waarschuwingen.append({
+                "ticker": ticker, "naam": ticker_namen.get(ticker, ticker), "boodschap": boodschap,
+            })
+    return waarschuwingen
+
+
+def vind_tickers_met_snelle_prijscheck_parallel(posities, max_workers=8):
+    """
+    Voert find_ticker_met_snelle_prijscheck() voor meerdere posities
+    tegelijk uit (ThreadPoolExecutor), zelfde patroon als
+    verifieer_tickers_met_prijs_parallel() hieronder. Een hoger standaard
+    max_workers dan die functie: het gangbare geval hier is maar 1 Yahoo-
+    call per positie (i.p.v. tot wel 1 (eigen) + N (kandidaten) x 3
+    (steekproef) bij de volledige check), dus meer gelijktijdige workers
+    kosten geen extra risico op rate-limiting per positie.
+
+    posities: lijst van (product, isin, beurs, transacties_van_dit_isin).
+    Geeft een lijst van resultaat-dicts terug, in dezelfde volgorde als
+    'posities' (dus niet per se de volgorde waarin ze klaar zijn).
+    """
+    resultaten = [None] * len(posities)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_naar_index = {
+            executor.submit(find_ticker_met_snelle_prijscheck, product, isin, beurs, transacties): i
+            for i, (product, isin, beurs, transacties) in enumerate(posities)
+        }
+        for future in as_completed(future_naar_index):
+            resultaten[future_naar_index[future]] = future.result()
+    return resultaten
 
 
 def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):
