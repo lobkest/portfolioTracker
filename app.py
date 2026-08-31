@@ -374,7 +374,19 @@ def analyze_transacties(transacties_df, code, naam):
 
     is_etf_map = classify_tickers(list(per_ticker.keys()))
     land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data)
-    statistieken = bereken_statistieken(transacties_df, price_data, resultaat)
+
+    # Bij de 'niet opslaan'-analyse (zie de niet_opslaan-tak in /upload) is
+    # code None -- er is dan nooit dividendhistorie (die zit in de database),
+    # dus gewoon leeg laten i.p.v. crashen.
+    dividend_data = bereken_dividend_samenvatting(code) if code else None
+    dividend_per_ticker = (
+        {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
+        if dividend_data else {}
+    )
+    statistieken = bereken_statistieken(
+        transacties_df, price_data, resultaat,
+        dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
+    )
 
     huidige_holdings = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]

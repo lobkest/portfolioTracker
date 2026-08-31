@@ -2409,27 +2409,75 @@ def bereken_holdings_gak(transacties_df):
     de kostenbasis aan te tasten. Posities die volledig verkocht zijn
     (aantal <= 0) komen niet in het resultaat terecht.
 
-    Geeft {ticker: {"aantal": float, "gak": float}} terug."""
-    result = {}
+    Geeft {ticker: {"aantal": float, "gak": float}} terug. Dunne wrapper om
+    bereken_holdings_en_gesloten() — behouden voor bestaande aanroepers/tests
+    die alleen de open posities nodig hebben."""
+    open_posities, _ = bereken_holdings_en_gesloten(transacties_df)
+    return open_posities
+
+
+def bereken_holdings_en_gesloten(transacties_df):
+    """Zelfde lopende-gemiddelde-kostprijs-methode als bereken_holdings_gak()
+    hierboven, maar houdt in dezelfde doorloop ook posities bij die
+    volledig verkocht zijn (één pas door de data, zodat de boekhoud-logica
+    — split-correctie, GAK-methode — niet op twee plekken hoeft te kloppen).
+
+    Geeft (open_posities, gesloten_posities) terug:
+    - open_posities: {ticker: {"aantal", "gak"}} — ongewijzigd t.o.v.
+      bereken_holdings_gak().
+    - gesloten_posities: {ticker: {"aantal", "gemiddelde_aankoopkoers",
+      "gemiddelde_verkoopkoers", "gerealiseerd_eur"}} voor tickers die ooit
+      een positie hadden (totaal_gekocht_aantal > 0) en nu op (ongeveer)
+      nul staan.
+
+    Net als bij de kostenbasis geldt: alleen rijen met een ECHTE cashflow
+    (totaal_eur != 0) tellen mee voor de gemiddelde aankoop-/verkoopkoers —
+    DEGIRO's split-conversierijen (aantal negatief/positief, totaal_eur=0)
+    zijn geen echte koop/verkoop en zouden de gemiddelde prijs vertekenen."""
+    open_posities = {}
+    gesloten_posities = {}
     df = transacties_df.dropna(subset=["ticker"])
     for ticker, groep in df.groupby("ticker"):
         groep = groep.sort_values("datum")
         aantal_lopend = 0.0
         kostprijs_lopend = 0.0
+        totaal_gekocht_aantal = 0.0
+        totaal_gekocht_bedrag = 0.0
+        totaal_verkocht_aantal = 0.0
+        totaal_verkocht_bedrag = 0.0
+
         for _, row in groep.iterrows():
             delta_aantal = float(row["aantal"])
             delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
             if delta_aantal > 0:
                 aantal_lopend += delta_aantal
                 kostprijs_lopend += delta_cash
+                if delta_cash != 0:
+                    totaal_gekocht_aantal += delta_aantal
+                    totaal_gekocht_bedrag += delta_cash
             elif delta_aantal < 0:
                 if delta_cash != 0 and aantal_lopend > 0:
                     gak_op_dat_moment = kostprijs_lopend / aantal_lopend
-                    kostprijs_lopend -= gak_op_dat_moment * min(-delta_aantal, aantal_lopend)
+                    verkocht_nu = min(-delta_aantal, aantal_lopend)
+                    kostprijs_lopend -= gak_op_dat_moment * verkocht_nu
+                    totaal_verkocht_aantal += verkocht_nu
+                    totaal_verkocht_bedrag += -delta_cash  # delta_cash negatief bij verkoop
                 aantal_lopend += delta_aantal
+
         if aantal_lopend > 1e-9:
-            result[ticker] = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
-    return result
+            open_posities[ticker] = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
+        elif totaal_gekocht_aantal > 1e-9:
+            gesloten_posities[ticker] = {
+                "aantal": totaal_gekocht_aantal,
+                "gemiddelde_aankoopkoers": totaal_gekocht_bedrag / totaal_gekocht_aantal,
+                "gemiddelde_verkoopkoers": (
+                    totaal_verkocht_bedrag / totaal_verkocht_aantal
+                    if totaal_verkocht_aantal > 1e-9 else None
+                ),
+                "gerealiseerd_eur": totaal_verkocht_bedrag - totaal_gekocht_bedrag,
+            }
+
+    return open_posities, gesloten_posities
 
 
 def bereken_jaren_overzicht(resultaat, eerste_datum=None):
@@ -2524,7 +2572,7 @@ def bereken_totale_transactiekosten(transacties_df):
     return {"totaal": round(abs(float(kosten.sum())), 2), "beschikbaar": True}
 
 
-def bereken_statistieken(transacties_df, price_data, resultaat):
+def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None):
     """
     Bouwt alle data voor het Statistieken-tabblad. Gebruikt uitsluitend data
     die analyze_transacties() (app.py) al berekend heeft (transacties_df ná
@@ -2532,14 +2580,25 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
     compute_value_over_time()) — geen extra yfinance-calls, dus dit hoeft
     (anders dan Ticker-zekerheid) niet lui/lazy geladen te worden.
 
+    dividend_per_ticker (optioneel): {ticker: totaal_netto} uit
+    bereken_dividend_samenvatting() (app.py haalt dit apart op, want dat
+    raakt de database aan — deze functie blijft bewust DB-vrij). Leeg/None
+    bij een 'niet opslaan'-analyse (geen dividendhistorie mogelijk zonder
+    opgeslagen code) — dan krijgt elke positie gewoon 0.0.
+
+    ticker_namen (optioneel): {ticker: naam} voor de "naam"-kolom bij
+    gesloten posities (zelfde bron als de rest van analyze_transacties).
+
     Let op: voor 'huidig aantal per positie' wordt (net als bij de
     Verdeling-taart, zie compute_land_sector_verdeling) de ruwe 'aantal'-
     kolom gebruikt, niet 'adj_aantal' — DEGIRO's splitconversierijen zijn
     al ECHTE transactierijen die het aandelenaantal optellen, adj_aantal is
     alleen nodig om HISTORISCHE (vóór-split) waardepunten te corrigeren.
     """
+    dividend_per_ticker = dividend_per_ticker or {}
+    ticker_namen = ticker_namen or {}
     laatste_prijzen = price_data.iloc[-1] if not price_data.empty else pd.Series(dtype=float)
-    holdings = bereken_holdings_gak(transacties_df)
+    holdings, gesloten_posities = bereken_holdings_en_gesloten(transacties_df)
 
     posities = []
     for ticker, info in holdings.items():
@@ -2555,8 +2614,30 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
             "huidige_waarde": round(r["waarde"], 2),
             "geinvesteerd": round(r["geinvesteerd"], 2),
             "rendement_pct": round(r["rendement_pct"], 2) if r["rendement_pct"] is not None else None,
+            "dividend_ontvangen": round(dividend_per_ticker.get(ticker, 0.0), 2),
         })
     posities.sort(key=lambda p: p["huidige_waarde"], reverse=True)
+
+    gesloten_posities_output = []
+    for ticker, info in gesloten_posities.items():
+        gesloten_posities_output.append({
+            "ticker": ticker,
+            "naam": ticker_namen.get(ticker, ticker),
+            "aantal": round(info["aantal"], 4),
+            "gemiddelde_aankoopkoers": round(info["gemiddelde_aankoopkoers"], 4),
+            "gemiddelde_verkoopkoers": (
+                round(info["gemiddelde_verkoopkoers"], 4)
+                if info["gemiddelde_verkoopkoers"] is not None else None
+            ),
+            # Puur koersrendement, exclusief dividend — dividend staat als
+            # apart veld ernaast, bewust niet samengevoegd tot één percentage.
+            "rendement_pct": (
+                round(info["gerealiseerd_eur"] / (info["gemiddelde_aankoopkoers"] * info["aantal"]) * 100, 2)
+                if info["gemiddelde_aankoopkoers"] else None
+            ),
+            "dividend_ontvangen": round(dividend_per_ticker.get(ticker, 0.0), 2),
+        })
+    gesloten_posities_output.sort(key=lambda p: p["rendement_pct"] or 0, reverse=True)
 
     totaal_geinvesteerd = float(resultaat["geinvesteerd"].iloc[-1]) if not resultaat.empty else 0.0
     totaal_waarde = float(resultaat["waarde"].iloc[-1]) if not resultaat.empty else 0.0
@@ -2592,6 +2673,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
 
     return {
         "posities": posities,
+        "gesloten_posities": gesloten_posities_output,
         "totalen": {
             "geinvesteerd": round(totaal_geinvesteerd, 2),
             "waarde": round(totaal_waarde, 2),
