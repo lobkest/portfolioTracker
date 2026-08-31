@@ -489,6 +489,38 @@ def wijzig_portfolio_code(oude_code, nieuwe_code):
         conn.close()
 
 
+def backfill_transactiekosten(code, order_id_kosten):
+    """order_id_kosten: lijst van (order_id, kosten_waarde) tuples uit een
+    hernieuwde upload. transactiekosten kwam pas via een latere migratie bij
+    (zie ALTER TABLE ... ADD COLUMN hierboven) — de insert-query gebruikt
+    ON CONFLICT (code, order_id) DO NOTHING, dus alle vóór-migratie-rijen
+    (elke order_id die al eens eerder is opgeslagen) missen transactiekosten
+    structureel, ook bij een herhaalde upload van hetzelfde Excel-bestand.
+
+    Vult daarom alsnog transactiekosten in voor rijen die nu nog NULL zijn.
+    Overschrijft NOOIT een al bekende waarde (de IS NULL-voorwaarde in de
+    UPDATE) — puur backfill, geen risico op dataverlies. Geeft het aantal
+    daadwerkelijk bijgewerkte rijen terug."""
+    if not order_id_kosten:
+        return 0
+    conn = get_db_connection()
+    cur = conn.cursor()
+    aantal = 0
+    for order_id, kosten_waarde in order_id_kosten:
+        if kosten_waarde is None:
+            continue
+        cur.execute(
+            "UPDATE transacties SET transactiekosten = %s "
+            "WHERE code = %s AND order_id = %s AND transactiekosten IS NULL",
+            (kosten_waarde, code, order_id),
+        )
+        aantal += cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return aantal
+
+
 def save_dividenden(code, records):
     """records: lijst van dicts zoals analysis.verwerk_rekeningoverzicht() teruggeeft.
 

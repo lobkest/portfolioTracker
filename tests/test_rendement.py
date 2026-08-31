@@ -160,6 +160,74 @@ class TestJarenOverzicht(unittest.TestCase):
     def test_leeg_resultaat_geeft_lege_lijst(self):
         self.assertEqual(bereken_jaren_overzicht(pd.DataFrame()), [])
 
+    def test_eerste_jaar_medio_jaar_gestart_dagen_verstreken_niet_365(self):
+        # Eerst gekocht op 1 maart 2023, data loopt door tot in 2024 -> het
+        # eerste jaar (2023) mag alleen de dagen vanaf 1 maart tellen, niet
+        # het hele jaar (was de bug: alleen het LAATSTE jaar in de data werd
+        # als "onvolledig" behandeld, niet het eerste).
+        index = pd.date_range("2023-03-01", "2024-06-30", freq="D")
+        resultaat = pd.DataFrame({
+            "waarde": [0.0] * len(index),
+            "geinvesteerd": [0.0] * len(index),
+        }, index=index)
+        resultaat.loc["2023-12-31":, "waarde"] = 1100.0
+        resultaat.loc["2023-12-31":, "geinvesteerd"] = 1000.0
+        jaren = bereken_jaren_overzicht(resultaat, eerste_datum="2023-03-01")
+        j2023 = next(j for j in jaren if j["jaar"] == 2023)
+        verwachte_dagen = (pd.Timestamp("2023-12-31") - pd.Timestamp("2023-03-01")).days + 1
+        self.assertEqual(j2023["dagen_verstreken"], verwachte_dagen)
+        self.assertNotEqual(j2023["dagen_verstreken"], 365)
+
+    def test_nog_geen_jaar_oud_dagen_verstreken_klopt_binnen_een_kalenderjaar(self):
+        # Alle data valt binnen hetzelfde kalenderjaar (net begonnen met
+        # beleggen) -> dagen_verstreken moet (laatste - eerste).days + 1
+        # zijn, niet het volledige jaar van 365 dagen.
+        index = pd.date_range("2024-05-01", "2024-08-15", freq="D")
+        resultaat = pd.DataFrame({
+            "waarde": [0.0] * len(index),
+            "geinvesteerd": [0.0] * len(index),
+        }, index=index)
+        resultaat.loc["2024-08-15", "waarde"] = 550.0
+        resultaat.loc["2024-08-15", "geinvesteerd"] = 500.0
+        jaren = bereken_jaren_overzicht(resultaat, eerste_datum="2024-05-01")
+        self.assertEqual(len(jaren), 1)
+        j = jaren[0]
+        verwachte_dagen = (pd.Timestamp("2024-08-15") - pd.Timestamp("2024-05-01")).days + 1
+        self.assertEqual(j["dagen_verstreken"], verwachte_dagen)
+        self.assertNotEqual(j["dagen_verstreken"], 365)
+
+    def test_meerjaren_tussenjaar_blijft_volledig(self):
+        # Regressie: begonnen medio 2022, data loopt door tot medio 2024 ->
+        # het VOLLEDIGE tussenliggende jaar (2023) moet nog steeds 100%/365
+        # dagen tonen, ook nu het eerste jaar wél begrensd wordt.
+        index = pd.date_range("2022-06-01", "2024-06-30", freq="D")
+        resultaat = pd.DataFrame({
+            "waarde": [0.0] * len(index),
+            "geinvesteerd": [0.0] * len(index),
+        }, index=index)
+        resultaat["waarde"] = 1000.0
+        resultaat["geinvesteerd"] = 900.0
+        jaren = bereken_jaren_overzicht(resultaat, eerste_datum="2022-06-01")
+        j2023 = next(j for j in jaren if j["jaar"] == 2023)
+        self.assertEqual(j2023["dagen_verstreken"], 365)
+        self.assertAlmostEqual(j2023["pct_van_jaar"], 100.0)
+
+    def test_winst_berekening_ongewijzigd_door_eerste_datum_begrenzing(self):
+        # Puur regressie tegen het per ongeluk stukmaken van de al-correcte
+        # euro-berekening (zie "voorbeeld uit opdracht" in TestJaarRendement)
+        # terwijl dagen_verstreken/pct_van_jaar wordt gefixed.
+        index = pd.date_range("2025-02-16", "2025-12-31", freq="D")
+        resultaat = pd.DataFrame({
+            "waarde": [0.0] * len(index),
+            "geinvesteerd": [0.0] * len(index),
+        }, index=index)
+        resultaat.loc["2025-12-31", "waarde"] = 9779.60
+        resultaat.loc["2025-12-31", "geinvesteerd"] = 8980.40
+        jaren = bereken_jaren_overzicht(resultaat, eerste_datum="2025-02-16")
+        j = jaren[0]
+        self.assertAlmostEqual(j["winst_eur"], 799.20, places=2)
+        self.assertAlmostEqual(j["winst_pct"], 8.90, places=2)
+
 
 class TestTotaleTransactiekosten(unittest.TestCase):
     """Dekt de bug waarbij de kolom 'Transactiekosten en/of kosten van
@@ -188,6 +256,38 @@ class TestTotaleTransactiekosten(unittest.TestCase):
         self.assertIsNone(r["totaal"])
 
 
+class TestAllTimeHigh(unittest.TestCase):
+    """Regressietest voor de bug waarbij all-time-high op portefeuillewaarde
+    werd bepaald i.p.v. op rendement -- een hoge waarde vlak na een grote
+    storting hoeft geen hoog rendement te zijn (bv. veel ingelegd vlak vóór
+    het hoogste-waarde-punt, waardoor het rendement daar lager is dan op een
+    eerder punt met een kleinere inleg)."""
+
+    def test_ath_volgt_rendement_niet_waarde(self):
+        resultaat = pd.DataFrame(
+            {
+                # dag 1: kleine inleg (200), groot rendement (800)
+                # dag 2: grote inleg vlak ervoor (1400), hogere waarde (1500)
+                #        maar lager rendement (100)
+                "waarde": [1000.0, 1500.0],
+                "geinvesteerd": [200.0, 1400.0],
+            },
+            index=[pd.Timestamp("2023-01-01"), pd.Timestamp("2023-06-01")],
+        )
+        resultaat["rendement"] = resultaat["waarde"] - resultaat["geinvesteerd"]
+
+        transacties_df = pd.DataFrame([{
+            "ticker": "X", "datum": pd.Timestamp("2023-01-01"), "aantal": 10.0,
+            "koers": 10.0, "totaal_eur": -100.0, "beurs": "EAM", "product": "X",
+        }])
+        price_data = pd.DataFrame({"X": [10.0, 10.0]}, index=resultaat.index)
+
+        stats = bereken_statistieken(transacties_df, price_data, resultaat)
+        ath = stats["totalen"]["all_time_high"]
+        self.assertAlmostEqual(ath["waarde"], 800.0)
+        self.assertEqual(ath["datum"], "2023-01-01")
+
+
 class TestStatistiekenTransactiekosten(unittest.TestCase):
     """bereken_statistieken() levert precies dezelfde totalen-dict die zowel
     het Statistieken-tabblad als het totalenblok op Portfolio-home
@@ -208,8 +308,10 @@ class TestStatistiekenTransactiekosten(unittest.TestCase):
         return pd.DataFrame(rijen)
 
     def _resultaat(self):
+        # 'rendement' hoort er altijd bij (compute_value_over_time() zet 'm),
+        # bereken_statistieken() leest deze kolom voor all_time_high.
         return pd.DataFrame(
-            {"waarde": [180.0], "geinvesteerd": [160.0]},
+            {"waarde": [180.0], "geinvesteerd": [160.0], "rendement": [20.0]},
             index=[pd.Timestamp("2023-06-01")],
         )
 

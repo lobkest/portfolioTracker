@@ -1000,7 +1000,7 @@ function maakTotalenSectie(totalen) {
 
     if (totalen.all_time_high && totalen.all_time_high.waarde !== null) {
         rij.appendChild(maakStatTegel(
-            "All-time high",
+            "Hoogste rendement",
             `${formatteerEuro(totalen.all_time_high.waarde)} (${formatDatum(totalen.all_time_high.datum)})`
         ));
     }

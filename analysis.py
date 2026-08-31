@@ -2432,10 +2432,16 @@ def bereken_holdings_gak(transacties_df):
     return result
 
 
-def bereken_jaren_overzicht(resultaat):
+def bereken_jaren_overzicht(resultaat, eerste_datum=None):
     """resultaat: DataFrame zoals compute_value_over_time() teruggeeft
     (index=datum, kolommen 'waarde'/'geinvesteerd'). Geeft per kalenderjaar
-    waarin belegd is een overzicht terug (zie bereken_jaar_rendement)."""
+    waarin belegd is een overzicht terug (zie bereken_jaar_rendement).
+
+    eerste_datum: de echte eerste transactiedatum (kan iets vóór
+    resultaat.index.min() liggen door weekend/feestdag-afronding in
+    price_data) — begrenst het eerste jaar zodat dagen_verstreken/
+    pct_van_jaar niet ten onrechte een vol jaar tonen. Valt terug op
+    resultaat.index.min() als niet meegegeven."""
     if resultaat.empty:
         return []
 
@@ -2444,7 +2450,8 @@ def bereken_jaren_overzicht(resultaat):
         return float(subset.iloc[-1]) if len(subset) else 0.0
 
     laatste_datum = resultaat.index.max()
-    eerste_jaar = resultaat.index.min().year
+    eerste_datum = pd.Timestamp(eerste_datum) if eerste_datum is not None else resultaat.index.min()
+    eerste_jaar = eerste_datum.year
     laatste_jaar = laatste_datum.year
 
     jaren = []
@@ -2452,17 +2459,17 @@ def bereken_jaren_overzicht(resultaat):
         jaar_start = pd.Timestamp(year=jaar, month=1, day=1)
         jaar_eind = pd.Timestamp(year=jaar, month=12, day=31)
         dagen_in_jaar = 366 if pd.Timestamp(year=jaar, month=12, day=31).is_leap_year else 365
-        is_huidig_jaar = jaar_eind > laatste_datum
 
-        dagen_verstreken = (laatste_datum - jaar_start).days + 1 if is_huidig_jaar else dagen_in_jaar
+        periode_start = max(jaar_start, eerste_datum)
+        periode_eind = min(jaar_eind, laatste_datum)
+        dagen_verstreken = (periode_eind - periode_start).days + 1
         pct_van_jaar = dagen_verstreken / dagen_in_jaar * 100
 
-        eind_lookup = min(jaar_eind, laatste_datum)
         startwaarde = waarde_op_of_voor(jaar_start - pd.Timedelta(days=1), "waarde")
         geinvesteerd_voor = waarde_op_of_voor(jaar_start - pd.Timedelta(days=1), "geinvesteerd")
-        geinvesteerd_na = waarde_op_of_voor(eind_lookup, "geinvesteerd")
+        geinvesteerd_na = waarde_op_of_voor(periode_eind, "geinvesteerd")
         ingelegd = geinvesteerd_na - geinvesteerd_voor
-        eindwaarde = waarde_op_of_voor(eind_lookup, "waarde")
+        eindwaarde = waarde_op_of_voor(periode_eind, "waarde")
 
         rendement = bereken_jaar_rendement(startwaarde, ingelegd, eindwaarde)
         jaren.append({
@@ -2555,15 +2562,22 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
     totaal_waarde = float(resultaat["waarde"].iloc[-1]) if not resultaat.empty else 0.0
     totaal = bereken_totaal_rendement(totaal_geinvesteerd, totaal_waarde)
 
+    # All-time high is de hoogste behaalde rendement (waarde - geinvesteerd),
+    # niet de hoogste portefeuillewaarde — een hoge waarde vlak na een grote
+    # storting hoeft geen hoog rendement te zijn.
     all_time_high = {"waarde": None, "datum": None}
     if not resultaat.empty:
-        ath_idx = resultaat["waarde"].idxmax()
+        ath_idx = resultaat["rendement"].idxmax()
         all_time_high = {
-            "waarde": round(float(resultaat["waarde"].max()), 2),
+            "waarde": round(float(resultaat["rendement"].max()), 2),
             "datum": ath_idx.strftime("%Y-%m-%d"),
         }
 
-    jaren = bereken_jaren_overzicht(resultaat)
+    eerste_datum = None
+    if not resultaat.empty:
+        eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
+
+    jaren = bereken_jaren_overzicht(resultaat, eerste_datum=eerste_datum)
     geldige_pcts = [j["winst_pct"] for j in jaren if j["winst_pct"] is not None]
     gemiddeld_jaarrendement = round(sum(geldige_pcts) / len(geldige_pcts), 2) if geldige_pcts else None
 
@@ -2572,7 +2586,6 @@ def bereken_statistieken(transacties_df, price_data, resultaat):
 
     aantal_jaren = None
     if not resultaat.empty:
-        eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
         aantal_jaren = round((resultaat.index.max() - pd.Timestamp(eerste_datum)).days / 365.25, 2)
 
     kosten_info = bereken_totale_transactiekosten(transacties_df)
