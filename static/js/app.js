@@ -1023,11 +1023,35 @@ function maakTotalenSectie(totalen) {
     return container;
 }
 
-function maakPositieTabel(posities, tickerNamen) {
-    if (!posities || posities.length === 0) {
+// Gedeelde cel voor een rendement-kolom in "€ (percentage%)"-notatie
+// (zelfde patroon overal: Huidige posities, Verkochte posities, Rendement
+// per jaar), groen/rood op basis van het €-bedrag.
+function maakRendementCel(eurWaarde, pctWaarde) {
+    const td = document.createElement("td");
+    td.style.padding = "4px 16px 4px 0";
+    td.style.color = kleurVoorRendement(eurWaarde);
+    td.style.fontWeight = "bold";
+    td.textContent = `${formatteerEuro(eurWaarde)} (${formatPct(pctWaarde)})`;
+    return td;
+}
+
+// Herbruikbare sorteerbare-tabel-helper voor het Statistieken-tabblad.
+// kolommen: array van { label, waarde: fn(rij) => getal|null (optioneel —
+// zonder 'waarde' is de kolom niet klikbaar/sorteerbaar), renderTd:
+// fn(rij) => HTMLTableCellElement }.
+// Initiële weergave = de 'rijen'-array precies zoals meegegeven (de
+// bestaande backend-default-sortering, bv. Huidige posities al aflopend op
+// huidige waarde) — er is dus geen actieve sortering totdat de gebruiker op
+// een kolomkop klikt. Eerste klik op een kolom sorteert aflopend (hoogste/
+// nieuwste eerst is meestal de nuttigste eerste blik), een tweede klik op
+// dezelfde kolom draait de richting om. Rijen waarvan waarde(rij)
+// null/undefined teruggeeft, blijven altijd onderaan, in beide richtingen.
+function maakSorteerbareTabel(kolommen, rijen, opts) {
+    opts = opts || {};
+    if (!rijen || rijen.length === 0) {
         const p = document.createElement("p");
         p.style.color = "#888";
-        p.textContent = "Geen open posities.";
+        p.textContent = opts.legeTekst || "Geen data beschikbaar.";
         return p;
     }
 
@@ -1036,43 +1060,71 @@ function maakPositieTabel(posities, tickerNamen) {
     tabel.style.borderCollapse = "collapse";
     tabel.style.width = "100%";
 
-    const kop = document.createElement("tr");
-    ["Naam/ticker", "Aantal", "Huidige waarde", "GAK", "Rendement", "Dividend ontvangen"].forEach(tekst => {
+    const kopRij = document.createElement("tr");
+    const tbody = document.createElement("tbody");
+
+    let sorteerKolom = null;
+    let sorteerRichting = "desc";
+    const headerInfos = [];
+
+    function tekenTbody() {
+        let getoond = rijen;
+        if (sorteerKolom !== null) {
+            const kol = kolommen[sorteerKolom];
+            const metWaarde = [];
+            const zonderWaarde = [];
+            rijen.forEach(rij => {
+                const w = kol.waarde(rij);
+                (w === null || w === undefined ? zonderWaarde : metWaarde).push(rij);
+            });
+            metWaarde.sort((a, b) => {
+                const wa = kol.waarde(a), wb = kol.waarde(b);
+                return sorteerRichting === "asc" ? wa - wb : wb - wa;
+            });
+            getoond = metWaarde.concat(zonderWaarde);
+        }
+        tbody.innerHTML = "";
+        getoond.forEach(rij => {
+            const tr = document.createElement("tr");
+            kolommen.forEach(kol => tr.appendChild(kol.renderTd(rij)));
+            tbody.appendChild(tr);
+        });
+    }
+
+    function werkIndicatorsBij() {
+        headerInfos.forEach(({ th, label, index }) => {
+            const indicator = sorteerKolom === index ? (sorteerRichting === "asc" ? " ▲" : " ▼") : "";
+            th.textContent = label + indicator;
+        });
+    }
+
+    kolommen.forEach((kol, index) => {
         const th = document.createElement("th");
-        th.textContent = tekst;
+        th.textContent = kol.label;
         th.style.textAlign = "left";
         th.style.padding = "4px 16px 4px 0";
         th.style.borderBottom = "1px solid #ddd";
-        kop.appendChild(th);
+        if (kol.waarde) {
+            th.style.cursor = "pointer";
+            th.style.userSelect = "none";
+            th.addEventListener("click", () => {
+                if (sorteerKolom === index) {
+                    sorteerRichting = sorteerRichting === "asc" ? "desc" : "asc";
+                } else {
+                    sorteerKolom = index;
+                    sorteerRichting = "desc";
+                }
+                werkIndicatorsBij();
+                tekenTbody();
+            });
+        }
+        kopRij.appendChild(th);
+        headerInfos.push({ th, label: kol.label, index });
     });
-    tabel.appendChild(kop);
 
-    posities.forEach(p => {
-        const rij = document.createElement("tr");
-        const naam = (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
-        [
-            `${naam} (${p.ticker})`,
-            p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 }),
-            formatteerEuro(p.huidige_waarde),
-            formatteerEuro(p.gak, 4),
-        ].forEach(tekst => {
-            const td = document.createElement("td");
-            td.textContent = tekst;
-            td.style.padding = "4px 16px 4px 0";
-            rij.appendChild(td);
-        });
-        const rendementTd = document.createElement("td");
-        rendementTd.textContent = formatPct(p.rendement_pct);
-        rendementTd.style.padding = "4px 16px 4px 0";
-        rendementTd.style.color = kleurVoorRendement(p.rendement_pct);
-        rendementTd.style.fontWeight = "bold";
-        rij.appendChild(rendementTd);
-        const dividendTd = document.createElement("td");
-        dividendTd.textContent = formatteerEuro(p.dividend_ontvangen || 0);
-        dividendTd.style.padding = "4px 16px 4px 0";
-        rij.appendChild(dividendTd);
-        tabel.appendChild(rij);
-    });
+    tabel.appendChild(kopRij);
+    tabel.appendChild(tbody);
+    tekenTbody();
 
     // Wrapper i.p.v. de tabel direct teruggeven: laat de tabel op smalle
     // schermen zelf horizontaal scrollen (overflow-x: auto in style.css)
@@ -1083,121 +1135,199 @@ function maakPositieTabel(posities, tickerNamen) {
     return wrapper;
 }
 
+function maakPositieTabel(posities, tickerNamen) {
+    const kolommen = [
+        {
+            label: "Naam/ticker",
+            renderTd: p => {
+                const td = document.createElement("td");
+                const naam = (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
+                td.textContent = `${naam} (${p.ticker})`;
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Aantal",
+            waarde: p => p.aantal,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Huidige waarde",
+            waarde: p => p.huidige_waarde,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(p.huidige_waarde);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "GAK",
+            waarde: p => p.gak,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(p.gak, 4);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Huidige koers",
+            waarde: p => p.huidige_koers,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(p.huidige_koers, 4);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            // Sorteert op rendement_pct (het getal), niet op de
+            // samengestelde "€... (...%)"-weergavetekst.
+            label: "Rendement",
+            waarde: p => p.rendement_pct,
+            renderTd: p => maakRendementCel(p.rendement_eur, p.rendement_pct),
+        },
+        {
+            label: "Dividend ontvangen",
+            waarde: p => p.dividend_ontvangen || 0,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(p.dividend_ontvangen || 0);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+    ];
+    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities." });
+}
+
 function maakGeslotenPositiesTabel(geslotenPosities) {
-    if (!geslotenPosities || geslotenPosities.length === 0) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Geen verkochte posities.";
-        return p;
-    }
-
-    const tabel = document.createElement("table");
-    tabel.style.fontSize = "0.9em";
-    tabel.style.borderCollapse = "collapse";
-    tabel.style.width = "100%";
-
-    const kop = document.createElement("tr");
-    ["Naam/ticker", "Aantal", "Gem. aankoopkoers", "Gem. verkoopkoers", "Rendement (koers)", "Dividend ontvangen"].forEach(tekst => {
-        const th = document.createElement("th");
-        th.textContent = tekst;
-        th.style.textAlign = "left";
-        th.style.padding = "4px 16px 4px 0";
-        th.style.borderBottom = "1px solid #ddd";
-        kop.appendChild(th);
-    });
-    tabel.appendChild(kop);
-
-    geslotenPosities.forEach(p => {
-        const rij = document.createElement("tr");
-        [
-            `${p.naam} (${p.ticker})`,
-            p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 }),
-            formatteerEuro(p.gemiddelde_aankoopkoers, 4),
-            p.gemiddelde_verkoopkoers !== null ? formatteerEuro(p.gemiddelde_verkoopkoers, 4) : "onbekend",
-        ].forEach(tekst => {
-            const td = document.createElement("td");
-            td.textContent = tekst;
-            td.style.padding = "4px 16px 4px 0";
-            rij.appendChild(td);
-        });
-        const rendementTd = document.createElement("td");
-        rendementTd.textContent = formatPct(p.rendement_pct);
-        rendementTd.style.padding = "4px 16px 4px 0";
-        rendementTd.style.color = kleurVoorRendement(p.rendement_pct);
-        rendementTd.style.fontWeight = "bold";
-        rij.appendChild(rendementTd);
-        const dividendTd = document.createElement("td");
-        dividendTd.textContent = formatteerEuro(p.dividend_ontvangen || 0);
-        dividendTd.style.padding = "4px 16px 4px 0";
-        rij.appendChild(dividendTd);
-        tabel.appendChild(rij);
-    });
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
-    wrapper.appendChild(tabel);
-    return wrapper;
+    const kolommen = [
+        {
+            label: "Naam/ticker",
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = `${p.naam} (${p.ticker})`;
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Aantal",
+            waarde: p => p.aantal,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Gem. aankoopkoers",
+            waarde: p => p.gemiddelde_aankoopkoers,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(p.gemiddelde_aankoopkoers, 4);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Gem. verkoopkoers",
+            waarde: p => p.gemiddelde_verkoopkoers,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = p.gemiddelde_verkoopkoers !== null ? formatteerEuro(p.gemiddelde_verkoopkoers, 4) : "onbekend";
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Rendement (koers)",
+            waarde: p => p.rendement_pct,
+            renderTd: p => maakRendementCel(p.rendement_eur, p.rendement_pct),
+        },
+        {
+            label: "Dividend ontvangen",
+            waarde: p => p.dividend_ontvangen || 0,
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(p.dividend_ontvangen || 0);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+    ];
+    return maakSorteerbareTabel(kolommen, geslotenPosities, { legeTekst: "Geen verkochte posities." });
 }
 
 function maakJarenTabel(jaren) {
-    if (!jaren || jaren.length === 0) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Geen jaargegevens beschikbaar.";
-        return p;
-    }
+    const kolommen = [
+        {
+            label: "Jaar",
+            waarde: j => j.jaar,
+            renderTd: j => {
+                const td = document.createElement("td");
+                td.style.padding = "4px 16px 4px 0";
+                const jaarStrong = document.createElement("strong");
+                jaarStrong.textContent = j.jaar;
+                td.appendChild(jaarStrong);
+                const detail = document.createElement("div");
+                detail.style.fontSize = "0.85em";
+                detail.style.color = "#888";
+                detail.textContent = `${j.dagen_verstreken}d, ${j.pct_van_jaar}% van jaar`;
+                td.appendChild(detail);
+                return td;
+            },
+        },
+        {
+            label: "Startwaarde",
+            waarde: j => j.startwaarde,
+            renderTd: j => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(j.startwaarde);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Ingelegd",
+            waarde: j => j.ingelegd,
+            renderTd: j => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(j.ingelegd);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Eindwaarde",
+            waarde: j => j.eindwaarde,
+            renderTd: j => {
+                const td = document.createElement("td");
+                td.textContent = formatteerEuro(j.eindwaarde);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Winst",
+            waarde: j => j.winst_eur,
+            renderTd: j => maakRendementCel(j.winst_eur, j.winst_pct),
+        },
+    ];
 
-    const tabel = document.createElement("table");
-    tabel.style.fontSize = "0.9em";
-    tabel.style.borderCollapse = "collapse";
-    tabel.style.width = "100%";
-
-    const kop = document.createElement("tr");
-    ["Jaar", "Startwaarde", "Ingelegd", "Eindwaarde", "Winst"].forEach(tekst => {
-        const th = document.createElement("th");
-        th.textContent = tekst;
-        th.style.textAlign = "left";
-        th.style.padding = "4px 16px 4px 0";
-        th.style.borderBottom = "1px solid #ddd";
-        kop.appendChild(th);
-    });
-    tabel.appendChild(kop);
-
-    [...jaren].reverse().forEach(j => {
-        const rij = document.createElement("tr");
-        const jaarTd = document.createElement("td");
-        jaarTd.style.padding = "4px 16px 4px 0";
-        const jaarStrong = document.createElement("strong");
-        jaarStrong.textContent = j.jaar;
-        jaarTd.appendChild(jaarStrong);
-        const detail = document.createElement("div");
-        detail.style.fontSize = "0.85em";
-        detail.style.color = "#888";
-        detail.textContent = `${j.dagen_verstreken}d, ${j.pct_van_jaar}% van jaar`;
-        jaarTd.appendChild(detail);
-        rij.appendChild(jaarTd);
-
-        [formatteerEuro(j.startwaarde), formatteerEuro(j.ingelegd), formatteerEuro(j.eindwaarde)].forEach(tekst => {
-            const td = document.createElement("td");
-            td.textContent = tekst;
-            td.style.padding = "4px 16px 4px 0";
-            rij.appendChild(td);
-        });
-
-        const winstTd = document.createElement("td");
-        winstTd.style.padding = "4px 16px 4px 0";
-        winstTd.style.color = kleurVoorRendement(j.winst_eur);
-        winstTd.style.fontWeight = "bold";
-        winstTd.textContent = `${formatteerEuro(j.winst_eur)} (${formatPct(j.winst_pct)})`;
-        rij.appendChild(winstTd);
-
-        tabel.appendChild(rij);
-    });
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
-    wrapper.appendChild(tabel);
-    return wrapper;
+    // Standaard/initiële volgorde: nieuwste jaar eerst (ongewijzigd t.o.v.
+    // de vorige implementatie).
+    const rijen = [...jaren].reverse();
+    return maakSorteerbareTabel(kolommen, rijen, { legeTekst: "Geen jaargegevens beschikbaar." });
 }
 
 function maakGeavanceerdSectie(geavanceerd) {

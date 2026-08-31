@@ -1009,9 +1009,50 @@ def get_prices(tickers, start_date):
     return pivot
 
 
+def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
+    """Sorteert transactierijen chronologisch op datum+tijd samen, niet
+    alleen op datum. Nodig voor same-day transacties: de 'transacties'-tabel
+    slaat alleen een DATE op, geen tijdstip (zie ALTER TABLE ... ADD COLUMN
+    tijd in db.py) — zonder tijd kon een verkoop op dezelfde dag als de
+    bijbehorende koop in de verkeerde volgorde verwerkt worden (afhankelijk
+    van de willekeurige SELECT-volgorde uit de database, niet van de
+    werkelijke uitvoeringstijd). Dit gaf bv. een 'onbekende' verkoopkoers
+    op het Statistieken-tabblad wanneer bereken_holdings_en_gesloten() de
+    verkoop verwerkte vóórdat de koop van diezelfde dag geregistreerd was.
+
+    Rijen zonder tijd (tijd_kolom ontbreekt, of tijd IS NULL — bv. data van
+    vóór de tijd-migratie die nog niet is teruggehaald via een herüpload)
+    krijgen bewust 00:00:00 als fallback: dat is geen garantie voor de
+    juiste volgorde, maar wel een stabiele, voorspelbare sortering die niet
+    slechter is dan de oude datum-only sortering (mergesort is stable, dus
+    de relatieve volgorde van rijen zonder tijd blijft ongewijzigd t.o.v.
+    hoe ze zijn aangeleverd)."""
+    if tijd_kolom not in df.columns:
+        return df.sort_values(datum_kolom, kind="mergesort")
+
+    def _naar_timedelta(t):
+        if pd.isna(t):
+            return pd.Timedelta(0)
+        # pd.to_timedelta eist 'hh:mm:ss' -- een string rechtstreeks uit
+        # Excel ("13:39") mist vaak de seconden, een datetime.time-object
+        # heeft ze via str() altijd al ("13:39:00").
+        tekst = str(t)
+        if tekst.count(":") == 1:
+            tekst += ":00"
+        return pd.to_timedelta(tekst)
+
+    tijd_offset = df[tijd_kolom].apply(_naar_timedelta)
+    chronologisch = pd.to_datetime(df[datum_kolom]) + tijd_offset
+    return (
+        df.assign(_chronologisch=chronologisch)
+        .sort_values("_chronologisch", kind="mergesort")
+        .drop(columns="_chronologisch")
+    )
+
+
 def compute_value_over_time(transacties_df, price_data):
     """Berekent per dag: portfoliowaarde, totaal geïnvesteerd en rendement."""
-    transacties_df = transacties_df.dropna(subset=["ticker"]).sort_values("datum").reset_index(drop=True)
+    transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
     ontbrekend = [t for t in transacties_df["ticker"].unique() if t not in price_data.columns]
@@ -1054,7 +1095,7 @@ def compute_value_over_time(transacties_df, price_data):
 
 def compute_per_ticker(transacties_df, price_data):
     """Per ticker: waarde en geïnvesteerd bedrag over tijd."""
-    transacties_df = transacties_df.dropna(subset=["ticker"]).sort_values("datum").reset_index(drop=True)
+    transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
     if not price_data.empty:
@@ -2438,7 +2479,13 @@ def bereken_holdings_en_gesloten(transacties_df):
     gesloten_posities = {}
     df = transacties_df.dropna(subset=["ticker"])
     for ticker, groep in df.groupby("ticker"):
-        groep = groep.sort_values("datum")
+        # Chronologisch (datum+tijd), niet alleen datum: bij een koop en
+        # verkoop op dezelfde dag (bv. een beurswissel) kon de verkoop vóór
+        # de koop verwerkt worden — de aantal_lopend > 0-check hieronder
+        # faalt dan en de verkoopopbrengst wordt stilzwijgend niet meegeteld
+        # (zichtbaar als een 'onbekende' verkoopkoers op Statistieken). Zie
+        # _sorteer_chronologisch().
+        groep = _sorteer_chronologisch(groep)
         aantal_lopend = 0.0
         kostprijs_lopend = 0.0
         totaal_gekocht_aantal = 0.0
@@ -2538,7 +2585,16 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
     (geen corporate-action-boekingsrij, geen €0-splitconversie) plus een
     laatste fictieve cashflow op de laatste bekende datum ter grootte van de
     huidige portfoliowaarde (alsof alles vandaag verkocht wordt — nodig om
-    XIRR een eindpunt te geven)."""
+    XIRR een eindpunt te geven).
+
+    Nagelopen tegen dezelfde same-day-sorteerbug als
+    bereken_holdings_en_gesloten() (zie _sorteer_chronologisch): hier is
+    geen fix nodig. XIRR is een NPV-berekening puur op basis van (datum,
+    bedrag)-paren — de volgorde van de cashflows-lijst zelf beïnvloedt de
+    uitkomst niet (in tegenstelling tot de GAK-boekhouding hierboven, die
+    per rij een lopend saldo bijhoudt en dus wél afhankelijk is van de
+    verwerkingsvolgorde). Alleen de einddatum sortering (hieronder) is voor
+    de leesbaarheid, niet voor de correctheid."""
     if resultaat.empty:
         return []
     df = transacties_df.dropna(subset=["ticker"])
@@ -2613,6 +2669,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "huidige_koers": round(huidige_koers, 4),
             "huidige_waarde": round(r["waarde"], 2),
             "geinvesteerd": round(r["geinvesteerd"], 2),
+            "rendement_eur": round(r["waarde"] - r["geinvesteerd"], 2),
             "rendement_pct": round(r["rendement_pct"], 2) if r["rendement_pct"] is not None else None,
             "dividend_ontvangen": round(dividend_per_ticker.get(ticker, 0.0), 2),
         })
@@ -2631,6 +2688,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             ),
             # Puur koersrendement, exclusief dividend — dividend staat als
             # apart veld ernaast, bewust niet samengevoegd tot één percentage.
+            "rendement_eur": round(info["gerealiseerd_eur"], 2),
             "rendement_pct": (
                 round(info["gerealiseerd_eur"] / (info["gemiddelde_aankoopkoers"] * info["aantal"]) * 100, 2)
                 if info["gemiddelde_aankoopkoers"] else None
