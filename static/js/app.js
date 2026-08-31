@@ -425,6 +425,7 @@ async function slaBijnaamOp(ticker, bijnaam) {
         huidigeData = data;
         ververAandeelSelect();
         toonInstellingen();
+        toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
         const msg = document.getElementById("instellingenMsg");
         msg.style.color = "#2c7a4b";
         msg.textContent = "Bijnaam opgeslagen.";
@@ -454,6 +455,7 @@ async function resetBijnaam(ticker) {
         huidigeData = data;
         ververAandeelSelect();
         toonInstellingen();
+        toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
     } catch (e) {
         const msg = document.getElementById("instellingenMsg");
         msg.style.color = "#9C0006";
@@ -736,12 +738,15 @@ function renderTickerZekerheid(posities) {
 async function toonInstellingenTicker() {
     // Een eenmalige ("niet opslaan") analyse heeft geen code om de losse
     // /ticker-zekerheid-endpoint mee aan te roepen (die leest transacties
-    // uit de database) — maar verifieer_ticker_met_prijs() is een pure
-    // functie, dus /upload heeft de volledige, prijsgeverifieerde data toen
-    // al meegestuurd onder huidigeData.ticker_zekerheid. Zelfde renderer,
-    // geen aparte lichtgewicht weergave nodig.
+    // uit de database). De GOEDKOPE ticker-match (zonder Yahoo-
+    // prijsverificatie) heeft /upload toen al meegestuurd onder
+    // huidigeData.ticker_zekerheid — de dure, prijs-geverifieerde variant is
+    // hier een losse, door de gebruiker aangevraagde actie geworden (zie
+    // toonInstellingenTickerBasis), want die liep bij grotere portfolio's
+    // met een koude cache ruim over de gunicorn-timeout heen als hij hier
+    // altijd synchroon voor de volle portfolio draaide.
     if (!huidigeData.code) {
-        renderTickerZekerheid(huidigeData.ticker_zekerheid || []);
+        toonInstellingenTickerBasis();
         return;
     }
 
@@ -752,17 +757,22 @@ async function toonInstellingenTicker() {
     // i.p.v. een eigen inline statustekst.
     toonLaadOverlay("Bezig met controleren van tickers...");
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
     let res, data;
     try {
-        res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid`);
+        res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid`, { signal: controller.signal });
         data = await res.json();
     } catch (e) {
         const foutmelding = document.createElement("p");
         foutmelding.style.color = "#9C0006";
-        foutmelding.textContent = "Kon ticker-zekerheid niet ophalen.";
+        foutmelding.textContent = e.name === "AbortError"
+            ? "Het controleren van tickers duurt te lang en is afgebroken. Probeer het later opnieuw."
+            : "Kon ticker-zekerheid niet ophalen (netwerkfout).";
         sectie.appendChild(foutmelding);
         return;
     } finally {
+        clearTimeout(timeoutId);
         verbergLaadOverlay();
     }
 
@@ -776,6 +786,76 @@ async function toonInstellingenTicker() {
     }
 
     renderTickerZekerheid(data.posities);
+}
+
+// Lichte weergave voor een eenmalige ("niet opslaan") analyse: toont eerst
+// de goedkope, niet-prijsgeverifieerde match die /upload al meestuurde, met
+// een knop om alsnog de uitgebreide (prijs-geverifieerde) check op te
+// vragen via /api/ticker-zekerheid-check — een losse request zodat de
+// hoofd-upload niet meer het risico loopt op een gunicorn-timeout bij een
+// grotere portfolio (zie toonInstellingenTicker hierboven).
+function toonInstellingenTickerBasis() {
+    const sectie = document.getElementById("instellingenTickerSectie");
+    sectie.innerHTML = "";
+
+    const intro = document.createElement("p");
+    intro.textContent = "Dit is de snelle ticker-match, zonder prijsvergelijking (zelfde manier als bij een "
+        + "normale upload). Voor de uitgebreide check — vergelijkt transactieprijzen met Yahoo's historische "
+        + "koersen, een sterker signaal — klik op de knop hieronder. Dat kan bij veel posities een paar "
+        + "seconden tot een halve minuut duren.";
+    sectie.appendChild(intro);
+
+    const foutEl = document.createElement("p");
+    foutEl.style.color = "#9C0006";
+    foutEl.style.display = "none";
+
+    const lijst = document.createElement("div");
+    (huidigeData.ticker_zekerheid || []).forEach(p => lijst.appendChild(maakTickerZekerheidKaart(p)));
+
+    const knop = document.createElement("button");
+    knop.textContent = "Controleer ticker-zekerheid (uitgebreid)";
+    knop.style.marginBottom = "14px";
+    knop.addEventListener("click", () => controleerTickerZekerheidUitgebreid(knop, foutEl, lijst));
+
+    sectie.appendChild(knop);
+    sectie.appendChild(foutEl);
+    sectie.appendChild(lijst);
+}
+
+async function controleerTickerZekerheidUitgebreid(knop, foutEl, lijst) {
+    foutEl.style.display = "none";
+    knop.disabled = true;
+    knop.textContent = "Bezig met controleren...";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    try {
+        const res = await fetch("/api/ticker-zekerheid-check", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ posities: huidigeData.ticker_posities_ruw || [] }),
+            signal: controller.signal,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+            foutEl.textContent = data.error || "Kon ticker-zekerheid niet controleren.";
+            foutEl.style.display = "block";
+            return;
+        }
+        huidigeData.ticker_zekerheid = data.posities;
+        lijst.innerHTML = "";
+        data.posities.forEach(p => lijst.appendChild(maakTickerZekerheidKaart(p)));
+        knop.style.display = "none";
+    } catch (e) {
+        foutEl.textContent = e.name === "AbortError"
+            ? "De uitgebreide controle duurt te lang en is afgebroken. Probeer het later opnieuw."
+            : "Er ging iets mis bij het controleren (netwerkfout). Probeer het opnieuw.";
+        foutEl.style.display = "block";
+    } finally {
+        clearTimeout(timeoutId);
+        knop.disabled = false;
+        if (knop.style.display !== "none") knop.textContent = "Controleer ticker-zekerheid (uitgebreid)";
+    }
 }
 
 // Kleur per ticker consistent met de rest van het dashboard: dezelfde
@@ -1708,6 +1788,8 @@ function toonDashboard(data) {
     // Instellingen/Bijnamen.
     dividendBtn.style.display = data.code ? "" : "none";
 
+    toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
+
     if (!data.chart_data) {
         document.getElementById("geenData").style.display = "block";
         return;
@@ -1715,6 +1797,27 @@ function toonDashboard(data) {
 
     ververAandeelSelect();
     wisselView("portfolio");
+}
+
+// Opvallende, niet-blokkerende banner (blijft zichtbaar ongeacht welk
+// tabblad open staat) wanneer find_ticker_met_snelle_prijscheck (de
+// standaard lichte prijscontrole, zie CLAUDE.md) bij 1 of meer posities een
+// afwijkende koers vond. Wijst door naar Ticker-zekerheid i.p.v. zelf een
+// alternatieve ticker te tonen/kiezen — dat blijft altijd een suggestie die
+// de gebruiker daar zelf bevestigt.
+function toonTickerWaarschuwingBanner(waarschuwingen) {
+    const banner = document.getElementById("tickerWaarschuwingBanner");
+    if (!waarschuwingen || waarschuwingen.length === 0) {
+        banner.style.display = "none";
+        return;
+    }
+
+    const namen = waarschuwingen.map(w => w.naam || w.ticker).join(", ");
+    const tekst = waarschuwingen.length === 1
+        ? `⚠️ Bij 1 positie (${namen}) wijkt de koers meer dan verwacht af van Yahoo Finance — controleer het Ticker-zekerheid-tabblad.`
+        : `⚠️ Bij ${waarschuwingen.length} posities (${namen}) wijkt de koers meer dan verwacht af van Yahoo Finance — controleer het Ticker-zekerheid-tabblad.`;
+    document.getElementById("tickerWaarschuwingTekst").textContent = tekst;
+    banner.style.display = "block";
 }
 
 // Hamburger-menu (alleen zichtbaar op mobiel, zie style.css): open/dicht-
@@ -1758,6 +1861,11 @@ document.getElementById("europaCheckbox").addEventListener("change", () => {
     toonLand();
 });
 
+document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () => {
+    wisselView("instellingen-ticker");
+    pasMenuStatusToe(menuOpenStatusNaViewKeuze());
+});
+
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     document.getElementById("errorMsg").textContent = "";
@@ -1771,15 +1879,30 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
         formData.delete("bestand2");
     }
     toonLaadOverlay("Analyseren...");
+    // Client-side timeout zodat de gebruiker niet oneindig naar de
+    // laadanimatie blijft kijken als de server al is vastgelopen zonder dat
+    // de browser dat zelf detecteert (bv. de verbinding blijft hangen
+    // i.p.v. netjes te sluiten bij een gunicorn-worker-timeout). Zie
+    // CLAUDE.md, Statistieken-incident 2026-08-31: een 'niet opslaan'-
+    // analyse van een grotere portfolio bleef zo stil hangen dat er zelfs
+    // geen foutmelding verscheen.
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
     try {
-        const res = await fetch("/upload", { method: "POST", body: formData });
+        const res = await fetch("/upload", { method: "POST", body: formData, signal: controller.signal });
         const data = await res.json();
         if (!res.ok) {
             document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
             return;
         }
         toonDashboard(data);
+    } catch (err) {
+        document.getElementById("errorMsg").textContent = err.name === "AbortError"
+            ? "Het analyseren duurt te lang en is afgebroken. Dit kan gebeuren bij grote portfolio's — probeer "
+              + "het opnieuw, of upload zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
+            : "Er ging iets mis bij het analyseren (netwerkfout). Probeer het opnieuw.";
     } finally {
+        clearTimeout(timeoutId);
         verbergLaadOverlay();
     }
 });
