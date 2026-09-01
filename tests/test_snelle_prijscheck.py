@@ -192,18 +192,40 @@ class TestStap3EscaleertNaarAlternatieven(unittest.TestCase):
 
 
 class TestGeenYahooData(unittest.TestCase):
-    def test_geen_yahoo_koers_voor_laatste_datum_geen_crash_geen_escalatie(self):
-        transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
+    """Bugfix: geen koersdata bij Yahoo werd behandeld als 'niets te
+    controleren, dus geen probleem' en bleef stilzwijgend 'zeker'. Nu
+    escaleert dit net als een grote afwijking (zie het G2X.MU/GDX.L-geval
+    in tests/test_ticker_verificatie.py)."""
 
-        with _basis_patch(), patch.object(
-            analysis, "vergelijk_prijs_op_datum",
-            return_value={"yahoo_koers": None, "afwijking_pct": None, "match": None, "niveau": None,
-                          "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0, "bekende_koers": 100.0},
-        ):
+    def test_geen_yahoo_koers_op_geen_enkele_steekproefdatum_escaleert_naar_onzeker(self):
+        transacties = [
+            {"datum": date(2023, 1, 10), "koers": 100.0},
+            {"datum": date(2023, 3, 10), "koers": 100.0},
+            {"datum": date(2023, 6, 10), "koers": 100.0},
+        ]
+        geen_data = {"yahoo_koers": None, "afwijking_pct": None, "match": None, "niveau": None,
+                     "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0, "bekende_koers": 100.0}
+
+        with _basis_patch(zekerheid="zeker", alternatieven=[]), \
+             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_data):
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
-        self.assertIsNone(resultaat["prijswaarschuwing"])
-        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIsNotNone(resultaat["prijswaarschuwing"])
+        self.assertIn("Geen koersdata", resultaat["prijswaarschuwing"])
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+
+    def test_geen_koersdata_zoekt_ook_alternatieven_en_geeft_aanbevolen_alternatief(self):
+        transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
+        geen_data = {"yahoo_koers": None, "afwijking_pct": None, "match": None, "niveau": None,
+                     "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0, "bekende_koers": 100.0}
+
+        with _basis_patch(zekerheid="zeker", alternatieven=[{"symbol": "GDX.L", "exchange": "LSE"}]), \
+             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_data), \
+             patch.object(analysis, "_zoek_betere_alternatieven", return_value=([{"ticker": "GDX.L"}], "GDX.L")) as mock_alt:
+            resultaat = find_ticker_met_snelle_prijscheck("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", transacties)
+
+        mock_alt.assert_called_once()
+        self.assertEqual(resultaat["aanbevolen_alternatief"], "GDX.L")
 
 
 class TestPrijswaarschuwingVoorTicker(unittest.TestCase):

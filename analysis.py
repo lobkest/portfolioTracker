@@ -2116,15 +2116,21 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     prijs_klopt = prijs_bekend and all(bekende_matches)
 
     waarschuwing = None
-    if zekerheid == "zeker" and prijs_bekend and not prijs_klopt:
+    if zekerheid == "zeker" and (not prijs_bekend or not prijs_klopt):
         zekerheid = "onzeker"
-        afwijkende = [c for c in prijs_checks if c["match"] is False]
-        grootste = max(afwijkende, key=lambda c: c["afwijking_pct"])
-        waarschuwing = (
-            f"Beurs komt overeen, maar {len(afwijkende)} van de {len(bekende_matches)} gecontroleerde "
-            f"datums wijkt meer dan {PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:.0f}% af (grootste afwijking "
-            f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
-        )
+        if not prijs_bekend:
+            waarschuwing = (
+                f"Geen koersdata gevonden bij Yahoo voor '{ticker}' — "
+                f"mogelijk een verkeerde of niet-bestaande ticker."
+            )
+        else:
+            afwijkende = [c for c in prijs_checks if c["match"] is False]
+            grootste = max(afwijkende, key=lambda c: c["afwijking_pct"])
+            waarschuwing = (
+                f"Beurs komt overeen, maar {len(afwijkende)} van de {len(bekende_matches)} gecontroleerde "
+                f"datums wijkt meer dan {PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:.0f}% af (grootste afwijking "
+                f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
+            )
         print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
 
     details = _ticker_details_met_cache(ticker)
@@ -2176,14 +2182,19 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     waren vóór de 'niet opslaan'-timeoutfix (CLAUDE.md, Statistieken-
     incident 2026-08-31).
 
-    Escalatietrapje, alleen bij een daadwerkelijke afwijking:
+    Escalatietrapje, bij een daadwerkelijke afwijking ÓF bij helemaal geen
+    Yahoo-koersdata (net zo verdacht als een grote afwijking — vaak een
+    verkeerde of niet-bestaande ticker, dus nooit stilzwijgend als "OK"
+    behandelen):
       1. Alleen de LAATSTE transactiedatum controleren.
-      2. > PRIJSCHECK_DREMPEL_WAARSCHUWING (6%) afwijking -> ook de rest van
-         de steekproef (eerste/middelste/laatste) controleren — een
-         eenmalige, onschuldige uitschieter (bv. een corporate action rond
-         die datum) mag niet meteen als een foute ticker gelden.
+      2. > PRIJSCHECK_DREMPEL_WAARSCHUWING (6%) afwijking, of geen
+         koersdata -> ook de rest van de steekproef (eerste/middelste/
+         laatste) controleren — een eenmalige, onschuldige uitschieter
+         (bv. een corporate action rond die datum) mag niet meteen als een
+         foute ticker gelden.
       3. Nog steeds > PRIJSCHECK_DREMPEL_ALTERNATIEVEN (10%) afwijking (over
-         de bredere steekproef) -> ook alternatieve tickers doorrekenen,
+         de bredere steekproef), of nog steeds geen koersdata op geen
+         enkele steekproefdatum -> ook alternatieve tickers doorrekenen,
          via dezelfde _zoek_betere_alternatieven() als de volledige check —
          maar dan alleen voor DEZE positie, niet voor de hele portfolio.
 
@@ -2210,13 +2221,14 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     check_laatste["datum"] = str(laatste["datum"])
     prijs_checks = [check_laatste]
 
-    if check_laatste["afwijking_pct"] is None or check_laatste["afwijking_pct"] <= PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:
-        # Geen Yahoo-data om te vergelijken, of de koers klopt -- het
-        # gangbare geval, klaar na 1 (gecachete) call.
+    if check_laatste["afwijking_pct"] is not None and check_laatste["afwijking_pct"] <= PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:
+        # Koers klopt -- het gangbare geval, klaar na 1 (gecachete) call.
         return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
 
-    # Stap 2: afwijking >6% op de laatste datum -- ook de rest van de
-    # steekproef controleren.
+    # Stap 2: afwijking >6% op de laatste datum, of helemaal geen koersdata
+    # gevonden -- ook de rest van de steekproef controleren. Geen koersdata
+    # is minstens zo verdacht als een grote afwijking (vaak een verkeerde
+    # of niet-bestaande ticker), dus géén early-return meer als "OK".
     steekproef = _kies_steekproef_transacties(geldige_transacties)
     for t in steekproef:
         if str(t["datum"]) == check_laatste["datum"]:
@@ -2229,14 +2241,18 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
         (c["afwijking_pct"] for c in prijs_checks if c["afwijking_pct"] is not None),
         default=None,
     )
-    if grootste_afwijking is None:
-        return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
 
     zekerheid = "onzeker" if basis["zekerheid"] == "zeker" else basis["zekerheid"]
-    prijswaarschuwing = (
-        f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
-        f"controleer op het Ticker-zekerheid-tabblad."
-    )
+    if grootste_afwijking is None:
+        prijswaarschuwing = (
+            f"Geen koersdata gevonden bij Yahoo voor '{ticker}' — "
+            f"controleer op het Ticker-zekerheid-tabblad."
+        )
+    else:
+        prijswaarschuwing = (
+            f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
+            f"controleer op het Ticker-zekerheid-tabblad."
+        )
     print(f"[snelle-prijscheck] ⚠️ '{ticker}' ({isin}): {prijswaarschuwing}")
 
     resultaat = {
@@ -2244,10 +2260,11 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
         "prijswaarschuwing": prijswaarschuwing,
     }
 
-    # Stap 3: nog steeds fors afwijkend (>10%) na de bredere steekproef --
-    # nu pas de duurdere kandidaten-doorrekening, en alleen voor DEZE
-    # positie (niet voor de hele portfolio).
-    if grootste_afwijking > PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100:
+    # Stap 3: nog steeds fors afwijkend (>10%) na de bredere steekproef, of
+    # helemaal geen koersdata gevonden -- nu pas de duurdere kandidaten-
+    # doorrekening, en alleen voor DEZE positie (niet voor de hele
+    # portfolio).
+    if grootste_afwijking is None or grootste_afwijking > PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100:
         verwachte_beurzen = BEURS_MAP.get(beurs, [])
         _alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
             basis["alternatieven"], steekproef, verwachte_beurzen
