@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
@@ -322,6 +322,18 @@ def _upload_impl():
         if tijd_gebackfilld:
             print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
 
+    if match_code:
+        # Alleen zinvol bij een upload naar een BESTAANDE portfolio: een
+        # verbeterde ticker-resolutielogica (bv. de G2X.MU-fix) corrigeert
+        # anders alleen nieuw ingevoegde rijen, nooit wat al in de database
+        # stond. Overschrijft alleen tickers die nu een prijsprobleem
+        # hebben met een kandidaat die dat niet heeft (zie
+        # analysis.backfill_verouderde_tickers).
+        tickers_gecorrigeerd = backfill_verouderde_tickers(code)
+        if tickers_gecorrigeerd:
+            print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
+                  f"gecorrigeerde ticker via backfill")
+
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
         dividend_records = verwerk_rekeningoverzicht(bestand2)
@@ -375,8 +387,15 @@ def ticker_zekerheid(code):
     # die bij de andere notering horen. echte_naam (niet product!) gaat naar
     # de Yahoo-zoekopdracht: product kan een door de gebruiker aangepaste
     # bijnaam zijn, en die is onbruikbaar als zoekterm.
+    # Corporate-action-/NON TRADEABLE-rijen (splits e.d.) horen niet als
+    # eigen "positie" in deze lijst -- zelfde check als elders in het
+    # project (analysis._is_corporate_action_row), hier vóór het groeperen
+    # toegepast zodat zo'n rij nooit een kansloze eigen (ISIN, Beurs)-groep
+    # vormt.
     per_isin_beurs = {}
     for isin, product, echte_naam, beurs, datum, koers in rows:
+        if _is_corporate_action_row({"beurs": beurs, "product": product}):
+            continue
         groep = per_isin_beurs.setdefault(
             (isin, beurs), {"naam": product, "echte_naam": echte_naam, "beurs": beurs, "isin": isin, "transacties": []}
         )

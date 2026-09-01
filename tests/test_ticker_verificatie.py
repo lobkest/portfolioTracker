@@ -245,6 +245,83 @@ class TestSplitCorrectie(unittest.TestCase):
         self.assertAlmostEqual(resultaat["afwijking_pct"], 5.0)
 
 
+class TestValutaConversie(unittest.TestCase):
+    """Bugfix: vergelijk_prijs_op_datum vergeleek de Yahoo-slotkoers altijd
+    rauw, zonder rekening te houden met de valuta van de ticker -- terwijl
+    de Excel/DEGIRO-transactieprijs altijd in EUR is. Zie het NFLX-geval:
+    Excel-beurs TDG (Tradegate, EUR) maar Yahoo-ticker NFLX noteert in USD,
+    dus 68.38 (EUR) vs 82.23 (USD) leek een grote afwijking terwijl het
+    puur de ontbrekende EUR/USD-omrekening was."""
+
+    def _mock_omgeving(self, yahoo_koers, valuta, fx_koers, fx_faalt=False):
+        stack = ExitStack()
+        stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
+        stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": valuta}))
+        stack.enter_context(patch.object(analysis, "save_prijscheck"))
+        stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))
+
+        def fake_slotkoers(ticker, datum, *a, **kw):
+            if ticker in ("USDEUR=X", "GBPEUR=X"):
+                return None if fx_faalt else fx_koers
+            return yahoo_koers
+
+        stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", side_effect=fake_slotkoers))
+        return stack
+
+    def test_usd_ticker_wordt_naar_eur_omgerekend_voor_vergelijking(self):
+        # NFLX-reproductie: Excel-koers 68.38 EUR, Yahoo-slotkoers 82.23 USD,
+        # EUR/USD-koers ~0.8311 (=1/1.2) -> 82.23 * 0.8311 ≈ 68.33, <1% af.
+        with self._mock_omgeving(yahoo_koers=82.23, valuta="USD", fx_koers=0.8311):
+            resultaat = vergelijk_prijs_op_datum("NFLX", date(2024, 3, 1), 68.38)
+
+        ongecorrigeerde_afwijking = abs(82.23 - 68.38) / 68.38 * 100
+        self.assertGreater(ongecorrigeerde_afwijking, 15)
+
+        self.assertAlmostEqual(resultaat["yahoo_koers_gecorrigeerd"], 68.33, places=1)
+        self.assertLess(resultaat["afwijking_pct"], 1)
+        self.assertEqual(resultaat["niveau"], "ok")
+        self.assertTrue(resultaat["match"])
+        self.assertEqual(resultaat["yahoo_koers"], 82.23)  # rauwe koers blijft zichtbaar
+
+    def test_gbp_pence_ticker_deelt_door_100_voor_conversie(self):
+        with self._mock_omgeving(yahoo_koers=8000.0, valuta="GBp", fx_koers=1.17):
+            resultaat = vergelijk_prijs_op_datum("TEST.L", date(2024, 3, 1), 93.6)
+
+        # 8000 GBp = 80.00 GBP -> * 1.17 = 93.6 EUR
+        self.assertAlmostEqual(resultaat["yahoo_koers_gecorrigeerd"], 93.6, places=1)
+        self.assertEqual(resultaat["niveau"], "ok")
+
+    def test_eur_ticker_blijft_ongewijzigd_geen_conversie(self):
+        # Regressie: het gebruikelijke geval (EUR-genoteerde ticker) mag
+        # niet geraakt worden -- conversie moet een no-op zijn.
+        with self._mock_omgeving(yahoo_koers=100.0, valuta="EUR", fx_koers=999.0):
+            resultaat = vergelijk_prijs_op_datum("AKZA.AS", date(2024, 1, 1), 100.0)
+
+        self.assertIsNone(resultaat["yahoo_koers_gecorrigeerd"])
+        self.assertAlmostEqual(resultaat["afwijking_pct"], 0.0)
+        self.assertEqual(resultaat["niveau"], "ok")
+
+    def test_mislukte_fx_lookup_geeft_geen_vergelijking_geen_valse_waarschuwing(self):
+        with self._mock_omgeving(yahoo_koers=82.23, valuta="USD", fx_koers=None, fx_faalt=True):
+            resultaat = vergelijk_prijs_op_datum("NFLX", date(2024, 3, 1), 68.38)
+
+        self.assertIsNone(resultaat["afwijking_pct"])
+        self.assertIsNone(resultaat["match"])
+        self.assertEqual(resultaat["yahoo_koers"], 82.23)
+
+    def test_echte_verkeerde_ticker_blijft_waarschuwing_ook_na_correcte_conversie(self):
+        # Deze fix mag geen echte fouten gaan verbergen: een grote afwijking
+        # die ook na correcte valutaconversie blijft bestaan, moet nog
+        # steeds als 'waarschuwing' gemarkeerd worden.
+        with self._mock_omgeving(yahoo_koers=200.0, valuta="USD", fx_koers=0.8311):
+            resultaat = vergelijk_prijs_op_datum("VERKEERDE.TICKER", date(2024, 3, 1), 68.38)
+
+        # 200 USD * 0.8311 = 166.22 EUR, nog steeds ver van 68.38.
+        self.assertGreater(resultaat["afwijking_pct"], 50)
+        self.assertEqual(resultaat["niveau"], "waarschuwing")
+        self.assertFalse(resultaat["match"])
+
+
 class TestDrieNiveausIndicator(unittest.TestCase):
     """Bugfix: elke afwijking >0% kreeg hetzelfde ⚠️-icoon. Nu drie niveaus
     (zie PRIJSCHECK_DREMPEL_OK/_WAARSCHUWING in analysis.py)."""

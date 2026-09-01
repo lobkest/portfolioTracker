@@ -598,10 +598,15 @@ def compute_split_adjusted_shares(transacties_df):
         ].sort_values("datum")
 
         if conversion_rows.empty:
-            dprint(f"[split-detect]   ⚠️ GEEN conversion-rij gevonden (real trade met koers=0 en "
-                   f"aantal>0) ondanks {len(ca_rows)} corporate-action rij(en) — deze split wordt "
-                   f"NIET verwerkt! Aandelenaantal/rendement voor '{product_naam}' klopt dan niet "
-                   f"vanaf hier.")
+            # Bewust een normale print (niet dprint): dit signaleert een
+            # STILLE fout in de rendementsberekening (aandelenaantal klopt
+            # vanaf hier niet meer) en hoort daarom net zo zichtbaar te zijn
+            # als de andere ⚠️-waarschuwingen elders in het project, i.p.v.
+            # alleen zichtbaar met debug-logging aan.
+            print(f"[split-detect]   ⚠️ GEEN conversion-rij gevonden (real trade met koers=0 en "
+                  f"aantal>0) ondanks {len(ca_rows)} corporate-action rij(en) voor ISIN={isin} "
+                  f"('{product_naam}') — deze split wordt NIET verwerkt! Aandelenaantal/rendement "
+                  f"voor '{product_naam}' klopt dan niet vanaf hier.")
 
         for _, conv in conversion_rows.iterrows():
             conv_date = conv["datum"]
@@ -772,7 +777,7 @@ def find_ticker_detailed(product, isin, beurs):
         alternatieven: lijst van {"symbol", "exchange"} van kandidaten die niet
                        gekozen zijn (alleen relevant/gevuld bij "onzeker")
     """
-    if beurs == "DEG":  # corporate-action rij, geen echt aandeel/ETF
+    if _is_corporate_action_row({"beurs": beurs, "product": product}):  # corporate-action rij, geen echt aandeel/ETF
         return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
 
     targets = BEURS_MAP.get(beurs, [])
@@ -1881,14 +1886,43 @@ def _cumulatieve_split_factor(ticker, vanaf_datum):
     return factor
 
 
+def _fx_koers_op_datum(valuta, datum):
+    """
+    FX-koers (valuta -> EUR) op 'datum', voor het omrekenen van een LOSSE
+    historische Yahoo-slotkoers in vergelijk_prijs_op_datum() naar EUR.
+    Hergebruikt _haal_slotkoers_op() (retry + weekend/feestdag-buffer)
+    i.p.v. een aparte FX-downloadroutine te bouwen — 'USDEUR=X' e.d. is
+    gewoon een normale Yahoo-ticker. Zelfde valutaset als _converteer_
+    naar_eur() (die get_prices() gebruikt): alleen USD/GBP/GBp worden
+    herkend, dat dekt de fondsen/aandelen die dit project tot nu toe
+    tegenkomt. Geeft None terug bij een onbekende valuta of een mislukte
+    lookup — de aanroeper behandelt dat dan als "geen betrouwbare
+    vergelijking mogelijk", niet als een (mogelijk misleidende) rauwe
+    cross-currency-vergelijking.
+    """
+    if valuta in ("USD", "GBP", "GBp"):
+        fx_pair = "USDEUR=X" if valuta == "USD" else "GBPEUR=X"
+        koers = _haal_slotkoers_op(fx_pair, datum)
+        if koers is None:
+            print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
+        return koers
+    print(f"[prijscheck] ⚠️ onbekende valuta '{valuta}' voor FX-conversie, geen conversie toegepast")
+    return None
+
+
 def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     """
-    Vergelijkt de DEGIRO-transactieprijs (bekende_koers) met de historische
-    Yahoo-slotkoers van 'ticker' op diezelfde datum (gecorrigeerd voor
-    eventuele splits sindsdien, zie _cumulatieve_split_factor). Een grote
-    afwijking is een sterker signaal dat de ticker fout is dan beurs-
-    string-matching alleen — een verkeerde ticker op de "juiste" beurs
-    geeft alsnog een compleet andere koers.
+    Vergelijkt de DEGIRO-transactieprijs (bekende_koers, altijd EUR — DEGIRO
+    boekt alles in EUR, ook bij een niet-EUR-genoteerde ticker zoals NFLX
+    via Tradegate) met de historische Yahoo-slotkoers van 'ticker' op
+    diezelfde datum, na conversie naar EUR (zie _fx_koers_op_datum) en
+    gecorrigeerd voor eventuele splits sindsdien (zie
+    _cumulatieve_split_factor). Een grote afwijking is een sterker signaal
+    dat de ticker fout is dan beurs-string-matching alleen — een verkeerde
+    ticker op de "juiste" beurs geeft alsnog een compleet andere koers.
+    Zonder de valutaconversie leek een prima ticker als NFLX (Yahoo-valuta
+    USD) een verkeerde match: 68,38 (EUR) vs 82,23 (USD) wijkt puur door de
+    ontbrekende EUR/USD-omrekening ~17% af.
 
     Drie afwijkingsniveaus (zie PRIJSCHECK_DREMPEL_OK/_WAARSCHUWING
     bovenaan dit bestand) i.p.v. simpelweg goed/fout: Yahoo's SLOTkoers
@@ -1905,7 +1939,7 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     datum = pd.Timestamp(datum).date()
     cached = get_cached_prijscheck(ticker, datum)
     if cached is not None:
-        yahoo_koers, _valuta = cached
+        yahoo_koers, valuta = cached
         dprint(f"[prijscheck] '{ticker}' op {datum}: uit cache -> yahoo_koers={yahoo_koers}")
     else:
         yahoo_koers = _haal_slotkoers_op(ticker, datum)
@@ -1919,11 +1953,30 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
             "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
         }
 
+    valuta_conversie_toegepast = False
+    yahoo_koers_eur = yahoo_koers
+    if valuta not in (None, "EUR"):
+        fx_koers = _fx_koers_op_datum(valuta, datum)
+        if fx_koers is None:
+            # Geen betrouwbare EUR-vergelijking mogelijk (net zo'n signaal
+            # als "geen koersdata" hierboven) -- NIET stilzwijgend de rauwe,
+            # niet-vergelijkbare bedragen tegen elkaar afzetten, dat zou een
+            # valse waarschuwing (of een valse "OK") kunnen opleveren.
+            return {
+                "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
+                "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
+            }
+        divisor = 100 if valuta == "GBp" else 1
+        yahoo_koers_eur = yahoo_koers / divisor * fx_koers
+        valuta_conversie_toegepast = True
+        print(f"[prijscheck] '{ticker}' op {datum}: valutaconversie toegepast ({valuta} -> EUR, "
+              f"FX-koers {fx_koers:.4f}) -> yahoo_koers {yahoo_koers} wordt {yahoo_koers_eur:.4f}")
+
     split_factor = _cumulatieve_split_factor(ticker, datum)
-    yahoo_koers_gecorrigeerd = yahoo_koers * split_factor
+    yahoo_koers_gecorrigeerd = yahoo_koers_eur * split_factor
     if split_factor != 1.0:
         print(f"[prijscheck] '{ticker}' op {datum}: split-correctie toegepast (factor {split_factor:.4f}) "
-              f"-> yahoo_koers {yahoo_koers} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
+              f"-> yahoo_koers {yahoo_koers_eur} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
 
     afwijking_pct = abs(yahoo_koers_gecorrigeerd - bekende_koers) / bekende_koers * 100
     afwijking_fractie = afwijking_pct / 100
@@ -1934,9 +1987,10 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     else:
         niveau = "waarschuwing"
 
+    toon_gecorrigeerd = split_factor != 1.0 or valuta_conversie_toegepast
     return {
         "yahoo_koers": yahoo_koers,
-        "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if split_factor != 1.0 else None,
+        "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if toon_gecorrigeerd else None,
         "split_factor": split_factor,
         "bekende_koers": bekende_koers,
         "afwijking_pct": afwijking_pct,
@@ -2273,6 +2327,95 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
             resultaat["aanbevolen_alternatief"] = aanbevolen_alternatief
 
     return resultaat
+
+
+def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
+    """
+    Of een AL GEVONDEN ticker een prijsprobleem heeft op de laatste
+    transactiedatum: een echte afwijking (> PRIJSCHECK_DREMPEL_WAARSCHUWING)
+    OF helemaal geen koersdata bij Yahoo — net zo verdacht als een grote
+    afwijking, zie de "geen koersdata"-escalatie hierboven in
+    verifieer_ticker_met_prijs()/find_ticker_met_snelle_prijscheck() (het
+    G2X.MU-geval). Gebruikt door backfill_verouderde_tickers() om te
+    bepalen of een AL OPGESLAGEN ticker een backfill-kandidaat is. Geen
+    ticker (None) telt altijd als een probleem.
+    """
+    if not ticker:
+        return True
+    geldige = [t for t in transacties_van_dit_isin if t.get("koers") and float(t["koers"]) > 0]
+    if not geldige:
+        return False
+    laatste = max(geldige, key=lambda t: t["datum"])
+    check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
+    return check["afwijking_pct"] is None or check["afwijking_pct"] > PRIJSCHECK_DREMPEL_WAARSCHUWING * 100
+
+
+def backfill_verouderde_tickers(code):
+    """
+    Herbeoordeelt voor elke AL OPGESLAGEN (ISIN, Beurs)-groep van 'code' de
+    ticker met find_ticker_met_snelle_prijscheck() — een verbeterde ticker-
+    resolutielogica (bv. de progressieve-productnaam-inkorting, of "geen
+    koersdata = verdacht" i.p.v. stilzwijgend OK, zie het G2X.MU-geval)
+    corrigeert anders alleen NIEUWE rijen: de hoofdpagina gebruikt de al
+    opgeslagen transacties.ticker-waarde, geen verse herberekening.
+
+    Overschrijft de opgeslagen ticker ALLEEN als:
+      - de OUDE ticker een prijsprobleem heeft (_ticker_heeft_prijsprobleem), ÉN
+      - de NIEUWE kandidaat dat probleem NIET heeft.
+    Nooit een werkende ticker vervangen door een onzekerdere; bij twijfel
+    (de nieuwe kandidaat heeft zelf ook een prijsprobleem) wordt NIET
+    overschreven, maar wel gelogd zodat het zichtbaar blijft. Bedoeld om
+    aan te roepen ná elke upload die bij een bestaande portfolio-code komt
+    (een nieuwe upload van dezelfde ISIN's levert de prijsdata om te
+    herbeoordelen). Geeft het aantal daadwerkelijk gecorrigeerde
+    (ISIN, Beurs)-groepen terug.
+    """
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT isin, beurs, ticker, product, echte_naam, datum, koers FROM transacties WHERE code = %s",
+        (code,),
+    )
+    rows = cur.fetchall()
+
+    groepen = {}
+    for isin, beurs, ticker, product, echte_naam, datum, koers in rows:
+        groep = groepen.setdefault(
+            (isin, beurs), {"ticker": ticker, "naam": echte_naam or product, "transacties": []}
+        )
+        groep["transacties"].append({"datum": datum, "koers": koers})
+
+    gecorrigeerd = 0
+    for (isin, beurs), info in groepen.items():
+        oude_ticker = info["ticker"]
+        transacties = info["transacties"]
+        if not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
+            continue  # oude ticker werkt prima, niets te backfillen
+
+        nieuw = find_ticker_met_snelle_prijscheck(info["naam"], isin, beurs, transacties)
+        nieuwe_ticker = nieuw["ticker"]
+        if not nieuwe_ticker or nieuwe_ticker == oude_ticker:
+            continue
+
+        if _ticker_heeft_prijsprobleem(nieuwe_ticker, transacties):
+            print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): oude ticker '{oude_ticker}' had een "
+                  f"prijsprobleem, maar kandidaat '{nieuwe_ticker}' ook -- NIET overschreven, "
+                  f"handmatige controle nodig.")
+            continue
+
+        cur.execute(
+            "UPDATE transacties SET ticker = %s WHERE code = %s AND isin = %s AND beurs = %s",
+            (nieuwe_ticker, code, isin, beurs),
+        )
+        gecorrigeerd += 1
+        print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): ticker gecorrigeerd van '{oude_ticker}' "
+              f"naar '{nieuwe_ticker}' ({cur.rowcount} rij(en)) -- oude ticker had een prijsprobleem, "
+              f"nieuwe niet.")
+
+    conn.commit()
+    cur.close()
+    conn.close()
+    return gecorrigeerd
 
 
 def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin):
