@@ -333,5 +333,81 @@ class TestZekerheidOordeelMetMildeAfwijking(unittest.TestCase):
         self.assertIn("71.3%", resultaat["waarschuwing"])
 
 
+class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
+    """Bugfix: 'geen koersdata bij Yahoo' (yahoo_koers/afwijking_pct is None)
+    werd behandeld als 'niets te controleren, dus geen probleem' en bleef
+    'Zeker' zonder verder te zoeken. Dat is verkeerd om -- geen koersdata is
+    minstens zo verdacht als een grote afwijking (vaak een verkeerde/dode
+    ticker). Reproductie van het echte geval: G2X.MU (GOLD-positie) heeft
+    geen Yahoo-koersdata, terwijl GDX.L (de correcte ticker voor hetzelfde
+    fonds, elders in de portfolio al in gebruik) gewoon als kandidaat
+    voorhanden was maar nooit gecheckt werd."""
+
+    def setUp(self):
+        self.transacties = [
+            {"datum": date(2023, 1, 10), "koers": 100.0},
+            {"datum": date(2023, 6, 10), "koers": 100.0},
+        ]
+        details_patch = patch.object(analysis, "_ticker_details_met_cache", return_value={})
+        details_patch.start()
+        self.addCleanup(details_patch.stop)
+        land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
+        land_sector_patch.start()
+        self.addCleanup(land_sector_patch.stop)
+
+    def test_geen_koersdata_op_alle_steekproefdatums_wordt_onzeker_en_zoekt_alternatieven(self):
+        with patch.object(
+            analysis, "find_ticker_detailed",
+            return_value={"ticker": "G2X.MU", "zekerheid": "zeker", "alternatieven": [{"symbol": "ALT", "exchange": "LSE"}]},
+        ), patch.object(
+            analysis, "vergelijk_prijs_op_datum",
+            side_effect=lambda *a, **kw: _prijscheck(match=None, afwijking_pct=None, yahoo_koers=None),
+        ) as mock_vergelijk:
+            resultaat = verifieer_ticker_met_prijs("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", self.transacties)
+
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertIn("Geen koersdata", resultaat["waarschuwing"])
+        self.assertIn("G2X.MU", resultaat["waarschuwing"])
+        # Alternatieven-zoekblok moet nu ook echt draaien (niet overgeslagen).
+        self.assertTrue(any(c.args[0] == "ALT" for c in mock_vergelijk.call_args_list))
+
+    def test_reproductie_vaneck_gold_miners_vindt_gdx_l_als_aanbevolen_alternatief(self):
+        with patch.object(
+            analysis, "find_ticker_detailed",
+            return_value={
+                "ticker": "G2X.MU",
+                "zekerheid": "zeker",
+                "alternatieven": [
+                    {"symbol": "GDX.L", "exchange": "LSE"},
+                ],
+            },
+        ), patch.object(analysis, "vergelijk_prijs_op_datum") as mock_vergelijk:
+            def fake_vergelijk(ticker, datum, bekende_koers):
+                if ticker == "G2X.MU":
+                    return _prijscheck(match=None, afwijking_pct=None, yahoo_koers=None)
+                return _prijscheck(match=True, afwijking_pct=1.0, yahoo_koers=100.0)
+            mock_vergelijk.side_effect = fake_vergelijk
+
+            resultaat = verifieer_ticker_met_prijs("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", self.transacties)
+
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertEqual(resultaat["aanbevolen_alternatief"], "GDX.L")
+
+    def test_wel_koersdata_en_kloppende_prijs_blijft_zeker_zonder_waarschuwing(self):
+        # Regressie: bestaande gevallen met een bevestigde prijs-match
+        # (wél koersdata, klopt) mogen niet geraakt worden door deze fix.
+        with patch.object(
+            analysis, "find_ticker_detailed",
+            return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []},
+        ), patch.object(
+            analysis, "vergelijk_prijs_op_datum",
+            side_effect=lambda *a, **kw: _prijscheck(match=True, afwijking_pct=1.0, yahoo_koers=100.0),
+        ):
+            resultaat = verifieer_ticker_met_prijs("APPLE INC", "US0378331005", "NASDAQ", self.transacties)
+
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIsNone(resultaat["waarschuwing"])
+
+
 if __name__ == "__main__":
     unittest.main()
