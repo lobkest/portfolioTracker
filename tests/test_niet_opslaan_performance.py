@@ -86,7 +86,8 @@ class TestOudeAanpakRisicoOpTimeout(unittest.TestCase):
         with patch.object(analysis, "find_ticker_detailed", side_effect=trage_find_ticker_detailed), \
              patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=traag_vergelijk), \
              patch.object(analysis, "_ticker_details_met_cache", return_value={}), \
-             patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None)):
+             patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None)), \
+             patch.object(analysis, "classify_ticker", return_value=False):  # generieke test-tickers, geen echt fonds
             start = time.time()
             verifieer_tickers_met_prijs_parallel(posities, max_workers=6)
             duur = time.time() - start
