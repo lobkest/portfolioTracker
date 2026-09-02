@@ -42,6 +42,20 @@ PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 # tickers doorgerekend -- zie find_ticker_met_snelle_prijscheck().
 PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10
 
+# Tier 1 (zie find_ticker_met_snelle_prijscheck): kandidaat staat op een
+# VERWACHTE beurs (BEURS_MAP) EN de prijs klopt op minstens dit aantal
+# gecontroleerde steekproefdatums -- sterkste, dubbel bevestigde match.
+MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE = 2
+
+# Tier 2: GEEN kandidaat op een verwachte beurs voldoet aan tier 1, maar
+# een kandidaat op een ANDERE beurs matcht op ALLE gecontroleerde
+# steekproefdatums (hogere lat, als compensatie voor het ontbrekende
+# beursbewijs -- dit is het Vanguard/iShares-scenario: de juiste notering
+# staat op een andere beurs dan verwacht). Pas toepassen als er minstens
+# dit aantal steekproefdatums gecontroleerd is, anders is 1 toevalstreffer
+# al genoeg voor een "volledige" match.
+MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH = 2
+
 # Tolerantie op de High/Low-dagrange-check (vergelijk_prijs_op_datum): de
 # exacte low <= koers <= high bleek te strak -- bekend-goede tickers
 # (VUSA.AS, G2X.DE) hadden een Excel-koers die net (~1-2%) buiten Yahoo's
@@ -82,7 +96,13 @@ EUROPESE_LANDEN = frozenset({
 
 BEURS_MAP = {
     "EAM": ["AMS"], "XAMS": ["AMS"], "XET": ["GER"], "FRA": ["GER"],
-    "TDG": ["GER", "MUN", "FRA"], "LSE": ["LSE"], "XLON": ["LSE"],
+    # TDG (Tradegate) verhandelt ook internationale (vooral Amerikaanse)
+    # aandelen in EUR, die Yahoo niet apart onder een Duitse notering
+    # indexeert -- alleen onder hun thuismarkt-ticker (bv. NFLX op NMS).
+    # NMS/NYQ staan BEWUST achteraan: een echte Duitse notering (als die
+    # bestaat) moet nog steeds voorrang krijgen boven de Amerikaanse
+    # thuismarkt-ticker.
+    "TDG": ["GER", "MUN", "FRA", "NMS", "NYQ"], "LSE": ["LSE"], "XLON": ["LSE"],
     "NYSE": ["NYQ"], "NASDAQ": ["NMS"], "ARCA": ["PCX"], "EPA": ["PAR"],
     "EBR": ["BRU"], "BME": ["MCE"], "BIT": ["MIL"], "SWX": ["SWX"],
     "TSE": ["TOR"], "ASX": ["ASX"], "NDQ": ["NMS"],
@@ -2652,9 +2672,21 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     Geeft basis (ticker/zekerheid/alternatieven van find_ticker_detailed())
     terug, aangevuld met 'prijs_checks' (lijst, 1-3 checks naargelang de
     escalatie) en 'prijswaarschuwing' (None als er niets aan de hand is).
-    Bij escalatie naar stap 3 met een geslaagd alternatief staat er ook een
-    'aanbevolen_alternatief' in — puur informatief, er wordt nooit
-    automatisch een andere ticker gekozen.
+
+    Bij escalatie naar stap 3 wordt een alternatieve ticker in twee gevallen
+    automatisch overgenomen (ticker/zekerheid worden dan overschreven en
+    'automatisch_gecorrigeerd_van' bevat de oorspronkelijke ticker):
+      - Tier 1: het alternatief staat op een VERWACHTE beurs (BEURS_MAP) en
+        de prijs klopt op >= MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE
+        steekproefdatums.
+      - Tier 2 (alleen als tier 1 niets oplevert): het alternatief staat op
+        een andere beurs dan verwacht, maar de prijs klopt op ALLE
+        gecontroleerde steekproefdatums — het Vanguard/iShares-scenario
+        waarbij de juiste UCITS-notering structureel op een andere beurs
+        staat dan DEGIRO's beurscode doet vermoeden.
+    Voldoet geen enkel alternatief aan tier 1 of tier 2, dan blijft het
+    bestaande gedrag: hooguit een 'aanbevolen_alternatief' als suggestie,
+    niets wordt automatisch overgenomen.
     """
     basis = find_ticker_detailed(product, isin, beurs)
     ticker = basis["ticker"]
@@ -2717,10 +2749,43 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     # portfolio).
     if grootste_afwijking is None or grootste_afwijking > PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100:
         verwachte_beurzen = BEURS_MAP.get(beurs, [])
-        _alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
+        alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
             basis["alternatieven"], steekproef, verwachte_beurzen
         )
-        if aanbevolen_alternatief:
+
+        # Tier 1: beurs klopt + prijs klopt op >= MIN_MATCHES_VOOR_AUTOMATISCHE_
+        # CORRECTIE datums. Let op: 'alternatieven'-entries hebben geen eigen
+        # 'beurs_klopt'-veld, dus zelf tegen verwachte_beurzen vergelijken.
+        beurs_bevestigd = next(
+            (a for a in alternatieven
+             if a.get("beurs") in verwachte_beurzen
+             and a.get("aantal_matches", 0) >= MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE),
+            None,
+        )
+
+        # Tier 2: alleen proberen als tier 1 niets opleverde.
+        volledig_prijs_bevestigd = None
+        if beurs_bevestigd is None and len(steekproef) >= MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH:
+            volledig_prijs_bevestigd = next(
+                (a for a in alternatieven if a.get("aantal_matches") == len(steekproef)),
+                None,
+            )
+
+        gekozen = beurs_bevestigd or volledig_prijs_bevestigd
+        if gekozen:
+            if gekozen is beurs_bevestigd:
+                reden = f"beurs ({gekozen['beurs']}) + prijs bevestigd ({gekozen['aantal_matches']} datums)"
+            else:
+                reden = f"beurs niet bevestigd, maar prijs klopt op alle {len(steekproef)} gecontroleerde datums"
+            print(f"[snelle-prijscheck] ✅ '{ticker}' ({isin}) automatisch vervangen door "
+                  f"'{gekozen['ticker']}' ({reden})")
+            resultaat["ticker"] = gekozen["ticker"]
+            resultaat["zekerheid"] = "zeker"
+            resultaat["prijswaarschuwing"] = None
+            resultaat["automatisch_gecorrigeerd_van"] = ticker
+        elif aanbevolen_alternatief:
+            # Geen van beide tiers voldoende bewijs -- bestaand gedrag: alleen
+            # tonen als suggestie, niets automatisch overnemen.
             resultaat["aanbevolen_alternatief"] = aanbevolen_alternatief
 
     return resultaat
