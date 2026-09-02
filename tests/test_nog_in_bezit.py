@@ -50,6 +50,38 @@ class TestNogInBezit(unittest.TestCase):
         result = compute_per_ticker(df, price_data)
         self.assertFalse(result["X"]["nog_in_bezit"])
 
+    def test_nog_in_bezit_is_python_bool_niet_numpy_bool(self):
+        # Regressie: is_still_held komt uit een pandas/numpy-vergelijking
+        # (abs(df_t["holdings"].iloc[-1]) > 1e-6), wat een numpy.bool_
+        # oplevert i.p.v. een Python bool. Flask's jsonify() (json.dumps())
+        # kan numpy.bool_ niet serialiseren -> 500-fout op elke
+        # /api/portfolio/<code>-aanvraag met een per-ticker-tijdreeks
+        # (crashte in productie op zowel een nog aangehouden als een
+        # verkochte positie). type(...) is bool i.p.v. assertTrue/False,
+        # want die accepteren ook numpy.bool_ (het is "truthy").
+        df_bezit = pd.DataFrame([self._rij("2023-01-01", 10.0, -100.0)])
+        price_data_bezit = pd.DataFrame(
+            {"X": [10.0, 11.0]},
+            index=[pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-02")],
+        )
+        result_bezit = compute_per_ticker(df_bezit, price_data_bezit)
+        self.assertIs(type(result_bezit["X"]["nog_in_bezit"]), bool)
+
+        df_verkocht = pd.DataFrame([
+            self._rij("2023-01-01", 10.0, -100.0),
+            self._rij("2023-01-02", -10.0, 100.0),
+        ])
+        price_data_verkocht = pd.DataFrame(
+            {"X": [10.0, 10.0, 10.0]},
+            index=[
+                pd.Timestamp("2023-01-01"),
+                pd.Timestamp("2023-01-02"),
+                pd.Timestamp("2023-01-03"),
+            ],
+        )
+        result_verkocht = compute_per_ticker(df_verkocht, price_data_verkocht)
+        self.assertIs(type(result_verkocht["X"]["nog_in_bezit"]), bool)
+
     def test_compute_per_ticker_gestopt_na_volledige_verkoop(self):
         # Regressie: "geinvesteerd" is een CUMULATIEVE netto cashflow
         # (aankopen min verkopen) -- bij een volledige verkoop MET VERLIES
