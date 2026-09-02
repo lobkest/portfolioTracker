@@ -209,30 +209,45 @@ async function wisselBenchmark(benchmarkNaam) {
     }
 }
 
+// Standaard "maand" (licht, herberekent automatisch bij elk bezoek van dit
+// tabblad) -- "dag" is preciezer maar herberekent XIRR per dag i.p.v. per
+// maand, dus alleen op expliciet verzoek via xirrStapToggleBtn. Reset naar
+// "maand" bij elke nieuwe portfolio, zie toonDashboard().
+let xirrRendementStap = "maand";
+
 // DB-backed (leest transacties via de code, zie _laad_transacties_en_
 // resultaat in app.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
 // bij een 'niet opslaan'-analyse. Geen cache: elke keer dat dit tabblad
 // geopend wordt, wordt opnieuw opgehaald (zelfde patroon als
-// toonInstellingenTicker()) — de berekening zelf is licht (pure functie,
-// geen Yahoo-calls), dus dat is geen probleem.
+// toonInstellingenTicker()) — de berekening zelf is licht bij stap="maand"
+// (pure functie, geen Yahoo-calls), dus dat is geen probleem. Bij
+// stap="dag" (na een klik op xirrStapToggleBtn) kan dit merkbaar langer
+// duren -- vandaar het aparte laadbericht hieronder.
 async function toonRendementOverTijd() {
     const msg = document.getElementById("xirrRendementMsg");
+    const toggleBtn = document.getElementById("xirrStapToggleBtn");
     msg.style.display = "none";
     msg.style.color = "";
 
     if (!huidigeData.code) {
         if (chart) { chart.destroy(); chart = null; }
         document.getElementById("chartWrapper").style.display = "none";
+        toggleBtn.style.display = "none";
         msg.textContent = "Dit tabblad is alleen beschikbaar voor een opgeslagen portfolio (niet bij een eenmalige, niet-opgeslagen analyse).";
         msg.style.display = "block";
         return;
     }
 
+    toggleBtn.style.display = "block";
+    toggleBtn.disabled = true;
+    toggleBtn.textContent = xirrRendementStap === "dag" ? "Bezig met dagelijks berekenen..." : "Bereken per dag (kan lang duren)";
+
     document.getElementById("chartWrapper").style.display = "block";
-    toonLaadOverlay("Rendement over tijd berekenen...");
+    toonLaadOverlay(xirrRendementStap === "dag" ? "Rendement per dag berekenen (kan langer duren)..." : "Rendement over tijd berekenen...");
     let res, data;
     try {
-        res = await fetch(`/api/portfolio/${huidigeData.code}/rendement-over-tijd`);
+        const url = `/api/portfolio/${huidigeData.code}/rendement-over-tijd` + (xirrRendementStap === "dag" ? "?stap=dag" : "");
+        res = await fetch(url);
         data = await res.json();
     } catch (e) {
         msg.style.color = "#9C0006";
@@ -241,6 +256,8 @@ async function toonRendementOverTijd() {
         return;
     } finally {
         verbergLaadOverlay();
+        toggleBtn.disabled = false;
+        toggleBtn.textContent = xirrRendementStap === "dag" ? "Terug naar per maand" : "Bereken per dag (kan lang duren)";
     }
 
     if (!res.ok) {
@@ -257,7 +274,8 @@ async function toonRendementOverTijd() {
 
     updateChart(data.labels, [
         { label: "Rendement (%)", data: data.rendement_pct, borderColor: "#2c7a4b" },
-        { label: "XIRR (%)", data: data.xirr_pct, borderColor: "#3182bd" }
+        { label: "XIRR (%)", data: data.xirr_pct, borderColor: "#3182bd" },
+        { label: "TWR (%)", data: data.twr_pct, borderColor: "#d9822b" }
     ], formatPct);
 }
 
@@ -498,12 +516,21 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     opts = opts || {};
     if (chart) chart.destroy();
 
-    const categorieen = Object.keys(categorieData || {});
-    if (categorieen.length === 0) {
+    if (!categorieData || Object.keys(categorieData).length === 0) {
         document.getElementById("geenData").style.display = "block";
         return;
     }
     document.getElementById("geenData").style.display = "none";
+
+    // Aflopend op totaal (som van alle bronnen per categorie) -- hoogste %
+    // eerst. Voor bedrijven (al aflopend gesorteerd door
+    // bereken_bedrijven_verdeling) verandert dit niets; voor Land/Sector
+    // kwamen categorieën anders in willekeurige object-volgorde binnen.
+    const categorieen = Object.keys(categorieData).sort((a, b) => {
+        const totaalA = Object.values(categorieData[a]).reduce((som, w) => som + w, 0);
+        const totaalB = Object.values(categorieData[b]).reduce((som, w) => som + w, 0);
+        return totaalB - totaalA;
+    });
 
     const bronTotalen = {};
     categorieen.forEach(cat => {
@@ -1667,6 +1694,7 @@ function maakGeavanceerdSectie(geavanceerd) {
 
     rij.appendChild(maakStatTegel("Gemiddeld jaarrendement", formatPct(geavanceerd.gemiddeld_jaarrendement_pct), kleurVoorRendement(geavanceerd.gemiddeld_jaarrendement_pct)));
     rij.appendChild(maakStatTegel("XIRR", formatPct(geavanceerd.xirr_pct), kleurVoorRendement(geavanceerd.xirr_pct)));
+    rij.appendChild(maakStatTegel("TWR", formatPct(geavanceerd.twr_pct), kleurVoorRendement(geavanceerd.twr_pct)));
     rij.appendChild(maakStatTegel("Aantal jaren", geavanceerd.aantal_jaren !== null ? geavanceerd.aantal_jaren.toFixed(2) : "onbekend"));
 
     return rij;
@@ -1687,9 +1715,14 @@ function maakUitlegSectie() {
     box.appendChild(p1);
 
     const p2 = document.createElement("p");
-    p2.style.margin = "0";
+    p2.style.margin = "0 0 6px 0";
     p2.innerHTML = "<strong>Jaarrendement</strong> (per jaar, en het gemiddelde daarvan) wordt gedeeld door het bedrag dat dát jaar ingezet was (startwaarde + dat jaar ingelegd) — niet door het totaal over alle jaren. Dit is, net als het totaalrendement, een simpele ratio zonder tijdweging.";
     box.appendChild(p2);
+
+    const p3 = document.createElement("p");
+    p3.style.margin = "0";
+    p3.innerHTML = "<strong>TWR</strong> (time-weighted return) sluit — anders dan XIRR — het effect van WANNEER je stort juist helemaal uit, door elke periode los te rendementeren en die aan elkaar te koppelen. Handig om je eigen beleggingskeuzes te beoordelen los van je stortingsgedrag; reageert daardoor niet extreem vlak na een storting zoals XIRR dat wel doet.";
+    box.appendChild(p3);
 
     return box;
 }
@@ -2110,6 +2143,7 @@ function pasViewToe(view) {
     }
     if (view !== "xirr-rendement") {
         document.getElementById("xirrRendementMsg").style.display = "none";
+        document.getElementById("xirrStapToggleBtn").style.display = "none";
     }
     // toonVerdeling()/toonPlatteVerdeling() zetten dit bericht aan als er
     // voor Verdeling/Land/Sector/Bedrijven geen data is — zonder reset
@@ -2149,6 +2183,9 @@ function toonDashboard(data) {
     // Zelfde reden als prognoseResultaat hierboven: een benchmark-keuze van
     // een vorige portfolio slaat nergens meer op zodra de data wisselt.
     benchmarkVergelijkingData = null;
+    // Zelfde reden: stap="dag" van een vorige portfolio moet niet blijven
+    // hangen -- elke nieuwe portfolio start weer bij het lichte "maand".
+    xirrRendementStap = "maand";
     document.getElementById("benchmarkSelect").value = "";
     document.getElementById("uploadSection").style.display = "none";
     document.getElementById("dashboardSection").style.display = "flex";
@@ -2236,6 +2273,14 @@ document.getElementById("benchmarkSelect").addEventListener("change", (e) => {
 
 document.getElementById("resetZoomBtn").addEventListener("click", () => {
     if (chart) chart.resetZoom();
+});
+
+// Toggle tussen stap="maand" (standaard, licht) en stap="dag" (preciezer
+// maar herberekent XIRR per dag i.p.v. per maand, dus trager) op het
+// "XIRR & rendement"-tabblad -- zie xirrRendementStap/toonRendementOverTijd().
+document.getElementById("xirrStapToggleBtn").addEventListener("click", () => {
+    xirrRendementStap = xirrRendementStap === "dag" ? "maand" : "dag";
+    toonRendementOverTijd();
 });
 
 document.getElementById("europaCheckbox").addEventListener("change", () => {

@@ -50,6 +50,37 @@ class TestNogInBezit(unittest.TestCase):
         result = compute_per_ticker(df, price_data)
         self.assertFalse(result["X"]["nog_in_bezit"])
 
+    def test_compute_per_ticker_gestopt_na_volledige_verkoop(self):
+        # Regressie: "geinvesteerd" is een CUMULATIEVE netto cashflow
+        # (aankopen min verkopen) -- bij een volledige verkoop MET VERLIES
+        # (koop €100, verkoop €80) blijft geinvesteerd permanent op €20
+        # staan (het gerealiseerde verlies), ook al is holdings dan allang
+        # 0. Met geinvesteerd als "nog in bezit"-signaal (de oude bug) liep
+        # de grafiek dus onterecht door tot de laatste koersdatum i.p.v. te
+        # stoppen kort na de verkoop. holdings (aandelenaantal) is het
+        # juiste signaal.
+        df = pd.DataFrame([
+            self._rij("2023-01-01", 10.0, -100.0),
+            self._rij("2023-01-02", -10.0, 80.0),
+        ])
+        price_data = pd.DataFrame(
+            {"X": [10.0, 8.0, 8.0, 8.0, 8.0]},
+            index=[
+                pd.Timestamp("2023-01-01"),
+                pd.Timestamp("2023-01-02"),
+                pd.Timestamp("2023-01-03"),
+                pd.Timestamp("2023-01-04"),
+                pd.Timestamp("2023-01-05"),
+            ],
+        )
+        result = compute_per_ticker(df, price_data)
+        self.assertFalse(result["X"]["nog_in_bezit"])
+        # Grafiek stopt kort na de verkoopdatum (2 jan + 1 dag eraan
+        # toegevoegd, zie compute_per_ticker), niet doorlopend tot de
+        # laatste koersdatum (5 jan).
+        self.assertNotIn("2023-01-05", result["X"]["labels"])
+        self.assertIn("2023-01-02", result["X"]["labels"])
+
 
 if __name__ == "__main__":
     unittest.main()
