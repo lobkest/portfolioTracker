@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
@@ -553,6 +553,8 @@ def analyze_transacties(transacties_df, code, naam):
 
     is_etf_map = classify_tickers(list(per_ticker.keys()))
     land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data)
+    bedrijven_verdeling = bereken_bedrijven_verdeling(transacties_df, price_data)
+    etf_overlap = bereken_etf_overlap(transacties_df, price_data)
 
     # Prijswaarschuwingen zichtbaar maken bij ELK bezoek (niet alleen direct
     # na de upload): ticker_waarschuwingen_voor_transacties() leest alleen
@@ -603,6 +605,8 @@ def analyze_transacties(transacties_df, code, naam):
         "per_ticker": per_ticker,
         "verdeling": verdeling,
         "land_sector_verdeling": land_sector_verdeling,
+        "bedrijven_verdeling": bedrijven_verdeling,
+        "etf_overlap": etf_overlap,
         "statistieken": statistieken,
         "tickers": [
             {"ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t)}

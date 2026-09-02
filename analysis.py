@@ -91,6 +91,20 @@ MANUAL_TICKER_OVERRIDES = {
     "VANGUARD FTSE ALL-WORLD UCITS": "VWRL.AS",
 }
 
+# Handmatige overrides voor bedrijfsnamen die _normaliseer_bedrijfsnaam()
+# (lowercase + leestekens weg) niet tot dezelfde sleutel herleidt, omdat
+# providers niet alleen qua casing/leestekens verschillen maar ook qua
+# woordkeuze zelf (bv. de rechtspersoonsvorm "NV" wel/niet meegeschreven).
+# Zelfde stijl/plek als MANUAL_TICKER_OVERRIDES hierboven -- aanvullen
+# zodra een dubbele rij in Top 10 bedrijven / ETF-overlap in de praktijk
+# opvalt. Sleutel en waarde zijn allebei al door de leesteken-normalisatie
+# heen (dus lowercase, geen leestekens); de waarde is de canonieke sleutel
+# waar de linkerkant naartoe gemapt wordt.
+BEDRIJF_NAAM_OVERRIDES = {
+    "asml holding": "asml holding nv",
+    "asml": "asml holding nv",
+}
+
 # Handmatig opgezochte directe download-links naar de volledige
 # holdings-CSV/XLSX van de ETF-provider (voor landverdeling — sector blijft
 # via yfinance sector_weightings, dat dekt al ~100%). yfinance's
@@ -1566,6 +1580,164 @@ def get_etf_holdings(ticker):
     print(f"[etf-holdings] '{ticker}': opgehaald -> {len(holdings)} holdings (yfinance_top10)")
     save_etf_holdings(ticker, holdings)
     return holdings
+
+
+def _normaliseer_bedrijfsnaam(naam):
+    """
+    Normaliseert een bedrijfsnaam tot een matchbare sleutel: lowercase,
+    leestekens weg (zonder spatie toe te voegen, dus "N.V." -> "nv", niet
+    "n v"), whitespace samengevoegd. Vangt het gros van de casing-/
+    leesteken-verschillen tussen ETF-providers ("Apple Inc" vs "APPLE
+    INC"). Voor hardnekkige uitzonderingen die dit niet oplost (een
+    providernaam mist een heel woord, bv. "ASML Holding NV" vs "ASML
+    HOLDING") is er BEDRIJF_NAAM_OVERRIDES, zelfde patroon als
+    MANUAL_TICKER_OVERRIDES.
+
+    Geeft "" terug voor een lege/None naam -- aanroepers slaan zo'n
+    holding dan over i.p.v.'m onder een valse gedeelde sleutel te tellen.
+    """
+    if not naam:
+        return ""
+    schoon = re.sub(r"[^a-z0-9\s]", "", naam.lower())
+    schoon = re.sub(r"\s+", " ", schoon).strip()
+    return BEDRIJF_NAAM_OVERRIDES.get(schoon, schoon)
+
+
+def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=10):
+    """
+    Top-N onderliggende bedrijven van de hele portfolio (via ETF's + losse
+    aandelen), met per bedrijf een uitsplitsing van via welke posities
+    (ETF-ticker of los aandeel) die blootstelling ontstaat -- zo blijft
+    "dubbele blootstelling" zichtbaar als hetzelfde bedrijf zowel via een
+    of meer ETF's als los wordt aangehouden. Zelfde basis als
+    compute_land_sector_verdeling() hierboven: huidige holdings
+    (aantal x laatste koers, de "aantal"-kolom, niet "adj_aantal") zodat
+    de totalen op elkaar aansluiten.
+
+    Geeft terug:
+        {
+            "top": [
+                {"bedrijf": "Apple Inc", "waarde": 1234.56,
+                 "per_bron": {"CSPX.AS": 800.0, "AAPL": 434.56}},
+                ...
+            ],  # aflopend gesorteerd op waarde, max top_n items
+            "overig": 321.00,      # bedrijven buiten de top-N + het
+                                    # niet-gedekte restant van ETF-holdings
+                                    # (bv. bij een fonds met alleen
+                                    # yfinance-top10-dekking) samen -- zelfde
+                                    # eerlijkheidsprincipe als bij Land: dit
+                                    # deel NIET verdoezelen als "compleet".
+            "dekking_pct": 0.92,   # fractie van totaal_waarde die
+                                    # daadwerkelijk aan een bekend bedrijf
+                                    # is toegewezen (dus 1 - onbekend-restant)
+            "totaal_waarde": 5000.0,
+        }
+    """
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
+    laatste_prijzen = price_data.iloc[-1]
+
+    tickers = [t for t in huidige_holdings.index if t in price_data.columns]
+    is_etf_map = classify_tickers(tickers)
+
+    bedrijven = {}
+    totaal_waarde = 0.0
+    gedekte_waarde = 0.0
+
+    def voeg_toe(key, weergavenaam, bron_ticker, bedrag):
+        entry = bedrijven.setdefault(key, {"naam": weergavenaam, "waarde": 0.0, "per_bron": {}})
+        entry["waarde"] += bedrag
+        entry["per_bron"][bron_ticker] = entry["per_bron"].get(bron_ticker, 0.0) + bedrag
+
+    for ticker, aantal in huidige_holdings.items():
+        if ticker not in price_data.columns:
+            continue
+        waarde = float(aantal) * float(laatste_prijzen[ticker])
+        if waarde <= 0:
+            continue
+        totaal_waarde += waarde
+
+        if is_etf_map.get(ticker, False):
+            holdings = get_etf_holdings(ticker)
+            gedekt_gewicht = min(sum(h["gewicht"] for h in holdings), 1.0)
+            gedekte_waarde += waarde * gedekt_gewicht
+            for h in holdings:
+                key = _normaliseer_bedrijfsnaam(h["holding_naam"])
+                if not key:
+                    continue
+                voeg_toe(key, h["holding_naam"], ticker, waarde * h["gewicht"])
+        else:
+            weergavenaam = ticker
+            aandeel_rijen = transacties_df.loc[transacties_df["ticker"] == ticker, "echte_naam"] \
+                if "echte_naam" in transacties_df.columns else None
+            if aandeel_rijen is not None and aandeel_rijen.notna().any():
+                weergavenaam = aandeel_rijen.dropna().iloc[-1]
+            key = _normaliseer_bedrijfsnaam(weergavenaam) or ticker
+            gedekte_waarde += waarde
+            voeg_toe(key, weergavenaam, ticker, waarde)
+
+    gesorteerd = sorted(bedrijven.values(), key=lambda e: e["waarde"], reverse=True)
+    top = gesorteerd[:top_n]
+    overig = sum(e["waarde"] for e in gesorteerd[top_n:]) + (totaal_waarde - gedekte_waarde)
+
+    return {
+        "top": [
+            {
+                "bedrijf": e["naam"],
+                "waarde": round(e["waarde"], 2),
+                "per_bron": {k: round(v, 2) for k, v in e["per_bron"].items()},
+            }
+            for e in top
+        ],
+        "overig": round(overig, 2),
+        "dekking_pct": (gedekte_waarde / totaal_waarde) if totaal_waarde > 0 else 0.0,
+        "totaal_waarde": round(totaal_waarde, 2),
+    }
+
+
+def bereken_etf_overlap(transacties_df, price_data):
+    """
+    Overlap-matrix tussen alle aangehouden ETF's: per paar het percentage
+    gedeelde onderliggende bedrijven, gewogen op holdings-gewicht (de
+    gangbare "portfolio overlap %"-maat: som over gedeelde bedrijven van
+    min(gewicht_i, gewicht_j)). Volledig symmetrisch ({a:{b:...}, b:{a:...}}
+    met dezelfde waarde) zodat de frontend niet zelf hoeft te spiegelen;
+    geen entry voor een fonds tegen zichzelf.
+
+    Minder dan 2 aangehouden ETF's -> lege dict (de frontend toont dan een
+    duidelijke melding i.p.v. een lege/kapotte matrix).
+    """
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
+
+    tickers = [t for t in huidige_holdings.index if t in price_data.columns]
+    is_etf_map = classify_tickers(tickers)
+    etf_tickers = [t for t in tickers if is_etf_map.get(t, False)]
+
+    if len(etf_tickers) < 2:
+        return {}
+
+    gewichten_per_etf = {}
+    for ticker in etf_tickers:
+        gewichten = {}
+        for h in get_etf_holdings(ticker):
+            key = _normaliseer_bedrijfsnaam(h["holding_naam"])
+            if not key:
+                continue
+            gewichten[key] = gewichten.get(key, 0.0) + h["gewicht"]
+        gewichten_per_etf[ticker] = gewichten
+
+    matrix = {t: {} for t in etf_tickers}
+    for i, etf_a in enumerate(etf_tickers):
+        for etf_b in etf_tickers[i + 1:]:
+            gew_a = gewichten_per_etf[etf_a]
+            gew_b = gewichten_per_etf[etf_b]
+            gedeeld = set(gew_a) & set(gew_b)
+            overlap = sum(min(gew_a[k], gew_b[k]) for k in gedeeld)
+            matrix[etf_a][etf_b] = overlap
+            matrix[etf_b][etf_a] = overlap
+
+    return matrix
 
 
 def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL, uitgezonderd=frozenset()):
