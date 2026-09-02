@@ -77,15 +77,6 @@ def init_db():
     for kolom in ("land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category"):
         cur.execute(f"ALTER TABLE ticker_info ADD COLUMN IF NOT EXISTS {kolom} TEXT;")
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS ticker_matches (
-            isin TEXT PRIMARY KEY,
-            ticker TEXT,
-            zekerheid TEXT NOT NULL,
-            alternatieven JSONB,
-            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_land_sector (
             ticker TEXT PRIMARY KEY,
             land TEXT,
@@ -408,43 +399,10 @@ def save_splits(ticker, splits):
     conn.close()
 
 
-def get_ticker_matches(isins):
-    """Geeft {isin: {"ticker", "zekerheid", "alternatieven"}} terug voor eerder opgeslagen ticker-matches."""
-    if not isins:
-        return {}
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT isin, ticker, zekerheid, alternatieven FROM ticker_matches WHERE isin = ANY(%s)",
-        (isins,),
-    )
-    result = {
-        row[0]: {"ticker": row[1], "zekerheid": row[2], "alternatieven": row[3] or []}
-        for row in cur.fetchall()
-    }
-    cur.close()
-    conn.close()
-    return result
-
-
-def save_ticker_match(isin, ticker, zekerheid, alternatieven):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO ticker_matches (isin, ticker, zekerheid, alternatieven) VALUES (%s, %s, %s, %s) "
-        "ON CONFLICT (isin) DO UPDATE SET ticker = EXCLUDED.ticker, zekerheid = EXCLUDED.zekerheid, "
-        "alternatieven = EXCLUDED.alternatieven, bijgewerkt_op = CURRENT_TIMESTAMP",
-        (isin, ticker, zekerheid, Json(alternatieven)),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
 def delete_portfolio(code):
     """Verwijdert een portfolio en al zijn transacties/dividenden permanent.
-    Laat de gedeelde caches (prijzen, ticker_info, ticker_matches) met rust
-    — dat is anonieme marktdata, geen persoonlijke portfoliodata."""
+    Laat de gedeelde caches (prijzen, ticker_info, ...) met rust — dat is
+    anonieme marktdata, geen persoonlijke portfoliodata."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM transacties WHERE code = %s", (code,))

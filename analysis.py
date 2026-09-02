@@ -91,6 +91,28 @@ MANUAL_TICKER_OVERRIDES = {
     "VANGUARD FTSE ALL-WORLD UCITS": "VWRL.AS",
 }
 
+# Handmatige overrides op (ISIN, Beurs) — voor het geval de zoekopdracht al
+# een "zeker" resultaat vindt (een kandidaat op een van de verwachte
+# beurzen), maar dat toevallig de VERKEERDE notering is. Anders dan
+# MANUAL_TICKER_OVERRIDES hierboven (naam-gebaseerd, alleen fallback ná een
+# mislukte zoekopdracht — zie find_ticker_detailed) wordt dit VOORAF
+# gecheckt en overschrijft het dus ook een "zeker" automatisch resultaat: een
+# (ISIN, Beurs)-combinatie is uniek genoeg om dat gerust te doen.
+#
+# Voorbeeld (BYD, ISIN CNE100000296, beurs "TDG" -> targets GER/MUN/FRA):
+# Yahoo's zoekindex vindt voor de productnaam-spelling "BYD COMPANY LIMITED"
+# een geldige Frankfurt-notering (4BY1.F) waarvan de koers structureel niet
+# aansluit bij de echte DEGIRO-transactieprijzen (~11x te laag) — de juiste
+# Münchense notering (BY6.MU) staat wél in Yahoo's index, maar wordt alleen
+# gevonden met de spelling "BYD CO LTD"/"BYD Co Ltd". Progressief inkorten
+# van "BYD COMPANY LIMITED" (zie _zoek_product_progressief) kan die andere
+# spelling niet bereiken — geen woord weglaten maakt er ooit "CO LTD" van —
+# en de ISIN-zoekopdracht vindt alleen de Hongkong-notering (niet op een van
+# de verwachte Duitse beurzen). Vandaar deze expliciete override.
+MANUAL_TICKER_OVERRIDES_ISIN = {
+    ("CNE100000296", "TDG"): "BY6.MU",
+}
+
 # Benchmarks voor de rendement-vergelijking (zie bereken_benchmark_
 # vergelijking hieronder) -- allemaal accumulerende (Acc.) UCITS-ETF's in
 # EUR, zodat get_prices() ze zonder extra dividend-boekhouding kan gebruiken.
@@ -806,6 +828,11 @@ def find_ticker_detailed(product, isin, beurs):
     """
     if _is_corporate_action_row({"beurs": beurs, "product": product}):  # corporate-action rij, geen echt aandeel/ETF
         return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
+
+    isin_override = MANUAL_TICKER_OVERRIDES_ISIN.get((isin, beurs))
+    if isin_override:
+        dprint(f"[ticker] ({isin}, {beurs}) -> ISIN-override '{isin_override}' (vóór het zoeken toegepast)")
+        return {"ticker": isin_override, "zekerheid": "zeker", "alternatieven": []}
 
     targets = BEURS_MAP.get(beurs, [])
 
