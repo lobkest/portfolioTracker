@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
@@ -451,23 +451,35 @@ def rendement_over_tijd(code):
     return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat, stap=stap))
 
 
-@app.route("/api/portfolio/<code>/ticker-zekerheid")
-def ticker_zekerheid(code):
+def _ticker_zekerheid_groepen(code):
     """
-    Losse, lui opgevraagde endpoint voor de Ticker-zekerheid-pagina — bewust
-    NIET onderdeel van het hoofd-dashboard-antwoord, want dit doet per
-    positie tot een paar extra yfinance-prijscontroles (zie
-    analysis.verifieer_ticker_met_prijs), wat de hoofdpagina onnodig zou
-    vertragen voor een tabblad dat maar zelden bezocht wordt.
+    Haalt de transacties van 'code' op en groepeert ze per (ISIN, Beurs) —
+    gedeeld door de volledige route, de lichte lijst-route en de
+    per-positie-route hieronder, zodat de groepeerlogica (en de corporate-
+    action-rijen-filter) maar op één plek staat. Geeft None terug als de
+    code niet bestaat, anders een lijst van ((isin, beurs), info)-tuples
+    met info = {"naam", "echte_naam", "beurs", "isin", "transacties"}.
+
+    Groeperen per (ISIN, Beurs), niet per ISIN alleen: dezelfde ISIN kan op
+    meerdere beurzen genoteerd staan (bv. een fonds met een Amsterdam- én
+    een Londen-notering) en dat zijn dan ECHT verschillende tickers met
+    eigen koersen — alles onder één ISIN op een hoop gooien zou de
+    steekproef van de ene notering vervuilen met transactiedatums/prijzen
+    die bij de andere notering horen. echte_naam (niet product!) gaat naar
+    de Yahoo-zoekopdracht: product kan een door de gebruiker aangepaste
+    bijnaam zijn, en die is onbruikbaar als zoekterm.
+    Corporate-action-/NON TRADEABLE-rijen (splits e.d.) horen niet als eigen
+    "positie" in deze lijst -- zelfde check als elders in het project
+    (analysis._is_corporate_action_row), hier vóór het groeperen toegepast
+    zodat zo'n rij nooit een kansloze eigen (ISIN, Beurs)-groep vormt.
     """
-    code = code.strip().upper()
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
     if cur.fetchone() is None:
         cur.close()
         conn.close()
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return None
 
     cur.execute(
         "SELECT isin, product, echte_naam, beurs, datum, koers "
@@ -478,19 +490,6 @@ def ticker_zekerheid(code):
     cur.close()
     conn.close()
 
-    # Groeperen per (ISIN, Beurs), niet per ISIN alleen: dezelfde ISIN kan op
-    # meerdere beurzen genoteerd staan (bv. een fonds met een Amsterdam- én
-    # een Londen-notering) en dat zijn dan ECHT verschillende tickers met
-    # eigen koersen — alles onder één ISIN op een hoop gooien zou de
-    # steekproef van de ene notering vervuilen met transactiedatums/prijzen
-    # die bij de andere notering horen. echte_naam (niet product!) gaat naar
-    # de Yahoo-zoekopdracht: product kan een door de gebruiker aangepaste
-    # bijnaam zijn, en die is onbruikbaar als zoekterm.
-    # Corporate-action-/NON TRADEABLE-rijen (splits e.d.) horen niet als
-    # eigen "positie" in deze lijst -- zelfde check als elders in het
-    # project (analysis._is_corporate_action_row), hier vóór het groeperen
-    # toegepast zodat zo'n rij nooit een kansloze eigen (ISIN, Beurs)-groep
-    # vormt.
     per_isin_beurs = {}
     for isin, product, echte_naam, beurs, datum, koers in rows:
         if _is_corporate_action_row({"beurs": beurs, "product": product}):
@@ -500,7 +499,32 @@ def ticker_zekerheid(code):
         )
         groep["transacties"].append({"datum": datum, "koers": koers})
 
-    groepen = list(per_isin_beurs.items())
+    return list(per_isin_beurs.items())
+
+
+@app.route("/api/portfolio/<code>/ticker-zekerheid")
+def ticker_zekerheid(code):
+    """
+    Losse, lui opgevraagde endpoint voor de Ticker-zekerheid-pagina — bewust
+    NIET onderdeel van het hoofd-dashboard-antwoord, want dit doet per
+    positie tot een paar extra yfinance-prijscontroles (zie
+    analysis.verifieer_ticker_met_prijs), wat de hoofdpagina onnodig zou
+    vertragen voor een tabblad dat maar zelden bezocht wordt.
+
+    LET OP: bij een groter portfolio kan deze route in z'n geheel mislukken
+    omdat verifieer_tickers_met_prijs_parallel() moet wachten tot ALLE
+    posities klaar zijn — één trage/rate-limited positie laat dan de hele
+    opvraag timen out, ook al zijn de andere posities allang klaar (zelfde
+    patroon als het eerdere Statistieken-incident, zie CLAUDE.md). De
+    Ticker-zekerheid-pagina gebruikt daarom sinds kort de lichte lijst-route
+    + per-positie-route hieronder in plaats van deze route. Blijft bestaan
+    voor eventueel ander gebruik.
+    """
+    code = code.strip().upper()
+    groepen = _ticker_zekerheid_groepen(code)
+    if groepen is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
     print(f"[ticker-zekerheid] {len(groepen)} positie(s) parallel verifiëren voor code={code}")
     t0 = time.time()
     try:
@@ -522,6 +546,69 @@ def ticker_zekerheid(code):
         posities.append(resultaat)
 
     return jsonify({"posities": posities})
+
+
+@app.route("/api/portfolio/<code>/ticker-zekerheid/lijst")
+def ticker_zekerheid_lijst(code):
+    """
+    Lichte variant van de route hierboven: geeft alleen de posities terug
+    (isin/beurs/naam), zonder de dure prijscontrole — vrijwel instant. De
+    Ticker-zekerheid-pagina haalt hiermee meteen alle rijen op om als
+    "bezig..." te tonen, en start daarna per positie een losse aanroep naar
+    /ticker-zekerheid/positie hieronder (zie static/js/app.js). Zo blokkeert
+    één trage/mislukte positie niet meer de andere resultaten.
+    """
+    code = code.strip().upper()
+    groepen = _ticker_zekerheid_groepen(code)
+    if groepen is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    posities = [
+        {"isin": isin, "beurs": beurs, "naam": info["naam"], "echte_naam": info["echte_naam"]}
+        for (isin, beurs), info in groepen
+    ]
+    return jsonify({"posities": posities})
+
+
+@app.route("/api/portfolio/<code>/ticker-zekerheid/positie")
+def ticker_zekerheid_positie(code):
+    """
+    Verifieert precies 1 positie (isin+beurs via de querystring) — de
+    Ticker-zekerheid-pagina roept dit per positie apart aan (met een
+    concurrency-limiet, zie static/js/app.js) i.p.v. te wachten tot ALLE
+    posities klaar zijn. Hergebruikt verifieer_ticker_met_prijs() zoals de
+    volledige route hierboven, alleen voor 1 (isin, beurs)-groep i.p.v. de
+    hele portfolio — geen nieuwe backend-logica, alleen een kleinere
+    aanroep-eenheid zodat één trage/rate-limited positie niet meer de hele
+    opvraag laat mislukken en elke aparte aanroep ruim binnen een gunicorn-
+    timeout blijft.
+    """
+    code = code.strip().upper()
+    isin = request.args.get("isin", "")
+    beurs = request.args.get("beurs", "")
+
+    groepen = _ticker_zekerheid_groepen(code)
+    if groepen is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    info = dict(groepen).get((isin, beurs))
+    if info is None:
+        return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
+
+    t0 = time.time()
+    try:
+        resultaat = verifieer_ticker_met_prijs(info["echte_naam"], isin, info["beurs"], info["transacties"])
+    except Exception as e:
+        print(f"[ticker-zekerheid] FOUT bij verifiëren van {isin} ({beurs}) voor code={code}: {e}")
+        return jsonify({
+            "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
+        }), 500
+    print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s voor code={code}")
+
+    resultaat["isin"] = isin
+    resultaat["naam"] = info["naam"]
+    resultaat["echte_naam"] = info["echte_naam"]
+    return jsonify(resultaat)
 
 
 @app.route("/api/ticker-zekerheid-check", methods=["POST"])

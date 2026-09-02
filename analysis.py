@@ -42,6 +42,13 @@ PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 # tickers doorgerekend -- zie find_ticker_met_snelle_prijscheck().
 PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10
 
+# Tolerantie op de High/Low-dagrange-check (vergelijk_prijs_op_datum): de
+# exacte low <= koers <= high bleek te strak -- bekend-goede tickers
+# (VUSA.AS, G2X.DE) hadden een Excel-koers die net (~1-2%) buiten Yahoo's
+# High/Low viel, vermoedelijk door net iets andere sluitingsmomenten/
+# afronding tussen DEGIRO en Yahoo, niet door een foute ticker.
+DAGRANGE_TOLERANTIE = 0.01
+
 # Landen met een aandeel onder deze drempel (fractie van de totale
 # portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
 # tot één "Overig"-taartpunt — anders eindig je met tientallen verwaarloosbare
@@ -919,7 +926,7 @@ def _naar_basis_vorm(beurs, resultaat):
         "ticker": resultaat["ticker"],
         "zekerheid": resultaat["zekerheid"],
         "waarschuwing": resultaat.get("prijswaarschuwing"),
-        "land": None, "sector": None, "top_holding_land": None, "valuta": None,
+        "is_etf": None, "land": None, "sector": None, "top_holding_land": None, "valuta": None,
         "fondsfamilie": None, "category": None, "quote_type": None,
         "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
         "prijs_checks": resultaat.get("prijs_checks", []), "alternatieven": [],
@@ -2329,7 +2336,8 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
               f"-> yahoo_koers {yahoo_koers_eur} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
 
     binnen_dagrange = (
-        low_eur <= bekende_koers <= high_eur if (high_eur is not None and low_eur is not None) else None
+        low_eur * (1 - DAGRANGE_TOLERANTIE) <= bekende_koers <= high_eur * (1 + DAGRANGE_TOLERANTIE)
+        if (high_eur is not None and low_eur is not None) else None
     )
 
     afwijking_pct = abs(yahoo_koers_gecorrigeerd - bekende_koers) / bekende_koers * 100
@@ -2465,14 +2473,27 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
         alt_matches = [c["match"] for c in alt_checks if c["match"] is not None]
         afwijkingen = [c["afwijking_pct"] for c in alt_checks if c["afwijking_pct"] is not None]
         alt_details = _ticker_details_met_cache(alt_ticker)
+        alt_is_etf = classify_ticker(alt_ticker)
         alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
         alt_beurs_klopt = (alt.get("exchange") in verwachte_beurzen) if verwachte_beurzen else None
+        # Meest recente check met een bekende dagrange (steekproef is
+        # chronologisch eerste/middelste/laatste) -- voor de ETF-weergave op
+        # de Ticker-zekerheid-pagina (High/Low i.p.v. land/sector, zie
+        # CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+        alt_high, alt_low = next(
+            ((c["high"], c["low"]) for c in reversed(alt_checks)
+             if c.get("high") is not None and c.get("low") is not None),
+            (None, None),
+        )
 
         alternatieven.append({
             "ticker": alt_ticker,
             "beurs": alt.get("exchange"),
+            "is_etf": alt_is_etf,
             "land": alt_land,
             "sector": alt_sector,
+            "high": alt_high,
+            "low": alt_low,
             "valuta": alt_details.get("valuta"),
             "gemiddelde_afwijking_pct": (sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None,
             "aantal_matches": sum(1 for m in alt_matches if m),
@@ -2525,7 +2546,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     if ticker is None:
         return {
             "ticker": None, "zekerheid": zekerheid, "waarschuwing": None,
-            "land": None, "sector": None, "top_holding_land": None, "valuta": None,
+            "is_etf": None, "land": None, "sector": None, "top_holding_land": None, "valuta": None,
             "fondsfamilie": None, "category": None, "quote_type": None,
             "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
             "prijs_checks": [], "alternatieven": [],
@@ -2562,6 +2583,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
         print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
 
     details = _ticker_details_met_cache(ticker)
+    is_etf = classify_ticker(ticker)
     land, sector, top_holding_land = _land_sector_voor_weergave(ticker)
     yahoo_beurs = details.get("yahoo_beurs")
     verwachte_beurzen = BEURS_MAP.get(beurs, [])
@@ -2581,6 +2603,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
         "ticker": ticker,
         "zekerheid": zekerheid,
         "waarschuwing": waarschuwing,
+        "is_etf": is_etf,
         "land": land,
         "sector": sector,
         "top_holding_land": top_holding_land,
@@ -2900,12 +2923,20 @@ def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):
     volgende logische stap.
 
     Geeft een lijst van resultaat-dicts terug, in dezelfde volgorde als
-    'posities' (dus niet per se de volgorde waarin ze klaar zijn).
+    'posities' (dus niet per se de volgorde waarin ze klaar zijn). Logt de
+    tijd per positie apart (i.p.v. alleen de totale duur, die de aanroeper
+    zelf al logt) zodat zichtbaar wordt welke specifieke positie traag is.
     """
+    def _verifieer_met_timing(naam, isin, beurs, transacties):
+        t0 = time.time()
+        resultaat = verifieer_ticker_met_prijs(naam, isin, beurs, transacties)
+        print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s")
+        return resultaat
+
     resultaten = [None] * len(posities)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_naar_index = {
-            executor.submit(verifieer_ticker_met_prijs, naam, isin, beurs, transacties): i
+            executor.submit(_verifieer_met_timing, naam, isin, beurs, transacties): i
             for i, (naam, isin, beurs, transacties) in enumerate(posities)
         }
         for future in as_completed(future_naar_index):
