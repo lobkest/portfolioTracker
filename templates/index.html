@@ -68,6 +68,7 @@
             <button class="menuBtn" data-view="bedrijven">Top 10 bedrijven</button>
             <button class="menuBtn" data-view="etfoverlap">ETF-overlap</button>
             <button class="menuBtn" data-view="statistieken">Statistieken</button>
+            <button class="menuBtn" data-view="xirr-rendement">XIRR &amp; rendement</button>
             <button class="menuBtn" data-view="prognose">Prognose</button>
             <button class="menuBtn" data-view="dividend">Dividend</button>
             <button class="menuBtn" data-view="instellingen">Instellingen</button>
@@ -87,14 +88,26 @@
             <div id="homeTotalenSectie" style="display: none;"></div>
 
             <select id="aandeelSelect" style="display: none; margin-bottom: 15px;"></select>
+            <label id="benchmarkSelectWrapper" style="display: none; margin-bottom: 15px;">
+                Vergelijk met:
+                <select id="benchmarkSelect">
+                    <option value="">Geen</option>
+                    <option value="S&P 500">S&P 500</option>
+                    <option value="Nasdaq 100">Nasdaq 100</option>
+                    <option value="AEX">AEX</option>
+                </select>
+            </label>
+            <p id="benchmarkMelding" style="display: none; font-size: 0.85em; color: #888;"></p>
             <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
             <p id="verdelingTekst" style="display: none;"></p>
             <p id="landDekkingTekst" style="display: none; font-size: 0.85em; color: #888;"></p>
             <label id="europaCheckboxWrapper" style="display: none; margin-bottom: 10px;">
                 <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
             </label>
+            <button id="weergaveToggleBtn" style="display: none; margin-bottom: 10px;">Wissel weergave (taart/staaf)</button>
 
             <div id="dividendStatsSectie" style="display: none; margin-bottom: 20px;"></div>
+            <div id="bedrijvenSectie" style="display: none; margin-bottom: 10px;"></div>
 
             <div id="chartWrapper" class="chart-wrapper">
                 <canvas id="rendementChart"></canvas>
@@ -102,12 +115,13 @@
 
             <div id="statistiekenSectie" style="display: none;"></div>
 
-            <div id="bedrijvenSectie" style="display: none;"></div>
             <div id="etfOverlapSectie" style="display: none;"></div>
 
             <div id="prognoseSectie" style="display: none;"></div>
 
             <div id="etfDrilldown" style="display: none; margin-top: 20px;"></div>
+
+            <p id="xirrRendementMsg" style="display: none;"></p>
 
             <div id="instellingenHoofdSectie" style="display: none;">
                 <p>Wil je stoppen met deze portfolio? Je kunt alle opgeslagen data (transacties en code) permanent uit de database verwijderen.</p>

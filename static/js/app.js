@@ -6,6 +6,16 @@ let huidigeData = null;
 let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 };
 let prognoseResultaat = null;
 
+// Rendement-tabblad: resultaat van de laatst opgehaalde "Vergelijk met..."
+// benchmark (zie benchmarkSelect), of null als er geen benchmark gekozen is.
+let benchmarkVergelijkingData = null;
+
+// Land/Sector-tabblad: welke weergave staat aan, gedeeld tussen beide
+// tabbladen (de knop "Wissel weergave" toggled dit, zie weergaveToggleBtn
+// hieronder) -- "taart" is de bestaande toonPlatteVerdeling(), "staaf" de
+// nieuwe gestapelde-staafgrafiek per bron (renderGestapeldeStaafgrafiek).
+let landSectorWeergave = "taart";
+
 Chart.register(ChartDataLabels);
 
 // Chart.js herschaalt niet altijd meteen na een rotatie op mobiele Safari;
@@ -90,7 +100,10 @@ function maakStrepenPatroon(kleurHex) {
     return pctx.createPattern(c, "repeat");
 }
 
-function updateChart(labels, datasets) {
+// waardeFormatter: hoe een datapunt in de tooltip getoond wordt — Euro
+// (standaard, voor de waarde-/rendement-in-€-tabbladen) of bv. een
+// percentage-formatter (zie toonRendementOverTijd).
+function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
     if (chart) chart.destroy();
     const labelsNL = labels.map(formatDatum);
     datasets = datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, ...ds }));
@@ -106,7 +119,7 @@ function updateChart(labels, datasets) {
             plugins: {
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y === null ? "—" : waardeFormatter(ctx.parsed.y)}`
                     }
                 },
                 zoom: {
@@ -143,9 +156,109 @@ function toonPortfolio() {
 
 function toonRendement() {
     const d = huidigeData.chart_data;
-    updateChart(d.labels, [
-        { label: "Rendement (€)", data: d.rendement, borderColor: "#2c7a4b" }
-    ]);
+    const datasets = [{ label: "Rendement (€)", data: d.rendement, borderColor: "#2c7a4b" }];
+
+    const meldingEl = document.getElementById("benchmarkMelding");
+    meldingEl.style.display = "none";
+
+    if (benchmarkVergelijkingData) {
+        const b = benchmarkVergelijkingData;
+        // b.labels is altijd een aaneengesloten SLOTSTUK van d.labels (zelfde
+        // onderliggende datumreeks, de benchmark-reeks kan alleen later
+        // beginnen — zie bereken_benchmark_vergelijking/"vanaf_datum") — dus
+        // links opvullen met null (geen lijn) i.p.v. losse datum-matching.
+        const offset = d.labels.length - b.labels.length;
+        const reeks = offset > 0 ? Array(offset).fill(null).concat(b.rendement) : b.rendement;
+        datasets.push({
+            label: `Rendement ${b.naam} (hypothetisch, €)`,
+            data: reeks,
+            borderColor: "#eb6834",
+            borderDash: [5, 5],
+        });
+        if (b.onvolledige_dekking) {
+            meldingEl.textContent = `${b.naam} heeft pas koersdata vanaf ${formatDatum(b.vanaf_datum)} — inleg van vóór die datum telt niet mee in deze vergelijking.`;
+            meldingEl.style.display = "block";
+        }
+    }
+
+    updateChart(d.labels, datasets);
+}
+
+async function wisselBenchmark(benchmarkNaam) {
+    if (!benchmarkNaam) {
+        benchmarkVergelijkingData = null;
+        toonRendement();
+        return;
+    }
+    toonLaadOverlay("Benchmark ophalen...");
+    try {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/benchmark-vergelijking?benchmark=${encodeURIComponent(benchmarkNaam)}`);
+        const data = await res.json();
+        if (!res.ok) {
+            benchmarkVergelijkingData = null;
+            alert(data.error || "Benchmarkvergelijking kon niet berekend worden.");
+        } else {
+            benchmarkVergelijkingData = { naam: benchmarkNaam, ...data };
+        }
+    } catch (e) {
+        benchmarkVergelijkingData = null;
+        alert("Benchmarkvergelijking ophalen is mislukt.");
+    } finally {
+        verbergLaadOverlay();
+        toonRendement();
+    }
+}
+
+// DB-backed (leest transacties via de code, zie _laad_transacties_en_
+// resultaat in app.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
+// bij een 'niet opslaan'-analyse. Geen cache: elke keer dat dit tabblad
+// geopend wordt, wordt opnieuw opgehaald (zelfde patroon als
+// toonInstellingenTicker()) — de berekening zelf is licht (pure functie,
+// geen Yahoo-calls), dus dat is geen probleem.
+async function toonRendementOverTijd() {
+    const msg = document.getElementById("xirrRendementMsg");
+    msg.style.display = "none";
+    msg.style.color = "";
+
+    if (!huidigeData.code) {
+        if (chart) { chart.destroy(); chart = null; }
+        document.getElementById("chartWrapper").style.display = "none";
+        msg.textContent = "Dit tabblad is alleen beschikbaar voor een opgeslagen portfolio (niet bij een eenmalige, niet-opgeslagen analyse).";
+        msg.style.display = "block";
+        return;
+    }
+
+    document.getElementById("chartWrapper").style.display = "block";
+    toonLaadOverlay("Rendement over tijd berekenen...");
+    let res, data;
+    try {
+        res = await fetch(`/api/portfolio/${huidigeData.code}/rendement-over-tijd`);
+        data = await res.json();
+    } catch (e) {
+        msg.style.color = "#9C0006";
+        msg.textContent = "Kon rendement-over-tijd niet ophalen (netwerkfout).";
+        msg.style.display = "block";
+        return;
+    } finally {
+        verbergLaadOverlay();
+    }
+
+    if (!res.ok) {
+        msg.style.color = "#9C0006";
+        msg.textContent = data.error || "Rendement over tijd kon niet berekend worden.";
+        msg.style.display = "block";
+        return;
+    }
+    if (!data.labels || data.labels.length === 0) {
+        msg.textContent = "Nog geen data om te tonen.";
+        msg.style.display = "block";
+        return;
+    }
+
+    updateChart(data.labels, [
+        { label: "Rendement (%)", data: data.rendement_pct, borderColor: "#2c7a4b" },
+        { label: "XIRR (%)", data: data.xirr_pct, borderColor: "#3182bd" }
+    ], formatPct);
 }
 
 function toonPerAandeel(ticker) {
@@ -363,16 +476,144 @@ function toonPlatteVerdeling(verdelingObj) {
     });
 }
 
+// Bronnen (ETF-tickers/losse aandelen) met een verwaarloosbare totale
+// bijdrage over alle categorieën heen worden samengevoegd tot "Overige
+// bronnen" -- voorkomt een onleesbaar volle legenda bij veel posities.
+// Zelfde soort drempel-principe als analysis.LAND_OVERIG_DREMPEL, hier
+// client-side toegepast omdat de drempel op de RENDER-eenheid (bronnen in
+// de legenda) werkt, niet op de data zelf.
+const BRON_OVERIG_DREMPEL = 0.005;
+const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";
+
+// Herbruikbare gestapelde-staafgrafiek: 1 staaf per categorie (bedrijf,
+// land of sector), opgebouwd uit 1 dataset per bron (ETF-ticker of los
+// aandeel) die aan die categorie bijdraagt -- zelfde patroon als het oude
+// class_degiro.py/trading_degiro.py se plot_top_categories() (pivot per
+// categorie x bron, gestapelde staaf, %-label erboven), hier met Chart.js.
+// 'categorieData' is {categorieNaam: {bronTicker: waarde}}; 'waarde' mag
+// euro's of al-percentages zijn -- opts.totaal (som waarmee gedeeld wordt
+// om tot % te komen) bepaalt dat; zonder opts.totaal wordt de ruwe waarde
+// getoond zoals-ie is (voor bedrijven-data die al in % van de portfolio zit).
+function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
+    opts = opts || {};
+    if (chart) chart.destroy();
+
+    const categorieen = Object.keys(categorieData || {});
+    if (categorieen.length === 0) {
+        document.getElementById("geenData").style.display = "block";
+        return;
+    }
+    document.getElementById("geenData").style.display = "none";
+
+    const bronTotalen = {};
+    categorieen.forEach(cat => {
+        Object.entries(categorieData[cat]).forEach(([bron, waarde]) => {
+            bronTotalen[bron] = (bronTotalen[bron] || 0) + waarde;
+        });
+    });
+    const totaalAlleBronnen = Object.values(bronTotalen).reduce((som, w) => som + w, 0);
+
+    let bronnenVolgorde = Object.keys(bronTotalen).sort((a, b) => bronTotalen[b] - bronTotalen[a]);
+    const kleineBronnen = new Set(bronnenVolgorde.filter(
+        b => totaalAlleBronnen > 0 && (bronTotalen[b] / totaalAlleBronnen) < BRON_OVERIG_DREMPEL
+    ));
+    // Alleen samenvoegen als het ook echt de legenda opschoont (>1 kleine bron).
+    if (kleineBronnen.size > 1) {
+        bronnenVolgorde = bronnenVolgorde.filter(b => !kleineBronnen.has(b)).concat([BRON_OVERIG_SLEUTEL]);
+    } else {
+        kleineBronnen.clear();
+    }
+
+    const deler = opts.totaal;
+    function waardeVoorCategorie(cat, bron) {
+        let w;
+        if (bron === BRON_OVERIG_SLEUTEL) {
+            w = 0;
+            kleineBronnen.forEach(kb => { w += (categorieData[cat][kb] || 0); });
+        } else {
+            w = categorieData[cat][bron] || 0;
+        }
+        return deler ? (w / deler * 100) : w;
+    }
+
+    let volgendeKleur = 0;
+    const kleurenMap = {};
+    bronnenVolgorde.forEach(bron => {
+        kleurenMap[bron] = (bron === BRON_OVERIG_SLEUTEL || bron === "Unknown") ? ONBEKEND_GRIJS : kleurVoorIndex(volgendeKleur++);
+    });
+
+    const datasets = bronnenVolgorde.map(bron => ({
+        label: bron === BRON_OVERIG_SLEUTEL ? "Overige bronnen" : ((bronNamen && bronNamen[bron]) || bron),
+        data: categorieen.map(cat => waardeVoorCategorie(cat, bron)),
+        backgroundColor: kleurenMap[bron],
+    }));
+
+    // Totaal-%-label boven elke staaf -- zelfde effect als de
+    // ax.text(...)-regel in het oude script, hier als klein Chart.js-plugin
+    // dat na het tekenen van de stacks de som per x-index erboven zet.
+    const totalenPlugin = {
+        id: "totalenBovenStaaf",
+        afterDatasetsDraw(c) {
+            const eersteMeta = c.getDatasetMeta(0);
+            if (!eersteMeta || !eersteMeta.data.length) return;
+            const { ctx, scales } = c;
+            ctx.save();
+            ctx.font = "bold 11px sans-serif";
+            ctx.fillStyle = "#333";
+            ctx.textAlign = "center";
+            categorieen.forEach((_, i) => {
+                const som = datasets.reduce((s, ds) => s + ds.data[i], 0);
+                const bar = eersteMeta.data[i];
+                if (!bar) return;
+                const y = scales.y.getPixelForValue(som);
+                ctx.fillText(`${som.toFixed(1)}%`, bar.x, y - 6);
+            });
+            ctx.restore();
+        }
+    };
+
+    chart = new Chart(document.getElementById("rendementChart"), {
+        type: "bar",
+        data: { labels: categorieen.map(c => kortNaam(c, 20)), datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+                x: { stacked: true },
+                y: { stacked: true, ticks: { callback: v => `${v}%` } }
+            },
+            plugins: {
+                legend: { position: "right" },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
+                    }
+                },
+                datalabels: { display: false }
+            }
+        },
+        plugins: [totalenPlugin]
+    });
+}
+
 function toonLand() {
     const lsv = huidigeData.land_sector_verdeling;
     const europaCheckbox = document.getElementById("europaCheckbox");
     document.getElementById("europaCheckboxWrapper").style.display = "block";
-    // land_europa is server-side voorberekend (zelfde als "land" maar met
-    // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie
-    // analysis.compute_land_sector_verdeling) — geen her-berekening of
-    // extra API-call nodig bij het aan/uit-zetten van de toggle.
-    const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
-    toonPlatteVerdeling(bron);
+
+    if (landSectorWeergave === "staaf") {
+        const tickerNamen = {};
+        (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+        const totaal = Object.values((lsv && lsv.land) || {}).reduce((s, w) => s + w, 0);
+        renderGestapeldeStaafgrafiek(lsv && lsv.land_per_bron, tickerNamen, { totaal });
+    } else {
+        // land_europa is server-side voorberekend (zelfde als "land" maar met
+        // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie
+        // analysis.compute_land_sector_verdeling) — geen her-berekening of
+        // extra API-call nodig bij het aan/uit-zetten van de toggle.
+        const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
+        toonPlatteVerdeling(bron);
+    }
 
     // Welke ETF's hebben nog de beperkte (top-10-only) landdekking? Puur
     // informatief, zodat duidelijk is welk deel van "Unknown" hier
@@ -392,7 +633,14 @@ function toonLand() {
 
 function toonSector() {
     const lsv = huidigeData.land_sector_verdeling;
-    toonPlatteVerdeling(lsv && lsv.sector);
+    if (landSectorWeergave === "staaf") {
+        const tickerNamen = {};
+        (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+        const totaal = Object.values((lsv && lsv.sector) || {}).reduce((s, w) => s + w, 0);
+        renderGestapeldeStaafgrafiek(lsv && lsv.sector_per_bron, tickerNamen, { totaal });
+    } else {
+        toonPlatteVerdeling(lsv && lsv.sector);
+    }
 }
 
 function ververAandeelSelect() {
@@ -402,7 +650,7 @@ function ververAandeelSelect() {
     huidigeData.tickers.forEach(t => {
         const option = document.createElement("option");
         option.value = t.ticker;
-        option.textContent = t.naam;
+        option.textContent = t.nog_in_bezit === false ? `${t.naam} (oud)` : t.naam;
         select.appendChild(option);
     });
     if (huidigeData.tickers.some(t => t.ticker === huidigeKeuze)) {
@@ -1490,102 +1738,40 @@ function toonStatistieken() {
     sectie.appendChild(maakUitlegSectie());
 }
 
-// Top 10 bedrijven-tabblad: per bedrijf de totale waarde/percentage, met
-// een klikbare rij die de per_bron-uitsplitsing toont (via welke ETF's
-// en/of het losse aandeel de blootstelling ontstaat -- zie
-// analysis.bereken_bedrijven_verdeling). "Overig" bundelt zowel bedrijven
-// buiten de top-10 als het niet-gedekte restant van ETF-holdings, dus die
-// twee zijn hier niet los te onderscheiden -- dekkingTekst hieronder maakt
-// wel duidelijk hoe compleet het totaal is.
-function renderBedrijvenTabel() {
+// Top 20 bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
+// onderverdeeld naar welke ETF/los aandeel eraan bijdraagt (zelfde
+// renderGestapeldeStaafgrafiek als Land/Sector-staaf hieronder). "Overig"
+// bundelt zowel bedrijven buiten de top-20 als het niet-gedekte restant van
+// ETF-holdings, dus die twee zijn hier niet los te onderscheiden --
+// dekkingTekst hierboven de grafiek maakt wel duidelijk hoe compleet het
+// totaal is. per_bron/totaal_pct komen al als percentage van de
+// portfoliowaarde uit analysis.bereken_bedrijven_verdeling, dus geen
+// aparte 'totaal'-deler nodig.
+function toonBedrijven() {
     const sectie = document.getElementById("bedrijvenSectie");
     sectie.innerHTML = "";
 
     const data = huidigeData.bedrijven_verdeling;
     if (!data || !data.top || data.top.length === 0) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Geen bedrijvendata beschikbaar voor deze portfolio.";
-        sectie.appendChild(p);
+        document.getElementById("geenData").style.display = "block";
+        if (chart) chart.destroy();
         return;
     }
-
-    const totaal = data.totaal_waarde || (data.top.reduce((som, e) => som + e.waarde, 0) + (data.overig || 0));
 
     const dekkingTekst = document.createElement("p");
     dekkingTekst.style.fontSize = "0.85em";
     dekkingTekst.style.color = "#888";
-    dekkingTekst.textContent = `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (o.a. ETF-holdings buiten de gedekte lijst) valt in "Overig". Klik op een bedrijf voor de uitsplitsing per positie.`;
+    const overigPct = data.totaal_waarde ? (data.overig / data.totaal_waarde * 100) : 0;
+    dekkingTekst.textContent = `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top 20 + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
     sectie.appendChild(dekkingTekst);
 
-    const tickerNamen = {};
-    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+    const bronNamen = {};
+    (data.bronnen || []).forEach(b => { bronNamen[b.ticker] = b.naam; });
 
-    const tabel = document.createElement("table");
-    tabel.style.width = "100%";
-    tabel.style.borderCollapse = "collapse";
-    tabel.style.fontSize = "0.9em";
+    const categorieData = {};
+    data.top.forEach(entry => { categorieData[entry.bedrijf] = entry.per_bron; });
 
-    function maakRij(naam, waarde, isKlikbaar) {
-        const pct = totaal ? (waarde / totaal * 100) : 0;
-        const rij = document.createElement("tr");
-        rij.style.borderBottom = "1px solid #eee";
-        if (isKlikbaar) rij.style.cursor = "pointer";
-
-        const naamTd = document.createElement("td");
-        naamTd.style.padding = "6px 12px 6px 0";
-        naamTd.textContent = naam;
-        rij.appendChild(naamTd);
-
-        const waardeTd = document.createElement("td");
-        waardeTd.style.padding = "6px 12px 6px 0";
-        waardeTd.style.textAlign = "right";
-        waardeTd.textContent = formatteerEuro(waarde);
-        rij.appendChild(waardeTd);
-
-        const pctTd = document.createElement("td");
-        pctTd.style.padding = "6px 0";
-        pctTd.style.textAlign = "right";
-        pctTd.style.fontWeight = "bold";
-        pctTd.textContent = `${pct.toFixed(1)}%`;
-        rij.appendChild(pctTd);
-
-        return rij;
-    }
-
-    data.top.forEach((entry, i) => {
-        const rij = maakRij(`${i + 1}. ${entry.bedrijf}`, entry.waarde, true);
-        tabel.appendChild(rij);
-
-        const detailRij = document.createElement("tr");
-        detailRij.style.display = "none";
-        const detailTd = document.createElement("td");
-        detailTd.colSpan = 3;
-        detailTd.style.padding = "0 0 10px 16px";
-        detailTd.style.fontSize = "0.85em";
-        detailTd.style.color = "#555";
-        const bronnen = Object.entries(entry.per_bron).sort((a, b) => b[1] - a[1]);
-        detailTd.textContent = "Via: " + bronnen
-            .map(([ticker, bedrag]) => `${tickerNamen[ticker] || ticker} (${formatteerEuro(bedrag)})`)
-            .join(", ");
-        detailRij.appendChild(detailTd);
-        tabel.appendChild(detailRij);
-
-        rij.addEventListener("click", () => {
-            detailRij.style.display = detailRij.style.display === "none" ? "table-row" : "none";
-        });
-    });
-
-    if (data.overig > 0) {
-        const overigRij = maakRij("Overig", data.overig, false);
-        overigRij.style.color = "#888";
-        tabel.appendChild(overigRij);
-    }
-
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
-    wrapper.appendChild(tabel);
-    sectie.appendChild(wrapper);
+    renderGestapeldeStaafgrafiek(categorieData, bronNamen);
 }
 
 // ETF-overlap-tabblad: eenvoudige HTML-matrix (geen Chart.js) met
@@ -1887,10 +2073,14 @@ function pasViewToe(view) {
         btn.classList.toggle("actief", btn.dataset.view === view);
     });
     document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
+    // Benchmarkvergelijking is DB-backed (leest transacties via de code) --
+    // niet beschikbaar bij een 'niet opslaan'-analyse, zelfde beperking als
+    // Instellingen/Bijnamen/Dividend (zie toonDashboard()).
+    document.getElementById("benchmarkSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
-    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || isInstellingenView) ? "none" : "block";
-    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "bedrijven" || view === "etfoverlap") ? "none" : "block";
+    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
+    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "etfoverlap") ? "none" : "block";
     document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
@@ -1900,6 +2090,7 @@ function pasViewToe(view) {
     document.getElementById("etfOverlapSectie").style.display = view === "etfoverlap" ? "block" : "none";
     document.getElementById("prognoseSectie").style.display = view === "prognose" ? "block" : "none";
     document.getElementById("homeTotalenSectie").style.display = view === "portfolio" ? "block" : "none";
+    document.getElementById("weergaveToggleBtn").style.display = (view === "land" || view === "sector") ? "block" : "none";
 
     if (view !== "instellingen-bijnamen") {
         document.getElementById("instellingenMsg").style.display = "none";
@@ -1914,10 +2105,16 @@ function pasViewToe(view) {
     if (view !== "peraandeel") {
         document.getElementById("etfDrilldown").style.display = "none";
     }
+    if (view !== "rendement") {
+        document.getElementById("benchmarkMelding").style.display = "none";
+    }
+    if (view !== "xirr-rendement") {
+        document.getElementById("xirrRendementMsg").style.display = "none";
+    }
     // toonVerdeling()/toonPlatteVerdeling() zetten dit bericht aan als er
-    // voor Verdeling/Land/Sector geen data is — zonder reset bleef het
-    // staan bij het wisselen naar een compleet ander tabblad.
-    if (view !== "verdeling" && view !== "land" && view !== "sector") {
+    // voor Verdeling/Land/Sector/Bedrijven geen data is — zonder reset
+    // bleef het staan bij het wisselen naar een compleet ander tabblad.
+    if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven") {
         document.getElementById("geenData").style.display = "none";
     }
 
@@ -1930,8 +2127,9 @@ function pasViewToe(view) {
     else if (view === "instellingen-ticker") toonInstellingenTicker();
     else if (view === "dividend") toonDividend();
     else if (view === "statistieken") toonStatistieken();
-    else if (view === "bedrijven") renderBedrijvenTabel();
+    else if (view === "bedrijven") toonBedrijven();
     else if (view === "etfoverlap") renderEtfOverlapTabel();
+    else if (view === "xirr-rendement") toonRendementOverTijd();
     else if (view === "prognose") toonPrognose();
     else if (view === "peraandeel") {
         const select = document.getElementById("aandeelSelect");
@@ -1948,6 +2146,10 @@ function toonDashboard(data) {
     // staan: toonPrognose() hergebruikt prognoseResultaat zolang die niet
     // null is, en dat werd nooit bijgewerkt bij het wisselen van portfolio.
     prognoseResultaat = null;
+    // Zelfde reden als prognoseResultaat hierboven: een benchmark-keuze van
+    // een vorige portfolio slaat nergens meer op zodra de data wisselt.
+    benchmarkVergelijkingData = null;
+    document.getElementById("benchmarkSelect").value = "";
     document.getElementById("uploadSection").style.display = "none";
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
@@ -2028,12 +2230,30 @@ document.getElementById("aandeelSelect").addEventListener("change", (e) => {
     toonPerAandeel(e.target.value);
 });
 
+document.getElementById("benchmarkSelect").addEventListener("change", (e) => {
+    wisselBenchmark(e.target.value);
+});
+
 document.getElementById("resetZoomBtn").addEventListener("click", () => {
     if (chart) chart.resetZoom();
 });
 
 document.getElementById("europaCheckbox").addEventListener("change", () => {
     toonLand();
+});
+
+// Toggle tussen taart (toonPlatteVerdeling) en gestapelde staaf per bron
+// (renderGestapeldeStaafgrafiek) op het Land- en Sector-tabblad. Gedeelde
+// state (landSectorWeergave) i.p.v. per-tabblad, dus de keuze blijft staan
+// bij het wisselen tussen Land en Sector. Data staat al in
+// huidigeData.land_sector_verdeling (land_per_bron/sector_per_bron) --
+// geen nieuwe serveraanroep nodig.
+document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
+    landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
+    const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
+    const actieveView = actieveKnop ? actieveKnop.dataset.view : null;
+    if (actieveView === "land") toonLand();
+    else if (actieveView === "sector") toonSector();
 });
 
 document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () => {

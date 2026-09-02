@@ -71,8 +71,15 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
 
         apple_entry = next(e for e in resultaat["top"] if e["bedrijf"] == "Apple Inc")
         self.assertAlmostEqual(apple_entry["waarde"], 150.0)  # 100 (los) + 50 (via ETF)
-        self.assertAlmostEqual(apple_entry["per_bron"]["AAPL"], 100.0)
-        self.assertAlmostEqual(apple_entry["per_bron"]["CSPX.AS"], 50.0)
+        # totaal_waarde = 200 (100 AAPL + 100 CSPX.AS) -- per_bron/totaal_pct
+        # zijn percentages van dat totaal, direct bruikbaar als stack-hoogtes.
+        self.assertAlmostEqual(apple_entry["totaal_pct"], 75.0)
+        self.assertAlmostEqual(apple_entry["per_bron"]["AAPL"], 50.0)
+        self.assertAlmostEqual(apple_entry["per_bron"]["CSPX.AS"], 25.0)
+        self.assertAlmostEqual(sum(apple_entry["per_bron"].values()), apple_entry["totaal_pct"])
+
+        bron_tickers = {b["ticker"] for b in resultaat["bronnen"]}
+        self.assertEqual(bron_tickers, {"AAPL", "CSPX.AS"})
 
     def test_dekking_gedeeltelijke_etf_holdings_naar_overig(self):
         # ETF met maar 60% gedekte holdings (bv. yfinance-top-10) -- de
@@ -91,6 +98,27 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         self.assertAlmostEqual(resultaat["dekking_pct"], 0.6)
         self.assertAlmostEqual(resultaat["overig"], 40.0)
         self.assertAlmostEqual(resultaat["top"][0]["waarde"], 60.0)
+
+    def test_top20_precies_20_bedrijven_rest_naar_overig(self):
+        # 25 losse aandelen, elk 10 EUR waard, aflopend genummerd zodat de
+        # sortering voorspelbaar is -- moet precies 20 top-rijen geven, geen
+        # 21e losse rij, en de resterende 5 (50 EUR) in "overig".
+        n = 25
+        tickers = [f"AND{i:02d}" for i in range(n)]
+        transacties_df = pd.DataFrame({
+            "ticker": tickers,
+            "aantal": [float(n - i) for i in range(n)],  # 25, 24, ..., 1
+            "echte_naam": [f"Bedrijf {i}" for i in range(n)],
+        })
+        price_data = _price_data(tickers, waarde=1.0)
+
+        with patch.object(analysis, "classify_tickers", return_value={t: False for t in tickers}):
+            resultaat = bereken_bedrijven_verdeling(transacties_df, price_data)
+
+        self.assertEqual(len(resultaat["top"]), 20)
+        # som van aantal 1..25 = 325 EUR totaal; top-20 = som van 25..6 = 310
+        self.assertAlmostEqual(sum(e["waarde"] for e in resultaat["top"]), 310.0)
+        self.assertAlmostEqual(resultaat["overig"], 15.0)  # som van 5..1
 
 
 if __name__ == "__main__":
