@@ -60,6 +60,26 @@ class TestBinnenDagrange(unittest.TestCase):
         self.assertIsNone(resultaat["binnen_dagrange"])
 
 
+class TestDagrangeTolerantie(unittest.TestCase):
+    """1%-tolerantie (DAGRANGE_TOLERANTIE) op de exacte low<=koers<=high --
+    bekend-goede tickers (VUSA.AS, G2X.DE) hadden een Excel-koers die net
+    (~1-2%) buiten Yahoo's High/Low viel, vermoedelijk door net iets andere
+    sluitingsmomenten/afronding tussen DEGIRO en Yahoo."""
+
+    def test_dagrange_tolerantie(self):
+        # low=95, high=105 -> met 1% tolerantie: ondergrens 94.05, bovengrens 106.05.
+        with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
+            net_onder = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 94.5)  # ~0.5% onder low
+        with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
+            net_boven = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 105.5)  # ~0.5% boven high
+        with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
+            ver_onder = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 90.0)  # >1% onder low
+
+        self.assertTrue(net_onder["binnen_dagrange"])
+        self.assertTrue(net_boven["binnen_dagrange"])
+        self.assertFalse(ver_onder["binnen_dagrange"])
+
+
 class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
     """verifieer_ticker_met_prijs() moet z'n samenvattende waarschuwing nu op
     binnen_dagrange baseren i.p.v. op de %-afwijkingsdrempel."""

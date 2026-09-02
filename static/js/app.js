@@ -927,6 +927,87 @@ function maakPrijscontroleTabel(prijsChecks) {
     return wrapper;
 }
 
+// Laatste (meest recente) prijscheck met een bekende dagrange -- voor de
+// ETF-weergave hieronder, waar High/Low i.p.v. land/sector het prominente
+// signaal is (zie CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+function laatsteDagrangeUitChecks(prijsChecks) {
+    if (!prijsChecks) return null;
+    for (let i = prijsChecks.length - 1; i >= 0; i--) {
+        const c = prijsChecks[i];
+        if (c.high != null && c.low != null) return { high: c.high, low: c.low };
+    }
+    return null;
+}
+
+// Alternatieve kandidaten als tabel (i.p.v. een platte bullet-lijst), zelfde
+// opmaak als maakPrijscontroleTabel. isEtf bepaalt de kolomset: Land/Sector
+// voor een aandeel-kandidaat, High/Low voor een ETF-kandidaat -- 'alt' is
+// altijd al vooraf op is_etf gefilterd door de aanroeper.
+function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.85em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.marginTop = "4px";
+    wrapper.appendChild(tabel);
+
+    const kolomLabels = isEtf
+        ? ["Ticker", "Beurs", "High", "Low", "Valuta", "Gem. afwijking", "Matches", ""]
+        : ["Ticker", "Beurs", "Land", "Sector", "Valuta", "Gem. afwijking", "Matches", ""];
+
+    const kop = document.createElement("tr");
+    kolomLabels.forEach(tekst => {
+        const th = document.createElement("th");
+        th.textContent = tekst;
+        th.style.textAlign = "left";
+        th.style.padding = "2px 14px 2px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        kop.appendChild(th);
+    });
+    tabel.appendChild(kop);
+
+    alternatieven.forEach(alt => {
+        const rij = document.createElement("tr");
+        const aanbevolen = aanbevolenAlternatief === alt.ticker;
+        if (aanbevolen) rij.style.background = "#eaf6ee";
+
+        const afwijkingTekst = alt.gemiddelde_afwijking_pct != null
+            ? `${alt.gemiddelde_afwijking_pct.toFixed(1)}%`
+            : "geen prijsdata";
+        const waarden = isEtf
+            ? [
+                alt.ticker, alt.beurs || "onbekend",
+                alt.high != null ? alt.high.toFixed(3) : "-", alt.low != null ? alt.low.toFixed(3) : "-",
+                alt.valuta || "onbekend", afwijkingTekst, String(alt.aantal_matches),
+            ]
+            : [
+                alt.ticker, alt.beurs || "onbekend", alt.land || "onbekend", alt.sector || "onbekend",
+                alt.valuta || "onbekend", afwijkingTekst, String(alt.aantal_matches),
+            ];
+        waarden.forEach(tekst => {
+            const td = document.createElement("td");
+            td.textContent = tekst;
+            td.style.padding = "2px 14px 2px 0";
+            rij.appendChild(td);
+        });
+
+        const labelTd = document.createElement("td");
+        labelTd.style.padding = "2px 14px 2px 0";
+        if (aanbevolen) {
+            labelTd.textContent = "← aanbevolen";
+            labelTd.style.color = "#2c7a4b";
+            labelTd.style.fontWeight = "bold";
+        }
+        rij.appendChild(labelTd);
+
+        tabel.appendChild(rij);
+    });
+
+    return wrapper;
+}
+
 function maakTickerZekerheidKaart(p) {
     const rij = document.createElement("div");
     rij.style.marginBottom = "18px";
@@ -962,21 +1043,37 @@ function maakTickerZekerheidKaart(p) {
         return rij;
     }
 
-    // Een ETF heeft geen eigen "Land" (te weinig precisie voor een
-    // wereldwijd fonds) — dan tonen we in plaats daarvan het land van de
-    // grootste holding, expliciet als apart, anders genoemd veld. Is geen
-    // van beide bekend, dan de regel gewoon weglaten i.p.v. "onbekend" te
-    // tonen voor iets dat sowieso geen zinnig enkelvoudig antwoord heeft.
-    if (p.land) {
-        voegInfoRegelToe(rij, "Land", p.land);
-    } else if (p.top_holding_land) {
-        voegInfoRegelToe(rij, "Land grootste holding", p.top_holding_land);
+    if (p.is_etf) {
+        // Land/sector is voor een ETF een zwak signaal ("Land grootste
+        // holding: United States" zegt weinig) -- High/Low is voor een ETF
+        // juist een sterk signaal, dus die krijgt hier de prominente plek
+        // die land/sector bij een aandeel heeft. Voor een aandeel blijft de
+        // bestaande weergave (hieronder, in de else-tak) ongewijzigd.
+        voegInfoRegelToe(rij, "Valuta", p.valuta);
+        voegInfoRegelToe(rij, "Fondsfamilie", p.fondsfamilie);
+        voegInfoRegelToe(rij, "Categorie", p.category);
+        rij.appendChild(maakBeursRegel(p.excel_beurs, p.yahoo_beurs, p.beurs_klopt));
+        const dagrange = laatsteDagrangeUitChecks(p.prijs_checks);
+        if (dagrange) {
+            voegInfoRegelToe(rij, "High/Low (laatste controle)", `${dagrange.high.toFixed(3)} / ${dagrange.low.toFixed(3)}`);
+        }
+    } else {
+        // Een ETF heeft geen eigen "Land" (te weinig precisie voor een
+        // wereldwijd fonds) — dan tonen we in plaats daarvan het land van de
+        // grootste holding, expliciet als apart, anders genoemd veld. Is geen
+        // van beide bekend, dan de regel gewoon weglaten i.p.v. "onbekend" te
+        // tonen voor iets dat sowieso geen zinnig enkelvoudig antwoord heeft.
+        if (p.land) {
+            voegInfoRegelToe(rij, "Land", p.land);
+        } else if (p.top_holding_land) {
+            voegInfoRegelToe(rij, "Land grootste holding", p.top_holding_land);
+        }
+        voegInfoRegelToe(rij, "Sector", p.sector);
+        voegInfoRegelToe(rij, "Valuta", p.valuta);
+        voegInfoRegelToe(rij, "Fondsfamilie", p.fondsfamilie);
+        voegInfoRegelToe(rij, "Categorie", p.category);
+        rij.appendChild(maakBeursRegel(p.excel_beurs, p.yahoo_beurs, p.beurs_klopt));
     }
-    voegInfoRegelToe(rij, "Sector", p.sector);
-    voegInfoRegelToe(rij, "Valuta", p.valuta);
-    voegInfoRegelToe(rij, "Fondsfamilie", p.fondsfamilie);
-    voegInfoRegelToe(rij, "Categorie", p.category);
-    rij.appendChild(maakBeursRegel(p.excel_beurs, p.yahoo_beurs, p.beurs_klopt));
 
     const prijsKop = document.createElement("div");
     prijsKop.textContent = "Prijscontrole";
@@ -992,50 +1089,75 @@ function maakTickerZekerheidKaart(p) {
         altKop.style.marginTop = "8px";
         rij.appendChild(altKop);
 
-        const lijst = document.createElement("ul");
-        lijst.style.margin = "4px 0";
-        p.alternatieven.forEach(alt => {
-            const li = document.createElement("li");
-            const afwijkingTekst = alt.gemiddelde_afwijking_pct != null
-                ? `${alt.gemiddelde_afwijking_pct.toFixed(1)}% gem. afwijking (${alt.aantal_matches} match(es))`
-                : "geen prijsdata";
-            li.textContent = `${alt.ticker} (${alt.beurs || "onbekend"}) — land: ${alt.land || "onbekend"}, `
-                + `sector: ${alt.sector || "onbekend"}, valuta: ${alt.valuta || "onbekend"} — ${afwijkingTekst}`;
-            if (p.aanbevolen_alternatief === alt.ticker) {
-                li.style.fontWeight = "bold";
-                li.style.color = "#2c7a4b";
-                li.textContent += "  ← aanbevolen alternatief";
-            }
-            lijst.appendChild(li);
-        });
-        rij.appendChild(lijst);
+        // Per kandidaat onderscheiden op ETF/aandeel (niet één vaste
+        // kolommenset voor iedereen) -- meestal zijn alle kandidaten van
+        // hetzelfde type als de hoofdpositie, maar dat hoeft niet zo te zijn.
+        const aandeelAlternatieven = p.alternatieven.filter(alt => !alt.is_etf);
+        const etfAlternatieven = p.alternatieven.filter(alt => alt.is_etf);
+        if (aandeelAlternatieven.length > 0) {
+            rij.appendChild(maakAlternatievenTabel(aandeelAlternatieven, p.aanbevolen_alternatief, false));
+        }
+        if (etfAlternatieven.length > 0) {
+            rij.appendChild(maakAlternatievenTabel(etfAlternatieven, p.aanbevolen_alternatief, true));
+        }
     }
 
     return rij;
 }
 
-function renderTickerZekerheid(posities) {
-    const sectie = document.getElementById("instellingenTickerSectie");
-    sectie.innerHTML = "";
-
-    const intro = document.createElement("p");
-    intro.textContent = "Hoe zeker is de gevonden ticker per positie? De prijs op een paar transactiedatums wordt "
-        + "vergeleken met de historische Yahoo-koers — dat is een sterker signaal dan alleen de beurs-match.";
-    sectie.appendChild(intro);
-
-    if (!posities || posities.length === 0) {
-        const p = document.createElement("p");
-        p.textContent = "Geen posities gevonden.";
-        sectie.appendChild(p);
-        return;
+// Voert taakFn uit voor elk item in 'items', met maximaal 'limiet' taken
+// tegelijk in de lucht -- niet alles in één keer (rate-limit-risico bij
+// Yahoo/gunicorn-workers) en niet na elkaar (traag bij veel posities). Geen
+// SSE/websockets nodig, gewone fetch()-calls met deze eenvoudige worker-pool
+// zijn genoeg (zie CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+async function voerMetConcurrencyLimietUit(items, limiet, taakFn) {
+    let volgendeIndex = 0;
+    async function werker() {
+        while (volgendeIndex < items.length) {
+            const i = volgendeIndex++;
+            await taakFn(items[i], i);
+        }
     }
+    const workers = Array.from({ length: Math.min(limiet, items.length) }, () => werker());
+    await Promise.all(workers);
+}
 
-    posities.forEach(p => sectie.appendChild(maakTickerZekerheidKaart(p)));
+// Placeholder-kaart voor 1 positie terwijl de bijbehorende /positie-aanroep
+// nog loopt -- wordt in-place vervangen door maakTickerZekerheidKaart()'s
+// volledige kaart zodra het resultaat binnen is (zie toonInstellingenTicker).
+function maakTickerZekerheidPlaceholder(p) {
+    const rij = document.createElement("div");
+    rij.style.marginBottom = "18px";
+    rij.style.paddingBottom = "14px";
+    rij.style.borderBottom = "1px solid #eee";
+
+    const titel = document.createElement("div");
+    const naamStrong = document.createElement("strong");
+    naamStrong.textContent = p.naam;
+    titel.appendChild(naamStrong);
+    rij.appendChild(titel);
+
+    const status = document.createElement("p");
+    status.className = "tickerZekerheidStatus";
+    status.style.fontSize = "0.85em";
+    status.style.color = "#999";
+    status.textContent = "Bezig met controleren...";
+    rij.appendChild(status);
+
+    return rij;
+}
+
+function toonTickerZekerheidPositieFout(kaart, tekst) {
+    const status = kaart.querySelector(".tickerZekerheidStatus");
+    if (status) {
+        status.textContent = `⚠️ ${tekst}`;
+        status.style.color = "#9C0006";
+    }
 }
 
 async function toonInstellingenTicker() {
     // Een eenmalige ("niet opslaan") analyse heeft geen code om de losse
-    // /ticker-zekerheid-endpoint mee aan te roepen (die leest transacties
+    // /ticker-zekerheid-endpoints mee aan te roepen (die lezen transacties
     // uit de database). De GOEDKOPE ticker-match (zonder Yahoo-
     // prijsverificatie) heeft /upload toen al meegestuurd onder
     // huidigeData.ticker_zekerheid — de dure, prijs-geverifieerde variant is
@@ -1050,40 +1172,82 @@ async function toonInstellingenTicker() {
 
     const sectie = document.getElementById("instellingenTickerSectie");
     sectie.innerHTML = "";
-    // Dit kan een paar seconden duren (meerdere Yahoo-calls per positie),
-    // vandaar dezelfde gedeelde laad-overlay als bij de rest van de app
-    // i.p.v. een eigen inline statustekst.
-    toonLaadOverlay("Bezig met controleren van tickers...");
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
-    let res, data;
+    // Alleen de (vrijwel instante) lijst van posities ophalen -- de dure
+    // prijscontrole gebeurt hieronder per positie apart, zodat één trage/
+    // rate-limited positie niet meer de hele pagina laat mislukken (zie
+    // CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+    toonLaadOverlay("Posities ophalen...");
+    let data;
     try {
-        res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid`, { signal: controller.signal });
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid/lijst`);
         data = await res.json();
+        if (!res.ok) {
+            const foutmelding = document.createElement("p");
+            foutmelding.style.color = "#9C0006";
+            foutmelding.textContent = data.error || "Kon de lijst met posities niet ophalen.";
+            sectie.appendChild(foutmelding);
+            return;
+        }
     } catch (e) {
         const foutmelding = document.createElement("p");
         foutmelding.style.color = "#9C0006";
-        foutmelding.textContent = e.name === "AbortError"
-            ? "Het controleren van tickers duurt te lang en is afgebroken. Probeer het later opnieuw."
-            : "Kon ticker-zekerheid niet ophalen (netwerkfout).";
+        foutmelding.textContent = "Kon de lijst met posities niet ophalen (netwerkfout).";
         sectie.appendChild(foutmelding);
         return;
     } finally {
-        clearTimeout(timeoutId);
         verbergLaadOverlay();
     }
 
-    if (!res.ok) {
-        sectie.innerHTML = "";
-        const foutmelding = document.createElement("p");
-        foutmelding.style.color = "#9C0006";
-        foutmelding.textContent = data.error || "Kon ticker-zekerheid niet ophalen.";
-        sectie.appendChild(foutmelding);
+    const intro = document.createElement("p");
+    intro.textContent = "Hoe zeker is de gevonden ticker per positie? De prijs op een paar transactiedatums wordt "
+        + "vergeleken met de historische Yahoo-koers — dat is een sterker signaal dan alleen de beurs-match.";
+    sectie.appendChild(intro);
+
+    const posities = data.posities || [];
+    if (posities.length === 0) {
+        const p = document.createElement("p");
+        p.textContent = "Geen posities gevonden.";
+        sectie.appendChild(p);
         return;
     }
 
-    renderTickerZekerheid(data.posities);
+    const kaarten = {};
+    posities.forEach(p => {
+        const kaart = maakTickerZekerheidPlaceholder(p);
+        sectie.appendChild(kaart);
+        kaarten[`${p.isin}|${p.beurs}`] = kaart;
+    });
+
+    // Concurrency-limiet van 4: elke aparte /positie-aanroep is klein genoeg
+    // om nooit tegen een timeout aan te lopen, en zodra er één terugkomt
+    // wordt precies die rij bijgewerkt -- de rest blijft gewoon "bezig...".
+    await voerMetConcurrencyLimietUit(posities, 4, async (p) => {
+        const key = `${p.isin}|${p.beurs}`;
+        const kaart = kaarten[key];
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        try {
+            const url = `/api/portfolio/${huidigeData.code}/ticker-zekerheid/positie`
+                + `?isin=${encodeURIComponent(p.isin)}&beurs=${encodeURIComponent(p.beurs)}`;
+            const res = await fetch(url, { signal: controller.signal });
+            const resultaat = await res.json();
+            if (!res.ok) {
+                toonTickerZekerheidPositieFout(kaart, resultaat.error || "Kon deze positie niet controleren.");
+                return;
+            }
+            kaart.replaceWith(maakTickerZekerheidKaart(resultaat));
+        } catch (e) {
+            toonTickerZekerheidPositieFout(
+                kaart,
+                e.name === "AbortError"
+                    ? "Duurde te lang en is afgebroken."
+                    : "Netwerkfout bij het controleren van deze positie."
+            );
+        } finally {
+            clearTimeout(timeoutId);
+        }
+    });
 }
 
 // Lichte weergave voor een eenmalige ("niet opslaan") analyse: toont eerst
