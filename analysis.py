@@ -2658,8 +2658,11 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     verkeerde of niet-bestaande ticker, dus nooit stilzwijgend als "OK"
     behandelen):
       1. Alleen de LAATSTE transactiedatum controleren.
-      2. > PRIJSCHECK_DREMPEL_WAARSCHUWING (6%) afwijking, of geen
-         koersdata -> ook de rest van de steekproef (eerste/middelste/
+      2. Dagrange-probleem (Excel-koers buiten Yahoo's intraday-high/low,
+         via _prijscheck_is_probleem() — zelfde criterium als de bovenste
+         waarschuwingsbalk elders in de app; bij ontbrekende dagrange valt
+         dat terug op > PRIJSCHECK_DREMPEL_WAARSCHUWING (6%) afwijking), of
+         geen koersdata -> ook de rest van de steekproef (eerste/middelste/
          laatste) controleren — een eenmalige, onschuldige uitschieter
          (bv. een corporate action rond die datum) mag niet meteen als een
          foute ticker gelden.
@@ -2704,14 +2707,21 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     check_laatste["datum"] = str(laatste["datum"])
     prijs_checks = [check_laatste]
 
-    if check_laatste["afwijking_pct"] is not None and check_laatste["afwijking_pct"] <= PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:
+    # Dagrange-bewust i.p.v. alleen de ruwe %-afwijking -- zelfde criterium
+    # als _prijscheck_is_probleem() elders in het bestand (bv. de bovenste
+    # waarschuwingsbalk). "Geen koersdata" blijft apart escaleren
+    # (regressie t.o.v. het G2X.MU-geval, zie CLAUDE.md):
+    # _prijscheck_is_probleem() geeft bij ontbrekende data GEEN probleem
+    # terug (match=None), dus die check hier expliciet ervoor houden.
+    if check_laatste["afwijking_pct"] is not None and not _prijscheck_is_probleem(check_laatste):
         # Koers klopt -- het gangbare geval, klaar na 1 (gecachete) call.
         return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
 
-    # Stap 2: afwijking >6% op de laatste datum, of helemaal geen koersdata
-    # gevonden -- ook de rest van de steekproef controleren. Geen koersdata
-    # is minstens zo verdacht als een grote afwijking (vaak een verkeerde
-    # of niet-bestaande ticker), dus géén early-return meer als "OK".
+    # Stap 2: dagrange-probleem (of, bij ontbrekende dagrange, >6%
+    # afwijking) op de laatste datum, of helemaal geen koersdata gevonden
+    # -- ook de rest van de steekproef controleren. Geen koersdata is
+    # minstens zo verdacht als een grote afwijking (vaak een verkeerde of
+    # niet-bestaande ticker), dus géén early-return meer als "OK".
     steekproef = _kies_steekproef_transacties(geldige_transacties)
     for t in steekproef:
         if str(t["datum"]) == check_laatste["datum"]:
@@ -2794,9 +2804,10 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
 def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     """
     Of een AL GEVONDEN ticker een prijsprobleem heeft op de laatste
-    transactiedatum: een echte afwijking (> PRIJSCHECK_DREMPEL_WAARSCHUWING)
-    OF helemaal geen koersdata bij Yahoo — net zo verdacht als een grote
-    afwijking, zie de "geen koersdata"-escalatie hierboven in
+    transactiedatum: een dagrange-probleem (zelfde criterium als
+    _prijscheck_is_probleem(), bv. de bovenste waarschuwingsbalk elders in
+    de app) OF helemaal geen koersdata bij Yahoo — net zo verdacht als een
+    grote afwijking, zie de "geen koersdata"-escalatie hierboven in
     verifieer_ticker_met_prijs()/find_ticker_met_snelle_prijscheck() (het
     G2X.MU-geval). Gebruikt door backfill_verouderde_tickers() om te
     bepalen of een AL OPGESLAGEN ticker een backfill-kandidaat is. Geen
@@ -2809,7 +2820,7 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
         return False
     laatste = max(geldige, key=lambda t: t["datum"])
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
-    return check["afwijking_pct"] is None or check["afwijking_pct"] > PRIJSCHECK_DREMPEL_WAARSCHUWING * 100
+    return check["afwijking_pct"] is None or _prijscheck_is_probleem(check)
 
 
 def backfill_verouderde_tickers(code):
