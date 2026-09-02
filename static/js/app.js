@@ -833,7 +833,7 @@ function maakPrijscontroleTabel(prijsChecks) {
     wrapper.appendChild(tabel);
 
     const kop = document.createElement("tr");
-    ["Datum", "Excel-koers", "Yahoo-koers", "Afwijking", ""].forEach(tekst => {
+    ["Datum", "Excel-koers", "Yahoo-koers", "High", "Low", "Binnen dagrange", "Afwijking", ""].forEach(tekst => {
         const th = document.createElement("th");
         th.textContent = tekst;
         th.style.textAlign = "left";
@@ -857,7 +857,8 @@ function maakPrijscontroleTabel(prijsChecks) {
             c.datum,
             c.bekende_koers != null ? c.bekende_koers.toFixed(3) : "-",
             yahooKoersTekst,
-            c.afwijking_pct != null ? `${c.afwijking_pct.toFixed(1)}%` : "-",
+            c.high != null ? c.high.toFixed(3) : "-",
+            c.low != null ? c.low.toFixed(3) : "-",
         ].forEach((tekst, i) => {
             const td = document.createElement("td");
             td.textContent = tekst;
@@ -868,6 +869,28 @@ function maakPrijscontroleTabel(prijsChecks) {
             }
             rij.appendChild(td);
         });
+
+        const dagrangeTd = document.createElement("td");
+        dagrangeTd.style.padding = "2px 14px 2px 0";
+        if (c.binnen_dagrange === true) {
+            dagrangeTd.textContent = "✓";
+            dagrangeTd.style.color = "#2c7a4b";
+            dagrangeTd.title = "Excel-koers valt binnen het intraday-high/low van deze handelsdag";
+        } else if (c.binnen_dagrange === false) {
+            dagrangeTd.textContent = "✗";
+            dagrangeTd.style.color = "#9C0006";
+            dagrangeTd.title = "Excel-koers valt buiten het intraday-high/low van deze handelsdag";
+        } else {
+            dagrangeTd.textContent = "–";
+            dagrangeTd.style.color = "#999";
+            dagrangeTd.title = "Geen High/Low-data beschikbaar voor deze datum";
+        }
+        rij.appendChild(dagrangeTd);
+
+        const afwijkingTd = document.createElement("td");
+        afwijkingTd.textContent = c.afwijking_pct != null ? `${c.afwijking_pct.toFixed(1)}%` : "-";
+        afwijkingTd.style.padding = "2px 14px 2px 0";
+        rij.appendChild(afwijkingTd);
 
         const iconTd = document.createElement("td");
         if (c.niveau === "ok") {
