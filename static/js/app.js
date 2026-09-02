@@ -1490,6 +1490,177 @@ function toonStatistieken() {
     sectie.appendChild(maakUitlegSectie());
 }
 
+// Top 10 bedrijven-tabblad: per bedrijf de totale waarde/percentage, met
+// een klikbare rij die de per_bron-uitsplitsing toont (via welke ETF's
+// en/of het losse aandeel de blootstelling ontstaat -- zie
+// analysis.bereken_bedrijven_verdeling). "Overig" bundelt zowel bedrijven
+// buiten de top-10 als het niet-gedekte restant van ETF-holdings, dus die
+// twee zijn hier niet los te onderscheiden -- dekkingTekst hieronder maakt
+// wel duidelijk hoe compleet het totaal is.
+function renderBedrijvenTabel() {
+    const sectie = document.getElementById("bedrijvenSectie");
+    sectie.innerHTML = "";
+
+    const data = huidigeData.bedrijven_verdeling;
+    if (!data || !data.top || data.top.length === 0) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Geen bedrijvendata beschikbaar voor deze portfolio.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    const totaal = data.totaal_waarde || (data.top.reduce((som, e) => som + e.waarde, 0) + (data.overig || 0));
+
+    const dekkingTekst = document.createElement("p");
+    dekkingTekst.style.fontSize = "0.85em";
+    dekkingTekst.style.color = "#888";
+    dekkingTekst.textContent = `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (o.a. ETF-holdings buiten de gedekte lijst) valt in "Overig". Klik op een bedrijf voor de uitsplitsing per positie.`;
+    sectie.appendChild(dekkingTekst);
+
+    const tickerNamen = {};
+    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+
+    const tabel = document.createElement("table");
+    tabel.style.width = "100%";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.fontSize = "0.9em";
+
+    function maakRij(naam, waarde, isKlikbaar) {
+        const pct = totaal ? (waarde / totaal * 100) : 0;
+        const rij = document.createElement("tr");
+        rij.style.borderBottom = "1px solid #eee";
+        if (isKlikbaar) rij.style.cursor = "pointer";
+
+        const naamTd = document.createElement("td");
+        naamTd.style.padding = "6px 12px 6px 0";
+        naamTd.textContent = naam;
+        rij.appendChild(naamTd);
+
+        const waardeTd = document.createElement("td");
+        waardeTd.style.padding = "6px 12px 6px 0";
+        waardeTd.style.textAlign = "right";
+        waardeTd.textContent = formatteerEuro(waarde);
+        rij.appendChild(waardeTd);
+
+        const pctTd = document.createElement("td");
+        pctTd.style.padding = "6px 0";
+        pctTd.style.textAlign = "right";
+        pctTd.style.fontWeight = "bold";
+        pctTd.textContent = `${pct.toFixed(1)}%`;
+        rij.appendChild(pctTd);
+
+        return rij;
+    }
+
+    data.top.forEach((entry, i) => {
+        const rij = maakRij(`${i + 1}. ${entry.bedrijf}`, entry.waarde, true);
+        tabel.appendChild(rij);
+
+        const detailRij = document.createElement("tr");
+        detailRij.style.display = "none";
+        const detailTd = document.createElement("td");
+        detailTd.colSpan = 3;
+        detailTd.style.padding = "0 0 10px 16px";
+        detailTd.style.fontSize = "0.85em";
+        detailTd.style.color = "#555";
+        const bronnen = Object.entries(entry.per_bron).sort((a, b) => b[1] - a[1]);
+        detailTd.textContent = "Via: " + bronnen
+            .map(([ticker, bedrag]) => `${tickerNamen[ticker] || ticker} (${formatteerEuro(bedrag)})`)
+            .join(", ");
+        detailRij.appendChild(detailTd);
+        tabel.appendChild(detailRij);
+
+        rij.addEventListener("click", () => {
+            detailRij.style.display = detailRij.style.display === "none" ? "table-row" : "none";
+        });
+    });
+
+    if (data.overig > 0) {
+        const overigRij = maakRij("Overig", data.overig, false);
+        overigRij.style.color = "#888";
+        tabel.appendChild(overigRij);
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabel);
+    sectie.appendChild(wrapper);
+}
+
+// ETF-overlap-tabblad: eenvoudige HTML-matrix (geen Chart.js) met
+// achtergrondkleur-intensiteit naar overlap% -- zie
+// analysis.bereken_etf_overlap. Minder dan 2 aangehouden ETF's -> lege
+// matrix van de backend, toon dan een duidelijke melding i.p.v. een tabel
+// met 0 of 1 kolom.
+function renderEtfOverlapTabel() {
+    const sectie = document.getElementById("etfOverlapSectie");
+    sectie.innerHTML = "";
+
+    const matrix = huidigeData.etf_overlap || {};
+    const etfs = Object.keys(matrix);
+
+    if (etfs.length < 2) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Minimaal 2 aangehouden ETF's nodig om overlap te berekenen.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    const tickerNamen = {};
+    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+
+    const tabel = document.createElement("table");
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.fontSize = "0.85em";
+
+    const kopRij = document.createElement("tr");
+    kopRij.appendChild(document.createElement("th"));
+    etfs.forEach(ticker => {
+        const th = document.createElement("th");
+        th.textContent = ticker;
+        th.title = tickerNamen[ticker] || ticker;
+        th.style.padding = "4px 8px";
+        th.style.textAlign = "center";
+        kopRij.appendChild(th);
+    });
+    tabel.appendChild(kopRij);
+
+    etfs.forEach(rijTicker => {
+        const tr = document.createElement("tr");
+        const rijKop = document.createElement("th");
+        rijKop.textContent = rijTicker;
+        rijKop.title = tickerNamen[rijTicker] || rijTicker;
+        rijKop.style.padding = "4px 8px";
+        rijKop.style.textAlign = "left";
+        tr.appendChild(rijKop);
+
+        etfs.forEach(kolTicker => {
+            const td = document.createElement("td");
+            td.style.padding = "4px 8px";
+            td.style.textAlign = "center";
+            td.style.border = "1px solid #eee";
+            if (rijTicker === kolTicker) {
+                td.textContent = "—";
+                td.style.color = "#ccc";
+            } else {
+                const pct = matrix[rijTicker][kolTicker] * 100;
+                td.textContent = `${pct.toFixed(0)}%`;
+                td.style.backgroundColor = `rgba(44, 122, 75, ${Math.min(pct / 100, 1) * 0.7 + (pct > 0 ? 0.1 : 0)})`;
+                td.style.color = pct > 50 ? "#fff" : "#333";
+            }
+            tr.appendChild(td);
+        });
+        tabel.appendChild(tr);
+    });
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabel);
+    sectie.appendChild(wrapper);
+}
+
 function maakPrognoseInputVeld(id, labelTekst, waarde, opts) {
     opts = opts || {};
     const wrapper = document.createElement("div");
@@ -1718,13 +1889,15 @@ function pasViewToe(view) {
     document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
-    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "statistieken" || isInstellingenView) ? "none" : "block";
-    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken") ? "none" : "block";
+    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || isInstellingenView) ? "none" : "block";
+    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "bedrijven" || view === "etfoverlap") ? "none" : "block";
     document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
+    document.getElementById("bedrijvenSectie").style.display = view === "bedrijven" ? "block" : "none";
+    document.getElementById("etfOverlapSectie").style.display = view === "etfoverlap" ? "block" : "none";
     document.getElementById("prognoseSectie").style.display = view === "prognose" ? "block" : "none";
     document.getElementById("homeTotalenSectie").style.display = view === "portfolio" ? "block" : "none";
 
@@ -1757,6 +1930,8 @@ function pasViewToe(view) {
     else if (view === "instellingen-ticker") toonInstellingenTicker();
     else if (view === "dividend") toonDividend();
     else if (view === "statistieken") toonStatistieken();
+    else if (view === "bedrijven") renderBedrijvenTabel();
+    else if (view === "etfoverlap") renderEtfOverlapTabel();
     else if (view === "prognose") toonPrognose();
     else if (view === "peraandeel") {
         const select = document.getElementById("aandeelSelect");
