@@ -61,7 +61,7 @@ MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH = 2
 # (VUSA.AS, G2X.DE) hadden een Excel-koers die net (~1-2%) buiten Yahoo's
 # High/Low viel, vermoedelijk door net iets andere sluitingsmomenten/
 # afronding tussen DEGIRO en Yahoo, niet door een foute ticker.
-DAGRANGE_TOLERANTIE = 0.01
+DAGRANGE_TOLERANTIE = 0.02
 
 # Landen met een aandeel onder deze drempel (fractie van de totale
 # portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
@@ -2713,7 +2713,12 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     # (regressie t.o.v. het G2X.MU-geval, zie CLAUDE.md):
     # _prijscheck_is_probleem() geeft bij ontbrekende data GEEN probleem
     # terug (match=None), dus die check hier expliciet ervoor houden.
-    if check_laatste["afwijking_pct"] is not None and not _prijscheck_is_probleem(check_laatste):
+    escaleert = check_laatste["afwijking_pct"] is None or _prijscheck_is_probleem(check_laatste)
+    print(f"[snelle-prijscheck] '{ticker}' ({isin}, beurs={beurs}) laatste={check_laatste['datum']} "
+          f"afwijking={check_laatste['afwijking_pct']} binnen_dagrange={check_laatste.get('binnen_dagrange')} "
+          f"-> escaleert={escaleert}")
+
+    if not escaleert:
         # Koers klopt -- het gangbare geval, klaar na 1 (gecachete) call.
         return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
 
@@ -2796,7 +2801,11 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
         elif aanbevolen_alternatief:
             # Geen van beide tiers voldoende bewijs -- bestaand gedrag: alleen
             # tonen als suggestie, niets automatisch overnemen.
+            print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): alternatief '{aanbevolen_alternatief}' "
+                  f"gevonden maar onvoldoende bewijs voor automatische correctie -- alleen als suggestie getoond")
             resultaat["aanbevolen_alternatief"] = aanbevolen_alternatief
+        else:
+            print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): geëscaleerd, maar geen enkel alternatief gevonden")
 
     return resultaat
 
@@ -2820,7 +2829,10 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
         return False
     laatste = max(geldige, key=lambda t: t["datum"])
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
-    return check["afwijking_pct"] is None or _prijscheck_is_probleem(check)
+    probleem = check["afwijking_pct"] is None or _prijscheck_is_probleem(check)
+    print(f"[backfill-check] '{ticker}' laatste={laatste['datum']} afwijking={check['afwijking_pct']} "
+          f"binnen_dagrange={check.get('binnen_dagrange')} -> probleem={probleem}")
+    return probleem
 
 
 def backfill_verouderde_tickers(code):
@@ -2863,6 +2875,8 @@ def backfill_verouderde_tickers(code):
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
         if not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
+            print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): '{oude_ticker}' heeft geen "
+                  f"prijsprobleem -- niets te backfillen")
             continue  # oude ticker werkt prima, niets te backfillen
 
         nieuw = find_ticker_met_snelle_prijscheck(info["naam"], isin, beurs, transacties)
