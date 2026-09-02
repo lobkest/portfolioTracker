@@ -1295,7 +1295,7 @@ def compute_per_ticker(transacties_df, price_data):
             "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
             "waarde": df_t["waarde"].round(2).tolist(),
             "geinvesteerd": df_t["geinvesteerd"].round(2).tolist(),
-            "nog_in_bezit": is_still_held,
+            "nog_in_bezit": bool(is_still_held),
         }
     return result
 
