@@ -1225,11 +1225,13 @@ def compute_per_ticker(transacties_df, price_data):
         prev_invested = None
 
         for date in price_data.index:
+            activiteit = False
             while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
                 row = trades.loc[trade_i]
                 holdings += float(row["adj_aantal"])
                 invested += -float(row["totaal_eur"])
                 trade_i += 1
+                activiteit = True
             prijs = price_data.loc[date, ticker]
             waarde = holdings * prijs if pd.notna(prijs) else 0.0
 
@@ -1244,13 +1246,33 @@ def compute_per_ticker(transacties_df, price_data):
                     dprint(f"[per-ticker:{ticker}] grote sprong in waarde op {date.date()}: "
                            f"{prev_waarde:.2f} -> {waarde:.2f} (holdings={holdings:.4f}, prijs={prijs})")
 
-            rows.append({"datum": date, "waarde": waarde, "geinvesteerd": invested})
+            rows.append({
+                "datum": date, "waarde": waarde, "geinvesteerd": invested,
+                "holdings": holdings, "activiteit": activiteit,
+            })
             prev_waarde = waarde
             prev_invested = invested
 
         df_t = pd.DataFrame(rows).set_index("datum")
 
-        nonzero_idx = df_t.index[df_t["geinvesteerd"] > 0]
+        # LET OP: "nog in bezit" moet op het AANDELENAANTAL bepaald worden,
+        # niet op "geinvesteerd" — dat laatste is een cumulatieve netto
+        # cashflow (aankopen min verkopen) die na een volledige verkoop
+        # permanent > 0 blijft staan zodra er ooit winst/verlies is gemaakt
+        # (het gerealiseerde resultaat), ook al is holdings dan allang 0. Met
+        # geinvesteerd als signaal liep de grafiek van een verkochte positie
+        # dus onterecht door tot vandaag (bug: "per-aandeel-grafiek loopt
+        # door na volledige verkoop"). Epsilon i.p.v. exact 0 i.v.m.
+        # float-afrondingen in de cumulatieve holdings-som.
+        #
+        # De crop-range (nonzero_idx) mag NIET uitsluitend op holdings != 0
+        # afgaan: een koop + volledige verkoop binnen dezelfde (dagelijks
+        # bemonsterde) datum eindigt ook op holdings == 0 voor die datum,
+        # terwijl er wel degelijk een echte transactie was — "activiteit"
+        # (er is die datum minstens 1 transactie verwerkt) vangt dat geval
+        # mee, ook al is de holdings-verandering per saldo 0.
+        nonzero_idx = df_t.index[(df_t["holdings"].abs() > 1e-6) | df_t["activiteit"]]
+        is_still_held = abs(df_t["holdings"].iloc[-1]) > 1e-6 if len(df_t) else False
         if len(nonzero_idx) > 0:
             all_dates = list(df_t.index)
             start_pos = all_dates.index(nonzero_idx[0])
@@ -1259,10 +1281,9 @@ def compute_per_ticker(transacties_df, price_data):
             # 1 dag ervoor erbij, zodat de sprong vanaf 0 zichtbaar is
             start_pos = max(0, start_pos - 1)
 
-            # 1 dag erna erbij, maar alleen als de laatste investeringsdag niet
-            # de laatste (= meest recente/vandaag) datum in de dataset is —
-            # anders wordt er niets zinnigs toegevoegd, je bezit het nog gewoon.
-            is_still_held = nonzero_idx[-1] == all_dates[-1]
+            # 1 dag erna erbij, maar alleen als de positie niet meer
+            # aangehouden wordt — anders wordt er niets zinnigs toegevoegd,
+            # je bezit het nog gewoon.
             if not is_still_held:
                 end_pos = min(len(all_dates) - 1, end_pos + 1)
 
@@ -3104,6 +3125,61 @@ def bereken_xirr(cashflows):
         return None
 
 
+def bereken_twr(transacties_df, resultaat):
+    """Time-Weighted Return (TWR): rendementsmaat die, anders dan XIRR, niet
+    vertekend wordt door de TIMING van stortingen/onttrekkingen — elke
+    sub-periode (tussen twee opeenvolgende datums in `resultaat`) krijgt een
+    eigen rendement op basis van de portfoliowaarde, onafhankelijk van
+    hoeveel geld er die dag bij kwam. Poort van compute_twr_from_values() uit
+    het oude class_degiro.py.
+
+    cf_lookup: per datum de som van externe cashflows (-totaal_eur, positief
+    bij een aankoop/storting, net als delta_cash in bereken_holdings_en_
+    gesloten) — DEGIRO's corporate-action-boekingsrijen (zie
+    _is_corporate_action_row) tellen niet mee, dat is geen geld dat de
+    belegger zelf inlegt/onttrekt.
+
+    Sub-periode-rendement r = waarde_eind / (waarde_start + cf) - 1, waarbij
+    cf de cashflow van de EIND-datum van de sub-periode is (cash komt binnen
+    vóór de koersbeweging van die dag telt, dus telt mee in de noemer).
+    Sub-periodes met een noemer van (ongeveer) 0 — bv. vóór de eerste
+    aankoop, of een volledige verkoop die de waarde naar 0 brengt — worden
+    overgeslagen, geen zinnig rendement te berekenen. De losse sub-periode-
+    rendementen worden samen vermenigvuldigd (linking) en aan het eind -1
+    gedaan.
+
+    Geeft TWR als fractie terug (0.10 = 10%), of None als er geen enkele
+    geldige sub-periode is (zelfde edge case als bereken_xirr)."""
+    if resultaat.empty or len(resultaat) < 2:
+        return None
+
+    df = transacties_df.dropna(subset=["ticker"])
+    df = df[~df.apply(_is_corporate_action_row, axis=1)]
+    cf_lookup = {}
+    for _, row in df.iterrows():
+        cf = -float(row["totaal_eur"])
+        if cf == 0:
+            continue
+        datum = pd.Timestamp(row["datum"]).normalize()
+        cf_lookup[datum] = cf_lookup.get(datum, 0.0) + cf
+
+    product = 1.0
+    geldige_periode = False
+    for i in range(1, len(resultaat)):
+        waarde_start = float(resultaat["waarde"].iloc[i - 1])
+        waarde_eind = float(resultaat["waarde"].iloc[i])
+        cf = cf_lookup.get(pd.Timestamp(resultaat.index[i]).normalize(), 0.0)
+        noemer = waarde_start + cf
+        if abs(noemer) < 1e-9:
+            continue
+        product *= waarde_eind / noemer
+        geldige_periode = True
+
+    if not geldige_periode:
+        return None
+    return product - 1
+
+
 def bereken_holdings_gak(transacties_df):
     """Per ticker: huidige aantal + GAK (gemiddelde aankoopkoers) via de
     lopende-gemiddelde-kostprijs-methode (zelfde methode als DEGIRO zelf
@@ -3367,21 +3443,25 @@ def bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_koersen)
     }
 
 
-def bereken_rendement_over_tijd(transacties_df, resultaat):
-    """Bouwt de twee lijnen voor het "XIRR & rendement"-tabblad: gewoon
-    rendement% (bereken_totaal_rendement) en XIRR% (bereken_xirr), allebei
-    op meerdere momenten in de tijd i.p.v. alleen het eindcijfer zoals op
-    Statistieken.
+def bereken_rendement_over_tijd(transacties_df, resultaat, stap="maand"):
+    """Bouwt de drie lijnen voor het "XIRR & rendement"-tabblad: gewoon
+    rendement% (bereken_totaal_rendement), XIRR% (bereken_xirr) en TWR%
+    (bereken_twr), allemaal op meerdere momenten in de tijd i.p.v. alleen
+    het eindcijfer zoals op Statistieken.
 
-    Stapgrootte: maandelijks (laatste dag van elke kalendermaand), van de
-    eerste tot de laatste datum in `resultaat` — resultaat.index.max() is in
-    de praktijk "vandaag" (de laatste beschikbare koersdatum), gebruikt i.p.v.
-    een aparte pd.Timestamp.now()-aanroep zodat deze functie puur/
-    deterministisch blijft. Dagelijks zou XIRR per dag herberekenen, wat
-    zwaar is en ruizig — geen meerwaarde t.o.v. maandelijks. De laatste
-    (huidige) datum wordt altijd als extra stap toegevoegd, ook als die
-    zelf geen maand-einde is, zodat de lijn nooit een stuk van de recentste
-    periode mist.
+    Stapgrootte via `stap`:
+      - "maand" (standaard): laatste dag van elke kalendermaand, van de
+        eerste tot de laatste datum in `resultaat` — resultaat.index.max()
+        is in de praktijk "vandaag" (de laatste beschikbare koersdatum),
+        gebruikt i.p.v. een aparte pd.Timestamp.now()-aanroep zodat deze
+        functie puur/deterministisch blijft. De laatste (huidige) datum
+        wordt altijd als extra stap toegevoegd, ook als die zelf geen
+        maand-einde is, zodat de lijn nooit een stuk van de recentste
+        periode mist. Licht genoeg om steeds automatisch te herberekenen.
+      - "dag": elke datum in `resultaat.index` — preciezer maar
+        herberekent bereken_xirr() per dag i.p.v. per maand, wat bij een
+        lange historie merkbaar traag kan zijn. Daarom alleen op expliciet
+        verzoek van de gebruiker (knop in de UI), niet als standaard.
 
     Per stapdatum d:
       - waarde/geinvesteerd = de bekende stand op of vóór d (zelfde
@@ -3395,24 +3475,35 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
         None terug bij te weinig/tegenstrijdige cashflows (bv. de eerste
         maand) — wordt hier gewoon doorgegeven, geen aparte afhandeling
         nodig.
+      - twr_pct: bereken_twr() op `resultaat` afgekapt t/m d (resultaat.loc[
+        :d]) — TWR is per definitie een gelinkte reeks van sub-periodes
+        vanaf het begin, dus herberekent bij elke stap opnieuw vanaf de
+        eerste datum (zelfde performance-kanttekening als xirr_pct
+        hierboven: prima bij stap="maand", kan bij stap="dag" over een
+        lange historie merkbaar trager worden, nog niet geoptimaliseerd).
+        Reageert NIET extreem vlak na een storting zoals xirr_pct dat wel
+        doet — dat is de reden om 'm ernaast te tonen, geen bug als de
+        lijnen dus duidelijk verschillend lopen vlak na een storting.
 
-    Geeft {"labels": [...maanden als YYYY-MM-DD...], "rendement_pct": [...],
-    "xirr_pct": [...]} terug (xirr_pct als percentage, dus 10.0 = 10%, niet
-    de fractie 0.10 die bereken_xirr zelf teruggeeft). Lege lijsten bij een
-    leeg resultaat."""
+    Geeft {"labels": [...als YYYY-MM-DD...], "rendement_pct": [...],
+    "xirr_pct": [...], "twr_pct": [...]} terug (xirr_pct/twr_pct als
+    percentage, dus 10.0 = 10%, niet de fractie 0.10 die bereken_xirr/
+    bereken_twr zelf teruggeven). Lege lijsten bij een leeg resultaat."""
     if resultaat.empty:
-        return {"labels": [], "rendement_pct": [], "xirr_pct": []}
+        return {"labels": [], "rendement_pct": [], "xirr_pct": [], "twr_pct": []}
 
     def waarde_op_of_voor(datum, kolom):
         subset = resultaat.loc[:datum, kolom]
         return float(subset.iloc[-1]) if len(subset) else 0.0
 
-    eerste_datum = resultaat.index.min()
-    laatste_datum = resultaat.index.max()
-
-    stap_datums = list(pd.date_range(eerste_datum, laatste_datum, freq="ME"))
-    if not stap_datums or stap_datums[-1] < laatste_datum:
-        stap_datums.append(laatste_datum)
+    if stap == "dag":
+        stap_datums = list(resultaat.index)
+    else:
+        eerste_datum = resultaat.index.min()
+        laatste_datum = resultaat.index.max()
+        stap_datums = list(pd.date_range(eerste_datum, laatste_datum, freq="ME"))
+        if not stap_datums or stap_datums[-1] < laatste_datum:
+            stap_datums.append(laatste_datum)
 
     alle_cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
     # laatste entry is de fictieve 'verkoop op laatste_datum' uit
@@ -3421,7 +3512,7 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
     # laatste_datum).
     echte_cashflows = alle_cashflows[:-1] if alle_cashflows else []
 
-    labels, rendement_pct_lijst, xirr_pct_lijst = [], [], []
+    labels, rendement_pct_lijst, xirr_pct_lijst, twr_pct_lijst = [], [], [], []
     for d in stap_datums:
         waarde = waarde_op_of_voor(d, "waarde")
         geinvesteerd = waarde_op_of_voor(d, "geinvesteerd")
@@ -3433,13 +3524,21 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
         if cashflows_tot_d:
             xirr = bereken_xirr(cashflows_tot_d + [(d.date(), waarde)])
 
+        twr = bereken_twr(transacties_df, resultaat.loc[:d])
+
         labels.append(d.strftime("%Y-%m-%d"))
         rendement_pct_lijst.append(
             round(rendement["rendement_pct"], 2) if rendement["rendement_pct"] is not None else None
         )
         xirr_pct_lijst.append(round(xirr * 100, 2) if xirr is not None else None)
+        twr_pct_lijst.append(round(twr * 100, 2) if twr is not None else None)
 
-    return {"labels": labels, "rendement_pct": rendement_pct_lijst, "xirr_pct": xirr_pct_lijst}
+    return {
+        "labels": labels,
+        "rendement_pct": rendement_pct_lijst,
+        "xirr_pct": xirr_pct_lijst,
+        "twr_pct": twr_pct_lijst,
+    }
 
 
 def bereken_totale_transactiekosten(transacties_df):
@@ -3552,6 +3651,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
 
     cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
     xirr_fractie = bereken_xirr(cashflows) if cashflows else None
+    twr_fractie = bereken_twr(transacties_df, resultaat)
 
     aantal_jaren = None
     if not resultaat.empty:
@@ -3575,6 +3675,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
         "geavanceerd": {
             "gemiddeld_jaarrendement_pct": gemiddeld_jaarrendement,
             "xirr_pct": round(xirr_fractie * 100, 2) if xirr_fractie is not None else None,
+            "twr_pct": round(twr_fractie * 100, 2) if twr_fractie is not None else None,
             "aantal_jaren": aantal_jaren,
         },
     }

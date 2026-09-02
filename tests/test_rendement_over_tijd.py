@@ -27,12 +27,12 @@ class TestRendementOverTijd(unittest.TestCase):
 
     def test_leeg_resultaat_geeft_lege_lijsten(self):
         r = bereken_rendement_over_tijd(pd.DataFrame(), pd.DataFrame())
-        self.assertEqual(r, {"labels": [], "rendement_pct": [], "xirr_pct": []})
+        self.assertEqual(r, {"labels": [], "rendement_pct": [], "xirr_pct": [], "twr_pct": []})
 
     def test_maandeinden_plus_laatste_datum_als_stappen(self):
         # Loopt van 15 jan t/m 10 maart -- geen van beide is een maandeinde,
         # dus de stappen moeten zijn: 31 jan, 28 feb, en de laatste
-        # beschikbare datum (10 maart) apart toegevoegd.
+        # beschikbare datum (10 maart) apart toegevoegd. Standaard stap="maand".
         index = pd.date_range("2023-01-15", "2023-03-10", freq="D")
         resultaat = pd.DataFrame(
             {"waarde": [1000.0] * len(index), "geinvesteerd": [1000.0] * len(index)},
@@ -41,6 +41,23 @@ class TestRendementOverTijd(unittest.TestCase):
         transacties_df = pd.DataFrame([self._rij("2023-01-15", 10.0, -1000.0)])
         r = bereken_rendement_over_tijd(transacties_df, resultaat)
         self.assertEqual(r["labels"], ["2023-01-31", "2023-02-28", "2023-03-10"])
+
+    def test_stap_dag_geeft_elke_dag_in_resultaat_als_stap(self):
+        # Zelfde periode als hierboven, maar met stap="dag" -- elke dag in
+        # resultaat.index moet dan een eigen stap opleveren, niet alleen
+        # maandeinden. Dit is de duurdere modus die de gebruiker expliciet
+        # via een knop aanvraagt (zie rendement-over-tijd endpoint).
+        index = pd.date_range("2023-01-15", "2023-01-20", freq="D")
+        resultaat = pd.DataFrame(
+            {"waarde": [1000.0] * len(index), "geinvesteerd": [1000.0] * len(index)},
+            index=index,
+        )
+        transacties_df = pd.DataFrame([self._rij("2023-01-15", 10.0, -1000.0)])
+        r = bereken_rendement_over_tijd(transacties_df, resultaat, stap="dag")
+        self.assertEqual(
+            r["labels"],
+            ["2023-01-15", "2023-01-16", "2023-01-17", "2023-01-18", "2023-01-19", "2023-01-20"],
+        )
 
     def test_rendement_pct_matcht_bereken_totaal_rendement(self):
         index = pd.date_range("2023-01-01", "2023-02-28", freq="D")
@@ -81,6 +98,30 @@ class TestRendementOverTijd(unittest.TestCase):
         r = bereken_rendement_over_tijd(transacties_df, resultaat)
         self.assertEqual(r["labels"][-1], "2024-01-01")
         self.assertAlmostEqual(r["xirr_pct"][-1], 10.0, places=2)
+
+    def test_twr_pct_reageert_niet_op_timing_van_bijstorting(self):
+        # Zelfde voorbeeld als test_twr.py: een bijstorting vlak voor een
+        # koersstijging mag geen (XIRR-achtig) vertekend rendement geven --
+        # TWR moet op elke stap gewoon de gelinkte 10% laten zien, ook op de
+        # tussenstap net na de bijstorting (waar de "gewone" rendement_pct
+        # nog geen zinnig cijfer geeft omdat de bijstorting zelf al waarde
+        # toevoegt).
+        index = pd.date_range("2023-01-01", "2023-02-01", freq="D")
+        waarden = []
+        for d in index:
+            if d < pd.Timestamp("2023-01-15"):
+                waarden.append(1000.0)
+            elif d < pd.Timestamp("2023-02-01"):
+                waarden.append(2000.0)
+            else:
+                waarden.append(2200.0)
+        resultaat = pd.DataFrame({"waarde": waarden, "geinvesteerd": [1000.0] * len(index)}, index=index)
+        transacties_df = pd.DataFrame([
+            self._rij("2023-01-01", 10.0, -1000.0),
+            self._rij("2023-01-15", 10.0, -1000.0),
+        ])
+        r = bereken_rendement_over_tijd(transacties_df, resultaat, stap="dag")
+        self.assertAlmostEqual(r["twr_pct"][-1], 10.0, places=2)
 
 
 if __name__ == "__main__":

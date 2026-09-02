@@ -435,15 +435,20 @@ def rendement_over_tijd(code):
     het hoofd-dashboard-antwoord, want dit herberekent XIRR voor elke
     maandelijkse stap (zie bereken_rendement_over_tijd), wat de hoofdpagina
     onnodig zou vertragen voor een tabblad dat niet elk bezoek bekeken wordt.
+
+    ?stap=dag laat de gebruiker via een knop in de UI de duurdere, dagelijkse
+    berekening opvragen (zie bereken_rendement_over_tijd) -- standaard blijft
+    het lichtere "maand".
     """
     code = code.strip().upper()
+    stap = "dag" if request.args.get("stap") == "dag" else "maand"
     transacties_df, resultaat = _laad_transacties_en_resultaat(code)
     if transacties_df is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     if resultaat is None:
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
-    return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat))
+    return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat, stap=stap))
 
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid")
