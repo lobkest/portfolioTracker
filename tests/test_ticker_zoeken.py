@@ -17,7 +17,10 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis
-from analysis import _zoek_product_progressief, _woorden_varianten, BEURS_MAP
+from analysis import (
+    _zoek_product_progressief, _woorden_varianten, BEURS_MAP,
+    find_ticker_detailed, MANUAL_TICKER_OVERRIDES_ISIN,
+)
 
 
 def _quote(symbol, exchange):
@@ -140,6 +143,40 @@ class TestZoekProductProgressief(unittest.TestCase):
         kortste_query = min(gezochte_queries, key=lambda q: len(q.split()))
         self.assertEqual(len(kortste_query.split()), 3)
         self.assertNotIn("VANECK GOLD", gezochte_queries)  # 2 woorden, te kort
+
+
+class TestFindTickerDetailedIsinOverride(unittest.TestCase):
+    """
+    Regressietest voor het BYD-geval (ISIN CNE100000296, beurs 'TDG'):
+    de zoekopdracht voor productnaam 'BYD COMPANY LIMITED' vindt een
+    'zekere' (want exacte beurs-)match op Frankfurt (4BY1.F), maar dat is
+    de verkeerde notering -- de koers klopt structureel niet met de echte
+    DEGIRO-transactieprijzen. De juiste notering (BY6.MU, München) staat
+    wel in Yahoo's index, maar wordt alleen gevonden met de spelling
+    'BYD CO LTD'/'BYD Co Ltd' -- progressief inkorten van 'BYD COMPANY
+    LIMITED' kan die andere spelling nooit bereiken (geen woord weglaten
+    maakt er 'CO LTD' van). MANUAL_TICKER_OVERRIDES_ISIN lost dit op door
+    de (ISIN, Beurs)-combinatie vóór het zoeken al te herkennen.
+    """
+
+    def test_isin_override_wint_van_automatische_zekere_match(self):
+        with patch.object(analysis, "_yahoo_search") as mock_search:
+            resultaat = find_ticker_detailed("BYD COMPANY LIMITED", "CNE100000296", "TDG")
+
+        self.assertEqual(resultaat, {"ticker": "BY6.MU", "zekerheid": "zeker", "alternatieven": []})
+        # De hele pointe van een vóóraf gecontroleerde override: geen enkele
+        # (dure, rate-limit-gevoelige) yahooquery-call is hiervoor nodig.
+        mock_search.assert_not_called()
+
+    def test_override_geldt_alleen_voor_de_exacte_isin_beurs_combinatie(self):
+        # Zelfde ISIN maar een andere beurs (bv. de eigen Hongkong-notering)
+        # mag NIET door de BYD/TDG-override geraakt worden -- normale
+        # zoeklogica moet gewoon blijven draaien.
+        self.assertNotIn(("CNE100000296", "HKG"), MANUAL_TICKER_OVERRIDES_ISIN)
+        with patch.object(analysis, "_yahoo_search", return_value=[{"symbol": "1211.HK", "exchange": "HKG"}]):
+            resultaat = find_ticker_detailed("BYD COMPANY LIMITED", "CNE100000296", "HKG")
+
+        self.assertEqual(resultaat["ticker"], "1211.HK")
 
 
 if __name__ == "__main__":
