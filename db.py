@@ -119,6 +119,10 @@ def init_db():
             PRIMARY KEY (ticker, datum)
         );
     """)
+    # high/low kwamen later bij (High/Low-dagrange op de Ticker-zekerheid-
+    # pagina) -- bestaande rijen missen deze kolommen nog.
+    cur.execute("ALTER TABLE ticker_prijscheck ADD COLUMN IF NOT EXISTS high NUMERIC;")
+    cur.execute("ALTER TABLE ticker_prijscheck ADD COLUMN IF NOT EXISTS low NUMERIC;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_splits (
             ticker TEXT PRIMARY KEY,
@@ -315,13 +319,16 @@ def save_etf_holdings(etf_ticker, holdings_lijst):
 
 def get_cached_prijscheck(ticker, datum):
     """
-    Geeft (yahoo_slotkoers, valuta) terug als deze (ticker, datum)-combinatie
-    al eens gecontroleerd is, anders None. yahoo_slotkoers kan zelf None
-    zijn (een eerdere mislukte poging die toch gecached is — zie
-    save_prijscheck) — het verschil tussen "nog nooit geprobeerd" (deze
+    Geeft (yahoo_slotkoers, valuta, high, low) terug als deze (ticker,
+    datum)-combinatie al eens gecontroleerd is, anders None. yahoo_slotkoers
+    kan zelf None zijn (een eerdere mislukte poging die toch gecached is —
+    zie save_prijscheck) — het verschil tussen "nog nooit geprobeerd" (deze
     functie geeft None) en "geprobeerd maar mislukt" (tuple met None erin)
     is precies wat de aanroeper nodig heeft om te weten of het zin heeft om
-    het opnieuw te proberen.
+    het opnieuw te proberen. high/low kunnen ook None zijn terwijl
+    yahoo_slotkoers wél bekend is — een rij van vóór de dagrange-uitbreiding,
+    of een dagrange-fetch die destijds mislukte; de aanroeper (analysis.
+    vergelijk_prijs_op_datum) beslist of dat een nieuwe poging waard is.
 
     Historische slotkoersen veranderen nooit met terugwerkende kracht, dus
     deze cache heeft — anders dan de andere caches in dit bestand — geen
@@ -330,7 +337,7 @@ def get_cached_prijscheck(ticker, datum):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT yahoo_slotkoers, valuta FROM ticker_prijscheck WHERE ticker = %s AND datum = %s",
+        "SELECT yahoo_slotkoers, valuta, high, low FROM ticker_prijscheck WHERE ticker = %s AND datum = %s",
         (ticker, datum),
     )
     row = cur.fetchone()
@@ -338,11 +345,16 @@ def get_cached_prijscheck(ticker, datum):
     conn.close()
     if row is None:
         return None
-    yahoo_slotkoers, valuta = row
-    return (float(yahoo_slotkoers) if yahoo_slotkoers is not None else None, valuta)
+    yahoo_slotkoers, valuta, high, low = row
+    return (
+        float(yahoo_slotkoers) if yahoo_slotkoers is not None else None,
+        valuta,
+        float(high) if high is not None else None,
+        float(low) if low is not None else None,
+    )
 
 
-def save_prijscheck(ticker, datum, koers, valuta):
+def save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
     """
     Cacht een historische-slotkoers-check permanent — bewust ook als koers
     None is (mislukte lookup). Dit wijkt af van de "None niet cachen"-regel
@@ -350,14 +362,22 @@ def save_prijscheck(ticker, datum, koers, valuta):
     volgende keer wél lukken (bv. na een tijdelijke rate limit), maar hier
     verandert de onderliggende historische koers nooit — als Yahoo op dit
     moment geen koers heeft voor deze ticker op deze datum, blijft dat zo.
+
+    ON CONFLICT ... DO UPDATE (niet DO NOTHING): een hernieuwde aanroep met
+    inmiddels wél bekende high/low (bv. een rij van vóór de dagrange-
+    uitbreiding) moet die alsnog kunnen bijschrijven, anders blijft een
+    bestaande NULL-rij voor altijd zonder dagrange staan — precies de bug
+    die dividenden.dividend_id destijds had (zie CLAUDE.md).
     """
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO ticker_prijscheck (ticker, datum, yahoo_slotkoers, valuta) VALUES (%s, %s, %s, %s) "
+        "INSERT INTO ticker_prijscheck (ticker, datum, yahoo_slotkoers, valuta, high, low) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (ticker, datum) DO UPDATE SET yahoo_slotkoers = EXCLUDED.yahoo_slotkoers, "
-        "valuta = EXCLUDED.valuta, opgehaald_op = CURRENT_TIMESTAMP",
-        (ticker, datum, koers, valuta),
+        "valuta = EXCLUDED.valuta, high = EXCLUDED.high, low = EXCLUDED.low, "
+        "opgehaald_op = CURRENT_TIMESTAMP",
+        (ticker, datum, koers, valuta, high, low),
     )
     conn.commit()
     cur.close()

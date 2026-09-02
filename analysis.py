@@ -2121,6 +2121,45 @@ def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=3, wachttijd=8):
     return float(geldig.iloc[0])
 
 
+def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=3, wachttijd=8):
+    """
+    Zelfde als _haal_slotkoers_op hierboven (retry/backoff + weekend/
+    feestdag-buffer), maar geeft (high, low) van de handelsdag terug i.p.v.
+    de slotkoers -- voor de dagrange-check op de Ticker-zekerheid-pagina
+    (staat de Excel-transactieprijs tussen het intraday-high en -low). Losse
+    functie i.p.v. _haal_slotkoers_op uit te breiden: die wordt ook gebruikt
+    voor FX-koersen (_fx_koers_op_datum), waar een dagrange niet relevant is.
+    Geeft (None, None) terug bij dezelfde faalcondities als _haal_slotkoers_op.
+    """
+    einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
+    for poging in range(1, pogingen + 1):
+        try:
+            raw = yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["High", "Low"]]
+            break
+        except Exception as e:
+            is_rate_limit = "rate limit" in str(e).lower() or "too many requests" in str(e).lower()
+            if is_rate_limit and poging < pogingen:
+                wacht = wachttijd * poging
+                print(f"[prijscheck] rate limited voor dagrange '{ticker}' (poging {poging}/{pogingen}), "
+                      f"{wacht}s wachten...")
+                time.sleep(wacht)
+                continue
+            print(f"[prijscheck] ❌ kon dagrange niet ophalen voor '{ticker}' rond {datum}: {e}")
+            return None, None
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        # yf.download geeft bij 1 ticker soms toch multi-index-kolommen terug.
+        raw.columns = raw.columns.get_level_values(0)
+
+    geldig = raw.dropna()
+    if geldig.empty:
+        print(f"[prijscheck] ⚠️ geen dagrange gevonden voor '{ticker}' rond {datum}")
+        return None, None
+
+    eerste = geldig.iloc[0]
+    return float(eerste["High"]), float(eerste["Low"])
+
+
 def _haal_splits_op(ticker):
     """
     Haalt de bekende aandelensplitsingen van 'ticker' op via yfinance,
@@ -2222,26 +2261,43 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     Permanent gecached (tabel ticker_prijscheck) — zie db.save_prijscheck
     voor waarom ook een mislukte lookup hier wél gecached wordt, anders dan
     bij de overige caches in dit project.
+
+    Haalt ook het intraday-high/low van diezelfde handelsdag op (zie
+    _haal_dagrange_op) en geeft in het resultaat "binnen_dagrange" terug:
+    of bekende_koers (na dezelfde EUR/split-correctie als yahoo_koers)
+    tussen dat low en high valt. None als er geen high/low beschikbaar is
+    (bv. een mislukte fetch, of geen vergelijking mogelijk — zie de
+    early-returns hieronder) — de aanroeper valt dan terug op de bestaande
+    %-afwijkingsdrempel.
     """
     datum = pd.Timestamp(datum).date()
     cached = get_cached_prijscheck(ticker, datum)
     if cached is not None:
-        yahoo_koers, valuta = cached
+        yahoo_koers, valuta, high, low = cached
         dprint(f"[prijscheck] '{ticker}' op {datum}: uit cache -> yahoo_koers={yahoo_koers}")
+        if yahoo_koers is not None and high is None and low is None:
+            # Rij van vóór de dagrange-uitbreiding, of een eerder mislukte
+            # dagrange-fetch -- alsnog proberen aan te vullen (zelfde soort
+            # stale-cache-fix als bij ticker_info, zie CLAUDE.md).
+            high, low = _haal_dagrange_op(ticker, datum)
+            save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
     else:
         yahoo_koers = _haal_slotkoers_op(ticker, datum)
         valuta = _ticker_details_met_cache(ticker).get("valuta")
+        high, low = _haal_dagrange_op(ticker, datum) if yahoo_koers is not None else (None, None)
         print(f"[prijscheck] '{ticker}' op {datum}: opgehaald -> yahoo_koers={yahoo_koers} ({valuta})")
-        save_prijscheck(ticker, datum, yahoo_koers, valuta)
+        save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
     if yahoo_koers is None or not bekende_koers:
         return {
             "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
             "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
+            "high": high, "low": low, "binnen_dagrange": None,
         }
 
     valuta_conversie_toegepast = False
     yahoo_koers_eur = yahoo_koers
+    high_eur, low_eur = high, low
     if valuta not in (None, "EUR"):
         fx_koers = _fx_koers_op_datum(valuta, datum)
         if fx_koers is None:
@@ -2252,18 +2308,29 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
             return {
                 "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
                 "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
+                "high": high, "low": low, "binnen_dagrange": None,
             }
         divisor = 100 if valuta == "GBp" else 1
         yahoo_koers_eur = yahoo_koers / divisor * fx_koers
+        if high_eur is not None and low_eur is not None:
+            high_eur = high_eur / divisor * fx_koers
+            low_eur = low_eur / divisor * fx_koers
         valuta_conversie_toegepast = True
         print(f"[prijscheck] '{ticker}' op {datum}: valutaconversie toegepast ({valuta} -> EUR, "
               f"FX-koers {fx_koers:.4f}) -> yahoo_koers {yahoo_koers} wordt {yahoo_koers_eur:.4f}")
 
     split_factor = _cumulatieve_split_factor(ticker, datum)
     yahoo_koers_gecorrigeerd = yahoo_koers_eur * split_factor
+    if high_eur is not None and low_eur is not None:
+        high_eur = high_eur * split_factor
+        low_eur = low_eur * split_factor
     if split_factor != 1.0:
         print(f"[prijscheck] '{ticker}' op {datum}: split-correctie toegepast (factor {split_factor:.4f}) "
               f"-> yahoo_koers {yahoo_koers_eur} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
+
+    binnen_dagrange = (
+        low_eur <= bekende_koers <= high_eur if (high_eur is not None and low_eur is not None) else None
+    )
 
     afwijking_pct = abs(yahoo_koers_gecorrigeerd - bekende_koers) / bekende_koers * 100
     afwijking_fractie = afwijking_pct / 100
@@ -2283,6 +2350,9 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         "afwijking_pct": afwijking_pct,
         "niveau": niveau,
         "match": niveau != "waarschuwing",
+        "high": high_eur if toon_gecorrigeerd else high,
+        "low": low_eur if toon_gecorrigeerd else low,
+        "binnen_dagrange": binnen_dagrange,
     }
 
 
@@ -2421,6 +2491,23 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
     return alternatieven, aanbevolen_alternatief
 
 
+def _prijscheck_is_probleem(check):
+    """
+    Of één prijscheck als 'probleem' telt voor de samenvattende
+    waarschuwingsmeldingen (verifieer_ticker_met_prijs hieronder,
+    prijswaarschuwing_voor_ticker verderop): primair op basis van de
+    dagrange (valt de Excel-koers buiten het intraday-high/low van die
+    handelsdag), met terugval op de bestaande %-afwijkingsdrempel
+    (PRIJSCHECK_DREMPEL_WAARSCHUWING, via het al berekende 'match') als er
+    geen dagrange beschikbaar is — bv. een mislukte High/Low-fetch, zodat
+    geen dekking verloren gaat waar de dagrange-check niet kan draaien.
+    """
+    binnen_dagrange = check.get("binnen_dagrange")
+    if binnen_dagrange is not None:
+        return not binnen_dagrange
+    return check["match"] is False
+
+
 def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     """
     Zoekt de ticker zoals find_ticker_detailed(), maar herbeoordeelt de
@@ -2452,9 +2539,10 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
         check["datum"] = str(t["datum"])
         prijs_checks.append(check)
 
-    bekende_matches = [c["match"] for c in prijs_checks if c["match"] is not None]
-    prijs_bekend = len(bekende_matches) > 0
-    prijs_klopt = prijs_bekend and all(bekende_matches)
+    bekende_checks = [c for c in prijs_checks if c["match"] is not None]
+    prijs_bekend = len(bekende_checks) > 0
+    problemen = [c for c in bekende_checks if _prijscheck_is_probleem(c)]
+    prijs_klopt = prijs_bekend and not problemen
 
     waarschuwing = None
     if zekerheid == "zeker" and (not prijs_bekend or not prijs_klopt):
@@ -2465,11 +2553,10 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
                 f"mogelijk een verkeerde of niet-bestaande ticker."
             )
         else:
-            afwijkende = [c for c in prijs_checks if c["match"] is False]
-            grootste = max(afwijkende, key=lambda c: c["afwijking_pct"])
+            grootste = max(problemen, key=lambda c: c["afwijking_pct"])
             waarschuwing = (
-                f"Beurs komt overeen, maar {len(afwijkende)} van de {len(bekende_matches)} gecontroleerde "
-                f"datums wijkt meer dan {PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:.0f}% af (grootste afwijking "
+                f"Beurs komt overeen, maar {len(problemen)} van de {len(bekende_checks)} gecontroleerde "
+                f"datums valt buiten de dagrange (grootste afwijking "
                 f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
             )
         print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
@@ -2726,9 +2813,14 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin):
 
     laatste = max(geldige_transacties, key=lambda t: t["datum"])
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
-    if check["afwijking_pct"] is None or check["afwijking_pct"] <= PRIJSCHECK_DREMPEL_WAARSCHUWING * 100:
+    if check["afwijking_pct"] is None or not _prijscheck_is_probleem(check):
         return None
 
+    if check.get("binnen_dagrange") is False:
+        return (
+            f"Koers van {ticker} valt op {laatste['datum']} buiten de dagrange (high/low) van "
+            f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
+        )
     return (
         f"Koers van {ticker} wijkt {check['afwijking_pct']:.1f}% af van Yahoo — "
         f"controleer op het Ticker-zekerheid-tabblad."

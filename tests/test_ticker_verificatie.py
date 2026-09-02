@@ -167,11 +167,20 @@ class TestPrijscheckCache(unittest.TestCase):
             call_count["n"] += 1
             return 123.45
 
+        dagrange_call_count = {"n": 0}
+
+        def fake_haal_dagrange_op(ticker, datum, **kwargs):
+            dagrange_call_count["n"] += 1
+            return (130.0, 120.0)
+
         with patch.object(analysis, "_haal_slotkoers_op", side_effect=fake_haal_slotkoers_op), \
+             patch.object(analysis, "_haal_dagrange_op", side_effect=fake_haal_dagrange_op), \
              patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}), \
              patch.object(analysis, "_haal_splits_op", return_value={}):
             eerste = vergelijk_prijs_op_datum(self.TEST_TICKER, self.TEST_DATUM, 123.45)
             tweede = vergelijk_prijs_op_datum(self.TEST_TICKER, self.TEST_DATUM, 123.45)
+
+        self.assertEqual(dagrange_call_count["n"], 1)
 
         self.assertEqual(call_count["n"], 1)
         self.assertEqual(eerste["yahoo_koers"], 123.45)
@@ -188,6 +197,7 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
     stack = ExitStack()
     stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
     stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", return_value=yahoo_koers))
+    stack.enter_context(patch.object(analysis, "_haal_dagrange_op", return_value=(None, None)))
     stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
     stack.enter_context(patch.object(analysis, "save_prijscheck"))
     stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value=splits or {}))
@@ -259,6 +269,7 @@ class TestValutaConversie(unittest.TestCase):
         stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": valuta}))
         stack.enter_context(patch.object(analysis, "save_prijscheck"))
         stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))
+        stack.enter_context(patch.object(analysis, "_haal_dagrange_op", return_value=(None, None)))
 
         def fake_slotkoers(ticker, datum, *a, **kw):
             if ticker in ("USDEUR=X", "GBPEUR=X"):
