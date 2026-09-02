@@ -82,6 +82,13 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
 
+        # Generieke placeholder-tickers (AAA/ALT1-5), geen echt fonds of
+        # aandeel -- classify_ticker() zou anders de echte database aanraken
+        # (KeyError: 'DATABASE_URL' zonder .env, zie CLAUDE.md).
+        classify_patch = patch.object(analysis, "classify_ticker", return_value=False)
+        classify_patch.start()
+        self.addCleanup(classify_patch.stop)
+
     def test_kandidaten_na_overtuigende_match_worden_niet_meer_gecheckt(self):
         call_count = {}
 
@@ -394,6 +401,10 @@ class TestZekerheidOordeelMetMildeAfwijking(unittest.TestCase):
         land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
+        # AKZA.AS (AKZO NOBEL) is een gewoon aandeel, geen ETF.
+        classify_patch = patch.object(analysis, "classify_ticker", return_value=False)
+        classify_patch.start()
+        self.addCleanup(classify_patch.stop)
 
     def test_alleen_milde_afwijkingen_blijft_zeker(self):
         # side_effect (i.p.v. return_value) geeft elke aanroep een NIEUW
@@ -450,7 +461,11 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
         ), patch.object(
             analysis, "vergelijk_prijs_op_datum",
             side_effect=lambda *a, **kw: _prijscheck(match=None, afwijking_pct=None, yahoo_koers=None),
-        ) as mock_vergelijk:
+        ) as mock_vergelijk, patch.object(
+            # VanEck Gold Miners is een ETF -- G2X.MU/ALT zijn beide
+            # kandidaat-tickers voor datzelfde fonds.
+            analysis, "classify_ticker", return_value=True,
+        ):
             resultaat = verifieer_ticker_met_prijs("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", self.transacties)
 
         self.assertEqual(resultaat["zekerheid"], "onzeker")
@@ -469,7 +484,10 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
                     {"symbol": "GDX.L", "exchange": "LSE"},
                 ],
             },
-        ), patch.object(analysis, "vergelijk_prijs_op_datum") as mock_vergelijk:
+        ), patch.object(analysis, "vergelijk_prijs_op_datum") as mock_vergelijk, patch.object(
+            # VanEck Gold Miners / GDX.L zijn beide ETF's.
+            analysis, "classify_ticker", return_value=True,
+        ):
             def fake_vergelijk(ticker, datum, bekende_koers):
                 if ticker == "G2X.MU":
                     return _prijscheck(match=None, afwijking_pct=None, yahoo_koers=None)
@@ -490,7 +508,7 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
         ), patch.object(
             analysis, "vergelijk_prijs_op_datum",
             side_effect=lambda *a, **kw: _prijscheck(match=True, afwijking_pct=1.0, yahoo_koers=100.0),
-        ):
+        ), patch.object(analysis, "classify_ticker", return_value=False):  # AAPL is een aandeel
             resultaat = verifieer_ticker_met_prijs("APPLE INC", "US0378331005", "NASDAQ", self.transacties)
 
         self.assertEqual(resultaat["zekerheid"], "zeker")

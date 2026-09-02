@@ -101,6 +101,10 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
         land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
+        # AAPL is een aandeel, geen ETF.
+        classify_patch = patch.object(analysis, "classify_ticker", return_value=False)
+        classify_patch.start()
+        self.addCleanup(classify_patch.stop)
 
     def _check(self, **overrides):
         basis = {
