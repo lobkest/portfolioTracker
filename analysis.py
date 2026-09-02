@@ -91,6 +91,19 @@ MANUAL_TICKER_OVERRIDES = {
     "VANGUARD FTSE ALL-WORLD UCITS": "VWRL.AS",
 }
 
+# Benchmarks voor de rendement-vergelijking (zie bereken_benchmark_
+# vergelijking hieronder) -- allemaal accumulerende (Acc.) UCITS-ETF's in
+# EUR, zodat get_prices() ze zonder extra dividend-boekhouding kan gebruiken.
+# S&P 500/Nasdaq 100 waren al bekend uit ETF_HOLDINGS_BRON; AEX is apart
+# opgezocht en getest (yf.Ticker("IAEA.AS").info -> "iShares AEX UCITS ETF
+# EUR (Acc)", koersdata vanaf 2020-07-29) -- er bestaat geen accumulerende
+# AEX-ETF met een langere koershistorie op Yahoo.
+BENCHMARK_TICKERS = {
+    "S&P 500": "VUSA.AS",
+    "Nasdaq 100": "CNDX.AS",
+    "AEX": "IAEA.AS",
+}
+
 # Handmatige overrides voor bedrijfsnamen die _normaliseer_bedrijfsnaam()
 # (lowercase + leestekens weg) niet tot dezelfde sleutel herleidt, omdat
 # providers niet alleen qua casing/leestekens verschillen maar ook qua
@@ -1261,6 +1274,7 @@ def compute_per_ticker(transacties_df, price_data):
             "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
             "waarde": df_t["waarde"].round(2).tolist(),
             "geinvesteerd": df_t["geinvesteerd"].round(2).tolist(),
+            "nog_in_bezit": is_still_held,
         }
     return result
 
@@ -1603,7 +1617,7 @@ def _normaliseer_bedrijfsnaam(naam):
     return BEDRIJF_NAAM_OVERRIDES.get(schoon, schoon)
 
 
-def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=10):
+def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=20):
     """
     Top-N onderliggende bedrijven van de hele portfolio (via ETF's + losse
     aandelen), met per bedrijf een uitsplitsing van via welke posities
@@ -1612,13 +1626,17 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=10):
     of meer ETF's als los wordt aangehouden. Zelfde basis als
     compute_land_sector_verdeling() hierboven: huidige holdings
     (aantal x laatste koers, de "aantal"-kolom, niet "adj_aantal") zodat
-    de totalen op elkaar aansluiten.
+    de totalen op elkaar aansluiten. Voor de gestapelde-staafgrafiek-
+    weergave op het "Top 20 bedrijven"-tabblad (zie static/js/app.js,
+    renderGestapeldeStaafgrafiek): "totaal_pct" en "per_bron" zijn beide al
+    percentages van totaal_waarde, dus per_bron-waarden per bedrijf tellen
+    op tot totaal_pct van dat bedrijf -- direct bruikbaar als stack.
 
     Geeft terug:
         {
             "top": [
-                {"bedrijf": "Apple Inc", "waarde": 1234.56,
-                 "per_bron": {"CSPX.AS": 800.0, "AAPL": 434.56}},
+                {"bedrijf": "Apple Inc", "waarde": 1234.56, "totaal_pct": 24.69,
+                 "per_bron": {"CSPX.AS": 16.0, "AAPL": 8.69}},
                 ...
             ],  # aflopend gesorteerd op waarde, max top_n items
             "overig": 321.00,      # bedrijven buiten de top-N + het
@@ -1631,6 +1649,11 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=10):
                                     # daadwerkelijk aan een bekend bedrijf
                                     # is toegewezen (dus 1 - onbekend-restant)
             "totaal_waarde": 5000.0,
+            "bronnen": [{"ticker": "CSPX.AS", "naam": "ISHARES CORE MSCI WORLD..."}, ...],
+                # alle bronnen die ergens in de top-N voorkomen, aflopend op
+                # totale bijdrage -- voor een consistente legenda-volgorde in
+                # de frontend. "naam" komt uit de bestaande product-/
+                # bijnaam-kolom in transacties_df, geen extra yfinance-call.
         }
     """
     transacties_df = transacties_df.dropna(subset=["ticker"])
@@ -1639,6 +1662,15 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=10):
 
     tickers = [t for t in huidige_holdings.index if t in price_data.columns]
     is_etf_map = classify_tickers(tickers)
+
+    bron_namen = {}
+    if "product" in transacties_df.columns:
+        bron_namen = (
+            transacties_df.dropna(subset=["ticker"])
+            .drop_duplicates(subset=["ticker"], keep="last")
+            .set_index("ticker")["product"]
+            .to_dict()
+        )
 
     bedrijven = {}
     totaal_waarde = 0.0
@@ -1680,18 +1712,29 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=10):
     top = gesorteerd[:top_n]
     overig = sum(e["waarde"] for e in gesorteerd[top_n:]) + (totaal_waarde - gedekte_waarde)
 
+    def naar_pct(bedrag):
+        return (bedrag / totaal_waarde * 100) if totaal_waarde > 0 else 0.0
+
+    bron_totalen = {}
+    top_resultaat = []
+    for e in top:
+        for bron_ticker, bedrag in e["per_bron"].items():
+            bron_totalen[bron_ticker] = bron_totalen.get(bron_ticker, 0.0) + bedrag
+        top_resultaat.append({
+            "bedrijf": e["naam"],
+            "waarde": round(e["waarde"], 2),
+            "totaal_pct": round(naar_pct(e["waarde"]), 4),
+            "per_bron": {k: round(naar_pct(v), 4) for k, v in e["per_bron"].items()},
+        })
+
+    bronnen_gesorteerd = sorted(bron_totalen.keys(), key=lambda t: bron_totalen[t], reverse=True)
+
     return {
-        "top": [
-            {
-                "bedrijf": e["naam"],
-                "waarde": round(e["waarde"], 2),
-                "per_bron": {k: round(v, 2) for k, v in e["per_bron"].items()},
-            }
-            for e in top
-        ],
+        "top": top_resultaat,
         "overig": round(overig, 2),
         "dekking_pct": (gedekte_waarde / totaal_waarde) if totaal_waarde > 0 else 0.0,
         "totaal_waarde": round(totaal_waarde, 2),
+        "bronnen": [{"ticker": t, "naam": bron_namen.get(t, t)} for t in bronnen_gesorteerd],
     }
 
 
@@ -1817,11 +1860,27 @@ def compute_land_sector_verdeling(transacties_df, price_data):
                 "CSPX.AS": {"land": {...}, "sector": {...}},   # fracties 0-1, dit fonds z'n eigen verdeling
                 ...
             },
+            "land_per_bron": {
+                "United States": {"CSPX.AS": 800.0, "AAPL": 200.0}, ...
+            },  # zelfde totalen als "land", maar per categorie uitgesplitst
+                # naar welke positie (ETF-ticker of los aandeel) 'm inbrengt
+                # -- voor de gestapelde-staafgrafiek-weergave op het Land-
+                # tabblad (renderGestapeldeStaafgrafiek in app.js). LET OP:
+                # dit is de RUWE, ongegroepeerde verdeling (geen Overig-/
+                # Europa-samenvoeging zoals bij "land"/"land_europa" -- die
+                # groeperingen slaan een keuze in het totaal-bedrag, niet in
+                # de per-bron-uitsplitsing, dus consequent los gehouden).
+            "sector_per_bron": {...},  # zelfde idee, voor sector
         }
     """
     def optellen(dct, key, bedrag):
         key = key or "Unknown"
         dct[key] = dct.get(key, 0.0) + bedrag
+
+    def optellen_per_bron(dct, key, bron_ticker, bedrag):
+        key = key or "Unknown"
+        rij = dct.setdefault(key, {})
+        rij[bron_ticker] = rij.get(bron_ticker, 0.0) + bedrag
 
     transacties_df = transacties_df.dropna(subset=["ticker"])
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
@@ -1833,6 +1892,8 @@ def compute_land_sector_verdeling(transacties_df, price_data):
     land = {}
     sector = {}
     per_etf = {}
+    land_per_bron = {}
+    sector_per_bron = {}
 
     for ticker, aantal in huidige_holdings.items():
         if ticker not in price_data.columns:
@@ -1867,14 +1928,18 @@ def compute_land_sector_verdeling(transacties_df, price_data):
 
             for naam, gewicht in etf_sector_pct.items():
                 optellen(sector, naam, waarde * gewicht)
+                optellen_per_bron(sector_per_bron, naam, ticker, waarde * gewicht)
             for naam, gewicht in etf_land_pct.items():
                 optellen(land, naam, waarde * gewicht)
+                optellen_per_bron(land_per_bron, naam, ticker, waarde * gewicht)
 
             per_etf[ticker] = {"land": etf_land_pct, "sector": etf_sector_pct, "land_bron": land_bron}
         else:
             aandeel_land, aandeel_sector = get_land_sector(ticker)
             optellen(land, aandeel_land, waarde)
+            optellen_per_bron(land_per_bron, aandeel_land, ticker, waarde)
             optellen(sector, aandeel_sector, waarde)
+            optellen_per_bron(sector_per_bron, aandeel_sector, ticker, waarde)
 
     land_europa_gegroepeerd = _groepeer_europa_samen(land)
     return {
@@ -1885,6 +1950,8 @@ def compute_land_sector_verdeling(transacties_df, price_data):
         ),
         "sector": sector,
         "per_etf": per_etf,
+        "land_per_bron": land_per_bron,
+        "sector_per_bron": sector_per_bron,
     }
 
 
@@ -3216,6 +3283,163 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
     cashflows.append((pd.Timestamp(laatste_datum).date(), laatste_waarde))
     cashflows.sort(key=lambda c: c[0])
     return cashflows
+
+
+def bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_koersen):
+    """Simuleert wat de portfolio waard zou zijn geweest als exact dezelfde
+    cashflows (zelfde bedrag, zelfde datum) in een benchmark waren gestoken
+    i.p.v. in de echte posities — voor de "Vergelijk met..."-optie op het
+    Rendement-tabblad (zie BENCHMARK_TICKERS hierboven).
+
+    `benchmark_koersen`: pd.Series, datum-index -> koers in EUR (al
+    opgehaald door de aanroeper via de bestaande get_prices()-cache, zie
+    app.py) — deze functie blijft bewust DB/netwerk-vrij, zelfde patroon als
+    compute_value_over_time()/compute_per_ticker() die ook al opgehaalde
+    price_data als parameter krijgen i.p.v. zelf te fetchen.
+
+    Hergebruikt _bouw_xirr_cashflows() (zelfde cashflows als XIRR): bedrag is
+    daar negatief bij een investering (geld uit) en positief bij een
+    onttrekking (geld terug) — dus een benchmark-"aankoop" ter grootte van
+    het bedrag is `aantal += -bedrag / koers` (bij een onttrekking is bedrag
+    positief en -bedrag/koers dus negatief, wat de hypothetische positie
+    evenredig verkleint). De laatste entry in die lijst is een FICTIEVE
+    'verkoop vandaag'-cashflow (nodig voor XIRR, geen echte transactie) en
+    wordt hier expliciet weggelaten.
+
+    Als de benchmark pas later koersdata heeft dan de eerste cashflow (bv.
+    AEX/IAEA.AS, pas vanaf 2020-07-29), begint de teruggegeven reeks pas
+    vanaf de eerst beschikbare koersdatum -- "onvolledige_dekking"
+    signaleert dat aan de aanroeper i.p.v. stilzwijgend een te lage
+    hypothetische waarde te tonen (cashflows van vóór die datum tellen dan
+    simpelweg niet mee in de simulatie).
+
+    Geeft {"labels", "waarde", "rendement", "vanaf_datum",
+    "onvolledige_dekking"} terug ("rendement" = "waarde" - het bijbehorende
+    "geinvesteerd" uit `resultaat`, zelfde definitie als de bestaande
+    Rendement-lijn), of None als er geen bruikbare cashflows of koersdata
+    zijn."""
+    if resultaat.empty:
+        return None
+    cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
+    if len(cashflows) < 2:
+        return None
+    cashflows = cashflows[:-1]  # laatste = fictieve 'verkoop vandaag', geen echte transactie
+    if not cashflows:
+        return None
+
+    koersen = benchmark_koersen.dropna()
+    if koersen.empty:
+        return None
+
+    eerst_beschikbaar = koersen.index.min()
+    eerste_cashflow_datum = pd.Timestamp(min(d for d, _ in cashflows))
+    labels = [d for d in resultaat.index if d >= eerst_beschikbaar]
+    if not labels:
+        return None
+
+    cashflows_ts = sorted((pd.Timestamp(d), bedrag) for d, bedrag in cashflows)
+
+    aantal = 0.0
+    waarde_per_dag = []
+    cf_i = 0
+    for datum in labels:
+        while cf_i < len(cashflows_ts) and cashflows_ts[cf_i][0] <= datum:
+            cf_datum, bedrag = cashflows_ts[cf_i]
+            koers_op_cf_datum = koersen.reindex([cf_datum], method="ffill").iloc[0]
+            if pd.notna(koers_op_cf_datum) and koers_op_cf_datum > 0:
+                aantal += -bedrag / koers_op_cf_datum
+            cf_i += 1
+        koers_vandaag = koersen.reindex([datum], method="ffill").iloc[0]
+        waarde_per_dag.append(aantal * koers_vandaag if pd.notna(koers_vandaag) else None)
+
+    geinvesteerd_per_label = resultaat.loc[labels, "geinvesteerd"]
+    rendement_per_dag = [
+        (round(w - g, 2) if w is not None else None)
+        for w, g in zip(waarde_per_dag, geinvesteerd_per_label)
+    ]
+
+    return {
+        "labels": [d.strftime("%Y-%m-%d") for d in labels],
+        "waarde": [round(w, 2) if w is not None else None for w in waarde_per_dag],
+        "rendement": rendement_per_dag,
+        "vanaf_datum": labels[0].strftime("%Y-%m-%d"),
+        "onvolledige_dekking": eerste_cashflow_datum < eerst_beschikbaar,
+    }
+
+
+def bereken_rendement_over_tijd(transacties_df, resultaat):
+    """Bouwt de twee lijnen voor het "XIRR & rendement"-tabblad: gewoon
+    rendement% (bereken_totaal_rendement) en XIRR% (bereken_xirr), allebei
+    op meerdere momenten in de tijd i.p.v. alleen het eindcijfer zoals op
+    Statistieken.
+
+    Stapgrootte: maandelijks (laatste dag van elke kalendermaand), van de
+    eerste tot de laatste datum in `resultaat` — resultaat.index.max() is in
+    de praktijk "vandaag" (de laatste beschikbare koersdatum), gebruikt i.p.v.
+    een aparte pd.Timestamp.now()-aanroep zodat deze functie puur/
+    deterministisch blijft. Dagelijks zou XIRR per dag herberekenen, wat
+    zwaar is en ruizig — geen meerwaarde t.o.v. maandelijks. De laatste
+    (huidige) datum wordt altijd als extra stap toegevoegd, ook als die
+    zelf geen maand-einde is, zodat de lijn nooit een stuk van de recentste
+    periode mist.
+
+    Per stapdatum d:
+      - waarde/geinvesteerd = de bekende stand op of vóór d (zelfde
+        waarde_op_of_voor-patroon als bereken_jaren_overzicht hierboven).
+      - rendement_pct via bereken_totaal_rendement — None bij geinvesteerd=0
+        (bv. vóór de eerste aankoop), geen verzonnen 0%.
+      - xirr_pct: cashflows uit _bouw_xirr_cashflows, MINUS de fictieve
+        eind-cashflow van díe functie (die hoort bij de laatste datum in
+        resultaat, niet bij d), afgekapt tot en met d, plus een eigen
+        fictieve eind-cashflow (waarde op d). bereken_xirr geeft zelf al
+        None terug bij te weinig/tegenstrijdige cashflows (bv. de eerste
+        maand) — wordt hier gewoon doorgegeven, geen aparte afhandeling
+        nodig.
+
+    Geeft {"labels": [...maanden als YYYY-MM-DD...], "rendement_pct": [...],
+    "xirr_pct": [...]} terug (xirr_pct als percentage, dus 10.0 = 10%, niet
+    de fractie 0.10 die bereken_xirr zelf teruggeeft). Lege lijsten bij een
+    leeg resultaat."""
+    if resultaat.empty:
+        return {"labels": [], "rendement_pct": [], "xirr_pct": []}
+
+    def waarde_op_of_voor(datum, kolom):
+        subset = resultaat.loc[:datum, kolom]
+        return float(subset.iloc[-1]) if len(subset) else 0.0
+
+    eerste_datum = resultaat.index.min()
+    laatste_datum = resultaat.index.max()
+
+    stap_datums = list(pd.date_range(eerste_datum, laatste_datum, freq="ME"))
+    if not stap_datums or stap_datums[-1] < laatste_datum:
+        stap_datums.append(laatste_datum)
+
+    alle_cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
+    # laatste entry is de fictieve 'verkoop op laatste_datum' uit
+    # _bouw_xirr_cashflows -- die hoort niet bij tussentijdse stappen, elke
+    # stap krijgt hieronder zijn EIGEN fictieve eind-cashflow (op d, niet op
+    # laatste_datum).
+    echte_cashflows = alle_cashflows[:-1] if alle_cashflows else []
+
+    labels, rendement_pct_lijst, xirr_pct_lijst = [], [], []
+    for d in stap_datums:
+        waarde = waarde_op_of_voor(d, "waarde")
+        geinvesteerd = waarde_op_of_voor(d, "geinvesteerd")
+
+        rendement = bereken_totaal_rendement(geinvesteerd, waarde)
+
+        cashflows_tot_d = [(dat, bedrag) for dat, bedrag in echte_cashflows if pd.Timestamp(dat) <= d]
+        xirr = None
+        if cashflows_tot_d:
+            xirr = bereken_xirr(cashflows_tot_d + [(d.date(), waarde)])
+
+        labels.append(d.strftime("%Y-%m-%d"))
+        rendement_pct_lijst.append(
+            round(rendement["rendement_pct"], 2) if rendement["rendement_pct"] is not None else None
+        )
+        xirr_pct_lijst.append(round(xirr * 100, 2) if xirr is not None else None)
+
+    return {"labels": labels, "rendement_pct": rendement_pct_lijst, "xirr_pct": xirr_pct_lijst}
 
 
 def bereken_totale_transactiekosten(transacties_df):

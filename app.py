@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
@@ -352,6 +352,100 @@ def api_portfolio(code):
     return jsonify(result)
 
 
+def _laad_transacties_en_resultaat(code):
+    """Haalt transacties op voor `code`, past split-correctie toe en
+    berekent de waarde-tijdreeks (resultaat) — gedeelde basis voor de lui
+    geladen endpoints die op deze twee objecten verder rekenen
+    (benchmark-vergelijking, xirr-over-tijd), zodat het hoofd-dashboard-
+    antwoord (build_portfolio_response) dit niet standaard hoeft mee te
+    sturen. Geeft (transacties_df, resultaat) terug; resultaat is None als
+    er geen koersdata is. (None, None) als de code niet bestaat."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+    if cur.fetchone() is None:
+        cur.close()
+        conn.close()
+        return None, None
+
+    cur.execute(
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, tijd "
+        "FROM transacties WHERE code = %s",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    transacties_df = pd.DataFrame(
+        rows,
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "tijd"],
+    )
+    transacties_df = compute_split_adjusted_shares(transacties_df)
+
+    tickers = transacties_df["ticker"].dropna().unique().tolist()
+    start_date = transacties_df["datum"].min()
+    price_data = get_prices(tickers, start_date)
+    if price_data.empty:
+        return transacties_df, None
+
+    resultaat = compute_value_over_time(transacties_df, price_data)
+    return transacties_df, resultaat
+
+
+@app.route("/api/portfolio/<code>/benchmark-vergelijking")
+def benchmark_vergelijking(code):
+    """
+    Losse, lui opgevraagde endpoint voor de "Vergelijk met..."-optie op het
+    Rendement-tabblad — bewust niet standaard in het hoofd-dashboard-
+    antwoord, want dit haalt (en cachet) koersdata op voor een extra ticker
+    die niets met de eigen portfolio te maken heeft, wat de hoofdpagina
+    onnodig zou vertragen voor een optie die de meeste bezoeken niet
+    gebruiken. Query-param 'benchmark' is een sleutel uit BENCHMARK_TICKERS
+    (bv. "S%26P%20500" voor "S&P 500").
+    """
+    code = code.strip().upper()
+    benchmark_naam = request.args.get("benchmark", "")
+    benchmark_ticker = BENCHMARK_TICKERS.get(benchmark_naam)
+    if not benchmark_ticker:
+        return jsonify({"error": f"Onbekende benchmark '{benchmark_naam}'."}), 400
+
+    transacties_df, resultaat = _laad_transacties_en_resultaat(code)
+    if transacties_df is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    if resultaat is None:
+        return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
+
+    benchmark_prices = get_prices([benchmark_ticker], transacties_df["datum"].min())
+    if benchmark_ticker not in benchmark_prices.columns:
+        return jsonify({"error": f"Geen koersdata gevonden voor benchmark '{benchmark_naam}'."}), 400
+
+    vergelijking = bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_prices[benchmark_ticker])
+    if vergelijking is None:
+        return jsonify({"error": "Benchmarkvergelijking kon niet berekend worden."}), 400
+
+    return jsonify(vergelijking)
+
+
+@app.route("/api/portfolio/<code>/rendement-over-tijd")
+def rendement_over_tijd(code):
+    """
+    Losse, lui opgevraagde endpoint voor het "XIRR & rendement"-tabblad —
+    zelfde reden als benchmark_vergelijking() hierboven: niet standaard in
+    het hoofd-dashboard-antwoord, want dit herberekent XIRR voor elke
+    maandelijkse stap (zie bereken_rendement_over_tijd), wat de hoofdpagina
+    onnodig zou vertragen voor een tabblad dat niet elk bezoek bekeken wordt.
+    """
+    code = code.strip().upper()
+    transacties_df, resultaat = _laad_transacties_en_resultaat(code)
+    if transacties_df is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    if resultaat is None:
+        return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
+
+    return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat))
+
+
 @app.route("/api/portfolio/<code>/ticker-zekerheid")
 def ticker_zekerheid(code):
     """
@@ -609,7 +703,10 @@ def analyze_transacties(transacties_df, code, naam):
         "etf_overlap": etf_overlap,
         "statistieken": statistieken,
         "tickers": [
-            {"ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t)}
+            {
+                "ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t),
+                "nog_in_bezit": per_ticker[t]["nog_in_bezit"],
+            }
             for t in per_ticker.keys()
         ],
         "ticker_waarschuwingen": ticker_waarschuwingen,
