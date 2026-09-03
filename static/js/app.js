@@ -182,6 +182,25 @@ function toonPortfolio() {
     if (huidigeData.statistieken) {
         homeSectie.appendChild(maakTotalenSectie(huidigeData.statistieken.totalen));
     }
+
+    // Alleen tonen als er daadwerkelijk koersdata is (zie laatste_koersdatum/
+    // laatst_opgehaald_op in analyze_transacties_kern, app.py) -- anders de
+    // regel gewoon weglaten i.p.v. "Invalid Date" o.i.d. te tonen.
+    const bijgewerktEl = document.getElementById("laatstBijgewerktText");
+    if (huidigeData.laatste_koersdatum && huidigeData.laatst_opgehaald_op) {
+        // new Date(...) rekent de UTC-ISO-string (zie 'Z'-suffix, app.py) om
+        // naar de lokale tijdzone van de browser -- dus zowel datum als tijd
+        // hieronder via de Date-methoden opbouwen, NIET via een slice() op de
+        // ruwe ISO-string (die blijft UTC en kan een dag verschillen van de
+        // lokale datum, bv. rond middernacht).
+        const opgehaald = new Date(huidigeData.laatst_opgehaald_op);
+        const opgehaaldDatumStr = `${String(opgehaald.getDate()).padStart(2, "0")}-${String(opgehaald.getMonth() + 1).padStart(2, "0")}-${opgehaald.getFullYear()}`;
+        const tijd = opgehaald.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", hour12: false });
+        bijgewerktEl.textContent = `Koersen bekend t/m ${formatDatum(huidigeData.laatste_koersdatum)} · laatst opgehaald ${opgehaaldDatumStr} om ${tijd}`;
+        bijgewerktEl.style.display = "block";
+    } else {
+        bijgewerktEl.style.display = "none";
+    }
 }
 
 function toonRendement() {
@@ -244,6 +263,13 @@ async function wisselBenchmark(benchmarkNaam) {
 // maand, dus alleen op expliciet verzoek via xirrStapToggleBtn. Reset naar
 // "maand" bij elke nieuwe portfolio, zie toonDashboard().
 let xirrRendementStap = "maand";
+
+// Per ticker: onthoudt of een "meer historie laden"-terugknop resp. de
+// "Tot nu"-knop al niets meer opleverde (zie werkMeerHistorieKnoppenBij),
+// zodat het uitgegrijsd blijven ook na het wisselen van tabblad/ticker en
+// terugkomen behouden blijft. Reset bij elke nieuwe portfolio, zie
+// toonDashboard().
+let meerHistorieUitgeput = {};
 
 // DB-backed (leest transacties via de code, zie _laad_transacties_en_
 // resultaat in app.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
@@ -333,14 +359,27 @@ function toonPerAandeelAankoop(ticker) {
     if (chart) { chart.destroy(); chart = null; }
     const titelEl = document.getElementById("peraandeelAankoopTitel");
     const d = huidigeData.per_ticker_aankoop && huidigeData.per_ticker_aankoop[ticker];
+    const knoppenContainer = document.getElementById("meerHistorieKnoppen");
     if (!d) {
         titelEl.style.display = "none";
+        knoppenContainer.style.display = "none";
         return;
     }
 
     const tickerInfo = (huidigeData.tickers || []).find(t => t.ticker === ticker);
     titelEl.textContent = `Koers en aankoopmomenten — ${tickerInfo ? tickerInfo.naam : ticker} (${ticker})`;
     titelEl.style.display = "block";
+
+    // "meer historie laden"-endpoint is DB-backed (leest transacties via de
+    // code) -- niet beschikbaar bij een 'niet opslaan'-analyse, zelfde
+    // beperking als Dividend/Instellingen/Benchmarkvergelijking elders.
+    if (huidigeData.code) {
+        knoppenContainer.style.display = "flex";
+        document.getElementById("meerHistorieMsg").style.display = "none";
+        werkMeerHistorieKnoppenBij(ticker, d);
+    } else {
+        knoppenContainer.style.display = "none";
+    }
 
     const labelsNL = d.labels.map(formatDatum);
     // aankoop_datums/verkoop_datums (ISO) -> dezelfde dd-mm-jjjj-vorm als
@@ -458,6 +497,156 @@ function toonPerAandeelAankoop(ticker) {
         },
     });
 }
+
+// --- "Meer historie laden"-knoppen op Per aandeel aankoop -----------------
+// Vullen huidigeData.per_ticker_aankoop[ticker] client-side aan met extra
+// koersdata buiten de standaard-crop (zie /api/portfolio/<code>/ticker-
+// koers-bereik in app.py). d wordt in-place gemuteerd, dus opnieuw
+// selecteren van dezelfde ticker (zonder portfolio-herlaad) toont de
+// uitgebreide reeks weer -- geen aparte cache nodig.
+
+function berekenNieuweVanafDatum(vroegsteIso, periode) {
+    const dt = new Date(vroegsteIso + "T00:00:00Z");
+    if (periode === "6m") dt.setUTCMonth(dt.getUTCMonth() - 6);
+    else if (periode === "1j") dt.setUTCFullYear(dt.getUTCFullYear() - 1);
+    else if (periode === "3j") dt.setUTCFullYear(dt.getUTCFullYear() - 3);
+    return dt.toISOString().slice(0, 10);
+}
+
+// data.labels komt gesorteerd oplopend terug (zie ticker_koers_bereik in
+// app.py, dat de pandas-index-volgorde volgt) -- vergelijken als string
+// werkt voor ISO-datums (YYYY-MM-DD) net zo goed als chronologisch
+// vergelijken, dus geen Date-parsing nodig.
+function mergePrependHistorie(d, data) {
+    if (!data.labels.length) return 0;
+    const grens = d.labels[0];
+    let eindIdx = 0;
+    while (eindIdx < data.labels.length && data.labels[eindIdx] < grens) eindIdx++;
+    if (eindIdx === 0) return 0;
+    const nieuweLabels = data.labels.slice(0, eindIdx);
+    const nieuweKoers = data.koers.slice(0, eindIdx);
+    d.labels = nieuweLabels.concat(d.labels);
+    d.koers = nieuweKoers.concat(d.koers);
+    // Alles vóór de oorspronkelijke crop-range heeft per definitie 0
+    // holdings (dat is precies wat de crop-logica eraf trimt) -- geen
+    // backend-call nodig.
+    d.holdings = nieuweLabels.map(() => 0).concat(d.holdings);
+    return nieuweLabels.length;
+}
+
+function mergeAppendHistorie(d, data) {
+    if (!data.labels.length) return 0;
+    const grens = d.labels[d.labels.length - 1];
+    let startIdx = data.labels.length;
+    for (let i = data.labels.length - 1; i >= 0 && data.labels[i] > grens; i--) {
+        startIdx = i;
+    }
+    if (startIdx === data.labels.length) return 0;
+    const nieuweLabels = data.labels.slice(startIdx);
+    const nieuweKoers = data.koers.slice(startIdx);
+    d.labels = d.labels.concat(nieuweLabels);
+    d.koers = d.koers.concat(nieuweKoers);
+    d.holdings = d.holdings.concat(nieuweLabels.map(() => 0));
+    return nieuweLabels.length;
+}
+
+function meerHistorieStatus(ticker) {
+    if (!meerHistorieUitgeput[ticker]) meerHistorieUitgeput[ticker] = { terug: false, totnu: false };
+    return meerHistorieUitgeput[ticker];
+}
+
+// Grijst de terugknoppen uit zodra de historie daar al ophield, en "Tot nu"
+// zodra die datum al bereikt is -- ook preventief voor een nog-aangehouden
+// positie (die loopt sowieso al tot de laatst beschikbare handelsdag,
+// klikken zou dus toch niets opleveren).
+function werkMeerHistorieKnoppenBij(ticker, d) {
+    const status = meerHistorieStatus(ticker);
+    const nogInBezit = d.holdings.length > 0 && Math.abs(d.holdings[d.holdings.length - 1]) > 1e-6;
+    const totNuKnop = document.getElementById("meerHistorieTotNuBtn");
+    ["meerHistorie6mBtn", "meerHistorie1jBtn", "meerHistorie3jBtn"].forEach(id => {
+        document.getElementById(id).disabled = status.terug;
+    });
+    totNuKnop.disabled = status.totnu || nogInBezit;
+    totNuKnop.title = nogInBezit
+        ? "Positie wordt nog aangehouden -- koers loopt al tot de laatst beschikbare handelsdag."
+        : "";
+}
+
+function setMeerHistorieKnoppenBezig(bezig) {
+    ["meerHistorie6mBtn", "meerHistorie1jBtn", "meerHistorie3jBtn", "meerHistorieTotNuBtn"].forEach(id => {
+        document.getElementById(id).disabled = bezig;
+    });
+}
+
+async function laadMeerHistorie(periode) {
+    const ticker = document.getElementById("aandeelSelect").value;
+    if (!ticker || !huidigeData.code) return;
+    const d = huidigeData.per_ticker_aankoop && huidigeData.per_ticker_aankoop[ticker];
+    if (!d || !d.labels.length) return;
+
+    const msgEl = document.getElementById("meerHistorieMsg");
+    msgEl.style.display = "none";
+    setMeerHistorieKnoppenBezig(true);
+
+    const oudeVroegste = d.labels[0];
+    const oudeLaatste = d.labels[d.labels.length - 1];
+    const vandaagIso = new Date().toISOString().slice(0, 10);
+    let vanaf, tot;
+    if (periode === "totnu") {
+        vanaf = oudeLaatste;
+        tot = vandaagIso;
+    } else {
+        vanaf = berekenNieuweVanafDatum(oudeVroegste, periode);
+    }
+
+    try {
+        const params = new URLSearchParams({ ticker, vanaf });
+        if (tot) params.set("tot", tot);
+        const res = await fetchMetTimeout(`/api/portfolio/${huidigeData.code}/ticker-koers-bereik?${params}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Historie ophalen mislukt.");
+
+        const status = meerHistorieStatus(ticker);
+        let geenVooruitgang = false;
+        if (periode === "totnu") {
+            mergeAppendHistorie(d, data);
+            // Niet alleen "geen nieuwe datums toegevoegd" -- ook als DEZE
+            // aanroep net de laatste ontbrekende dagen tot vandaag ophaalde,
+            // is een volgende klik zinloos. Zonder deze check zou de knop
+            // pas na een extra, altijd-lege klik uitgrijzen.
+            geenVooruitgang = d.labels[d.labels.length - 1] >= vandaagIso;
+            if (geenVooruitgang) status.totnu = true;
+        } else {
+            mergePrependHistorie(d, data);
+            geenVooruitgang = !data.vroegste_beschikbare_datum || data.vroegste_beschikbare_datum >= oudeVroegste;
+            if (geenVooruitgang) status.terug = true;
+        }
+        // Chart wordt hier volledig opnieuw opgebouwd (destroy + new Chart) --
+        // dat reset meteen ook de zoom/pan-viewport naar het volledige nieuwe
+        // bereik, dus geen aparte resetZoom()-aanroep nodig. Dit zet ook de
+        // knop-status terug op basis van 'status' hierboven, en verbergt
+        // (nog) de melding hieronder -- dus pas NA deze aanroep de melding
+        // tonen, anders wist toonPerAandeelAankoop() 'm meteen weer.
+        toonPerAandeelAankoop(ticker);
+        if (geenVooruitgang) {
+            msgEl.textContent = periode === "totnu"
+                ? "Geen nieuwere koersdata beschikbaar."
+                : "Geen oudere koersdata beschikbaar.";
+            msgEl.style.display = "inline";
+        }
+    } catch (err) {
+        msgEl.textContent = "Historie ophalen mislukt: " + err.message;
+        msgEl.style.display = "inline";
+        setMeerHistorieKnoppenBezig(false);
+        werkMeerHistorieKnoppenBij(ticker, d);
+    }
+}
+
+["meerHistorie6mBtn", "meerHistorie1jBtn", "meerHistorie3jBtn", "meerHistorieTotNuBtn"].forEach(id => {
+    document.getElementById(id).addEventListener("click", (e) => {
+        laadMeerHistorie(e.currentTarget.dataset.periode);
+    });
+});
 
 function maakVerdelingLijst(titel, verdelingObj) {
     const wrapper = document.createElement("div");
@@ -2581,6 +2770,7 @@ function pasViewToe(view) {
     document.getElementById("etfOverlapSectie").style.display = view === "etfoverlap" ? "block" : "none";
     document.getElementById("prognoseSectie").style.display = view === "prognose" ? "block" : "none";
     document.getElementById("homeTotalenSectie").style.display = view === "portfolio" ? "block" : "none";
+    document.getElementById("laatstBijgewerktText").style.display = "none";
     document.getElementById("weergaveToggleBtn").style.display = (view === "land" || view === "sector") ? "block" : "none";
 
     if (view !== "instellingen-bijnamen") {
@@ -2598,6 +2788,7 @@ function pasViewToe(view) {
     }
     if (view !== "peraandeelaankoop") {
         document.getElementById("peraandeelAankoopTitel").style.display = "none";
+        document.getElementById("meerHistorieKnoppen").style.display = "none";
     }
     if (view !== "rendement") {
         document.getElementById("benchmarkMelding").style.display = "none";
@@ -2659,6 +2850,9 @@ function toonDashboard(data) {
     // Zelfde reden: stap="dag" van een vorige portfolio moet niet blijven
     // hangen -- elke nieuwe portfolio start weer bij het lichte "maand".
     xirrRendementStap = "maand";
+    // Zelfde reden: uitgegrijsde "meer historie laden"-knoppen van een
+    // vorige portfolio slaan nergens meer op.
+    meerHistorieUitgeput = {};
     document.getElementById("benchmarkSelect").value = "";
     document.getElementById("uploadSection").style.display = "none";
     document.getElementById("dashboardSection").style.display = "flex";
