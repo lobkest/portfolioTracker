@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd, haal_openfigi_resultaten
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
@@ -604,6 +604,12 @@ def ticker_zekerheid_positie(code):
             "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
         }), 500
     print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s voor code={code}")
+
+    try:
+        resultaat["openfigi"] = haal_openfigi_resultaten(isin)
+    except Exception as e:
+        print(f"[openfigi] onverwachte fout voor ISIN={isin}: {e}")
+        resultaat["openfigi"] = {"resultaten": [], "fout": "Onverwachte fout bij OpenFIGI-aanroep."}
 
     resultaat["isin"] = isin
     resultaat["naam"] = info["naam"]
