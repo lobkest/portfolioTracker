@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd, haal_openfigi_resultaten
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd, haal_openfigi_resultaten, _verwarm_land_sector_cache_parallel
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd
 import hashlib
 import openpyxl
@@ -73,12 +73,6 @@ def _upload_impl():
 
     if not bestand1 or bestand1.filename == "":
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
-
-    bestand1.seek(0)
-    df = pd.read_excel(bestand1)
-    print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
-
-    df.columns = df.columns.str.strip()
 
     bestand1.seek(0)
     df = pd.read_excel(bestand1)
@@ -350,6 +344,51 @@ def api_portfolio(code):
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     return jsonify(result)
+
+
+@app.route("/api/portfolio/<code>/verrijking")
+def portfolio_verrijking(code):
+    """
+    Lui opgevraagde 'rest' van het dashboard (Verdeling, Land, Sector,
+    Bedrijven, ETF-overlap) — bewust NIET in het hoofd-/upload-antwoord,
+    want dit is het netwerk-zware deel (classificatie + holdings/sector-
+    ophalen bij nog-niet-gecachete ETF's/aandelen). Zie CLAUDE.md /
+    opdracht_gefaseerd_laden.md voor de achtergrond. De frontend roept dit
+    meteen na het tonen van de Home-pagina aan en vult de betreffende
+    tabbladen zodra dit antwoord binnenkomt.
+    """
+    code = code.strip().upper()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+    if cur.fetchone() is None:
+        cur.close()
+        conn.close()
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    cur.execute(
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, tijd "
+        "FROM transacties WHERE code = %s",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+
+    transacties_df = pd.DataFrame(
+        rows,
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "tijd"],
+    )
+    transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
+
+    try:
+        return jsonify(analyze_transacties_verrijking(transacties_df, code))
+    except Exception as e:
+        print(f"[verrijking] ONVERWACHTE FOUT voor code={code}: {e}")
+        return jsonify({
+            "error": "Verdeling/land/sector/bedrijven ophalen duurde te lang of is mislukt. Probeer het "
+                     "opnieuw door de pagina te verversen."
+        }), 500
 
 
 def _laad_transacties_en_resultaat(code):
@@ -712,10 +751,18 @@ def build_portfolio_response(code):
     )
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
 
-    return analyze_transacties(transacties_df, code, naam)
+    return analyze_transacties_kern(transacties_df, code, naam)
 
 
-def analyze_transacties(transacties_df, code, naam):
+def analyze_transacties_kern(transacties_df, code, naam):
+    """
+    Alles wat de Home-, Rendement-, Per-aandeel- en Statistieken-tabbladen
+    nodig hebben — bewust ZONDER classify_tickers/land/sector/bedrijven-
+    verdeling/ETF-overlap, want dat is het netwerk-zware deel dat bij een
+    nieuwe, koude-cache-portfolio de meeste tijd kost (zie CLAUDE.md /
+    opdracht_gefaseerd_laden.md). Die rest wordt lui opgehaald via
+    analyze_transacties_verrijking() + de /verrijking-route.
+    """
     transacties_df = compute_split_adjusted_shares(transacties_df)
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
@@ -743,11 +790,6 @@ def analyze_transacties(transacties_df, code, naam):
         .to_dict()
     )
 
-    is_etf_map = classify_tickers(list(per_ticker.keys()))
-    land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data)
-    bedrijven_verdeling = bereken_bedrijven_verdeling(transacties_df, price_data)
-    etf_overlap = bereken_etf_overlap(transacties_df, price_data)
-
     # Prijswaarschuwingen zichtbaar maken bij ELK bezoek (niet alleen direct
     # na de upload): ticker_waarschuwingen_voor_transacties() leest alleen
     # de al gecachete ticker_prijscheck-check (gevuld door find_ticker_met_
@@ -768,8 +810,61 @@ def analyze_transacties(transacties_df, code, naam):
         dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
     )
 
+    return {
+        "code": code,
+        "naam": naam,
+        "chart_data": {
+            "labels": [d.strftime("%Y-%m-%d") for d in resultaat.index],
+            "waarde": resultaat["waarde"].round(2).tolist(),
+            "geinvesteerd": resultaat["geinvesteerd"].round(2).tolist(),
+            "rendement": resultaat["rendement"].round(2).tolist(),
+        },
+        "per_ticker": per_ticker,
+        "statistieken": statistieken,
+        "tickers": [
+            {
+                "ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t),
+                "nog_in_bezit": per_ticker[t]["nog_in_bezit"],
+            }
+            for t in per_ticker.keys()
+        ],
+        "ticker_waarschuwingen": ticker_waarschuwingen,
+    }
+
+
+def analyze_transacties_verrijking(transacties_df, code):
+    """
+    Het netwerk-zware deel: Verdeling, Land/Sector, Top-bedrijven en ETF-
+    overlap — lui opgevraagd via /api/portfolio/<code>/verrijking, ná de
+    Home-pagina (zie analyze_transacties_kern). Doet ZELF opnieuw
+    compute_split_adjusted_shares/get_prices — dat is bij het gangbare
+    gebruik (kern is al opgehaald) een warme cache-hit, geen nieuwe download.
+    """
+    transacties_df = compute_split_adjusted_shares(transacties_df)
+
+    tickers = transacties_df["ticker"].dropna().unique().tolist()
+    start_date = transacties_df["datum"].min()
+    price_data = get_prices(tickers, start_date)
+
+    if price_data.empty:
+        return {"verdeling": [], "land_sector_verdeling": {}, "bedrijven_verdeling": {}, "etf_overlap": {}}
+
+    ticker_namen = (
+        transacties_df.dropna(subset=["ticker"])
+        .drop_duplicates(subset=["ticker"], keep="last")
+        .set_index("ticker")["product"]
+        .to_dict()
+    )
+
     huidige_holdings = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
+
+    is_etf_map = classify_tickers(list(huidige_holdings.index))
+    _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map)
+
+    land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data, is_etf_map)
+    bedrijven_verdeling = bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map)
+    etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)
 
     verdeling = []
     for ticker, aantal in huidige_holdings.items():
@@ -786,29 +881,26 @@ def analyze_transacties(transacties_df, code, naam):
         })
 
     return {
-        "code": code,
-        "naam": naam,
-        "chart_data": {
-            "labels": [d.strftime("%Y-%m-%d") for d in resultaat.index],
-            "waarde": resultaat["waarde"].round(2).tolist(),
-            "geinvesteerd": resultaat["geinvesteerd"].round(2).tolist(),
-            "rendement": resultaat["rendement"].round(2).tolist(),
-        },
-        "per_ticker": per_ticker,
         "verdeling": verdeling,
         "land_sector_verdeling": land_sector_verdeling,
         "bedrijven_verdeling": bedrijven_verdeling,
         "etf_overlap": etf_overlap,
-        "statistieken": statistieken,
-        "tickers": [
-            {
-                "ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t),
-                "nog_in_bezit": per_ticker[t]["nog_in_bezit"],
-            }
-            for t in per_ticker.keys()
-        ],
-        "ticker_waarschuwingen": ticker_waarschuwingen,
     }
+
+
+def analyze_transacties(transacties_df, code, naam):
+    """Combineert kern + verrijking in één keer — voor de 'niet opslaan'-
+    tak (geen opgeslagen code om later apart de verrijking op te halen) en
+    voor eventuele andere plekken die de volledige, ongefaseerde data in
+    één keer nodig hebben. De normale opslaande upload-flow en het
+    bezoeken van een bestaande code gebruiken i.p.v. deze wrapper de kern-
+    en verrijkingsfunctie apart (zie build_portfolio_response en de
+    /verrijking-route)."""
+    resultaat = analyze_transacties_kern(transacties_df, code, naam)
+    if resultaat.get("chart_data") is None:
+        return resultaat
+    resultaat.update(analyze_transacties_verrijking(transacties_df, code))
+    return resultaat
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])
 def set_bijnaam(code):

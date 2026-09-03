@@ -131,6 +131,13 @@ def init_db():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS openfigi_cache (
+            isin TEXT PRIMARY KEY,
+            resultaten JSONB NOT NULL,
+            opgehaald_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS dividenden (
             id SERIAL PRIMARY KEY,
             code TEXT NOT NULL,
@@ -413,6 +420,38 @@ def save_splits(ticker, splits):
         "INSERT INTO ticker_splits (ticker, splits) VALUES (%s, %s) "
         "ON CONFLICT (ticker) DO UPDATE SET splits = EXCLUDED.splits, bijgewerkt_op = CURRENT_TIMESTAMP",
         (ticker, Json(splits)),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def get_cached_openfigi(isin):
+    """Geeft de gecachete OpenFIGI-resultatenlijst terug, of None als er nog
+    niets gecached is voor deze ISIN. Permanente cache (geen vervaltermijn) --
+    zelfde redenering als ticker_splits: een ISIN->ticker-mapping verandert
+    vrijwel nooit."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT resultaten FROM openfigi_cache WHERE isin = %s", (isin,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return row[0] if row else None
+
+
+def save_openfigi(isin, resultaten):
+    """Cachet resultaten ALLEEN bij een succesvolle aanroep (resultaten is een
+    lijst, mag leeg zijn bij 'geen match' -- dat is ook een geldig, stabiel
+    resultaat). Fouten/rate-limits worden NIET gecached, zodat een volgende
+    poging opnieuw geprobeerd wordt."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO openfigi_cache (isin, resultaten) VALUES (%s, %s) "
+        "ON CONFLICT (isin) DO UPDATE SET resultaten = EXCLUDED.resultaten, "
+        "opgehaald_op = CURRENT_TIMESTAMP",
+        (isin, Json(resultaten)),
     )
     conn.commit()
     cur.close()

@@ -30,6 +30,26 @@ from analysis import (
     ticker_waarschuwingen_voor_transacties, basis_ticker_zekerheid_parallel,
 )
 
+# find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
+# (zie _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_
+# resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
+# doen. Module-breed op "geen resultaten" gepatcht zodat de bestaande
+# tests hier offline en ongewijzigd blijven -- _openfigi_root_bekend()
+# geeft dan None terug (geen oordeel), dus geen effect op deze tests.
+_openfigi_patcher = None
+
+
+def setUpModule():
+    global _openfigi_patcher
+    _openfigi_patcher = patch.object(
+        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+    )
+    _openfigi_patcher.start()
+
+
+def tearDownModule():
+    _openfigi_patcher.stop()
+
 
 def _basis_patch(ticker="AAPL", zekerheid="zeker", alternatieven=None):
     return patch.object(

@@ -1,6 +1,36 @@
 let chart = null;
 let huidigeData = null;
 
+// Status van de lui opgehaalde verrijking (Verdeling/Land/Sector/Bedrijven/
+// ETF-overlap, zie analyze_transacties_verrijking in app.py): null zolang er
+// geen aparte /verrijking-aanroep loopt (bv. een 'niet opslaan'-analyse, die
+// deze velden al standaard meestuurt), "laden" tijdens de achtergrond-fetch,
+// "fout" bij een timeout/mislukking (toont een "opnieuw proberen"-knop),
+// "klaar" zodra huidigeData de verrijkingsvelden bevat.
+let verrijkingStatus = null;
+
+// Gedeelde fetch-met-timeout-helper: breekt de aanroep zelf af als de server
+// (of de verbinding) veel te lang stil blijft -- bv. een gunicorn-worker die
+// vastloopt zonder de verbinding netjes te sluiten. Zonder dit blijft de
+// gebruiker naar een oneindige laadanimatie kijken zonder foutmelding (zie
+// CLAUDE.md, Statistieken-incident 2026-08-31). Gooit een Error met
+// message "TIMEOUT" bij een afgebroken aanroep, zodat de aanroeper dat
+// specifieke geval kan onderscheiden van een gewone netwerkfout.
+async function fetchMetTimeout(url, opties, timeoutMs = 55000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...(opties || {}), signal: controller.signal });
+    } catch (fout) {
+        if (fout.name === "AbortError") {
+            throw new Error("TIMEOUT");
+        }
+        throw fout;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // Prognose-tabblad: invoer blijft bewaard zolang de pagina open is (ook als je
 // naar een ander tabblad en terug gaat), berekening gebeurt pas na "Bereken".
 let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 };
@@ -364,9 +394,11 @@ function toonEtfDrilldown(ticker) {
 }
 
 function toonVerdeling() {
-    const items = huidigeData.verdeling;
     if (chart) chart.destroy();
+    document.getElementById("geenData").style.display = "none";
+    if (toonVerrijkingWachtstatusIndienNodig()) return;
 
+    const items = huidigeData.verdeling;
     if (!items || items.length === 0) {
         document.getElementById("geenData").style.display = "block";
         document.getElementById("verdelingTekst").style.display = "none";
@@ -624,8 +656,15 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
 }
 
 function toonLand() {
-    const lsv = huidigeData.land_sector_verdeling;
+    if (chart) chart.destroy();
+    document.getElementById("geenData").style.display = "none";
     const europaCheckbox = document.getElementById("europaCheckbox");
+    if (toonVerrijkingWachtstatusIndienNodig()) {
+        document.getElementById("europaCheckboxWrapper").style.display = "none";
+        return;
+    }
+
+    const lsv = huidigeData.land_sector_verdeling;
     document.getElementById("europaCheckboxWrapper").style.display = "block";
 
     if (landSectorWeergave === "staaf") {
@@ -659,6 +698,10 @@ function toonLand() {
 }
 
 function toonSector() {
+    if (chart) chart.destroy();
+    document.getElementById("geenData").style.display = "none";
+    if (toonVerrijkingWachtstatusIndienNodig()) return;
+
     const lsv = huidigeData.land_sector_verdeling;
     if (landSectorWeergave === "staaf") {
         const tickerNamen = {};
@@ -697,10 +740,17 @@ async function slaBijnaamOp(ticker, bijnaam) {
         if (!res.ok) {
             throw new Error(data.error || "Opslaan mislukt.");
         }
-        huidigeData = data;
+        // build_portfolio_response() geeft sinds het gefaseerd-laden-werk
+        // alleen nog de kern terug (zie CLAUDE.md) -- Object.assign i.p.v.
+        // huidigeData = data zodat de al opgehaalde verrijkingsvelden
+        // (Verdeling/Land/Sector/Bedrijven/ETF-overlap) niet verdwijnen.
+        // laadVerrijking ververst ze daarna alsnog op de achtergrond, want
+        // de net gewijzigde bijnaam wijzigt ook namen dáárin.
+        Object.assign(huidigeData, data);
         ververAandeelSelect();
         toonInstellingen();
         toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
+        laadVerrijking(huidigeData.code);
         const msg = document.getElementById("instellingenMsg");
         msg.style.color = "#2c7a4b";
         msg.textContent = "Bijnaam opgeslagen.";
@@ -727,10 +777,13 @@ async function resetBijnaam(ticker) {
         if (!res.ok) {
             throw new Error(data.error || "Reset mislukt.");
         }
-        huidigeData = data;
+        // Zelfde reden als slaBijnaamOp(): Object.assign i.p.v. overschrijven,
+        // plus een verse laadVerrijking() voor de bijgewerkte namen daarin.
+        Object.assign(huidigeData, data);
         ververAandeelSelect();
         toonInstellingen();
         toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
+        laadVerrijking(huidigeData.code);
     } catch (e) {
         const msg = document.getElementById("instellingenMsg");
         msg.style.color = "#9C0006";
@@ -2078,6 +2131,11 @@ function toonStatistieken() {
 function toonBedrijven() {
     const sectie = document.getElementById("bedrijvenSectie");
     sectie.innerHTML = "";
+    document.getElementById("geenData").style.display = "none";
+    if (toonVerrijkingWachtstatusIndienNodig()) {
+        if (chart) chart.destroy();
+        return;
+    }
 
     const data = huidigeData.bedrijven_verdeling;
     if (!data || !data.top || data.top.length === 0) {
@@ -2110,6 +2168,7 @@ function toonBedrijven() {
 function renderEtfOverlapTabel() {
     const sectie = document.getElementById("etfOverlapSectie");
     sectie.innerHTML = "";
+    if (toonVerrijkingWachtstatusIndienNodig()) return;
 
     const matrix = huidigeData.etf_overlap || {};
     const etfs = Object.keys(matrix);
@@ -2446,6 +2505,14 @@ function pasViewToe(view) {
     if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven") {
         document.getElementById("geenData").style.display = "none";
     }
+    // Zelfde reden, voor de laad-/foutindicator van de lui opgehaalde
+    // verrijking (zie laadVerrijking/toonVerrijkingWachtstatusIndienNodig)
+    // -- nu ook voor etfoverlap, dat als enige van de 5 geen geenData
+    // gebruikt (eigen "minimaal 2 ETF's"-melding in de sectie zelf).
+    if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven" && view !== "etfoverlap") {
+        document.getElementById("verrijkingLaadt").style.display = "none";
+        document.getElementById("verrijkingFout").style.display = "none";
+    }
 
     if (view === "portfolio") toonPortfolio();
     else if (view === "rendement") toonRendement();
@@ -2506,7 +2573,77 @@ function toonDashboard(data) {
 
     ververAandeelSelect();
     wisselView("portfolio");
+
+    // Verdeling/Land/Sector/Bedrijven/ETF-overlap zitten sinds het gefaseerd-
+    // laden-werk (CLAUDE.md) niet meer standaard in dit antwoord -- behalve
+    // bij een 'niet opslaan'-analyse (geen code, dus geen latere /verrijking-
+    // aanroep mogelijk), die analyze_transacties()'s wrapper gebruikt en ze
+    // dus al meestuurt. Alleen lui ophalen als ze er nog niet zijn.
+    if (data.verdeling !== undefined) {
+        verrijkingStatus = "klaar";
+    } else if (data.code) {
+        laadVerrijking(data.code);
+    } else {
+        verrijkingStatus = "klaar";
+    }
 }
+
+function actieveViewNaam() {
+    const knop = document.querySelector(".menuBtn[data-view].actief");
+    return knop ? knop.dataset.view : null;
+}
+
+// Tekent alleen opnieuw als de gebruiker toevallig al op een van de 5
+// verrijkings-tabbladen staat -- anders is er niets zichtbaars om bij te
+// werken, dat gebeurt vanzelf zodra de gebruiker ernaartoe navigeert (zie
+// wisselView, dat toonVerdeling()/toonLand()/etc. bij elke tabwissel aanroept).
+function herTekenVerrijkingTabbladIndienActief() {
+    const view = actieveViewNaam();
+    if (view === "verdeling") toonVerdeling();
+    else if (view === "land") toonLand();
+    else if (view === "sector") toonSector();
+    else if (view === "bedrijven") toonBedrijven();
+    else if (view === "etfoverlap") renderEtfOverlapTabel();
+}
+
+// Toont/verbergt de laad-/foutindicator voor de 5 verrijkings-tabbladen,
+// gedeeld door elk van hun toon-functies (zie hieronder). Geeft true terug
+// als de aanroeper meteen mag stoppen (nog aan het laden, of mislukt) --
+// dan is er niets zinnigs te tekenen.
+function toonVerrijkingWachtstatusIndienNodig() {
+    const laadt = document.getElementById("verrijkingLaadt");
+    const fout = document.getElementById("verrijkingFout");
+    laadt.style.display = verrijkingStatus === "laden" ? "block" : "none";
+    fout.style.display = verrijkingStatus === "fout" ? "block" : "none";
+    return verrijkingStatus === "laden" || verrijkingStatus === "fout";
+}
+
+async function laadVerrijking(code) {
+    verrijkingStatus = "laden";
+    herTekenVerrijkingTabbladIndienActief();
+    try {
+        // Bewust geen expliciete timeoutMs -- de default (55s) van
+        // fetchMetTimeout is prima hier, dit endpoint is per definitie het
+        // netwerk-zware deel (zie CLAUDE.md / opdracht_gefaseerd_laden.md).
+        const res = await fetchMetTimeout(`/api/portfolio/${code}/verrijking`);
+        const data = await res.json();
+        if (!res.ok) {
+            throw new Error(data.error || "Verrijking ophalen mislukt.");
+        }
+        Object.assign(huidigeData, data);
+        verrijkingStatus = "klaar";
+    } catch (err) {
+        console.error("[verrijking] ophalen mislukt:", err.message);
+        verrijkingStatus = "fout";
+    }
+    herTekenVerrijkingTabbladIndienActief();
+}
+
+document.getElementById("verrijkingOpnieuwBtn").addEventListener("click", () => {
+    if (huidigeData && huidigeData.code) {
+        laadVerrijking(huidigeData.code);
+    }
+});
 
 // Opvallende, niet-blokkerende banner (blijft zichtbaar ongeacht welk
 // tabblad open staat) wanneer find_ticker_met_snelle_prijscheck (de
@@ -2614,17 +2751,13 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
         formData.delete("bestand2");
     }
     toonLaadOverlay("Analyseren...");
-    // Client-side timeout zodat de gebruiker niet oneindig naar de
-    // laadanimatie blijft kijken als de server al is vastgelopen zonder dat
-    // de browser dat zelf detecteert (bv. de verbinding blijft hangen
-    // i.p.v. netjes te sluiten bij een gunicorn-worker-timeout). Zie
-    // CLAUDE.md, Statistieken-incident 2026-08-31: een 'niet opslaan'-
-    // analyse van een grotere portfolio bleef zo stil hangen dat er zelfs
-    // geen foutmelding verscheen.
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
     try {
-        const res = await fetch("/upload", { method: "POST", body: formData, signal: controller.signal });
+        // fetchMetTimeout breekt zelf af als de server te lang stil blijft
+        // (zie CLAUDE.md, Statistieken-incident 2026-08-31) -- 60s, iets
+        // ruimer dan de standaard 55s-default omdat een upload (Excel
+        // parsen + ticker-resolutie) doorgaans iets meer tijd nodig heeft
+        // dan een lui geladen tabblad.
+        const res = await fetchMetTimeout("/upload", { method: "POST", body: formData }, 60000);
         const data = await res.json();
         if (!res.ok) {
             document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
@@ -2632,12 +2765,12 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
         }
         toonDashboard(data);
     } catch (err) {
-        document.getElementById("errorMsg").textContent = err.name === "AbortError"
-            ? "Het analyseren duurt te lang en is afgebroken. Dit kan gebeuren bij grote portfolio's — probeer "
-              + "het opnieuw, of upload zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
+        document.getElementById("errorMsg").textContent = err.message === "TIMEOUT"
+            ? "Het ophalen duurde te lang en is gestopt. Dit gebeurt soms bij een nieuwe portfolio — druk gerust "
+              + "nog 1 of 2 keer op de upload-knop, dat lukt meestal wél (de koersen die al opgehaald zijn, staan "
+              + "dan al in de cache, dus de volgende poging is sneller)."
             : "Er ging iets mis bij het analyseren (netwerkfout). Probeer het opnieuw.";
     } finally {
-        clearTimeout(timeoutId);
         verbergLaadOverlay();
     }
 });
@@ -2713,7 +2846,13 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
         // huidigeData bevat de code waarmee alle andere tabbladen (Statistieken,
         // Dividend, Ticker-zekerheid) hun API-calls doen -- meteen bijwerken zodat
         // de rest van de sessie de nieuwe code gebruikt zonder herladen.
-        huidigeData = data;
+        // Object.assign i.p.v. overschrijven: build_portfolio_response() geeft
+        // sinds het gefaseerd-laden-werk alleen de kern terug (zie CLAUDE.md),
+        // dus de al opgehaalde verrijkingsvelden moeten bewaard blijven; de
+        // verse laadVerrijking() hieronder haalt ze daarna alsnog opnieuw op
+        // onder de nieuwe code (de oude code bestaat straks niet meer).
+        Object.assign(huidigeData, data);
+        laadVerrijking(huidigeData.code);
         document.getElementById("dashCode").textContent = data.code || "";
         input.value = "";
         msg.style.color = "#2c7a4b";

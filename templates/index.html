@@ -138,6 +138,11 @@
             <div id="instellingenSectie" style="display: none;"></div>
             <div id="instellingenTickerSectie" style="display: none;"></div>
             <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
+            <p id="verrijkingLaadt" style="display: none; color: #999; font-size: 0.9em;">Bezig met laden...</p>
+            <div id="verrijkingFout" style="display: none;">
+                <p style="color: #9C0006; font-size: 0.9em;">⚠️ Ophalen duurde te lang of is mislukt.</p>
+                <button id="verrijkingOpnieuwBtn">Opnieuw proberen</button>
+            </div>
         </div>
     </div>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
