@@ -139,6 +139,12 @@ MANUAL_TICKER_OVERRIDES = {
 # de verwachte Duitse beurzen). Vandaar deze expliciete override.
 MANUAL_TICKER_OVERRIDES_ISIN = {
     ("CNE100000296", "TDG"): "BY6.MU",
+    # Vanguard FTSE All-World UCITS ETF USD Dis (ISIN IE00B3RBWM25) --
+    # yahooquery's naam-gebaseerde zoekopdracht vond hier de VERKEERDE
+    # aandelenklasse (VWCE, de accumulerende variant, ISIN LU1737085518)
+    # ondanks "Dis" in de productnaam. OpenFIGI's ISIN-lookup bevestigt de
+    # juiste ticker-root is VWRL, niet VWCE. Zie opdracht_vwce_correctie.md.
+    ("IE00B3RBWM25", "EAM"): "VWRL.AS",
 }
 
 # Benchmarks voor de rendement-vergelijking (zie bereken_benchmark_

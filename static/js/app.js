@@ -1078,7 +1078,7 @@ function maakOpenfigiRegel(p) {
     if (p.openfigi_root_bekend) {
         const n = p.openfigi_root_matches || 0;
         regel.style.color = "#2c7a4b";
-        regel.textContent = `✓ OpenFIGI: root '${root}' bevestigd (${n} beurs${n === 1 ? "" : "en"})`;
+        regel.textContent = `✓ OpenFIGI: root '${root}' bevestigd (${n} resultaat${n === 1 ? "" : "en"})`;
     } else {
         regel.style.color = "#9C0006";
         regel.style.fontWeight = "bold";
