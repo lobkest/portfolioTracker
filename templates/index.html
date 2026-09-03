@@ -103,10 +103,12 @@
             <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
             <p id="verdelingTekst" style="display: none;"></p>
             <p id="landDekkingTekst" style="display: none; font-size: 0.85em; color: #888;"></p>
-            <label id="europaCheckboxWrapper" style="display: none; margin-bottom: 10px;">
-                <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
-            </label>
-            <button id="weergaveToggleBtn" style="display: none; margin-bottom: 10px;">Wissel weergave (taart/staaf)</button>
+            <div id="landWeergaveOpties" style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                <label id="europaCheckboxWrapper" class="checkboxLabel" style="display: none;">
+                    <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
+                </label>
+                <button id="weergaveToggleBtn" style="display: none; margin-top: 0;">Wissel weergave (taart/staaf)</button>
+            </div>
 
             <div id="dividendStatsSectie" style="display: none; margin-bottom: 20px;"></div>
             <div id="bedrijvenSectie" style="display: none; margin-bottom: 10px;"></div>

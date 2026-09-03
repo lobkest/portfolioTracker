@@ -1,8 +1,8 @@
 """
 Unit tests voor compute_per_ticker_koers_en_aankopen() (analysis.py), t.b.v.
 het "Per aandeel aankoop"-tabblad: kale koers per aandeel over tijd, het
-aantal aangehouden aandelen over tijd, en de datums van ECHTE aankopen
-(verkopen tellen niet mee als aankoopmoment).
+aantal aangehouden aandelen over tijd, en apart de datums van aankopen en
+verkopen (elk in hun eigen lijst, niet gemengd).
 
 Draait geheel offline: geen database, geen yfinance-calls.
 """
@@ -52,6 +52,30 @@ class TestPerTickerKoersEnAankopen(unittest.TestCase):
         result = compute_per_ticker_koers_en_aankopen(df, price_data)
         self.assertEqual(result["X"]["aankoop_datums"], ["2023-01-01", "2023-01-03"])
         self.assertNotIn("2023-01-05", result["X"]["aankoop_datums"])
+
+    def test_verkoop_krijgt_een_eigen_verkoopdatum(self):
+        df = pd.DataFrame([
+            self._rij("2023-01-01", 10.0, -100.0),
+            self._rij("2023-01-03", 5.0, -60.0),
+            self._rij("2023-01-05", -8.0, 90.0),
+        ])
+        price_data = pd.DataFrame(
+            {"X": [10.0, 10.0, 12.0, 12.0, 11.0, 11.0]},
+            index=[pd.Timestamp(d) for d in [
+                "2023-01-01", "2023-01-02", "2023-01-03",
+                "2023-01-04", "2023-01-05", "2023-01-06",
+            ]],
+        )
+        result = compute_per_ticker_koers_en_aankopen(df, price_data)
+        self.assertEqual(result["X"]["verkoop_datums"], ["2023-01-05"])
+        self.assertNotIn("2023-01-01", result["X"]["verkoop_datums"])
+        self.assertNotIn("2023-01-03", result["X"]["verkoop_datums"])
+        # De verkoopdatum moet exact samenvallen met de rij waar holdings
+        # daadwerkelijk daalt (7 -> zie test_holdings_is_trapvormig_cumulatief
+        # voor dezelfde aanname bij een aankoop) -- 2023-01-05 is index 4.
+        verkoop_index = result["X"]["labels"].index("2023-01-05")
+        self.assertEqual(result["X"]["holdings"][verkoop_index], 7.0)
+        self.assertEqual(result["X"]["holdings"][verkoop_index - 1], 15.0)
 
     def test_holdings_is_trapvormig_cumulatief(self):
         df = pd.DataFrame([

@@ -318,12 +318,17 @@ function toonPerAandeel(ticker) {
     toonEtfDrilldown(ticker);
 }
 
-// Koers per aandeel + aankoopmomenten (groene stippellijnen) + aantal
-// aangehouden aandelen (grijze trapvormige lijn, rechter y-as) -- ander
-// soort grafiek dan toonPerAandeel() hierboven (waarde/geïnvesteerd), zie
-// analysis.compute_per_ticker_koers_en_aankopen(). Gebruikt EIGEN Chart-
-// opbouw i.p.v. updateChart(), want dat ondersteunt geen twee y-assen of
-// de annotation-plugin (verticale lijnen).
+// Kleuren voor de aankoop-/verkoop-annotaties -- ook hergebruikt voor de
+// bijbehorende dummy-legenda-datasets hieronder, dus op 1 plek gedefinieerd.
+const AANKOOP_KLEUR = "#2c7a4b";
+const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als errorMsg/verwijderPortfolioBtn elders in de app
+
+// Koers per aandeel + aankoop-/verkoopmomenten (groene/rode stippellijnen)
+// + aantal aangehouden aandelen (blauwe trapvormige lijn, rechter y-as) --
+// ander soort grafiek dan toonPerAandeel() hierboven (waarde/geïnvesteerd),
+// zie analysis.compute_per_ticker_koers_en_aankopen(). Gebruikt EIGEN
+// Chart-opbouw i.p.v. updateChart(), want dat ondersteunt geen twee
+// y-assen of de annotation-plugin (verticale lijnen).
 function toonPerAandeelAankoop(ticker) {
     if (chart) { chart.destroy(); chart = null; }
     const titelEl = document.getElementById("peraandeelAankoopTitel");
@@ -338,23 +343,31 @@ function toonPerAandeelAankoop(ticker) {
     titelEl.style.display = "block";
 
     const labelsNL = d.labels.map(formatDatum);
-    // aankoop_datums (ISO) -> dezelfde dd-mm-jjjj-vorm als de x-as-labels,
-    // zodat de annotation-plugin (die op de category-as matcht via de
-    // labelwaarde zelf, niet via een echte tijdschaal) de juiste kolom raakt.
-    const aankoopLabels = new Set(d.aankoop_datums.map(formatDatum));
-    const annotaties = {};
-    labelsNL.forEach((label, i) => {
-        if (aankoopLabels.has(label)) {
-            annotaties[`aankoop-${i}`] = {
-                type: "line",
-                xMin: label,
-                xMax: label,
-                borderColor: "#2c7a4b",
-                borderWidth: 1,
-                borderDash: [4, 4],
-            };
-        }
-    });
+    // aankoop_datums/verkoop_datums (ISO) -> dezelfde dd-mm-jjjj-vorm als
+    // de x-as-labels, zodat de annotation-plugin (die op de category-as
+    // matcht via de labelwaarde zelf, niet via een echte tijdschaal) de
+    // juiste kolom raakt.
+    function maakVerticaleAnnotaties(datums, prefix, kleur) {
+        const labelsSet = new Set(datums.map(formatDatum));
+        const annotaties = {};
+        labelsNL.forEach((label, i) => {
+            if (labelsSet.has(label)) {
+                annotaties[`${prefix}-${i}`] = {
+                    type: "line",
+                    xMin: label,
+                    xMax: label,
+                    borderColor: kleur,
+                    borderWidth: 1,
+                    borderDash: [4, 4],
+                };
+            }
+        });
+        return annotaties;
+    }
+    const annotaties = {
+        ...maakVerticaleAnnotaties(d.aankoop_datums, "aankoop", AANKOOP_KLEUR),
+        ...maakVerticaleAnnotaties(d.verkoop_datums, "verkoop", VERKOOP_KLEUR),
+    };
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "line",
@@ -374,13 +387,45 @@ function toonPerAandeelAankoop(ticker) {
                 {
                     label: "Aantal aandelen",
                     data: d.holdings,
-                    borderColor: "#bbbbbb",
-                    backgroundColor: "#bbbbbb",
+                    borderColor: "#3182bd",
                     yAxisID: "y1",
-                    stepped: "after",
+                    // 'before' (NIET 'after'!) is het Chart.js-equivalent van
+                    // matplotlib's drawstyle="steps-post": de waarde blijft
+                    // vlak op de OUDE stand staan tot exact het punt waar de
+                    // nieuwe stand hoort, en springt daar pas. Chart.js'
+                    // 'after' doet het omgekeerde (springt al direct na het
+                    // VORIGE punt) -- zie _steppedLineTo in Chart.js' bron
+                    // (helpers.canvas.js): met 'after' wordt eerst
+                    // ctx.lineTo(previous.x, target.y) getekend, d.w.z. de
+                    // sprong naar de NIEUWE waarde gebeurt al op de x van het
+                    // VORIGE punt. Dat gaf precies de gemelde bug: de sprong
+                    // in deze lijn liep een dag/punt vóór op de groene/rode
+                    // aankoop-/verkoop-stippellijn (die wel op de juiste,
+                    // exacte transactiedatum staat).
+                    stepped: "before",
                     pointRadius: 0,
                     pointHoverRadius: 0,
-                    borderWidth: 1,
+                    borderWidth: 1.5,
+                },
+                // Dummy-datasets (geen datapunten) puur om Aankoop/Verkoop
+                // in de standaard-legenda te krijgen -- de annotation-plugin
+                // voegt de echte verticale lijnen zelf niet aan de legenda
+                // toe, dit is de eenvoudigste robuuste workaround daarvoor.
+                {
+                    label: "Aankoop",
+                    data: [],
+                    borderColor: AANKOOP_KLEUR,
+                    borderDash: [5, 5],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
+                },
+                {
+                    label: "Verkoop",
+                    data: [],
+                    borderColor: VERKOOP_KLEUR,
+                    borderDash: [5, 5],
+                    borderWidth: 1.5,
+                    pointRadius: 0,
                 },
             ],
         },
@@ -397,8 +442,11 @@ function toonPerAandeelAankoop(ticker) {
                     callbacks: {
                         label: (ctx) => ctx.dataset.yAxisID === "y"
                             ? `Koers: ${ctx.parsed.y === null ? "—" : formatteerEuro(ctx.parsed.y)}`
-                            : `Aantal aandelen: ${ctx.parsed.y}`
-                    }
+                            : ctx.dataset.yAxisID === "y1"
+                                ? `Aantal aandelen: ${ctx.parsed.y}`
+                                : null
+                    },
+                    filter: (ctx) => ctx.dataset.yAxisID === "y" || ctx.dataset.yAxisID === "y1",
                 },
                 zoom: {
                     pan: { enabled: true, mode: "x" },
@@ -758,7 +806,7 @@ function toonLand() {
     }
 
     const lsv = huidigeData.land_sector_verdeling;
-    document.getElementById("europaCheckboxWrapper").style.display = "block";
+    document.getElementById("europaCheckboxWrapper").style.display = "flex";
 
     if (landSectorWeergave === "staaf") {
         const tickerNamen = {};
@@ -2240,10 +2288,14 @@ function renderEtfOverlapTabel() {
     kopRij.appendChild(document.createElement("th"));
     etfs.forEach(ticker => {
         const th = document.createElement("th");
-        th.textContent = ticker;
+        th.textContent = tickerNamen[ticker] || ticker;
         th.title = tickerNamen[ticker] || ticker;
         th.style.padding = "4px 8px";
         th.style.textAlign = "center";
+        th.style.whiteSpace = "nowrap";
+        th.style.maxWidth = "140px";
+        th.style.overflow = "hidden";
+        th.style.textOverflow = "ellipsis";
         kopRij.appendChild(th);
     });
     tabel.appendChild(kopRij);
@@ -2251,10 +2303,14 @@ function renderEtfOverlapTabel() {
     etfs.forEach(rijTicker => {
         const tr = document.createElement("tr");
         const rijKop = document.createElement("th");
-        rijKop.textContent = rijTicker;
+        rijKop.textContent = tickerNamen[rijTicker] || rijTicker;
         rijKop.title = tickerNamen[rijTicker] || rijTicker;
         rijKop.style.padding = "4px 8px";
         rijKop.style.textAlign = "left";
+        rijKop.style.whiteSpace = "nowrap";
+        rijKop.style.maxWidth = "140px";
+        rijKop.style.overflow = "hidden";
+        rijKop.style.textOverflow = "ellipsis";
         tr.appendChild(rijKop);
 
         etfs.forEach(kolTicker => {
