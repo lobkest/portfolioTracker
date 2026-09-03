@@ -34,6 +34,25 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import analysis
 from analysis import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, _cumulatieve_split_factor, BEURS_MAP
 
+# verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
+# _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
+# aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
+# op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
+# blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
+_openfigi_patcher = None
+
+
+def setUpModule():
+    global _openfigi_patcher
+    _openfigi_patcher = patch.object(
+        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+    )
+    _openfigi_patcher.start()
+
+
+def tearDownModule():
+    _openfigi_patcher.stop()
+
 
 def _prijscheck(match, afwijking_pct=0.0, yahoo_koers=100.0, niveau=None):
     return {

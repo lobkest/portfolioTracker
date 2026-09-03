@@ -1010,27 +1010,38 @@ def haal_openfigi_resultaten(isin):
     return {"resultaten": resultaten, "fout": None}
 
 
-def _openfigi_root_bekend(ticker, openfigi_resultaten):
+def _openfigi_root_matches(ticker, openfigi_resultaten):
     """
-    Checkt of de ROOT van 'ticker' (zonder Yahoo-beurssuffix, bv. 'BY6' uit
-    'BY6.MU') voorkomt tussen de tickers die OpenFIGI voor deze ISIN
-    teruggaf -- ongeacht beurs (Bloomberg's exchCode-namen mappen niet
-    1-op-1 naar Yahoo-suffixen, dus alleen op root-niveau vergelijken, niet
-    per beurs).
+    Telt hoeveel van OpenFIGI's resultaten voor deze ISIN de ROOT van
+    'ticker' matchen (zonder Yahoo-beurssuffix, bv. 'BY6' uit 'BY6.MU') --
+    ongeacht beurs (Bloomberg's exchCode-namen mappen niet 1-op-1 naar
+    Yahoo-suffixen, dus alleen op root-niveau vergelijken, niet per beurs).
 
     Geeft None terug als er niets te vergelijken valt (geen ticker, of
     OpenFIGI had geen resultaten) -- dat betekent NIET "onbekend/fout", puur
-    "geen oordeel mogelijk", en moet door de aanroeper ook zo behandeld
-    worden (niet als een negatief signaal).
+    "geen oordeel mogelijk". Anders een int (0 = root niet gevonden, gebruikt
+    door _openfigi_root_bekend() en de samenvattingsregel op de
+    Ticker-zekerheid-pagina).
     """
     if not ticker or not openfigi_resultaten:
         return None
     root = ticker.split(".")[0].upper()
-    figi_tickers = {r["ticker"].upper() for r in openfigi_resultaten if r.get("ticker")}
+    figi_tickers = [r["ticker"].upper() for r in openfigi_resultaten if r.get("ticker")]
     # Sommige OpenFIGI-tickers hebben een valuta-/varianten-suffix
     # (bv. '1211HKD', 'VUSACHF') -- een prefix-match voorkomt dat zulke
     # varianten ten onrechte als "root niet gevonden" gelden.
-    return any(root == t or t.startswith(root) for t in figi_tickers)
+    return sum(1 for t in figi_tickers if root == t or t.startswith(root))
+
+
+def _openfigi_root_bekend(ticker, openfigi_resultaten):
+    """
+    Of de ROOT van 'ticker' voorkomt tussen OpenFIGI's resultaten voor deze
+    ISIN (zie _openfigi_root_matches() voor de matchregel). None als er
+    niets te vergelijken valt -- moet door de aanroeper als "geen oordeel
+    mogelijk" behandeld worden, niet als een negatief signaal.
+    """
+    matches = _openfigi_root_matches(ticker, openfigi_resultaten)
+    return None if matches is None else matches > 0
 
 
 def _naar_basis_vorm(beurs, resultaat):
@@ -1054,6 +1065,8 @@ def _naar_basis_vorm(beurs, resultaat):
         "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
         "prijs_checks": resultaat.get("prijs_checks", []), "alternatieven": [],
         "basis_alleen": True,
+        "openfigi_root_bekend": resultaat.get("openfigi_root_bekend"),
+        "openfigi_root_matches": resultaat.get("openfigi_root_matches"),
     }
     if resultaat.get("aanbevolen_alternatief"):
         basis["aanbevolen_alternatief"] = resultaat["aanbevolen_alternatief"]
@@ -2693,19 +2706,26 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     alles terug wat nodig is om de match op de Ticker-zekerheid-pagina te
     beoordelen (land/sector/valuta/... voor gekozen ticker + alternatieven),
     zodat de frontend niets zelf hoeft na te vragen.
+
+    Voegt op ELK return-pad ook een OpenFIGI-root-check toe (zie
+    _voeg_openfigi_check_toe()) -- zelfde extra, ISIN-gebaseerde
+    validatiesignaal als find_ticker_met_snelle_prijscheck(). Kost dankzij
+    de permanente cache per ISIN geen extra externe call zodra deze ISIN al
+    eens via de upload-route is opgehaald.
     """
     basis = find_ticker_detailed(product, isin, beurs)
     ticker = basis["ticker"]
     zekerheid = basis["zekerheid"]
 
     if ticker is None:
-        return {
+        resultaat = {
             "ticker": None, "zekerheid": zekerheid, "waarschuwing": None,
             "is_etf": None, "land": None, "sector": None, "top_holding_land": None, "valuta": None,
             "fondsfamilie": None, "category": None, "quote_type": None,
             "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
             "prijs_checks": [], "alternatieven": [],
         }
+        return _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="waarschuwing")
 
     steekproef = _kies_steekproef_transacties(transacties_van_dit_isin)
 
@@ -2774,27 +2794,44 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     }
     if aanbevolen_alternatief:
         result["aanbevolen_alternatief"] = aanbevolen_alternatief
-    return result
+    return _voeg_openfigi_check_toe(result, isin, waarschuwing_veld="waarschuwing")
 
 
-def _voeg_openfigi_check_toe(resultaat, isin):
+def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwing"):
     """
-    Past 'resultaat' (uit find_ticker_met_snelle_prijscheck) aan met een
-    extra, ISIN-gebaseerd validatiesignaal: staat de ticker-ROOT (zonder
-    Yahoo-beurssuffix) ergens tussen OpenFIGI's resultaten voor deze ISIN?
-    Verandert NOOIT automatisch welke ticker gebruikt/opgeslagen wordt --
-    alleen 'zekerheid'/'prijswaarschuwing', net als de rest van deze
-    functie (zie ook backfill_verouderde_tickers() voor hetzelfde
-    voorzichtige patroon). Dankzij de permanente cache in
+    Past 'resultaat' aan met een extra, ISIN-gebaseerd validatiesignaal:
+    staat de ticker-ROOT (zonder Yahoo-beurssuffix) ergens tussen OpenFIGI's
+    resultaten voor deze ISIN? Verandert NOOIT automatisch welke ticker
+    gebruikt/opgeslagen wordt -- alleen 'zekerheid' en het waarschuwingsveld,
+    net als de rest van deze functie (zie ook backfill_verouderde_tickers()
+    voor hetzelfde voorzichtige patroon). Dankzij de permanente cache in
     haal_openfigi_resultaten() kost dit bij een warme cache geen extra
     externe call.
+
+    Zet altijd 'openfigi_root_bekend' (True/False/None) en
+    'openfigi_root_matches' (aantal matchende OpenFIGI-resultaten, of None)
+    op 'resultaat' -- gebruikt door de Ticker-zekerheid-pagina voor de
+    samenvattingsregel, ook als het oordeel positief of onbeslist is (in
+    tegenstelling tot de waarschuwing hieronder, die alleen bij een
+    negatief oordeel wordt gezet).
+
+    waarschuwing_veld: de sleutel in 'resultaat' waarin de bestaande
+    prijscontrole-boodschap staat -- find_ticker_met_snelle_prijscheck()
+    gebruikt 'prijswaarschuwing', verifieer_ticker_met_prijs() gebruikt
+    'waarschuwing'. Bij een negatief oordeel wordt een bestaande boodschap
+    aangevuld (nieuwe regel), niet overschreven.
     """
     ticker = resultaat.get("ticker")
     if not ticker:
+        resultaat["openfigi_root_bekend"] = None
+        resultaat["openfigi_root_matches"] = None
         return resultaat
 
     openfigi = haal_openfigi_resultaten(isin)
-    root_bekend = _openfigi_root_bekend(ticker, openfigi["resultaten"])
+    matches = _openfigi_root_matches(ticker, openfigi["resultaten"])
+    root_bekend = None if matches is None else matches > 0
+    resultaat["openfigi_root_bekend"] = root_bekend
+    resultaat["openfigi_root_matches"] = matches
     if root_bekend is not False:
         return resultaat
 
@@ -2804,8 +2841,8 @@ def _voeg_openfigi_check_toe(resultaat, isin):
     )
     print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
 
-    bestaande = resultaat.get("prijswaarschuwing")
-    resultaat["prijswaarschuwing"] = f"{bestaande}\n{extra_waarschuwing}" if bestaande else extra_waarschuwing
+    bestaande = resultaat.get(waarschuwing_veld)
+    resultaat[waarschuwing_veld] = f"{bestaande}\n{extra_waarschuwing}" if bestaande else extra_waarschuwing
     if resultaat.get("zekerheid") == "zeker":
         resultaat["zekerheid"] = "onzeker"
     return resultaat
@@ -3082,7 +3119,7 @@ def backfill_verouderde_tickers(code):
     return gecorrigeerd
 
 
-def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin):
+def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
     """
     Leest (via vergelijk_prijs_op_datum's eigen ticker_prijscheck-cache) of
     de laatste transactieprijs van deze positie afwijkt van Yahoo — voor
@@ -3094,27 +3131,50 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin):
     de transacties-tabel), dus dat is niet nodig. In de praktijk is dit een
     cache-hit: find_ticker_met_snelle_prijscheck() heeft de cache voor de
     laatste transactiedatum meestal al gevuld bij upload.
+
+    isin (optioneel): als gegeven, wordt ook de OpenFIGI-root-check
+    toegepast (zie _voeg_openfigi_check_toe elders in dit bestand) — zelfde
+    extra validatiesignaal als de upload-route en de Ticker-zekerheid-
+    pagina, zodat de permanente banner bovenaan een opgeslagen portfolio
+    ook een root-mismatch laat zien (bv. VWCE.AS) ook als de prijscontrole
+    zelf niets bijzonders zag. Zonder isin (bv. bestaande aanroepen) wordt
+    deze check overgeslagen -- bestaand gedrag blijft ongewijzigd.
     """
     geldige_transacties = [
         t for t in transacties_van_dit_isin if t.get("koers") and float(t["koers"]) > 0
     ]
     if not ticker or not geldige_transacties:
-        return None
+        boodschap = None
+    else:
+        laatste = max(geldige_transacties, key=lambda t: t["datum"])
+        check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
+        if check["afwijking_pct"] is None or not _prijscheck_is_probleem(check):
+            boodschap = None
+        elif check.get("binnen_dagrange") is False:
+            boodschap = (
+                f"Koers van {ticker} valt op {laatste['datum']} buiten de dagrange (high/low) van "
+                f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
+            )
+        else:
+            boodschap = (
+                f"Koers van {ticker} wijkt {check['afwijking_pct']:.1f}% af van Yahoo — "
+                f"controleer op het Ticker-zekerheid-tabblad."
+            )
 
-    laatste = max(geldige_transacties, key=lambda t: t["datum"])
-    check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
-    if check["afwijking_pct"] is None or not _prijscheck_is_probleem(check):
-        return None
+    if not ticker or not isin:
+        return boodschap
 
-    if check.get("binnen_dagrange") is False:
-        return (
-            f"Koers van {ticker} valt op {laatste['datum']} buiten de dagrange (high/low) van "
-            f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
-        )
-    return (
-        f"Koers van {ticker} wijkt {check['afwijking_pct']:.1f}% af van Yahoo — "
-        f"controleer op het Ticker-zekerheid-tabblad."
+    openfigi = haal_openfigi_resultaten(isin)
+    matches = _openfigi_root_matches(ticker, openfigi["resultaten"])
+    if matches is None or matches > 0:
+        return boodschap
+
+    extra_waarschuwing = (
+        f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
+        f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
     )
+    print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
+    return f"{boodschap}\n{extra_waarschuwing}" if boodschap else extra_waarschuwing
 
 
 def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
@@ -3126,13 +3186,17 @@ def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
     gangbare geval geen nieuwe Yahoo-calls kost.
 
     transacties_df: moet minstens de kolommen 'ticker', 'datum', 'koers'
-    bevatten. ticker_namen: {ticker: weergavenaam}, voor de UI. Geeft een
-    lijst van {"ticker", "naam", "boodschap"} terug (leeg als niets afwijkt).
+    bevatten ('isin' optioneel, voor de OpenFIGI-root-check -- ontbreekt 'ie,
+    dan wordt die check overgeslagen voor alle tickers). ticker_namen:
+    {ticker: weergavenaam}, voor de UI. Geeft een lijst van {"ticker",
+    "naam", "boodschap"} terug (leeg als niets afwijkt).
     """
+    heeft_isin_kolom = "isin" in transacties_df.columns
     waarschuwingen = []
     for ticker, groep in transacties_df.dropna(subset=["ticker"]).groupby("ticker"):
         transacties_van_ticker = [{"datum": d, "koers": k} for d, k in zip(groep["datum"], groep["koers"])]
-        boodschap = prijswaarschuwing_voor_ticker(ticker, transacties_van_ticker)
+        isin = groep["isin"].iloc[0] if heeft_isin_kolom and not groep.empty else None
+        boodschap = prijswaarschuwing_voor_ticker(ticker, transacties_van_ticker, isin)
         if boodschap:
             waarschuwingen.append({
                 "ticker": ticker, "naam": ticker_namen.get(ticker, ticker), "boodschap": boodschap,
