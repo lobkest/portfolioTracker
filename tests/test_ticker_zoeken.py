@@ -179,5 +179,26 @@ class TestFindTickerDetailedIsinOverride(unittest.TestCase):
         self.assertEqual(resultaat["ticker"], "1211.HK")
 
 
+class TestFindTickerDetailedVwceOverride(unittest.TestCase):
+    """
+    Regressietest voor het VWCE/VWRL-geval (ISIN IE00B3RBWM25, beurs
+    'EAM'/Amsterdam): de productnaam 'VANGUARD FTSE ALL-WORLD UCITS ETF
+    USD DIS' vond via yahooquery een 'zekere' match op VWCE.AS -- dat is
+    echter de ACCUMULERENDE aandelenklasse (ISIN LU1737085518), niet de
+    distribuerende variant uit deze ISIN. De juiste ticker is VWRL.AS.
+    MANUAL_TICKER_OVERRIDES_ISIN vangt dit vóór het zoeken af, net als het
+    BYD-geval hierboven.
+    """
+
+    def test_isin_override_wint_van_automatische_zekere_match(self):
+        with patch.object(analysis, "_yahoo_search") as mock_search:
+            resultaat = find_ticker_detailed(
+                "VANGUARD FTSE ALL-WORLD UCITS ETF USD DIS", "IE00B3RBWM25", "EAM",
+            )
+
+        self.assertEqual(resultaat, {"ticker": "VWRL.AS", "zekerheid": "zeker", "alternatieven": []})
+        mock_search.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
