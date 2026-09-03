@@ -1501,10 +1501,11 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
     """
     Per ticker: de kale koers per aandeel over tijd (niet vermenigvuldigd
     met het aantal, in tegenstelling tot compute_per_ticker()'s 'waarde'),
-    het aantal aangehouden aandelen over tijd, en de datums van echte
-    aankopen (adj_aantal > 0 -- verkopen tellen NIET mee, in tegenstelling
-    tot het oude trading_degiro.py-script dat alle transactiedatums als
-    'Aankoop' labelde). T.b.v. het 'Per aandeel aankoop'-tabblad.
+    het aantal aangehouden aandelen over tijd, en apart de datums van
+    aankopen (adj_aantal > 0) en verkopen (adj_aantal < 0) -- in
+    tegenstelling tot het oude trading_degiro.py-script dat alle
+    transactiedatums door elkaar als 'Aankoop' labelde. T.b.v. het 'Per
+    aandeel aankoop'-tabblad.
 
     Gebruikt dezelfde crop-range-logica als compute_per_ticker() (rond de
     periode dat de positie daadwerkelijk aangehouden werd), zodat beide
@@ -1554,9 +1555,12 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
             df_t = df_t.iloc[0:0]
 
         aankopen = trades[trades["adj_aantal"] > 0]
+        verkopen = trades[trades["adj_aantal"] < 0]
         if len(df_t) > 0:
             aankoop_datums_dt = pd.to_datetime(aankopen["datum"])
             aankopen = aankopen[(aankoop_datums_dt >= df_t.index[0]) & (aankoop_datums_dt <= df_t.index[-1])]
+            verkoop_datums_dt = pd.to_datetime(verkopen["datum"])
+            verkopen = verkopen[(verkoop_datums_dt >= df_t.index[0]) & (verkoop_datums_dt <= df_t.index[-1])]
 
         result[ticker] = {
             "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
@@ -1573,6 +1577,10 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
             "aankoop_datums": sorted(
                 d.strftime("%Y-%m-%d")
                 for d in pd.to_datetime(aankopen["datum"]).dt.normalize().unique()
+            ),
+            "verkoop_datums": sorted(
+                d.strftime("%Y-%m-%d")
+                for d in pd.to_datetime(verkopen["datum"]).dt.normalize().unique()
             ),
         }
     return result
