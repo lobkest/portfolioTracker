@@ -27,6 +27,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
+import analysis
+
+# verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
+# _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
+# aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
+# op "geen resultaten" gepatcht zodat deze route-test offline en ongewijzigd
+# blijft t.o.v. de directe aanroep waarmee 'ie vergeleken wordt.
+_openfigi_patcher = None
+
+
+def setUpModule():
+    global _openfigi_patcher
+    _openfigi_patcher = patch.object(
+        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+    )
+    _openfigi_patcher.start()
+
+
+def tearDownModule():
+    _openfigi_patcher.stop()
+
+
 SKIP_REDEN = (
     "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
     "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"

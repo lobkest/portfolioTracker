@@ -161,6 +161,91 @@ class TestOpenfigiRootBekend(unittest.TestCase):
         self.assertIs(analysis._openfigi_root_bekend("AAPL", [{"ticker": "AAPL"}]), True)
 
 
+class TestOpenfigiRootMatches(unittest.TestCase):
+    def test_telt_alle_matchende_rijen_ongeacht_beurs(self):
+        resultaten = [
+            {"ticker": "BY6", "exchCode": "GR"}, {"ticker": "BY6", "exchCode": "GF"},
+            {"ticker": "1211", "exchCode": "HK"},
+        ]
+        self.assertEqual(analysis._openfigi_root_matches("BY6.MU", resultaten), 2)
+
+    def test_geen_matches_geeft_nul_niet_none(self):
+        resultaten = [{"ticker": "VWRL", "exchCode": "NA"}]
+        self.assertEqual(analysis._openfigi_root_matches("VWCE.AS", resultaten), 0)
+
+    def test_none_zonder_ticker_of_resultaten(self):
+        self.assertIsNone(analysis._openfigi_root_matches(None, [{"ticker": "AAPL"}]))
+        self.assertIsNone(analysis._openfigi_root_matches("AAPL", []))
+
+
+class TestVoegOpenfigiCheckToe(unittest.TestCase):
+    """_voeg_openfigi_check_toe() is de gedeelde hook die zowel
+    find_ticker_met_snelle_prijscheck() als verifieer_ticker_met_prijs()
+    gebruiken -- hier los getest op de drie oordelen (True/False/None) en
+    het configureerbare waarschuwing_veld (die twee functies gebruiken
+    allebei een andere sleutel: 'prijswaarschuwing' resp. 'waarschuwing')."""
+
+    def test_root_bekend_zet_samenvattingsvelden_zonder_waarschuwing(self):
+        with patch.object(
+            analysis, "haal_openfigi_resultaten",
+            return_value={"resultaten": [{"ticker": "AAPL", "exchCode": "US"}], "fout": None},
+        ):
+            resultaat = analysis._voeg_openfigi_check_toe(
+                {"ticker": "AAPL", "zekerheid": "zeker", "prijswaarschuwing": None}, "US0378331005"
+            )
+        self.assertIs(resultaat["openfigi_root_bekend"], True)
+        self.assertEqual(resultaat["openfigi_root_matches"], 1)
+        self.assertIsNone(resultaat["prijswaarschuwing"])
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+
+    def test_root_niet_bekend_voegt_waarschuwing_toe_op_gegeven_veld(self):
+        with patch.object(
+            analysis, "haal_openfigi_resultaten",
+            return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
+        ):
+            resultaat = analysis._voeg_openfigi_check_toe(
+                {"ticker": "VWCE.AS", "zekerheid": "zeker", "waarschuwing": None},
+                "LU1737085518", waarschuwing_veld="waarschuwing",
+            )
+        self.assertIs(resultaat["openfigi_root_bekend"], False)
+        self.assertEqual(resultaat["openfigi_root_matches"], 0)
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertIn("VWCE", resultaat["waarschuwing"])
+        self.assertNotIn("prijswaarschuwing", resultaat)
+
+    def test_root_niet_bekend_vult_bestaande_waarschuwing_aan_i_p_v_te_overschrijven(self):
+        with patch.object(
+            analysis, "haal_openfigi_resultaten",
+            return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
+        ):
+            resultaat = analysis._voeg_openfigi_check_toe(
+                {"ticker": "VWCE.AS", "zekerheid": "onzeker", "waarschuwing": "Bestaande prijswaarschuwing."},
+                "LU1737085518", waarschuwing_veld="waarschuwing",
+            )
+        self.assertIn("Bestaande prijswaarschuwing.", resultaat["waarschuwing"])
+        self.assertIn("VWCE", resultaat["waarschuwing"])
+        self.assertIn("\n", resultaat["waarschuwing"])
+
+    def test_geen_oordeel_laat_resultaat_ongemoeid(self):
+        with patch.object(analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}):
+            resultaat = analysis._voeg_openfigi_check_toe(
+                {"ticker": "AAPL", "zekerheid": "zeker", "prijswaarschuwing": None}, "US0378331005"
+            )
+        self.assertIsNone(resultaat["openfigi_root_bekend"])
+        self.assertIsNone(resultaat["openfigi_root_matches"])
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIsNone(resultaat["prijswaarschuwing"])
+
+    def test_zonder_ticker_geen_netwerkcall_en_lege_samenvattingsvelden(self):
+        with patch.object(analysis, "haal_openfigi_resultaten") as mock_haal:
+            resultaat = analysis._voeg_openfigi_check_toe(
+                {"ticker": None, "zekerheid": "geen_match"}, "US0378331005"
+            )
+        mock_haal.assert_not_called()
+        self.assertIsNone(resultaat["openfigi_root_bekend"])
+        self.assertIsNone(resultaat["openfigi_root_matches"])
+
+
 class TestFindTickerMetSnellePrijscheckOpenfigiIntegratie(unittest.TestCase):
     """Integratietest: een positie waarvan de prijscontrole GEEN afwijking
     laat zien, maar waarvan OpenFIGI een niet-matchende resultatenlijst
@@ -217,6 +302,118 @@ class TestFindTickerMetSnellePrijscheckOpenfigiIntegratie(unittest.TestCase):
 
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertIsNone(resultaat["prijswaarschuwing"])
+
+
+class TestVerifieerTickerMetPrijsOpenfigiIntegratie(unittest.TestCase):
+    """Zelfde soort integratietest als hierboven, maar dan voor de
+    duurdere, volledige check achter de Ticker-zekerheid-pagina
+    (verifieer_ticker_met_prijs) -- gebruikt het 'waarschuwing'-veld i.p.v.
+    'prijswaarschuwing', zie _voeg_openfigi_check_toe()."""
+
+    def test_root_niet_bekend_degradeert_en_waarschuwt_op_waarschuwing_veld(self):
+        from datetime import date
+        transacties = [
+            {"datum": date(2023, 1, 10), "koers": 100.0},
+            {"datum": date(2023, 6, 10), "koers": 100.0},
+        ]
+        prijs_ok = {
+            "yahoo_koers": 100.0, "bekende_koers": 100.0, "afwijking_pct": 0.5,
+            "niveau": "ok", "match": True, "binnen_dagrange": True,
+        }
+
+        with patch.object(
+            analysis, "find_ticker_detailed",
+            return_value={"ticker": "VWCE.AS", "zekerheid": "zeker", "alternatieven": []},
+        ), patch.object(
+            analysis, "vergelijk_prijs_op_datum", return_value=prijs_ok,
+        ), patch.object(
+            analysis, "_ticker_details_met_cache", return_value={},
+        ), patch.object(
+            analysis, "_land_sector_voor_weergave", return_value=(None, None, None),
+        ), patch.object(
+            analysis, "classify_ticker", return_value=False,
+        ), patch.object(
+            analysis, "haal_openfigi_resultaten",
+            return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
+        ):
+            resultaat = analysis.verifieer_ticker_met_prijs(
+                "VANGUARD FTSE ALL-WORLD USD DIS", "LU1737085518", "EAM", transacties
+            )
+
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertIsNotNone(resultaat["waarschuwing"])
+        self.assertIn("OpenFIGI", resultaat["waarschuwing"])
+        self.assertIs(resultaat["openfigi_root_bekend"], False)
+
+    def test_geen_ticker_pad_zet_ook_lege_openfigi_velden_geen_crash(self):
+        with patch.object(
+            analysis, "find_ticker_detailed",
+            return_value={"ticker": None, "zekerheid": "geen_match", "alternatieven": []},
+        ), patch.object(analysis, "haal_openfigi_resultaten") as mock_haal:
+            resultaat = analysis.verifieer_ticker_met_prijs("ONBEKEND FONDS", "XX0000000000", "XYZ", [])
+
+        mock_haal.assert_not_called()
+        self.assertIsNone(resultaat["ticker"])
+        self.assertIsNone(resultaat["openfigi_root_bekend"])
+
+
+class TestPrijswaarschuwingVoorTickerOpenfigiIntegratie(unittest.TestCase):
+    """prijswaarschuwing_voor_ticker() (de permanente banner bovenaan een
+    opgeslagen portfolio) krijgt de OpenFIGI-root-check alleen als een isin
+    wordt meegegeven -- bestaande aanroepen zonder isin blijven ongewijzigd."""
+
+    def test_root_niet_bekend_geeft_waarschuwing_ook_zonder_prijsprobleem(self):
+        from datetime import date
+        geen_probleem = {
+            "yahoo_koers": 100.0, "bekende_koers": 100.0, "afwijking_pct": 0.5,
+            "niveau": "ok", "match": True, "binnen_dagrange": True,
+        }
+        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_probleem), \
+             patch.object(
+                 analysis, "haal_openfigi_resultaten",
+                 return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
+             ):
+            boodschap = analysis.prijswaarschuwing_voor_ticker(
+                "VWCE.AS", [{"datum": date(2023, 6, 10), "koers": 100.0}], isin="LU1737085518",
+            )
+
+        self.assertIsNotNone(boodschap)
+        self.assertIn("VWCE", boodschap)
+        self.assertIn("OpenFIGI", boodschap)
+
+    def test_zonder_isin_geen_openfigi_call_bestaand_gedrag(self):
+        from datetime import date
+        geen_probleem = {
+            "yahoo_koers": 100.0, "bekende_koers": 100.0, "afwijking_pct": 0.5,
+            "niveau": "ok", "match": True, "binnen_dagrange": True,
+        }
+        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_probleem), \
+             patch.object(analysis, "haal_openfigi_resultaten") as mock_haal:
+            boodschap = analysis.prijswaarschuwing_voor_ticker(
+                "VWCE.AS", [{"datum": date(2023, 6, 10), "koers": 100.0}],
+            )
+
+        mock_haal.assert_not_called()
+        self.assertIsNone(boodschap)
+
+    def test_root_niet_bekend_vult_bestaande_prijswaarschuwing_aan(self):
+        from datetime import date
+        afwijking = {
+            "yahoo_koers": 50.0, "bekende_koers": 100.0, "afwijking_pct": 50.0,
+            "niveau": "waarschuwing", "match": False, "binnen_dagrange": False,
+        }
+        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=afwijking), \
+             patch.object(
+                 analysis, "haal_openfigi_resultaten",
+                 return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
+             ):
+            boodschap = analysis.prijswaarschuwing_voor_ticker(
+                "VWCE.AS", [{"datum": date(2023, 6, 10), "koers": 100.0}], isin="LU1737085518",
+            )
+
+        self.assertIn("dagrange", boodschap)
+        self.assertIn("OpenFIGI", boodschap)
+        self.assertIn("\n", boodschap)
 
 
 if __name__ == "__main__":

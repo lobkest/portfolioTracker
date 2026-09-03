@@ -287,7 +287,7 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
         })
         ticker_namen = {"AAPL": "Apple", "MSFT": "Microsoft"}
 
-        def fake_prijswaarschuwing(ticker, transacties):
+        def fake_prijswaarschuwing(ticker, transacties, isin=None):
             if ticker == "AAPL":
                 return "Koers van AAPL wijkt 15.0% af van Yahoo — controleer op het Ticker-zekerheid-tabblad."
             return None
