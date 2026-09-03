@@ -57,6 +57,12 @@ def init_db():
             PRIMARY KEY (ticker, datum)
         );
     """)
+    # prijzen bestond al vóór bijgewerkt_op erbij kwam -- bestaande rijen
+    # missen deze kolom dus nog, CREATE TABLE IF NOT EXISTS raakt een
+    # bestaande tabel niet aan. Oude rijen blijven NULL (onbekend moment van
+    # ophalen) -- geen backfill nodig, dat lost zichzelf vanzelf op naarmate
+    # koersen opnieuw/nieuw gecached worden.
+    cur.execute("ALTER TABLE prijzen ADD COLUMN IF NOT EXISTS bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_info (
             ticker TEXT PRIMARY KEY,
@@ -658,3 +664,27 @@ def save_prices(rows):
     conn.commit()
     cur.close()
     conn.close()
+
+
+def get_laatste_prijs_update(tickers):
+    """
+    Geeft (laatste_koersdatum, laatst_opgehaald_op) terug voor de gegeven
+    tickers, t.b.v. de 'laatst bijgewerkt'-melding op Portfolio-home.
+    - laatste_koersdatum: de meest recente handelsdag waarvoor er een
+      koers bekend is (over alle meegegeven tickers heen).
+    - laatst_opgehaald_op: het meest recente moment waarop een koers voor
+      een van deze tickers gecached is (server-tijdstip, UTC).
+    (None, None) als er geen prijsdata is voor deze tickers.
+    """
+    if not tickers:
+        return None, None
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT MAX(datum), MAX(bijgewerkt_op) FROM prijzen WHERE ticker = ANY(%s)",
+        (tickers,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return (row[0], row[1]) if row else (None, None)

@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
 from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd, _verwarm_land_sector_cache_parallel
-from db import save_dividenden, backfill_transactiekosten, backfill_tijd
+from db import save_dividenden, backfill_transactiekosten, backfill_tijd, get_laatste_prijs_update
 import hashlib
 import openpyxl
 import math
@@ -490,6 +490,53 @@ def rendement_over_tijd(code):
     return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat, stap=stap))
 
 
+@app.route("/api/portfolio/<code>/ticker-koers-bereik")
+def ticker_koers_bereik(code):
+    """
+    Extra koersdata voor 1 ticker buiten de standaard-crop, t.b.v. de
+    "meer historie laden"-knoppen op het 'Per aandeel aankoop'-tabblad
+    (per_ticker_aankoop in de hoofd-payload is gecropt tot de aanhoud-
+    periode). Query-params: ticker (verplicht), vanaf (YYYY-MM-DD,
+    verplicht), tot (YYYY-MM-DD, optioneel, default vandaag). Bewust een
+    los, lui endpoint i.p.v. de crop-range in analyze_transacties() op te
+    rekken -- zelfde reden als bij ticker-zekerheid: dit raakt alleen deze
+    ene knop, niet elke portfolio-load.
+    """
+    code = code.strip().upper()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+    bestaat = cur.fetchone() is not None
+    cur.close()
+    conn.close()
+    if not bestaat:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    ticker = request.args.get("ticker")
+    vanaf = request.args.get("vanaf")
+    tot = request.args.get("tot")
+    if not ticker or not vanaf:
+        return jsonify({"error": "ticker en vanaf zijn verplicht"}), 400
+
+    price_data = get_prices([ticker], vanaf)
+    if price_data.empty or ticker not in price_data.columns:
+        return jsonify({"labels": [], "koers": [], "vroegste_beschikbare_datum": None})
+
+    serie = price_data[ticker].dropna()
+    if tot:
+        serie = serie[serie.index <= pd.Timestamp(tot)]
+
+    return jsonify({
+        "labels": [d.strftime("%Y-%m-%d") for d in serie.index],
+        "koers": [round(float(k), 4) for k in serie.values],
+        # Laat de frontend weten of de gevraagde 'vanaf' daadwerkelijk
+        # gehaald is, of dat de historie eerder al ophield (bv. bij een
+        # positie die pas een paar maanden genoteerd staat) -- t.b.v. het
+        # uitgrijzen van een knop die niks meer oplevert.
+        "vroegste_beschikbare_datum": serie.index.min().strftime("%Y-%m-%d") if len(serie) else None,
+    })
+
+
 def _ticker_zekerheid_groepen(code):
     """
     Haalt de transacties van 'code' op en groepeert ze per (ISIN, Beurs) —
@@ -768,6 +815,8 @@ def analyze_transacties_kern(transacties_df, code, naam):
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None}
 
+    laatste_koersdatum, laatst_opgehaald_op = get_laatste_prijs_update(tickers)
+
     resultaat = compute_value_over_time(transacties_df, price_data)
     per_ticker = compute_per_ticker(transacties_df, price_data)
     per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
@@ -825,6 +874,12 @@ def analyze_transacties_kern(transacties_df, code, naam):
             for t in per_ticker.keys()
         ],
         "ticker_waarschuwingen": ticker_waarschuwingen,
+        "laatste_koersdatum": laatste_koersdatum.strftime("%Y-%m-%d") if laatste_koersdatum else None,
+        # 'Z'-suffix: bijgewerkt_op is een naive TIMESTAMP-kolom, maar Neon
+        # draait in GMT/UTC (geverifieerd via CURRENT_SETTING('timezone')),
+        # dus de opgeslagen waarde IS al UTC -- vandaar expliciet als
+        # UTC-ISO-string meesturen i.p.v. de naive string kaal door te geven.
+        "laatst_opgehaald_op": laatst_opgehaald_op.isoformat() + "Z" if laatst_opgehaald_op else None,
     }
 
 
