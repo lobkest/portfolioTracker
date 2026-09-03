@@ -4,7 +4,7 @@ analysis.compute_land_sector_verdeling() -- de databron voor de gestapelde-
 staafgrafiek-weergave op het Land/Sector-tabblad (toggle in
 static/js/app.js, renderGestapeldeStaafgrafiek).
 
-Draait geheel offline: classify_tickers, get_etf_sector_verdeling,
+Draait geheel offline: is_etf_map wordt direct meegegeven; get_etf_sector_verdeling,
 get_etf_holdings en get_land_sector worden gemockt, dus geen echte
 yfinance/database-calls nodig.
 """
@@ -38,8 +38,7 @@ class TestLandSectorPerBron(unittest.TestCase):
         })
         price_data = _price_data(["ETF_A", "AAPL"], waarde=100.0)
 
-        with patch.object(analysis, "classify_tickers", return_value={"ETF_A": True, "AAPL": False}), \
-             patch.object(analysis, "get_etf_sector_verdeling", return_value={}), \
+        with patch.object(analysis, "get_etf_sector_verdeling", return_value={}), \
              patch.object(analysis, "get_etf_holdings", return_value=[
                  {"holding_naam": "X", "holding_ticker": "X", "gewicht": 0.6,
                   "land": "United States", "bron": "provider_csv"},
@@ -47,7 +46,9 @@ class TestLandSectorPerBron(unittest.TestCase):
                   "land": "Japan", "bron": "provider_csv"},
              ]), \
              patch.object(analysis, "get_land_sector", return_value=("United States", "Technology")):
-            resultaat = compute_land_sector_verdeling(transacties_df, price_data)
+            resultaat = compute_land_sector_verdeling(
+                transacties_df, price_data, {"ETF_A": True, "AAPL": False}
+            )
 
         land_per_bron = resultaat["land_per_bron"]
         for landnaam, per_bron in land_per_bron.items():
@@ -67,13 +68,34 @@ class TestLandSectorPerBron(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["AAPL"], "aantal": [1.0]})
         price_data = _price_data(["AAPL"], waarde=100.0)
 
-        with patch.object(analysis, "classify_tickers", return_value={"AAPL": False}), \
-             patch.object(analysis, "get_land_sector", return_value=("United States", "Technology")):
-            resultaat = compute_land_sector_verdeling(transacties_df, price_data)
+        with patch.object(analysis, "get_land_sector", return_value=("United States", "Technology")):
+            resultaat = compute_land_sector_verdeling(transacties_df, price_data, {"AAPL": False})
 
         self.assertIn("Technology", resultaat["sector_per_bron"])
         self.assertAlmostEqual(resultaat["sector_per_bron"]["Technology"]["AAPL"], 100.0)
         self.assertAlmostEqual(resultaat["sector"]["Technology"], 100.0)
+
+    def test_meegegeven_is_etf_map_is_leidend_geen_eigen_classify_tickers(self):
+        # ETF_A ZOU een ETF kunnen zijn, maar de meegegeven is_etf_map zegt
+        # expliciet False -- als compute_land_sector_verdeling() nog een
+        # eigen classify_tickers()-aanroep zou doen (de oude, ongewenste
+        # situatie vóór deze refactor), zou 'ie 'm alsnog als ETF behandelen
+        # (get_etf_holdings/get_etf_sector_verdeling aanroepen). We laten
+        # die twee een AssertionError geven zodra ze aangeroepen worden, en
+        # controleren dat de aandeel-tak (get_land_sector) juist wel gebruikt
+        # wordt -- het bewijs dat de meegegeven map leidend is.
+        transacties_df = pd.DataFrame({"ticker": ["ETF_A"], "aantal": [1.0]})
+        price_data = _price_data(["ETF_A"], waarde=100.0)
+
+        with patch.object(analysis, "get_etf_holdings", side_effect=AssertionError(
+                 "get_etf_holdings mag niet aangeroepen worden -- is_etf_map zegt False")), \
+             patch.object(analysis, "get_etf_sector_verdeling", side_effect=AssertionError(
+                 "get_etf_sector_verdeling mag niet aangeroepen worden -- is_etf_map zegt False")), \
+             patch.object(analysis, "get_land_sector", return_value=("Germany", "Industrials")):
+            resultaat = compute_land_sector_verdeling(transacties_df, price_data, {"ETF_A": False})
+
+        self.assertAlmostEqual(resultaat["land"]["Germany"], 100.0)
+        self.assertAlmostEqual(resultaat["sector"]["Industrials"], 100.0)
 
 
 if __name__ == "__main__":

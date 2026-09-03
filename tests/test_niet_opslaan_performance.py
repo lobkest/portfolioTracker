@@ -37,6 +37,28 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import analysis
 from analysis import verifieer_tickers_met_prijs_parallel, basis_ticker_zekerheid_parallel
 
+# find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
+# (zie _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_
+# resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
+# doen -- dat zou zowel de "geen databasetoegang nodig"-belofte hierboven
+# breken als de tijdmetingen hieronder vervuilen. Module-breed op "geen
+# resultaten" gepatcht, net als in de andere find_ticker_met_snelle_
+# prijscheck-tests.
+_openfigi_patcher = None
+
+
+def setUpModule():
+    global _openfigi_patcher
+    _openfigi_patcher = patch.object(
+        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+    )
+    _openfigi_patcher.start()
+
+
+def tearDownModule():
+    _openfigi_patcher.stop()
+
+
 AANTAL_POSITIES = 25
 # Representatief voor een koude cache: elke yahooquery-zoekopdracht en elke
 # historische-koers-opvraag kost hier 0,1s resp. 0,5s i.p.v. een echte

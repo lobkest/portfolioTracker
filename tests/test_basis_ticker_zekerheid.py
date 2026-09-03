@@ -16,6 +16,26 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import analysis
 from analysis import basis_ticker_zekerheid
 
+# basis_ticker_zekerheid() draait via find_ticker_met_snelle_prijscheck(),
+# dat sinds de OpenFIGI-root-check (zie _voeg_openfigi_check_toe in
+# analysis.py) altijd haal_openfigi_resultaten() aanroept -- zonder deze
+# patch dus een echte DB/netwerk-call. Module-breed op "geen resultaten"
+# gepatcht zodat deze tests offline blijven, net als in de andere
+# find_ticker_met_snelle_prijscheck-tests.
+_openfigi_patcher = None
+
+
+def setUpModule():
+    global _openfigi_patcher
+    _openfigi_patcher = patch.object(
+        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+    )
+    _openfigi_patcher.start()
+
+
+def tearDownModule():
+    _openfigi_patcher.stop()
+
 
 class TestBasisTickerZekerheid(unittest.TestCase):
     def test_zekere_match_geeft_ticker_en_zekerheid_door(self):

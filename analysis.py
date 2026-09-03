@@ -14,7 +14,7 @@ from db import (get_db_connection, save_prices, get_cached_classifications, save
                  get_cached_land_sector, save_land_sector, get_cached_etf_sector_verdeling,
                  save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
                  get_ticker_details, get_cached_prijscheck, save_prijscheck, get_dividenden,
-                 get_cached_splits, save_splits)
+                 get_cached_splits, save_splits, get_cached_openfigi, save_openfigi)
 import time
 
 # Zet op True om overal in dit bestand debug-prints aan te zetten.
@@ -954,9 +954,19 @@ def haal_openfigi_resultaten(isin):
     rechtstreeks van OpenFIGI, ongefilterd (ook noteringen op beurzen die
     niet in BEURS_MAP voorkomen worden getoond, juist om te zien of
     OpenFIGI meer/andere beurzen kent dan verwacht).
+
+    Gebruikt een permanente DB-cache (openfigi_cache) -- een ISIN->ticker-
+    mapping verandert vrijwel nooit, dus bij een cache-hit geen externe call.
+    Een "geen match" wordt ook gecached (als lege lijst) -- dat is net zo
+    stabiel als een positieve match. Fouten/rate-limits worden NIET
+    gecached, zodat een volgende poging opnieuw geprobeerd wordt.
     """
     if not isin:
         return {"resultaten": [], "fout": "Geen ISIN beschikbaar voor deze positie."}
+
+    gecached = get_cached_openfigi(isin)
+    if gecached is not None:
+        return {"resultaten": gecached, "fout": None}
 
     headers = {"Content-Type": "application/json"}
     if OPENFIGI_API_KEY:
@@ -982,6 +992,7 @@ def haal_openfigi_resultaten(isin):
     body = response.json()
     if not body or "data" not in body[0]:
         waarschuwing = (body[0].get("warning") if body else None) or "Geen match bij OpenFIGI."
+        save_openfigi(isin, [])
         return {"resultaten": [], "fout": waarschuwing}
 
     resultaten = [
@@ -995,7 +1006,31 @@ def haal_openfigi_resultaten(isin):
         }
         for item in body[0]["data"]
     ]
+    save_openfigi(isin, resultaten)
     return {"resultaten": resultaten, "fout": None}
+
+
+def _openfigi_root_bekend(ticker, openfigi_resultaten):
+    """
+    Checkt of de ROOT van 'ticker' (zonder Yahoo-beurssuffix, bv. 'BY6' uit
+    'BY6.MU') voorkomt tussen de tickers die OpenFIGI voor deze ISIN
+    teruggaf -- ongeacht beurs (Bloomberg's exchCode-namen mappen niet
+    1-op-1 naar Yahoo-suffixen, dus alleen op root-niveau vergelijken, niet
+    per beurs).
+
+    Geeft None terug als er niets te vergelijken valt (geen ticker, of
+    OpenFIGI had geen resultaten) -- dat betekent NIET "onbekend/fout", puur
+    "geen oordeel mogelijk", en moet door de aanroeper ook zo behandeld
+    worden (niet als een negatief signaal).
+    """
+    if not ticker or not openfigi_resultaten:
+        return None
+    root = ticker.split(".")[0].upper()
+    figi_tickers = {r["ticker"].upper() for r in openfigi_resultaten if r.get("ticker")}
+    # Sommige OpenFIGI-tickers hebben een valuta-/varianten-suffix
+    # (bv. '1211HKD', 'VUSACHF') -- een prefix-match voorkomt dat zulke
+    # varianten ten onrechte als "root niet gevonden" gelden.
+    return any(root == t or t.startswith(root) for t in figi_tickers)
 
 
 def _naar_basis_vorm(beurs, resultaat):
@@ -1781,7 +1816,7 @@ def _normaliseer_bedrijfsnaam(naam):
     return BEDRIJF_NAAM_OVERRIDES.get(schoon, schoon)
 
 
-def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=20):
+def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=20):
     """
     Top-N onderliggende bedrijven van de hele portfolio (via ETF's + losse
     aandelen), met per bedrijf een uitsplitsing van via welke posities
@@ -1823,9 +1858,6 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=20):
     transacties_df = transacties_df.dropna(subset=["ticker"])
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
-
-    tickers = [t for t in huidige_holdings.index if t in price_data.columns]
-    is_etf_map = classify_tickers(tickers)
 
     bron_namen = {}
     if "product" in transacties_df.columns:
@@ -1902,7 +1934,7 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, top_n=20):
     }
 
 
-def bereken_etf_overlap(transacties_df, price_data):
+def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
     """
     Overlap-matrix tussen alle aangehouden ETF's: per paar het percentage
     gedeelde onderliggende bedrijven, gewogen op holdings-gewicht (de
@@ -1918,7 +1950,6 @@ def bereken_etf_overlap(transacties_df, price_data):
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
 
     tickers = [t for t in huidige_holdings.index if t in price_data.columns]
-    is_etf_map = classify_tickers(tickers)
     etf_tickers = [t for t in tickers if is_etf_map.get(t, False)]
 
     if len(etf_tickers) < 2:
@@ -2003,7 +2034,7 @@ def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
     return resultaat
 
 
-def compute_land_sector_verdeling(transacties_df, price_data):
+def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
     """
     Land- en sectorverdeling van de hele portfolio (huidige holdings x
     laatste koers — zelfde basis als de ETF/aandeel-verdeling hierboven,
@@ -2049,9 +2080,6 @@ def compute_land_sector_verdeling(transacties_df, price_data):
     transacties_df = transacties_df.dropna(subset=["ticker"])
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
-
-    tickers = [t for t in huidige_holdings.index if t in price_data.columns]
-    is_etf_map = classify_tickers(tickers)
 
     land = {}
     sector = {}
@@ -2165,6 +2193,24 @@ def classify_tickers(tickers):
             result[t] = details["is_etf"]
 
     return result
+
+
+def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
+    """Haalt voor alle meegegeven tickers parallel de land/sector/holdings-
+    data op (of pakt 'm uit cache) zodat de latere SEQUENTIËLE verwerking in
+    compute_land_sector_verdeling / bereken_bedrijven_verdeling / bereken_etf_overlap
+    alleen nog cache-hits tegenkomt. Puur een side-effect-functie (vult de
+    database-caches), geeft niets bruikbaars terug — de resultaten worden
+    zoals voorheen per functie apart via de cache opgehaald."""
+    def _warm(ticker):
+        if is_etf_map.get(ticker, False):
+            get_etf_sector_verdeling(ticker)
+            get_etf_holdings(ticker)
+        else:
+            get_land_sector(ticker)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        list(executor.map(_warm, tickers))
 
 
 def _ticker_details_met_cache(ticker):
@@ -2731,6 +2777,40 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     return result
 
 
+def _voeg_openfigi_check_toe(resultaat, isin):
+    """
+    Past 'resultaat' (uit find_ticker_met_snelle_prijscheck) aan met een
+    extra, ISIN-gebaseerd validatiesignaal: staat de ticker-ROOT (zonder
+    Yahoo-beurssuffix) ergens tussen OpenFIGI's resultaten voor deze ISIN?
+    Verandert NOOIT automatisch welke ticker gebruikt/opgeslagen wordt --
+    alleen 'zekerheid'/'prijswaarschuwing', net als de rest van deze
+    functie (zie ook backfill_verouderde_tickers() voor hetzelfde
+    voorzichtige patroon). Dankzij de permanente cache in
+    haal_openfigi_resultaten() kost dit bij een warme cache geen extra
+    externe call.
+    """
+    ticker = resultaat.get("ticker")
+    if not ticker:
+        return resultaat
+
+    openfigi = haal_openfigi_resultaten(isin)
+    root_bekend = _openfigi_root_bekend(ticker, openfigi["resultaten"])
+    if root_bekend is not False:
+        return resultaat
+
+    extra_waarschuwing = (
+        f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
+        f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
+    )
+    print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
+
+    bestaande = resultaat.get("prijswaarschuwing")
+    resultaat["prijswaarschuwing"] = f"{bestaande}\n{extra_waarschuwing}" if bestaande else extra_waarschuwing
+    if resultaat.get("zekerheid") == "zeker":
+        resultaat["zekerheid"] = "onzeker"
+    return resultaat
+
+
 def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_isin):
     """
     Lichte, STANDAARD prijscontrole — draait bij ELKE upload (opslaand én
@@ -2741,6 +2821,12 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     kosten per unieke (ISIN, Beurs) — vergelijkbaar met de kosten die er al
     waren vóór de 'niet opslaan'-timeoutfix (CLAUDE.md, Statistieken-
     incident 2026-08-31).
+
+    Voegt op ELK return-pad ook een OpenFIGI-root-check toe (zie
+    _voeg_openfigi_check_toe()) — een extra, ISIN-gebaseerd validatiesignaal
+    naast de Yahoo-prijscontrole hierboven. Dankzij een permanente DB-cache
+    per ISIN kost dit in de praktijk geen extra externe call na de eerste
+    upload van een portfolio.
 
     Escalatietrapje, bij een daadwerkelijke afwijking ÓF bij helemaal geen
     Yahoo-koersdata (net zo verdacht als een grote afwijking — vaak een
@@ -2789,7 +2875,8 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
         t for t in transacties_van_dit_isin if t.get("koers") and float(t["koers"]) > 0
     ]
     if ticker is None or not geldige_transacties:
-        return {**basis, "prijs_checks": [], "prijswaarschuwing": None}
+        resultaat = {**basis, "prijs_checks": [], "prijswaarschuwing": None}
+        return _voeg_openfigi_check_toe(resultaat, isin)
 
     laatste = max(geldige_transacties, key=lambda t: t["datum"])
     check_laatste = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
@@ -2809,7 +2896,8 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
 
     if not escaleert:
         # Koers klopt -- het gangbare geval, klaar na 1 (gecachete) call.
-        return {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
+        resultaat = {**basis, "prijs_checks": prijs_checks, "prijswaarschuwing": None}
+        return _voeg_openfigi_check_toe(resultaat, isin)
 
     # Stap 2: dagrange-probleem (of, bij ontbrekende dagrange, >6%
     # afwijking) op de laatste datum, of helemaal geen koersdata gevonden
@@ -2896,7 +2984,7 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
         else:
             print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): geëscaleerd, maar geen enkel alternatief gevonden")
 
-    return resultaat
+    return _voeg_openfigi_check_toe(resultaat, isin)
 
 
 def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):

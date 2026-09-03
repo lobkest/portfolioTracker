@@ -3,9 +3,9 @@ Unit tests voor analysis.bereken_bedrijven_verdeling() en de bijbehorende
 bedrijfsnaam-normalisatie (_normaliseer_bedrijfsnaam, BEDRIJF_NAAM_OVERRIDES)
 -- zie CLAUDE.md "Top 10 bedrijven".
 
-Draait geheel offline: classify_tickers en get_etf_holdings worden gemockt
-(zelfde patroon als tests/test_snelle_prijscheck.py), dus geen echte
-yfinance/database-calls nodig.
+Draait geheel offline: is_etf_map wordt direct meegegeven en get_etf_holdings
+wordt gemockt (zelfde patroon als tests/test_snelle_prijscheck.py), dus geen
+echte yfinance/database-calls nodig.
 """
 import os
 import sys
@@ -60,14 +60,15 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         })
         price_data = _price_data(["AAPL", "CSPX.AS"])
 
-        with patch.object(analysis, "classify_tickers", return_value={"AAPL": False, "CSPX.AS": True}), \
-             patch.object(analysis, "get_etf_holdings", return_value=[
+        with patch.object(analysis, "get_etf_holdings", return_value=[
                  {"holding_naam": "Apple Inc", "holding_ticker": "AAPL", "gewicht": 0.5,
                   "land": "United States", "bron": "provider_csv"},
                  {"holding_naam": "Microsoft Corp", "holding_ticker": "MSFT", "gewicht": 0.5,
                   "land": "United States", "bron": "provider_csv"},
              ]):
-            resultaat = bereken_bedrijven_verdeling(transacties_df, price_data)
+            resultaat = bereken_bedrijven_verdeling(
+                transacties_df, price_data, {"AAPL": False, "CSPX.AS": True}
+            )
 
         apple_entry = next(e for e in resultaat["top"] if e["bedrijf"] == "Apple Inc")
         self.assertAlmostEqual(apple_entry["waarde"], 150.0)  # 100 (los) + 50 (via ETF)
@@ -88,12 +89,11 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["CSPX.AS"], "aantal": [1.0]})
         price_data = _price_data(["CSPX.AS"], waarde=100.0)
 
-        with patch.object(analysis, "classify_tickers", return_value={"CSPX.AS": True}), \
-             patch.object(analysis, "get_etf_holdings", return_value=[
+        with patch.object(analysis, "get_etf_holdings", return_value=[
                  {"holding_naam": "Apple Inc", "holding_ticker": "AAPL", "gewicht": 0.6,
                   "land": "United States", "bron": "yfinance_top10"},
              ]):
-            resultaat = bereken_bedrijven_verdeling(transacties_df, price_data)
+            resultaat = bereken_bedrijven_verdeling(transacties_df, price_data, {"CSPX.AS": True})
 
         self.assertAlmostEqual(resultaat["dekking_pct"], 0.6)
         self.assertAlmostEqual(resultaat["overig"], 40.0)
@@ -112,13 +112,29 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         })
         price_data = _price_data(tickers, waarde=1.0)
 
-        with patch.object(analysis, "classify_tickers", return_value={t: False for t in tickers}):
-            resultaat = bereken_bedrijven_verdeling(transacties_df, price_data)
+        resultaat = bereken_bedrijven_verdeling(transacties_df, price_data, {t: False for t in tickers})
 
         self.assertEqual(len(resultaat["top"]), 20)
         # som van aantal 1..25 = 325 EUR totaal; top-20 = som van 25..6 = 310
         self.assertAlmostEqual(sum(e["waarde"] for e in resultaat["top"]), 310.0)
         self.assertAlmostEqual(resultaat["overig"], 15.0)  # som van 5..1
+
+    def test_meegegeven_is_etf_map_is_leidend_geen_eigen_classify_tickers(self):
+        # ETF_A ZOU een ETF kunnen zijn, maar de meegegeven is_etf_map zegt
+        # expliciet False -- laat get_etf_holdings een AssertionError geven
+        # zodra 'ie aangeroepen wordt, zodat een eigen classify_tickers-
+        # herberekening (de oude situatie) meteen zou opvallen. Als los
+        # aandeel behandeld moet ETF_A gewoon als eigen bedrijf verschijnen.
+        transacties_df = pd.DataFrame({"ticker": ["ETF_A"], "aantal": [1.0]})
+        price_data = _price_data(["ETF_A"], waarde=100.0)
+
+        with patch.object(analysis, "get_etf_holdings", side_effect=AssertionError(
+                "get_etf_holdings mag niet aangeroepen worden -- is_etf_map zegt False")):
+            resultaat = bereken_bedrijven_verdeling(transacties_df, price_data, {"ETF_A": False})
+
+        self.assertEqual(len(resultaat["top"]), 1)
+        self.assertEqual(resultaat["top"][0]["bedrijf"], "ETF_A")
+        self.assertAlmostEqual(resultaat["top"][0]["waarde"], 100.0)
 
 
 if __name__ == "__main__":
