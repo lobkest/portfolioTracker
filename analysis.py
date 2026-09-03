@@ -3,6 +3,7 @@ import re
 import string
 import io
 import hashlib
+import os
 import pandas as pd
 import requests
 import yfinance as yf
@@ -928,6 +929,73 @@ def find_ticker_detailed(product, isin, beurs):
 def find_ticker(product, isin, beurs):
     """Backwards-compatible wrapper rond find_ticker_detailed() die alleen de ticker teruggeeft."""
     return find_ticker_detailed(product, isin, beurs)["ticker"]
+
+
+# EXPERIMENTEEL/DIAGNOSTISCH — haal_openfigi_resultaten() hieronder is een
+# los, extra paneel op de Ticker-zekerheid-pagina om te beoordelen of
+# OpenFIGI bruikbare/betere matches geeft dan de bestaande yahooquery-
+# aanpak. Verandert NIETS aan find_ticker_detailed() of aan welke ticker
+# daadwerkelijk gebruikt/opgeslagen wordt.
+OPENFIGI_API_KEY = os.environ.get("OPENFIGI_API_KEY")  # optioneel, mag None zijn
+
+
+def haal_openfigi_resultaten(isin):
+    """
+    EXPERIMENTEEL — puur diagnostisch. Haalt bij OpenFIGI alle bekende
+    beursnoteringen op voor een ISIN, voor weergave op de
+    Ticker-zekerheid-pagina naast de bestaande (yahooquery-gebaseerde)
+    ticker-resolutie. Verandert niets aan find_ticker_detailed() of aan
+    welke ticker daadwerkelijk gebruikt/opgeslagen wordt.
+
+    Geeft terug: {"resultaten": [...], "fout": None} bij succes, of
+    {"resultaten": [], "fout": "<boodschap>"} bij een mislukte aanroep of
+    "geen match". Elk element in 'resultaten' is een dict met de velden
+    ticker, exchCode, naam, securityType, marketSector, compositeFIGI —
+    rechtstreeks van OpenFIGI, ongefilterd (ook noteringen op beurzen die
+    niet in BEURS_MAP voorkomen worden getoond, juist om te zien of
+    OpenFIGI meer/andere beurzen kent dan verwacht).
+    """
+    if not isin:
+        return {"resultaten": [], "fout": "Geen ISIN beschikbaar voor deze positie."}
+
+    headers = {"Content-Type": "application/json"}
+    if OPENFIGI_API_KEY:
+        headers["X-OPENFIGI-APIKEY"] = OPENFIGI_API_KEY
+
+    try:
+        response = requests.post(
+            "https://api.openfigi.com/v3/mapping",
+            json=[{"idType": "ID_ISIN", "idValue": isin}],
+            headers=headers,
+            timeout=10,
+        )
+    except requests.exceptions.RequestException as e:
+        dprint(f"[openfigi] netwerkfout voor ISIN={isin}: {e}")
+        return {"resultaten": [], "fout": f"OpenFIGI niet bereikbaar: {e}"}
+
+    if response.status_code == 429:
+        return {"resultaten": [], "fout": "OpenFIGI rate limit bereikt — probeer straks opnieuw."}
+    if response.status_code != 200:
+        dprint(f"[openfigi] status {response.status_code} voor ISIN={isin}: {response.text[:200]}")
+        return {"resultaten": [], "fout": f"OpenFIGI gaf status {response.status_code} terug."}
+
+    body = response.json()
+    if not body or "data" not in body[0]:
+        waarschuwing = (body[0].get("warning") if body else None) or "Geen match bij OpenFIGI."
+        return {"resultaten": [], "fout": waarschuwing}
+
+    resultaten = [
+        {
+            "ticker": item.get("ticker"),
+            "exchCode": item.get("exchCode"),
+            "naam": item.get("name"),
+            "securityType": item.get("securityType"),
+            "marketSector": item.get("marketSector"),
+            "compositeFIGI": item.get("compositeFIGI"),
+        }
+        for item in body[0]["data"]
+    ]
+    return {"resultaten": resultaten, "fout": None}
 
 
 def _naar_basis_vorm(beurs, resultaat):

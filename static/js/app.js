@@ -1008,6 +1008,68 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
     return wrapper;
 }
 
+// EXPERIMENTEEL/DIAGNOSTISCH paneel — toont de RUWE OpenFIGI-resultaten
+// voor de ISIN van deze positie, naast (niet i.p.v.) de bestaande
+// yahooquery-gebaseerde ticker-resolutie. Puur ter inspectie, geen
+// sortering/interactie. 'yahooBeurs' (p.yahoo_beurs) wordt gebruikt om
+// rijen te markeren waarvan exchCode overeen lijkt te komen met de al
+// gevonden Yahoo-beurs -- een losse heuristiek, geen exacte code-mapping.
+function maakOpenfigiTabel(openfigi, yahooBeurs) {
+    const wrapper = document.createElement("div");
+
+    if (openfigi.fout) {
+        const foutRegel = document.createElement("p");
+        foutRegel.style.fontSize = "0.85em";
+        foutRegel.style.color = "#999";
+        foutRegel.textContent = `OpenFIGI: ${openfigi.fout}`;
+        wrapper.appendChild(foutRegel);
+        return wrapper;
+    }
+
+    if (!openfigi.resultaten || openfigi.resultaten.length === 0) {
+        return wrapper;
+    }
+
+    const tabelWrapper = document.createElement("div");
+    tabelWrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabelWrapper);
+
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.85em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.marginTop = "4px";
+    tabelWrapper.appendChild(tabel);
+
+    const kop = document.createElement("tr");
+    ["Ticker", "Beurs", "Naam", "Type"].forEach(tekst => {
+        const th = document.createElement("th");
+        th.textContent = tekst;
+        th.style.textAlign = "left";
+        th.style.padding = "2px 14px 2px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        kop.appendChild(th);
+    });
+    tabel.appendChild(kop);
+
+    openfigi.resultaten.forEach(res => {
+        const rij = document.createElement("tr");
+        const verwachteBeurs = res.exchCode && yahooBeurs
+            && yahooBeurs.toUpperCase().includes(res.exchCode.toUpperCase());
+        if (verwachteBeurs) rij.style.fontWeight = "bold";
+
+        [res.ticker || "-", res.exchCode || "onbekend", res.naam || "-", res.securityType || "-"].forEach((tekst, i) => {
+            const td = document.createElement("td");
+            td.textContent = (i === 1 && verwachteBeurs) ? `★ ${tekst}` : tekst;
+            td.style.padding = "2px 14px 2px 0";
+            rij.appendChild(td);
+        });
+
+        tabel.appendChild(rij);
+    });
+
+    return wrapper;
+}
+
 function maakTickerZekerheidKaart(p) {
     const rij = document.createElement("div");
     rij.style.marginBottom = "18px";
@@ -1040,6 +1102,14 @@ function maakTickerZekerheidKaart(p) {
         geenTicker.style.color = "#999";
         geenTicker.textContent = "Geen ticker gevonden voor deze positie.";
         rij.appendChild(geenTicker);
+        if (p.openfigi) {
+            const openfigiKop = document.createElement("div");
+            openfigiKop.textContent = "OpenFIGI-resultaten (experimenteel)";
+            openfigiKop.style.fontWeight = "bold";
+            openfigiKop.style.marginTop = "8px";
+            rij.appendChild(openfigiKop);
+            rij.appendChild(maakOpenfigiTabel(p.openfigi, p.yahoo_beurs));
+        }
         return rij;
     }
 
@@ -1100,6 +1170,15 @@ function maakTickerZekerheidKaart(p) {
         if (etfAlternatieven.length > 0) {
             rij.appendChild(maakAlternatievenTabel(etfAlternatieven, p.aanbevolen_alternatief, true));
         }
+    }
+
+    if (p.openfigi) {
+        const openfigiKop = document.createElement("div");
+        openfigiKop.textContent = "OpenFIGI-resultaten (experimenteel)";
+        openfigiKop.style.fontWeight = "bold";
+        openfigiKop.style.marginTop = "8px";
+        rij.appendChild(openfigiKop);
+        rij.appendChild(maakOpenfigiTabel(p.openfigi, p.yahoo_beurs));
     }
 
     return rij;
