@@ -1832,6 +1832,29 @@ function maakPositieTabel(posities, tickerNamen) {
 function maakGeslotenPositiesTabel(geslotenPosities) {
     const kolommen = [
         {
+            label: "Status",
+            renderTd: p => {
+                const td = document.createElement("td");
+                td.style.padding = "4px 16px 4px 0";
+                const badge = document.createElement("span");
+                badge.textContent = p.nog_in_bezit ? "Deels verkocht" : "Gesloten";
+                badge.style.display = "inline-block";
+                badge.style.padding = "2px 8px";
+                badge.style.borderRadius = "10px";
+                badge.style.fontSize = "0.85em";
+                badge.style.fontWeight = "bold";
+                if (p.nog_in_bezit) {
+                    badge.style.background = "#fff3cd";
+                    badge.style.color = "#856404";
+                } else {
+                    badge.style.background = "#e2e3e5";
+                    badge.style.color = "#383d41";
+                }
+                td.appendChild(badge);
+                return td;
+            },
+        },
+        {
             label: "Naam/ticker",
             renderTd: p => {
                 const td = document.createElement("td");
@@ -1845,7 +1868,13 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
             waarde: p => p.aantal,
             renderTd: p => {
                 const td = document.createElement("td");
-                td.textContent = p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                const aantalTekst = p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                if (p.nog_in_bezit) {
+                    const resterendTekst = (p.resterend_aantal || 0).toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                    td.textContent = `${aantalTekst} verkocht, ${resterendTekst} nog in bezit`;
+                } else {
+                    td.textContent = aantalTekst;
+                }
                 td.style.padding = "4px 16px 4px 0";
                 return td;
             },
@@ -1886,7 +1915,7 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
             },
         },
     ];
-    return maakSorteerbareTabel(kolommen, geslotenPosities, { legeTekst: "Geen verkochte posities." });
+    return maakSorteerbareTabel(kolommen, geslotenPosities, { legeTekst: "Geen verkochte of deels verkochte posities." });
 }
 
 function maakJarenTabel(jaren) {

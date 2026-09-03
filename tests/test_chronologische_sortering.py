@@ -198,7 +198,15 @@ class TestComputePerTickerSameDayVolgorde(unittest.TestCase):
         price_data = pd.DataFrame({"IS3N.DE": [50.0]}, index=[pd.Timestamp("2026-06-17")])
         result = compute_per_ticker(df, price_data)
         self.assertIn("IS3N.DE", result)
-        self.assertAlmostEqual(result["IS3N.DE"]["geinvesteerd"][-1], 2.27, places=2)
+        # 12 gekocht, diezelfde dag 12 verkocht -> volledig gesloten positie.
+        # compute_per_ticker() gebruikt sinds de GAK-gebaseerde kostenbasis
+        # (i.p.v. cumulatieve netto-cashflow) 0 als "geinvesteerd" na een
+        # volledige verkoop, niet het gerealiseerde resultaat (2.27) -- zie
+        # instructiedocument "gedeeltelijke verkopen correct verwerken",
+        # sectie 3 ("neveneffect (gewenst)"). Bevestigt vooral dat de
+        # same-day-sortering (verkooprij vóór kooprij in de invoer) hier
+        # geen negatieve/foutieve kostenbasis oplevert.
+        self.assertAlmostEqual(result["IS3N.DE"]["geinvesteerd"][-1], 0.0, places=2)
 
 
 if __name__ == "__main__":

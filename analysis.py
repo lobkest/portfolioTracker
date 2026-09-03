@@ -1340,7 +1340,8 @@ def compute_per_ticker(transacties_df, price_data):
     for ticker in tickers:
         trades = transacties_df[transacties_df["ticker"] == ticker].reset_index(drop=True)
         holdings = 0.0
-        invested = 0.0
+        aantal_lopend = 0.0       # raw aantal, los van adj_aantal — voor kostenbasis (GAK)
+        kostprijs_lopend = 0.0    # kostenbasis van de NU aangehouden stukken
         trade_i = 0
         rows = []
         prev_waarde = None
@@ -1351,11 +1352,31 @@ def compute_per_ticker(transacties_df, price_data):
             while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
                 row = trades.loc[trade_i]
                 holdings += float(row["adj_aantal"])
-                invested += -float(row["totaal_eur"])
+
+                # Zelfde lopende-gemiddelde-kostprijs-methode (GAK) als
+                # bereken_holdings_en_gesloten(): bij een verkoop gaat alleen
+                # de kostenbasis van de VERKOCHTE stukken eraf (evenredig aan
+                # het gemiddelde op dat moment), niet de volledige
+                # verkoopopbrengst. Zo daalt "geïnvesteerd" bij een
+                # gedeeltelijke verkoop evenredig mee met het aantal
+                # resterende stukken i.p.v. met de volledige cashflow.
+                delta_aantal = float(row["aantal"])
+                delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
+                if delta_aantal > 0:
+                    aantal_lopend += delta_aantal
+                    kostprijs_lopend += delta_cash
+                elif delta_aantal < 0:
+                    if delta_cash != 0 and aantal_lopend > 0:
+                        gak_op_dat_moment = kostprijs_lopend / aantal_lopend
+                        verkocht_nu = min(-delta_aantal, aantal_lopend)
+                        kostprijs_lopend -= gak_op_dat_moment * verkocht_nu
+                    aantal_lopend += delta_aantal
+
                 trade_i += 1
                 activiteit = True
             prijs = price_data.loc[date, ticker]
             waarde = holdings * prijs if pd.notna(prijs) else 0.0
+            invested = max(kostprijs_lopend, 0.0)  # epsilon-afronding kan net onder 0 uitkomen
 
             # Spike-detector: grote sprong in waarde of geinvesteerd op 1 dag zonder
             # duidelijke oorzaak (helpt ISIN-migraties / verkeerde splits opsporen)
@@ -3549,6 +3570,7 @@ def bereken_holdings_en_gesloten(transacties_df):
         totaal_gekocht_bedrag = 0.0
         totaal_verkocht_aantal = 0.0
         totaal_verkocht_bedrag = 0.0
+        totaal_verkochte_kostenbasis = 0.0
 
         for _, row in groep.iterrows():
             delta_aantal = float(row["aantal"])
@@ -3563,13 +3585,32 @@ def bereken_holdings_en_gesloten(transacties_df):
                 if delta_cash != 0 and aantal_lopend > 0:
                     gak_op_dat_moment = kostprijs_lopend / aantal_lopend
                     verkocht_nu = min(-delta_aantal, aantal_lopend)
-                    kostprijs_lopend -= gak_op_dat_moment * verkocht_nu
+                    kostenbasis_verkocht_nu = gak_op_dat_moment * verkocht_nu
+                    kostprijs_lopend -= kostenbasis_verkocht_nu
                     totaal_verkocht_aantal += verkocht_nu
                     totaal_verkocht_bedrag += -delta_cash  # delta_cash negatief bij verkoop
+                    totaal_verkochte_kostenbasis += kostenbasis_verkocht_nu
                 aantal_lopend += delta_aantal
 
         if aantal_lopend > 1e-9:
-            open_posities[ticker] = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
+            positie = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
+            if totaal_verkocht_aantal > 1e-9:
+                # Positie staat nog (deels) open, maar er is onderweg wél
+                # verkocht — die gerealiseerde winst/verlies mag niet
+                # verloren gaan (zie instructiedocument "gedeeltelijke
+                # verkopen"). Zelfde velden als een volledig gesloten
+                # positie hieronder, zodat bereken_statistieken() ze
+                # uniform kan verwerken.
+                positie["deels_verkocht"] = {
+                    "aantal": totaal_verkocht_aantal,
+                    "gemiddelde_aankoopkoers": (
+                        totaal_verkochte_kostenbasis / totaal_verkocht_aantal
+                        if totaal_verkocht_aantal > 1e-9 else None
+                    ),
+                    "gemiddelde_verkoopkoers": totaal_verkocht_bedrag / totaal_verkocht_aantal,
+                    "gerealiseerd_eur": totaal_verkocht_bedrag - totaal_verkochte_kostenbasis,
+                }
+            open_posities[ticker] = positie
         elif totaal_gekocht_aantal > 1e-9:
             gesloten_posities[ticker] = {
                 "aantal": totaal_gekocht_aantal,
@@ -3918,6 +3959,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "ticker": ticker,
             "naam": ticker_namen.get(ticker, ticker),
             "aantal": round(info["aantal"], 4),
+            "resterend_aantal": 0.0,
+            "nog_in_bezit": False,
             "gemiddelde_aankoopkoers": round(info["gemiddelde_aankoopkoers"], 4),
             "gemiddelde_verkoopkoers": (
                 round(info["gemiddelde_verkoopkoers"], 4)
@@ -3929,6 +3972,30 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "rendement_pct": (
                 round(info["gerealiseerd_eur"] / (info["gemiddelde_aankoopkoers"] * info["aantal"]) * 100, 2)
                 if info["gemiddelde_aankoopkoers"] else None
+            ),
+            "dividend_ontvangen": round(dividend_per_ticker.get(ticker, 0.0), 2),
+        })
+
+    for ticker, info in holdings.items():
+        deels = info.get("deels_verkocht")
+        if not deels:
+            continue
+        kostenbasis_verkocht = (deels["gemiddelde_aankoopkoers"] or 0) * deels["aantal"]
+        gesloten_posities_output.append({
+            "ticker": ticker,
+            "naam": ticker_namen.get(ticker, ticker),
+            "aantal": round(deels["aantal"], 4),
+            "resterend_aantal": round(info["aantal"], 4),
+            "nog_in_bezit": True,
+            "gemiddelde_aankoopkoers": (
+                round(deels["gemiddelde_aankoopkoers"], 4)
+                if deels["gemiddelde_aankoopkoers"] is not None else None
+            ),
+            "gemiddelde_verkoopkoers": round(deels["gemiddelde_verkoopkoers"], 4),
+            "rendement_eur": round(deels["gerealiseerd_eur"], 2),
+            "rendement_pct": (
+                round(deels["gerealiseerd_eur"] / kostenbasis_verkocht * 100, 2)
+                if kostenbasis_verkocht else None
             ),
             "dividend_ontvangen": round(dividend_per_ticker.get(ticker, 0.0), 2),
         })
