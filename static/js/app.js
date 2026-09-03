@@ -318,6 +318,99 @@ function toonPerAandeel(ticker) {
     toonEtfDrilldown(ticker);
 }
 
+// Koers per aandeel + aankoopmomenten (groene stippellijnen) + aantal
+// aangehouden aandelen (grijze trapvormige lijn, rechter y-as) -- ander
+// soort grafiek dan toonPerAandeel() hierboven (waarde/geïnvesteerd), zie
+// analysis.compute_per_ticker_koers_en_aankopen(). Gebruikt EIGEN Chart-
+// opbouw i.p.v. updateChart(), want dat ondersteunt geen twee y-assen of
+// de annotation-plugin (verticale lijnen).
+function toonPerAandeelAankoop(ticker) {
+    if (chart) { chart.destroy(); chart = null; }
+    const titelEl = document.getElementById("peraandeelAankoopTitel");
+    const d = huidigeData.per_ticker_aankoop && huidigeData.per_ticker_aankoop[ticker];
+    if (!d) {
+        titelEl.style.display = "none";
+        return;
+    }
+
+    const tickerInfo = (huidigeData.tickers || []).find(t => t.ticker === ticker);
+    titelEl.textContent = `Koers en aankoopmomenten — ${tickerInfo ? tickerInfo.naam : ticker} (${ticker})`;
+    titelEl.style.display = "block";
+
+    const labelsNL = d.labels.map(formatDatum);
+    // aankoop_datums (ISO) -> dezelfde dd-mm-jjjj-vorm als de x-as-labels,
+    // zodat de annotation-plugin (die op de category-as matcht via de
+    // labelwaarde zelf, niet via een echte tijdschaal) de juiste kolom raakt.
+    const aankoopLabels = new Set(d.aankoop_datums.map(formatDatum));
+    const annotaties = {};
+    labelsNL.forEach((label, i) => {
+        if (aankoopLabels.has(label)) {
+            annotaties[`aankoop-${i}`] = {
+                type: "line",
+                xMin: label,
+                xMax: label,
+                borderColor: "#2c7a4b",
+                borderWidth: 1,
+                borderDash: [4, 4],
+            };
+        }
+    });
+
+    chart = new Chart(document.getElementById("rendementChart"), {
+        type: "line",
+        data: {
+            labels: labelsNL,
+            datasets: [
+                {
+                    label: "Koers (€)",
+                    data: d.koers,
+                    borderColor: "#2c7a4b",
+                    yAxisID: "y",
+                    spanGaps: true,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    borderWidth: 1.5,
+                },
+                {
+                    label: "Aantal aandelen",
+                    data: d.holdings,
+                    borderColor: "#bbbbbb",
+                    backgroundColor: "#bbbbbb",
+                    yAxisID: "y1",
+                    stepped: "after",
+                    pointRadius: 0,
+                    pointHoverRadius: 0,
+                    borderWidth: 1,
+                },
+            ],
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            locale: "nl-NL",
+            scales: {
+                y: { position: "left", beginAtZero: false, title: { display: true, text: "Koers (€)" } },
+                y1: { position: "right", beginAtZero: true, grid: { drawOnChartArea: false }, title: { display: true, text: "Aantal aandelen" } },
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => ctx.dataset.yAxisID === "y"
+                            ? `Koers: ${ctx.parsed.y === null ? "—" : formatteerEuro(ctx.parsed.y)}`
+                            : `Aantal aandelen: ${ctx.parsed.y}`
+                    }
+                },
+                zoom: {
+                    pan: { enabled: true, mode: "x" },
+                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" }
+                },
+                datalabels: { display: false },
+                annotation: { annotations: annotaties },
+            },
+        },
+    });
+}
+
 function maakVerdelingLijst(titel, verdelingObj) {
     const wrapper = document.createElement("div");
     wrapper.style.minWidth = "180px";
@@ -2414,7 +2507,7 @@ function pasViewToe(view) {
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
         btn.classList.toggle("actief", btn.dataset.view === view);
     });
-    document.getElementById("aandeelSelect").style.display = view === "peraandeel" ? "block" : "none";
+    document.getElementById("aandeelSelect").style.display = (view === "peraandeel" || view === "peraandeelaankoop") ? "block" : "none";
     // Benchmarkvergelijking is DB-backed (leest transacties via de code) --
     // niet beschikbaar bij een 'niet opslaan'-analyse, zelfde beperking als
     // Instellingen/Bijnamen/Dividend (zie toonDashboard()).
@@ -2446,6 +2539,9 @@ function pasViewToe(view) {
     }
     if (view !== "peraandeel") {
         document.getElementById("etfDrilldown").style.display = "none";
+    }
+    if (view !== "peraandeelaankoop") {
+        document.getElementById("peraandeelAankoopTitel").style.display = "none";
     }
     if (view !== "rendement") {
         document.getElementById("benchmarkMelding").style.display = "none";
@@ -2485,6 +2581,10 @@ function pasViewToe(view) {
     else if (view === "peraandeel") {
         const select = document.getElementById("aandeelSelect");
         toonPerAandeel(select.value);
+    }
+    else if (view === "peraandeelaankoop") {
+        const select = document.getElementById("aandeelSelect");
+        toonPerAandeelAankoop(select.value);
     }
 
     content.classList.remove("tabWisselt");
@@ -2651,7 +2751,12 @@ document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
 });
 
 document.getElementById("aandeelSelect").addEventListener("change", (e) => {
-    toonPerAandeel(e.target.value);
+    const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
+    if (actieveKnop && actieveKnop.dataset.view === "peraandeelaankoop") {
+        toonPerAandeelAankoop(e.target.value);
+    } else {
+        toonPerAandeel(e.target.value);
+    }
 });
 
 document.getElementById("benchmarkSelect").addEventListener("change", (e) => {

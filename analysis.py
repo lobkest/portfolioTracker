@@ -1497,6 +1497,87 @@ def compute_per_ticker(transacties_df, price_data):
     return result
 
 
+def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
+    """
+    Per ticker: de kale koers per aandeel over tijd (niet vermenigvuldigd
+    met het aantal, in tegenstelling tot compute_per_ticker()'s 'waarde'),
+    het aantal aangehouden aandelen over tijd, en de datums van echte
+    aankopen (adj_aantal > 0 -- verkopen tellen NIET mee, in tegenstelling
+    tot het oude trading_degiro.py-script dat alle transactiedatums als
+    'Aankoop' labelde). T.b.v. het 'Per aandeel aankoop'-tabblad.
+
+    Gebruikt dezelfde crop-range-logica als compute_per_ticker() (rond de
+    periode dat de positie daadwerkelijk aangehouden werd), zodat beide
+    tabbladen consistente start-/einddatums per positie tonen.
+    """
+    transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
+    tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
+
+    result = {}
+    for ticker in tickers:
+        trades = transacties_df[transacties_df["ticker"] == ticker].reset_index(drop=True)
+        holdings = 0.0
+        trade_i = 0
+        rows = []
+
+        for date in price_data.index:
+            activiteit = False
+            while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
+                row = trades.loc[trade_i]
+                holdings += float(row["adj_aantal"])
+                trade_i += 1
+                activiteit = True
+            prijs = price_data.loc[date, ticker]
+            rows.append({
+                "datum": date,
+                "koers": float(prijs) if pd.notna(prijs) else None,
+                "holdings": holdings,
+                "activiteit": activiteit,
+            })
+
+        df_t = pd.DataFrame(rows).set_index("datum")
+
+        # Zelfde crop-logica als compute_per_ticker() (zie die functie voor
+        # de uitgebreide toelichting) -- hier bewust NIET herschreven als
+        # gedeelde helper, want dat raakt compute_per_ticker() en dat is
+        # buiten scope; wel 1-op-1 hetzelfde gedrag.
+        nonzero_idx = df_t.index[(df_t["holdings"].abs() > 1e-6) | df_t["activiteit"]]
+        is_still_held = abs(df_t["holdings"].iloc[-1]) > 1e-6 if len(df_t) else False
+        if len(nonzero_idx) > 0:
+            all_dates = list(df_t.index)
+            start_pos = max(0, all_dates.index(nonzero_idx[0]) - 1)
+            end_pos = all_dates.index(nonzero_idx[-1])
+            if not is_still_held:
+                end_pos = min(len(all_dates) - 1, end_pos + 1)
+            df_t = df_t.iloc[start_pos:end_pos + 1]
+        else:
+            df_t = df_t.iloc[0:0]
+
+        aankopen = trades[trades["adj_aantal"] > 0]
+        if len(df_t) > 0:
+            aankoop_datums_dt = pd.to_datetime(aankopen["datum"])
+            aankopen = aankopen[(aankoop_datums_dt >= df_t.index[0]) & (aankoop_datums_dt <= df_t.index[-1])]
+
+        result[ticker] = {
+            "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
+            # LET OP: df_t["koers"] is een pandas-kolom -- als die None-
+            # waarden bevat (ontbrekende koers) wordt de kolom float64 en
+            # verandert None stilletjes in NaN (numpy-gedrag bij het
+            # bouwen van de DataFrame uit rows-dicts). "is not None" mist
+            # dat dus altijd; NaN serialiseert vervolgens als het ongeldige
+            # JSON-token "NaN" (json.dumps staat dat standaard toe) en
+            # breekt fetch()'s response.json() in de browser. pd.notna()
+            # herkent zowel None als NaN correct.
+            "koers": [round(k, 4) if pd.notna(k) else None for k in df_t["koers"]],
+            "holdings": df_t["holdings"].round(6).tolist(),
+            "aankoop_datums": sorted(
+                d.strftime("%Y-%m-%d")
+                for d in pd.to_datetime(aankopen["datum"]).dt.normalize().unique()
+            ),
+        }
+    return result
+
+
 def debug_position(transacties_df, price_data, ticker=None, product_contains=None):
     """
     Handmatige diagnose-helper voor 1 positie. Roep aan met bv.:
