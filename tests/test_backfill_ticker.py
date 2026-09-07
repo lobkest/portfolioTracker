@@ -163,5 +163,76 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         self.assertEqual(gecorrigeerd, 0)
 
 
+@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+class TestBackfillMetForceerVlag(unittest.TestCase):
+    """Vinkje "ticker-informatie opnieuw bepalen" op het uploadscherm (zie
+    app.py/_upload_impl, CLAUDE.md): forceer=True overroept de prijsprobleem-
+    check hierboven en herzoekt ALTIJD, ook zonder gedetecteerd probleem.
+    forceer=False (standaard) blijft exact het hierboven al geteste gedrag."""
+
+    CODE = "TBF2"
+
+    def _leeg_op(self):
+        from db import get_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM transacties WHERE code = %s", (self.CODE,))
+        cur.execute("DELETE FROM portfolios WHERE code = %s", (self.CODE,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def _voeg_positie_toe(self, isin, beurs, ticker, product="APPLE INC"):
+        from db import get_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (self.CODE, date(2023, 1, 10), product, isin, beurs, ticker, 10, 100.0, -1000.0,
+             f"ORDER-{isin}-{beurs}", product),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def setUp(self):
+        self._leeg_op()
+        from db import get_db_connection
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.CODE, "unittest"))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def tearDown(self):
+        self._leeg_op()
+
+    def test_forceer_true_herzoekt_ook_zonder_prijsprobleem(self):
+        self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL")
+
+        with patch.object(analysis, "_ticker_heeft_prijsprobleem", return_value=False), \
+             patch.object(analysis, "find_ticker_met_snelle_prijscheck",
+                           return_value={"ticker": "AAPL", "zekerheid": "zeker"}) as mock_find:
+            backfill_verouderde_tickers(self.CODE, forceer=True)
+
+        mock_find.assert_called_once()
+
+    def test_forceer_false_expliciet_ongewijzigd_gedrag(self):
+        # Zelfde assertie als test_werkende_oude_ticker_wordt_niet_
+        # aangeraakt_geen_zoekopdracht hierboven, maar met forceer=False
+        # EXPLICIET meegegeven (i.p.v. de default) -- bevestigt dat het
+        # vinkje-uit-pad niets aan het bestaande gedrag verandert.
+        self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL")
+
+        with patch.object(analysis, "_ticker_heeft_prijsprobleem", return_value=False), \
+             patch.object(analysis, "find_ticker_met_snelle_prijscheck") as mock_find:
+            gecorrigeerd = backfill_verouderde_tickers(self.CODE, forceer=False)
+
+        mock_find.assert_not_called()
+        self.assertEqual(gecorrigeerd, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -2,7 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
 from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown, BENCHMARK_TICKERS, bereken_rendement_over_tijd, _verwarm_land_sector_cache_parallel, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting
-from db import save_dividenden, backfill_transactiekosten, backfill_tijd, get_laatste_prijs_update
+from db import save_dividenden, backfill_transactiekosten, backfill_tijd, backfill_waarde_eur, get_laatste_prijs_update
 import hashlib
 import openpyxl
 import math
@@ -16,6 +16,12 @@ init_db()
 # Ontbreekt in oudere DeGiro-exportformaten — daarom overal met een
 # beschikbaarheids-check behandeld i.p.v. als verplichte kolom.
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
+
+# Kale waarde (aantal x koers, zonder AutoFX/transactiekosten) — DEGIRO's
+# eigen GAK-weergave is hierop gebaseerd, in tegenstelling tot Totaal EUR
+# (dat wel kosten meetelt en de GAK structureel te hoog maakt, zie
+# CLAUDE.md). Zelfde beschikbaarheids-check-patroon als KOSTEN_KOLOM.
+WAARDE_KOLOM = "Waarde EUR"
 
 
 def _normaliseer_tijd(waarde):
@@ -89,7 +95,20 @@ def _upload_impl():
             df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
             print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
 
+        if WAARDE_KOLOM in df.columns:
+            df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
+        else:
+            df["_waarde_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
+            print(f"[upload] WAARSCHUWING: kolom '{WAARDE_KOLOM}' niet gevonden — "
+                  f"GAK valt terug op totaal_eur (incl. kosten) voor deze upload")
+
     niet_opslaan = request.form.get("niet_opslaan") == "on"
+    # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje (zie
+    # templates/index.html): staat dit UIT (standaard), dan slaat de
+    # ticker-resolutie hieronder de dure/onvoorwaardelijke yahooquery-
+    # zoekopdracht over voor posities die al eerder zijn opgelost -- zie
+    # CLAUDE.md/opdracht "vinkje ticker-informatie opnieuw bepalen".
+    herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
     if niet_opslaan:
         print("[upload] 'Niet opslaan' aangevinkt — eenmalige analyse, niets wordt in de database opgeslagen")
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen: dezelfde ISIN kan
@@ -160,6 +179,7 @@ def _upload_impl():
             "totaal_eur": df["Totaal EUR"].astype(float),
             "echte_naam": df["Product"],
             "transactiekosten": df["_kosten_eur"],
+            "waarde_eur": df["_waarde_eur"],
             "tijd": df["Tijd"],
         })
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
@@ -245,6 +265,25 @@ def _upload_impl():
         # timeoutrisico bij veel unieke tickers).
         with meet_tijd("ticker_resolutie"):
             groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
+
+            # Vinkje "ticker-informatie opnieuw bepalen" UIT (standaard): een
+            # (ISIN, Beurs)-groep die al eerder is opgelost (staat al met een
+            # ticker in transacties voor deze code) hoeft niet opnieuw door de
+            # dure, onvoorwaardelijke yahooquery-zoekopdracht heen, ook al
+            # bevat de groep hier een gloednieuwe transactierij. Een écht
+            # nieuwe (ISIN, Beurs)-combinatie staat hier vanzelfsprekend nog
+            # niet in en wordt dus altijd gewoon opgelost. Vinkje AAN:
+            # bekende_tickers leeg laten -> forceert een verse zoekopdracht
+            # voor elke groep (zie CLAUDE.md/opdracht "vinkje ticker-
+            # informatie opnieuw bepalen").
+            bekende_tickers = {}
+            if not herbepaal_alle_tickers:
+                cur.execute(
+                    "SELECT isin, beurs, ticker FROM transacties WHERE code = %s AND ticker IS NOT NULL",
+                    (code,),
+                )
+                bekende_tickers = {(isin_val, beurs_val): ticker for isin_val, beurs_val, ticker in cur.fetchall()}
+
             transacties_per_groep = {
                 key: [
                     {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
@@ -256,7 +295,7 @@ def _upload_impl():
                 (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
                 for key, groep in groepen
             ]
-            resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging)
+            resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging, bekende_tickers=bekende_tickers)
 
             ticker_by_isin_beurs = {}
             for (key, groep), detail in zip(groepen, resultaten):
@@ -267,7 +306,8 @@ def _upload_impl():
                     # snelle_prijscheck() geen enkele prijscheck.
                     for _, row in groep.iterrows():
                         detail = find_ticker_met_snelle_prijscheck(
-                            row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key]
+                            row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key],
+                            bekende_tickers.get(key),
                         )
                         if detail["ticker"]:
                             break
@@ -282,15 +322,17 @@ def _upload_impl():
             for _, row in rows_to_insert.iterrows():
                 try:
                     kosten_waarde = row["_kosten_eur"]
+                    waarde_eur_waarde = row["_waarde_eur"]
                     cur.execute(
                         """INSERT INTO transacties
-                           (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, tijd)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                            ON CONFLICT (code, order_id) DO NOTHING""",
                         (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
                          ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["Koers"]),
                          float(row["Totaal EUR"]), row["Order ID"], row["Product"],
                          float(kosten_waarde) if pd.notna(kosten_waarde) else None,
+                         float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
                          _normaliseer_tijd(row["Tijd"])),
                     )
                     ingevoegd += 1
@@ -313,6 +355,14 @@ def _upload_impl():
             if gebackfilld:
                 print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
 
+            order_id_waarde = [
+                (row["Order ID"], float(row["_waarde_eur"]) if pd.notna(row["_waarde_eur"]) else None)
+                for _, row in rows_bestaand.iterrows()
+            ]
+            waarde_gebackfilld = backfill_waarde_eur(code, order_id_waarde)
+            if waarde_gebackfilld:
+                print(f"[upload] {waarde_gebackfilld} bestaande rij(en) kregen een backfilled waarde_eur-bedrag")
+
             order_id_tijd = [
                 (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
                 for _, row in rows_bestaand.iterrows()
@@ -329,7 +379,7 @@ def _upload_impl():
         # hebben met een kandidaat die dat niet heeft (zie
         # analysis.backfill_verouderde_tickers).
         with meet_tijd("db_backfill_verouderde_tickers"):
-            tickers_gecorrigeerd = backfill_verouderde_tickers(code)
+            tickers_gecorrigeerd = backfill_verouderde_tickers(code, forceer=herbepaal_alle_tickers)
             if tickers_gecorrigeerd:
                 print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
                       f"gecorrigeerde ticker via backfill")
@@ -376,7 +426,7 @@ def portfolio_verrijking(code):
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
     cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, tijd "
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
         "FROM transacties WHERE code = %s",
         (code,),
     )
@@ -386,9 +436,10 @@ def portfolio_verrijking(code):
 
     transacties_df = pd.DataFrame(
         rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "tijd"],
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
     )
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
+    transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
 
     try:
         response = jsonify(analyze_transacties_verrijking(transacties_df, code))
@@ -424,7 +475,7 @@ def _laad_transacties_en_resultaat(code):
         return None, None
 
     cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, tijd "
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
         "FROM transacties WHERE code = %s",
         (code,),
     )
@@ -434,7 +485,7 @@ def _laad_transacties_en_resultaat(code):
 
     transacties_df = pd.DataFrame(
         rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "tijd"],
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
     )
     transacties_df = compute_split_adjusted_shares(transacties_df)
 
@@ -808,7 +859,7 @@ def build_portfolio_response(code):
     naam = result[0]
 
     cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, tijd "
+        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
         "FROM transacties WHERE code = %s",
         (code,),
     )
@@ -818,9 +869,10 @@ def build_portfolio_response(code):
 
     transacties_df = pd.DataFrame(
         rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "tijd"],
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
     )
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
+    transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
 
     return analyze_transacties_kern(transacties_df, code, naam)
 

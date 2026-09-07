@@ -36,6 +36,7 @@ def init_db():
             order_id TEXT,
             echte_naam TEXT,
             transactiekosten NUMERIC,
+            waarde_eur NUMERIC,
             UNIQUE (code, order_id)
         );
     """)
@@ -49,6 +50,11 @@ def init_db():
     # zonder tijdstip kon een verkoop vóór de bijbehorende koop van diezelfde
     # dag verwerkt worden, afhankelijk van de (willekeurige) SELECT-volgorde).
     cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS tijd TIME;")
+    # Zelfde migratiepatroon: 'waarde_eur' (DEGIRO's kale Waarde EUR-kolom,
+    # aantal x koers zonder kosten) kwam later bij — de GAK hoort hierop
+    # gebaseerd te zijn i.p.v. op totaal_eur (dat AutoFX/transactiekosten
+    # meetelt en de GAK structureel te hoog maakt, zie CLAUDE.md).
+    cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS waarde_eur NUMERIC;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS prijzen (
             ticker TEXT NOT NULL,
@@ -542,6 +548,32 @@ def backfill_transactiekosten(code, order_id_kosten):
             "UPDATE transacties SET transactiekosten = %s "
             "WHERE code = %s AND order_id = %s AND transactiekosten IS NULL",
             (kosten_waarde, code, order_id),
+        )
+        aantal += cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return aantal
+
+
+def backfill_waarde_eur(code, order_id_waarde):
+    """order_id_waarde: lijst van (order_id, waarde_eur_waarde) tuples uit
+    een hernieuwde upload. Zelfde backfill-patroon als
+    backfill_transactiekosten()/backfill_tijd() hierboven: vult waarde_eur
+    alleen in waar het nog NULL is, overschrijft nooit een al bekende
+    waarde. Geeft het aantal daadwerkelijk bijgewerkte rijen terug."""
+    if not order_id_waarde:
+        return 0
+    conn = get_db_connection()
+    cur = conn.cursor()
+    aantal = 0
+    for order_id, waarde in order_id_waarde:
+        if waarde is None:
+            continue
+        cur.execute(
+            "UPDATE transacties SET waarde_eur = %s "
+            "WHERE code = %s AND order_id = %s AND waarde_eur IS NULL",
+            (waarde, code, order_id),
         )
         aantal += cur.rowcount
     conn.commit()
