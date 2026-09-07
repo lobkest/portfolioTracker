@@ -4,6 +4,8 @@ import string
 import io
 import hashlib
 import os
+import threading
+from contextlib import contextmanager
 import pandas as pd
 import requests
 import yfinance as yf
@@ -25,6 +27,52 @@ def dprint(*args, **kwargs):
         print(*args, **kwargs)
 
 
+@contextmanager
+def meet_tijd(label):
+    """Herbruikbare timing-helper voor de performance-meting van de upload/
+    analyse-flow: logt de verstreken tijd van het omsloten codeblok met een
+    [timing]-prefix, in lijn met de bestaande [upload]/[koersen]/[split]-
+    prefix-conventie. Eén centrale plek i.p.v. losse
+    `t0 = time.time(); ...; time.time() - t0`-boilerplate in elke functie
+    die een fase wil timen."""
+    start = time.time()
+    try:
+        yield
+    finally:
+        print(f"[timing] {label}: {time.time() - start:.2f}s")
+
+
+# Telt individuele Yahoo-calls (yfinance + yahooquery) per type, voor de
+# performance-meting van de upload-flow. Lock nodig omdat ticker-resolutie/
+# koersen/verrijking deels parallel draaien via ThreadPoolExecutor.
+_yahoo_call_lock = threading.Lock()
+_yahoo_call_teller = {}
+
+
+def reset_yahoo_call_teller():
+    """Zet de Yahoo-call-teller terug naar 0 -- aangeroepen aan het begin
+    van _upload_impl() zodat elke upload zijn EIGEN call-aantal rapporteert,
+    niet een cumulatief totaal sinds het opstarten van de server."""
+    with _yahoo_call_lock:
+        _yahoo_call_teller.clear()
+
+
+def _tel_yahoo_call(soort):
+    """Registreert één Yahoo-call van het gegeven type (bv. 'yf.download',
+    'yahooquery.search', 'yf.Ticker.info')."""
+    with _yahoo_call_lock:
+        _yahoo_call_teller[soort] = _yahoo_call_teller.get(soort, 0) + 1
+
+
+def log_yahoo_call_samenvatting():
+    """Logt de Yahoo-call-tellingen sinds de laatste reset, gegroepeerd per
+    type call, plus het totaal."""
+    with _yahoo_call_lock:
+        samenvatting = dict(_yahoo_call_teller)
+    totaal = sum(samenvatting.values())
+    print(f"[timing] Yahoo-calls deze upload: {totaal} totaal -> {samenvatting}")
+
+
 # Drempels voor de prijscontrole op de Ticker-zekerheid-pagina (zie
 # vergelijk_prijs_op_datum): Yahoo's SLOTkoers wordt vergeleken met een
 # intraday-transactieprijs uit het Excel-bestand, dus een kleine afwijking
@@ -36,6 +84,32 @@ def dprint(*args, **kwargs):
 #     voor het Zeker/Onzeker-oordeel)
 PRIJSCHECK_DREMPEL_OK = 0.02
 PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
+
+# FX-paar per valuta, gebruikt door zowel _converteer_naar_eur() (via
+# get_prices()) als _fx_koers_op_datum() (via vergelijk_prijs_op_datum) --
+# één plek voor de mapping i.p.v. 'fx_pair = "USDEUR=X" if ... else
+# "GBPEUR=X"' op twee plekken herhaald.
+FX_PAAR_PER_VALUTA = {"USD": "USDEUR=X", "GBP": "GBPEUR=X", "GBp": "GBPEUR=X"}
+
+# Vaste ankerdatum voor de FX-reeks-cache (zie _fx_prijzen_serie). Bewust
+# een VASTE datum i.p.v. per aanroep de eigen 'vanaf'/'datum' van de
+# aanroeper doorgeven: get_prices() beschouwt een cache die tot 5 dagen na
+# de gevraagde startdatum begint al als "goed genoeg" (onschuldig voor een
+# doorlopende koersreeks, die dan een paar dagen later begint) -- voor een
+# PUNT-in-tijd FX-opzoeking zou dat net de verkeerde handelsdag kunnen
+# opleveren als twee aanroepen met een net iets andere datum na elkaar
+# komen. Met een vaste ankerdatum is de cache na de eerste keer altijd
+# voor alle aanroepen ver genoeg terug.
+#
+# LET OP: deze datum moet op/na de ECHTE eerste Yahoo-datum van elk
+# FX-paar liggen (leeg getest: USDEUR=X vanaf 2003-12-01, GBPEUR=X vanaf
+# 2003-09-17) -- eerder dan dat zou get_prices() z'n eigen cache altijd
+# als "niet ver genoeg terug" blijven zien (eerste > start_date + 5 dagen
+# gaat dan NOOIT weg) en dus bij ELKE aanroep opnieuw laten downloaden,
+# precies het duplicate-call-probleem dat deze fix moest oplossen.
+# 2005-01-01 zit ruim ná die echte Yahoo-startdatums, en ruim VÓÓR elke
+# denkbare DeGiro-transactiedatum (DeGiro bestaat pas sinds 2008).
+FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
 
 # Drempel voor de standaard, LICHTE prijscontrole (find_ticker_met_snelle_
 # prijscheck, i.t.t. de volledige verifieer_ticker_met_prijs hierboven):
@@ -750,6 +824,7 @@ def _yahoo_search(query):
     terug (leeg bij een fout), zodat aanroepers geen try/except nodig
     hebben."""
     try:
+        _tel_yahoo_call("yahooquery.search")
         return search(query).get("quotes", [])
     except Exception as e:
         dprint(f"[ticker]   query='{query}' faalde: {e}")
@@ -1122,10 +1197,77 @@ def basis_ticker_zekerheid_parallel(posities, max_workers=8):
     ]
 
 
-def download_met_retry(ticker_of_pair, start_date, pogingen=3, wachttijd=5):
-    """yf.download met automatische retry bij rate limiting."""
+# Gedeelde retry/backoff-instellingen voor _fetch_yf_info/_haal_slotkoers_op/
+# _haal_dagrange_op (via _met_rate_limit_retry hieronder). Losstaand van
+# BULK_DOWNLOAD_POGINGEN/_WACHTTIJD hieronder: dat is een functioneel ANDER
+# retry-patroon (zie download_met_retry).
+RATE_LIMIT_POGINGEN = 3
+RATE_LIMIT_WACHTTIJD_BASIS = 8  # seconden; oplopende backoff per poging: 8s, 16s, 24s, ...
+
+
+def _is_rate_limit_fout(e):
+    """Herkent Yahoo's rate-limit-foutmeldingen, ongeacht exacte
+    formulering/hoofdlettergebruik."""
+    return "rate limit" in str(e).lower() or "too many requests" in str(e).lower()
+
+
+def _met_rate_limit_retry(actie, log_prefix, beschrijving,
+                           pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
+    """
+    Voert 'actie' (een callable zonder argumenten die de eigenlijke Yahoo-
+    call doet) uit met retry en oplopende backoff bij rate limiting --
+    gedeeld door _fetch_yf_info, _haal_slotkoers_op en _haal_dagrange_op
+    (dit patroon stond voorheen drie keer bijna-identiek uitgeschreven,
+    zie CLAUDE.md).
+
+    'log_prefix' is de []-logprefix (bv. 'yf-info', 'prijscheck'),
+    'beschrijving' de tekst die in de retry-logregel na "rate limited voor"
+    komt (bv. "'AAPL'" of "dagrange 'AAPL'") -- de aanroeper bepaalt de
+    exacte formulering, want die verschilt per aanroeper.
+
+    Geeft (resultaat, None) terug bij succes, of (None, fout) terug bij een
+    definitieve mislukking na alle pogingen -- de aanroeper bepaalt zelf de
+    juiste "leeg"-teruggave (None, (None, None), ...) en de exacte
+    foutmelding, want die verschillen per aanroeper.
+    """
     for poging in range(1, pogingen + 1):
         try:
+            return actie(), None
+        except Exception as e:
+            if _is_rate_limit_fout(e) and poging < pogingen:
+                wacht = wachttijd * poging
+                print(f"[{log_prefix}] rate limited voor {beschrijving} (poging {poging}/{pogingen}), "
+                      f"{wacht}s wachten...")
+                time.sleep(wacht)
+                continue
+            return None, e
+    return None, None
+
+
+# BULK_DOWNLOAD_*: eigen, kleinere retry-instellingen voor download_met_retry
+# hieronder -- functioneel anders dan _met_rate_limit_retry hierboven (zie
+# de docstring van download_met_retry voor het verschil), dus bewust NIET
+# via dezelfde helper geïmplementeerd.
+BULK_DOWNLOAD_POGINGEN = 3
+BULK_DOWNLOAD_WACHTTIJD = 5  # seconden; vast (niet oplopend)
+
+
+def download_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOAD_POGINGEN, wachttijd=BULK_DOWNLOAD_WACHTTIJD):
+    """
+    yf.download met automatische retry, bewust NIET via
+    _met_rate_limit_retry (het gedeelde rate-limit-specifieke patroon
+    hierboven): deze functie retryt op ELKE fout (niet alleen rate
+    limiting), met een VASTE wachttijd (geen oplopende backoff), en geeft
+    bij een definitieve mislukking een lege Series terug in plaats van
+    None -- aanroepers (get_prices()) rekenen al op die lege-Series-vorm.
+    Gebruikt voor bulk-downloads van (mogelijk meerdere) tickers tegelijk,
+    waar een kortstondige netwerkhapering nog de moeite van een retry
+    waard is zonder eerst op een rate-limit-specifieke foutmelding te
+    wachten.
+    """
+    for poging in range(1, pogingen + 1):
+        try:
+            _tel_yahoo_call("yf.download")
             return yf.download(ticker_of_pair, start=start_date, auto_adjust=True, progress=False)["Close"]
         except Exception as e:
             print(f"[koersen] poging {poging}/{pogingen} mislukt voor {ticker_of_pair}: {e}")
@@ -1136,19 +1278,23 @@ def download_met_retry(ticker_of_pair, start_date, pogingen=3, wachttijd=5):
                 return pd.Series(dtype=float)
 
 
-def _converteer_naar_eur(raw, tickers_kolommen, vanaf):
+def _converteer_naar_eur(raw, tickers_kolommen):
     """Past USD/GBP/GBp -> EUR-conversie toe op raw[t] voor elke t in
-    tickers_kolommen, in-place. 'vanaf' is de startdatum voor de FX-reeks."""
+    tickers_kolommen, in-place. FX-reeks komt uit _fx_prijzen_serie()
+    (persistent gecached via prijzen/get_prices(), zie daar) i.p.v. bij
+    elke aanroep een eigen download te doen -- vóór deze fix werd dezelfde
+    FX-koers soms meermaals per upload opnieuw gedownload (zie CLAUDE.md,
+    performance-meting upload/analyse-flow)."""
     for t in tickers_kolommen:
         if t not in raw.columns:
             continue
         try:
+            _tel_yahoo_call("yf.Ticker.info(currency)")
             currency = yf.Ticker(t).info.get("currency")
         except Exception:
             currency = "EUR"
         if currency in ("USD", "GBP", "GBp"):
-            fx_pair = "USDEUR=X" if currency == "USD" else "GBPEUR=X"
-            fx = download_met_retry(fx_pair, vanaf).squeeze()
+            fx = _fx_prijzen_serie(currency)
             fx = fx.reindex(raw.index).ffill()
             divisor = 100 if currency == "GBp" else 1
             raw[t] = raw[t] / divisor * fx
@@ -1213,63 +1359,70 @@ def get_prices(tickers, start_date):
             stale[t] = laatste + pd.Timedelta(days=1)
             print(f"[koersen] ⚠️ '{t}' cache loopt tot {laatste.date()}, ververst tot vandaag")
 
+    cache_hits = len(tickers) - len(missing) - len(stale)
+    print(f"[koersen] cache-samenvatting: {cache_hits} ticker(s) volledig uit cache, "
+          f"{len(missing)} nieuw te downloaden, {len(stale)} incrementeel te verversen "
+          f"(totaal {len(tickers)} gevraagd)")
+
     if missing:
-        raw = download_met_retry(missing, start_date)
-        if isinstance(raw, pd.Series):
-            raw = raw.to_frame(name=missing[0])
-        raw = raw.ffill()
+        with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
+            raw = download_met_retry(missing, start_date)
+            if isinstance(raw, pd.Series):
+                raw = raw.to_frame(name=missing[0])
+            raw = raw.ffill()
 
-        for t in missing:
-            if t not in raw.columns:
-                print(f"[koersen] ⚠️ '{t}' zit niet in yfinance-download resultaat "
-                      f"(mogelijk ongeldige/onbekende ticker)")
-                continue
-            eerste_ruw = raw[t].first_valid_index()
-            dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
-                   f"gevraagd vanaf {start_date}")
+            for t in missing:
+                if t not in raw.columns:
+                    print(f"[koersen] ⚠️ '{t}' zit niet in yfinance-download resultaat "
+                          f"(mogelijk ongeldige/onbekende ticker)")
+                    continue
+                eerste_ruw = raw[t].first_valid_index()
+                dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
+                       f"gevraagd vanaf {start_date}")
 
-        _converteer_naar_eur(raw, missing, start_date)
+            _converteer_naar_eur(raw, missing)
 
-        fresh_rows = []
-        for t in missing:
-            if t not in raw.columns:
-                continue
-            for datum, koers in raw[t].dropna().items():
-                fresh_rows.append((t, datum.date(), float(koers)))
-        save_prices(fresh_rows)
+            fresh_rows = []
+            for t in missing:
+                if t not in raw.columns:
+                    continue
+                for datum, koers in raw[t].dropna().items():
+                    fresh_rows.append((t, datum.date(), float(koers)))
+            save_prices(fresh_rows)
 
-        fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
-        # fresh_df kan datums bevatten die al in 'cached' zaten (opnieuw
-        # gedownload voor tickers die deels al gecachet waren) — bij overlap
-        # de verse waarde houden, en concat kan anders duplicate
-        # (ticker, datum) combinaties opleveren waar pivot() straks op stukloopt.
-        cached = pd.concat([cached, fresh_df], ignore_index=True)
-        cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
+            fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
+            # fresh_df kan datums bevatten die al in 'cached' zaten (opnieuw
+            # gedownload voor tickers die deels al gecachet waren) — bij overlap
+            # de verse waarde houden, en concat kan anders duplicate
+            # (ticker, datum) combinaties opleveren waar pivot() straks op stukloopt.
+            cached = pd.concat([cached, fresh_df], ignore_index=True)
+            cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
     if stale:
         # Per ticker apart gedownload (i.p.v. één bulk-call zoals bij
         # 'missing') omdat elke stale ticker een eigen 'vanaf'-datum heeft
         # (zijn eigen laatst gecachte datum + 1 dag) — een bulk-download
         # met yfinance ondersteunt geen per-ticker startdatum.
-        stale_rows = []
-        for t, vanaf in stale.items():
-            raw_t = download_met_retry(t, vanaf)
-            if isinstance(raw_t, pd.Series):
-                raw_t = raw_t.to_frame(name=t)
-            raw_t = raw_t.ffill()
-            if t not in raw_t.columns or raw_t[t].dropna().empty:
-                dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
-                       f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
-                continue
-            _converteer_naar_eur(raw_t, [t], vanaf)
-            for datum, koers in raw_t[t].dropna().items():
-                stale_rows.append((t, datum.date(), float(koers)))
+        with meet_tijd(f"koersen_download_incrementeel ({len(stale)} ticker(s))"):
+            stale_rows = []
+            for t, vanaf in stale.items():
+                raw_t = download_met_retry(t, vanaf)
+                if isinstance(raw_t, pd.Series):
+                    raw_t = raw_t.to_frame(name=t)
+                raw_t = raw_t.ffill()
+                if t not in raw_t.columns or raw_t[t].dropna().empty:
+                    dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
+                           f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
+                    continue
+                _converteer_naar_eur(raw_t, [t])
+                for datum, koers in raw_t[t].dropna().items():
+                    stale_rows.append((t, datum.date(), float(koers)))
 
-        if stale_rows:
-            save_prices(stale_rows)
-            stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
-            cached = pd.concat([cached, stale_df], ignore_index=True)
-            cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
+            if stale_rows:
+                save_prices(stale_rows)
+                stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
+                cached = pd.concat([cached, stale_df], ignore_index=True)
+                cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
     if cached.empty:
         return pd.DataFrame()
@@ -1291,6 +1444,45 @@ def get_prices(tickers, start_date):
                   f"verkeerde/onvolledige ticker.")
 
     return pivot
+
+
+# Eén lock per FX-paar (niet één globale lock): ticker-resolutie/
+# prijscontrole draait deels parallel via ThreadPoolExecutor, en zonder
+# deze locks kunnen meerdere threads TEGELIJK zien dat bv. 'USDEUR=X' nog
+# niet gecached is en dus allemaal hun eigen download starten -- precies
+# het duplicate-call-probleem dat _fx_prijzen_serie moest oplossen (de
+# database-cache alleen is niet genoeg: de race zit tussen het lezen en
+# het schrijven, niet in de cache zelf). Met de lock wacht een tweede
+# thread voor hetzelfde paar tot de eerste klaar is en pakt daarna gewoon
+# de inmiddels gevulde cache. Vooraf aangemaakt (i.p.v. lazy) omdat de set
+# FX-paren vast en klein is (zie FX_PAAR_PER_VALUTA).
+_fx_serie_locks = {fx_pair: threading.Lock() for fx_pair in set(FX_PAAR_PER_VALUTA.values())}
+
+
+def _fx_prijzen_serie(valuta):
+    """
+    Ruwe FX-koersreeks (valuta -> EUR) vanaf FX_ANKER_DATUM, persistent
+    gecached via de prijzen-tabel/get_prices() -- een FX-paar zoals
+    'USDEUR=X' is voor yfinance gewoon een ticker, dus hergebruikt dit
+    dezelfde cache-/download-infrastructuur als aandelenkoersen, i.p.v.
+    een eigen parallelle cache te bouwen. Gedeeld door _converteer_naar_eur
+    (via get_prices()) en _fx_koers_op_datum (via vergelijk_prijs_op_datum)
+    -- vóór deze fix downloadde elke aanroeper z'n eigen FX-koers apart,
+    ook binnen dezelfde upload voor exact dezelfde (valuta, datum) (zie
+    CLAUDE.md, performance-meting upload/analyse-flow).
+
+    Geeft een lege Series terug bij een onbekende valuta of ontbrekende
+    koersdata (aanroepers behandelen dat hetzelfde als voorheen: "geen
+    conversie mogelijk").
+    """
+    fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
+    if fx_pair is None:
+        return pd.Series(dtype=float)
+    with _fx_serie_locks[fx_pair]:
+        prijzen = get_prices([fx_pair], FX_ANKER_DATUM)
+    if prijzen.empty or fx_pair not in prijzen.columns:
+        return pd.Series(dtype=float)
+    return prijzen[fx_pair]
 
 
 def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
@@ -1660,30 +1852,27 @@ def find_matching_code(cur, new_order_ids):
     return None, None
 
 
-def _fetch_yf_info(ticker, pogingen=3, wachttijd=8):
+def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
-    Haalt yf.Ticker(ticker).info op met retry/backoff bij rate limiting.
-    Gedeeld door classify_ticker() en get_land_sector() zodat beide niet
-    onafhankelijk van elkaar dezelfde Yahoo-call voor dezelfde ticker doen
-    (rate limiting is een bekend pijnpunt in dit project). Geeft None terug
-    bij een definitieve fout (rate limit na alle retries).
+    Haalt yf.Ticker(ticker).info op met retry/backoff bij rate limiting
+    (via _met_rate_limit_retry). Gedeeld door classify_ticker() en
+    get_land_sector() zodat beide niet onafhankelijk van elkaar dezelfde
+    Yahoo-call voor dezelfde ticker doen (rate limiting is een bekend
+    pijnpunt in dit project). Geeft None terug bij een definitieve fout
+    (rate limit na alle retries).
     """
-    for poging in range(1, pogingen + 1):
-        try:
-            return yf.Ticker(ticker).info
-        except Exception as e:
-            is_rate_limit = "rate limit" in str(e).lower() or "too many requests" in str(e).lower()
-            if is_rate_limit and poging < pogingen:
-                wacht = wachttijd * poging  # oplopende backoff: 8s, 16s, 24s...
-                print(f"[yf-info] rate limited voor '{ticker}' (poging {poging}/{pogingen}), "
-                      f"{wacht}s wachten...")
-                time.sleep(wacht)
-                continue
-            print(f"[yf-info] ❌ kon info niet ophalen voor '{ticker}': {e}")
-            return None
+    def _actie():
+        _tel_yahoo_call("yf.Ticker.info")
+        return yf.Ticker(ticker).info
+
+    info, fout = _met_rate_limit_retry(_actie, "yf-info", f"'{ticker}'", pogingen, wachttijd)
+    if fout is not None:
+        print(f"[yf-info] ❌ kon info niet ophalen voor '{ticker}': {fout}")
+        return None
+    return info
 
 
-def _classify_ticker_uncached(ticker, pogingen=3, wachttijd=8):
+def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
     Doet de daadwerkelijke yfinance-lookup, met retry/backoff bij rate limiting.
     Geeft None terug bij een definitieve fout (rate limit na alle retries).
@@ -1735,6 +1924,7 @@ def _classify_ticker_uncached(ticker, pogingen=3, wachttijd=8):
     # geen data).
     if not category and (is_etf or quote_type == "MUTUALFUND"):
         try:
+            _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
             category = yf.Ticker(ticker).funds_data.fund_overview.get("categoryName")
             dprint(f"[classify] '{ticker}': category via funds_data.fund_overview -> {category}")
         except Exception as e:
@@ -1811,6 +2001,7 @@ def get_etf_sector_verdeling(ticker):
         return cached
 
     try:
+        _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")
         weightings = yf.Ticker(ticker).funds_data.sector_weightings
     except Exception as e:
         print(f"[etf-sector] ❌ kon sectorverdeling niet ophalen voor '{ticker}': {e}")
@@ -1878,6 +2069,7 @@ def get_etf_holdings(ticker):
         print(f"[etf-holdings] '{ticker}': provider-holdings ophalen mislukt, terugvallen op yfinance-top-10")
 
     try:
+        _tel_yahoo_call("yf.Ticker.funds_data.top_holdings")
         top_holdings = yf.Ticker(ticker).funds_data.top_holdings
     except Exception as e:
         print(f"[etf-holdings] ❌ kon top-holdings niet ophalen voor '{ticker}': {e}")
@@ -1922,6 +2114,30 @@ def _normaliseer_bedrijfsnaam(naam):
     schoon = re.sub(r"[^a-z0-9\s]", "", naam.lower())
     schoon = re.sub(r"\s+", " ", schoon).strip()
     return BEDRIJF_NAAM_OVERRIDES.get(schoon, schoon)
+
+
+def _sorteer_tickers_voor_dropdown(per_ticker):
+    """
+    Sorteert tickers voor de dropdown op 'Per aandeel' en 'Per aandeel
+    aankoop': eerst posities die nog in bezit zijn (groot naar klein op
+    huidige waarde), daarna verkochte posities (groot naar klein op de
+    hoogste waarde die de positie ooit heeft gehad).
+    """
+    def sleutel(ticker):
+        reeks = per_ticker[ticker]["waarde"]
+        huidige_waarde = reeks[-1] if reeks else 0.0
+        piekwaarde = max(reeks) if reeks else 0.0
+        if per_ticker[ticker]["nog_in_bezit"]:
+            return (0, -huidige_waarde)
+        return (1, -piekwaarde)
+
+    return sorted(per_ticker.keys(), key=sleutel)
+
+
+def _sorteer_verdeling_groot_naar_klein(verdeling):
+    """Sorteert een verdelingslijst (dicts met 'waarde') van grootste naar
+    kleinste waarde, zodat het taartdiagram op Verdeling aflopend oogt."""
+    return sorted(verdeling, key=lambda x: x["waarde"], reverse=True)
 
 
 def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=20):
@@ -2354,30 +2570,26 @@ def _ticker_details_met_cache(ticker):
     return nieuw
 
 
-def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=3, wachttijd=8):
+def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
     Haalt de slotkoers van 'ticker' op de eerste geldige handelsdag op of ná
     'datum' op (buffer voor weekend/feestdagen waarop de markt dicht was),
     in de eigen valuta van de ticker — GEEN EUR-conversie, dit is puur een
     identiteitscheck (klopt de prijs), geen waardeberekening. Retry/backoff
-    bij rate limiting, zelfde patroon als _fetch_yf_info. Geeft None terug
-    als het na alle retries niet lukt of er geen koersdata is.
+    bij rate limiting via _met_rate_limit_retry (zelfde patroon als
+    _fetch_yf_info). Geeft None terug als het na alle retries niet lukt of
+    er geen koersdata is.
     """
     einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
-    for poging in range(1, pogingen + 1):
-        try:
-            raw = yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)["Close"]
-            break
-        except Exception as e:
-            is_rate_limit = "rate limit" in str(e).lower() or "too many requests" in str(e).lower()
-            if is_rate_limit and poging < pogingen:
-                wacht = wachttijd * poging
-                print(f"[prijscheck] rate limited voor '{ticker}' (poging {poging}/{pogingen}), "
-                      f"{wacht}s wachten...")
-                time.sleep(wacht)
-                continue
-            print(f"[prijscheck] ❌ kon historische koers niet ophalen voor '{ticker}' rond {datum}: {e}")
-            return None
+
+    def _actie():
+        _tel_yahoo_call("yf.download(slotkoers)")
+        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)["Close"]
+
+    raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"'{ticker}'", pogingen, wachttijd)
+    if fout is not None:
+        print(f"[prijscheck] ❌ kon historische koers niet ophalen voor '{ticker}' rond {datum}: {fout}")
+        return None
 
     if isinstance(raw, pd.DataFrame):
         # yf.download geeft bij 1 ticker soms toch een DataFrame terug i.p.v. een Series
@@ -2391,31 +2603,27 @@ def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=3, wachttijd=8):
     return float(geldig.iloc[0])
 
 
-def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=3, wachttijd=8):
+def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
     Zelfde als _haal_slotkoers_op hierboven (retry/backoff + weekend/
     feestdag-buffer), maar geeft (high, low) van de handelsdag terug i.p.v.
     de slotkoers -- voor de dagrange-check op de Ticker-zekerheid-pagina
     (staat de Excel-transactieprijs tussen het intraday-high en -low). Losse
     functie i.p.v. _haal_slotkoers_op uit te breiden: die wordt ook gebruikt
-    voor FX-koersen (_fx_koers_op_datum), waar een dagrange niet relevant is.
+    voor FX-koersen (via _fx_prijzen_serie -> get_prices()), waar een
+    dagrange niet relevant is.
     Geeft (None, None) terug bij dezelfde faalcondities als _haal_slotkoers_op.
     """
     einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
-    for poging in range(1, pogingen + 1):
-        try:
-            raw = yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["High", "Low"]]
-            break
-        except Exception as e:
-            is_rate_limit = "rate limit" in str(e).lower() or "too many requests" in str(e).lower()
-            if is_rate_limit and poging < pogingen:
-                wacht = wachttijd * poging
-                print(f"[prijscheck] rate limited voor dagrange '{ticker}' (poging {poging}/{pogingen}), "
-                      f"{wacht}s wachten...")
-                time.sleep(wacht)
-                continue
-            print(f"[prijscheck] ❌ kon dagrange niet ophalen voor '{ticker}' rond {datum}: {e}")
-            return None, None
+
+    def _actie():
+        _tel_yahoo_call("yf.download(dagrange)")
+        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["High", "Low"]]
+
+    raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"dagrange '{ticker}'", pogingen, wachttijd)
+    if fout is not None:
+        print(f"[prijscheck] ❌ kon dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
+        return None, None
 
     if isinstance(raw.columns, pd.MultiIndex):
         # yf.download geeft bij 1 ticker soms toch multi-index-kolommen terug.
@@ -2447,6 +2655,7 @@ def _haal_splits_op(ticker):
         dprint(f"[splits] '{ticker}': uit cache -> {len(cached)} split(s)")
         return cached
     try:
+        _tel_yahoo_call("yf.Ticker.splits")
         splits = yf.Ticker(ticker).splits
     except Exception as e:
         print(f"[splits] kon split-geschiedenis niet ophalen voor '{ticker}': {e}")
@@ -2482,28 +2691,34 @@ def _cumulatieve_split_factor(ticker, vanaf_datum):
     return factor
 
 
-def _fx_koers_op_datum(valuta, datum):
+def _fx_koers_op_datum(valuta, datum, dagen_buffer=7):
     """
-    FX-koers (valuta -> EUR) op 'datum', voor het omrekenen van een LOSSE
-    historische Yahoo-slotkoers in vergelijk_prijs_op_datum() naar EUR.
-    Hergebruikt _haal_slotkoers_op() (retry + weekend/feestdag-buffer)
-    i.p.v. een aparte FX-downloadroutine te bouwen — 'USDEUR=X' e.d. is
-    gewoon een normale Yahoo-ticker. Zelfde valutaset als _converteer_
-    naar_eur() (die get_prices() gebruikt): alleen USD/GBP/GBp worden
-    herkend, dat dekt de fondsen/aandelen die dit project tot nu toe
+    FX-koers (valuta -> EUR) op de eerste geldige handelsdag op of ná
+    'datum' (zelfde weekend/feestdag-buffer als _haal_slotkoers_op), voor
+    het omrekenen van een LOSSE historische Yahoo-slotkoers in
+    vergelijk_prijs_op_datum() naar EUR. Haalt de ruwe FX-reeks op via
+    _fx_prijzen_serie() (persistent gecached via prijzen/get_prices(), zie
+    daar) i.p.v. zelf een download te doen -- zelfde valutaset als
+    _converteer_naar_eur() (die get_prices() gebruikt): alleen USD/GBP/GBp
+    worden herkend, dat dekt de fondsen/aandelen die dit project tot nu toe
     tegenkomt. Geeft None terug bij een onbekende valuta of een mislukte
     lookup — de aanroeper behandelt dat dan als "geen betrouwbare
     vergelijking mogelijk", niet als een (mogelijk misleidende) rauwe
     cross-currency-vergelijking.
     """
-    if valuta in ("USD", "GBP", "GBp"):
-        fx_pair = "USDEUR=X" if valuta == "USD" else "GBPEUR=X"
-        koers = _haal_slotkoers_op(fx_pair, datum)
-        if koers is None:
-            print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
-        return koers
-    print(f"[prijscheck] ⚠️ onbekende valuta '{valuta}' voor FX-conversie, geen conversie toegepast")
-    return None
+    fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
+    if fx_pair is None:
+        print(f"[prijscheck] ⚠️ onbekende valuta '{valuta}' voor FX-conversie, geen conversie toegepast")
+        return None
+
+    datum = pd.Timestamp(datum)
+    einddatum = datum + pd.Timedelta(days=dagen_buffer)
+    reeks = _fx_prijzen_serie(valuta)
+    geldig = reeks[(reeks.index >= datum) & (reeks.index <= einddatum)].dropna()
+    if geldig.empty:
+        print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
+        return None
+    return float(geldig.iloc[0])
 
 
 def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):

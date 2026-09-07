@@ -40,6 +40,12 @@ let prognoseResultaat = null;
 // benchmark (zie benchmarkSelect), of null als er geen benchmark gekozen is.
 let benchmarkVergelijkingData = null;
 
+// Rendement-tabblad: resultaat van de laatst opgehaalde "Vergelijk ook
+// met..."-eigen-aandeel-keuze (zie eigenAandeelSelect), onafhankelijk van
+// benchmarkVergelijkingData hierboven -- beide kunnen tegelijk een lijn
+// tonen. Null als er geen eigen aandeel gekozen is.
+let eigenAandeelVergelijkingData = null;
+
 // Land/Sector-tabblad: welke weergave staat aan, gedeeld tussen beide
 // tabbladen (de knop "Wissel weergave" toggled dit, zie weergaveToggleBtn
 // hieronder) -- "taart" is de bestaande toonPlatteVerdeling(), "staaf" de
@@ -196,7 +202,7 @@ function toonPortfolio() {
         const opgehaald = new Date(huidigeData.laatst_opgehaald_op);
         const opgehaaldDatumStr = `${String(opgehaald.getDate()).padStart(2, "0")}-${String(opgehaald.getMonth() + 1).padStart(2, "0")}-${opgehaald.getFullYear()}`;
         const tijd = opgehaald.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", hour12: false });
-        bijgewerktEl.textContent = `Koersen bekend t/m ${formatDatum(huidigeData.laatste_koersdatum)} · laatst opgehaald ${opgehaaldDatumStr} om ${tijd}`;
+        bijgewerktEl.textContent = `Koersen laatst opgehaald ${opgehaaldDatumStr} om ${tijd}`;
         bijgewerktEl.style.display = "block";
     } else {
         bijgewerktEl.style.display = "none";
@@ -230,6 +236,25 @@ function toonRendement() {
         }
     }
 
+    const eigenMeldingEl = document.getElementById("eigenAandeelMelding");
+    eigenMeldingEl.style.display = "none";
+
+    if (eigenAandeelVergelijkingData) {
+        const e = eigenAandeelVergelijkingData;
+        const offset = d.labels.length - e.labels.length;
+        const reeks = offset > 0 ? Array(offset).fill(null).concat(e.rendement) : e.rendement;
+        datasets.push({
+            label: `Rendement ${e.naam} (hypothetisch, €)`,
+            data: reeks,
+            borderColor: "#8856a7",
+            borderDash: [2, 2],
+        });
+        if (e.onvolledige_dekking) {
+            eigenMeldingEl.textContent = `${e.naam} heeft pas koersdata vanaf ${formatDatum(e.vanaf_datum)} — inleg van vóór die datum telt niet mee in deze vergelijking.`;
+            eigenMeldingEl.style.display = "block";
+        }
+    }
+
     updateChart(d.labels, datasets);
 }
 
@@ -252,6 +277,35 @@ async function wisselBenchmark(benchmarkNaam) {
     } catch (e) {
         benchmarkVergelijkingData = null;
         alert("Benchmarkvergelijking ophalen is mislukt.");
+    } finally {
+        verbergLaadOverlay();
+        toonRendement();
+    }
+}
+
+// Zelfde patroon als wisselBenchmark() hierboven, maar voor de "vergelijk
+// ook met eigen aandeel"-dropdown -- onafhankelijke, eigen dataset zodat
+// benchmark- en eigen-aandeel-vergelijking tegelijk getoond kunnen worden.
+async function wisselEigenAandeel(ticker) {
+    if (!ticker) {
+        eigenAandeelVergelijkingData = null;
+        toonRendement();
+        return;
+    }
+    toonLaadOverlay("Vergelijking ophalen...");
+    try {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/benchmark-vergelijking?eigen_ticker=${encodeURIComponent(ticker)}`);
+        const data = await res.json();
+        if (!res.ok) {
+            eigenAandeelVergelijkingData = null;
+            alert(data.error || "Vergelijking kon niet berekend worden.");
+        } else {
+            const tickerInfo = (huidigeData.tickers || []).find(t => t.ticker === ticker);
+            eigenAandeelVergelijkingData = { naam: tickerInfo ? tickerInfo.naam : ticker, ...data };
+        }
+    } catch (e) {
+        eigenAandeelVergelijkingData = null;
+        alert("Vergelijking ophalen is mislukt.");
     } finally {
         verbergLaadOverlay();
         toonRendement();
@@ -1051,6 +1105,24 @@ function ververAandeelSelect() {
         const option = document.createElement("option");
         option.value = t.ticker;
         option.textContent = t.nog_in_bezit === false ? `${t.naam} (oud)` : t.naam;
+        select.appendChild(option);
+    });
+    if (huidigeData.tickers.some(t => t.ticker === huidigeKeuze)) {
+        select.value = huidigeKeuze;
+    }
+}
+
+// Vult de "vergelijk ook met eigen aandeel"-dropdown op het Rendement-
+// tabblad -- zelfde bron (huidigeData.tickers) en volgorde als
+// ververAandeelSelect() hierboven, met "Geen" als eerste optie.
+function ververEigenAandeelSelect() {
+    const select = document.getElementById("eigenAandeelSelect");
+    const huidigeKeuze = select.value;
+    select.innerHTML = '<option value="">Geen</option>';
+    huidigeData.tickers.forEach(t => {
+        const option = document.createElement("option");
+        option.value = t.ticker;
+        option.textContent = t.naam;
         select.appendChild(option);
     });
     if (huidigeData.tickers.some(t => t.ticker === huidigeKeuze)) {
@@ -2757,6 +2829,8 @@ function pasViewToe(view) {
     // niet beschikbaar bij een 'niet opslaan'-analyse, zelfde beperking als
     // Instellingen/Bijnamen/Dividend (zie toonDashboard()).
     document.getElementById("benchmarkSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
+    // Zelfde beperking als benchmarkSelectWrapper hierboven (DB-backed).
+    document.getElementById("eigenAandeelSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
     document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
@@ -2792,6 +2866,7 @@ function pasViewToe(view) {
     }
     if (view !== "rendement") {
         document.getElementById("benchmarkMelding").style.display = "none";
+        document.getElementById("eigenAandeelMelding").style.display = "none";
     }
     if (view !== "xirr-rendement") {
         document.getElementById("xirrRendementMsg").style.display = "none";
@@ -2847,6 +2922,9 @@ function toonDashboard(data) {
     // Zelfde reden als prognoseResultaat hierboven: een benchmark-keuze van
     // een vorige portfolio slaat nergens meer op zodra de data wisselt.
     benchmarkVergelijkingData = null;
+    // Zelfde reden: een eigen-aandeel-vergelijking van een vorige portfolio
+    // slaat nergens meer op zodra de data wisselt.
+    eigenAandeelVergelijkingData = null;
     // Zelfde reden: stap="dag" van een vorige portfolio moet niet blijven
     // hangen -- elke nieuwe portfolio start weer bij het lichte "maand".
     xirrRendementStap = "maand";
@@ -2854,6 +2932,7 @@ function toonDashboard(data) {
     // vorige portfolio slaan nergens meer op.
     meerHistorieUitgeput = {};
     document.getElementById("benchmarkSelect").value = "";
+    document.getElementById("eigenAandeelSelect").innerHTML = '<option value="">Geen</option>';
     document.getElementById("uploadSection").style.display = "none";
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
@@ -2877,6 +2956,7 @@ function toonDashboard(data) {
     }
 
     ververAandeelSelect();
+    ververEigenAandeelSelect();
     wisselView("portfolio");
 
     // Verdeling/Land/Sector/Bedrijven/ETF-overlap zitten sinds het gefaseerd-
@@ -3011,6 +3091,10 @@ document.getElementById("aandeelSelect").addEventListener("change", (e) => {
 
 document.getElementById("benchmarkSelect").addEventListener("change", (e) => {
     wisselBenchmark(e.target.value);
+});
+
+document.getElementById("eigenAandeelSelect").addEventListener("change", (e) => {
+    wisselEigenAandeel(e.target.value);
 });
 
 document.getElementById("resetZoomBtn").addEventListener("click", () => {

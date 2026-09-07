@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, BENCHMARK_TICKERS, bereken_rendement_over_tijd, _verwarm_land_sector_cache_parallel
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown, BENCHMARK_TICKERS, bereken_rendement_over_tijd, _verwarm_land_sector_cache_parallel, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd, get_laatste_prijs_update
 import hashlib
 import openpyxl
@@ -68,24 +68,26 @@ def upload():
 
 
 def _upload_impl():
+    reset_yahoo_call_teller()
     naam = request.form.get("naam", "").strip()
     bestand1 = request.files.get("bestand1")
 
     if not bestand1 or bestand1.filename == "":
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
 
-    bestand1.seek(0)
-    df = pd.read_excel(bestand1)
-    print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
+    with meet_tijd("excel_inlezen_pandas"):
+        bestand1.seek(0)
+        df = pd.read_excel(bestand1)
+        print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
 
-    df.columns = df.columns.str.strip()
-    df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+        df.columns = df.columns.str.strip()
+        df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
 
-    if KOSTEN_KOLOM in df.columns:
-        df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
-    else:
-        df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
-        print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
+        if KOSTEN_KOLOM in df.columns:
+            df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
+        else:
+            df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
+            print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
 
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     if niet_opslaan:
@@ -119,33 +121,32 @@ def _upload_impl():
         groepen = list(df.groupby(["ISIN", "Beurs"]))
         namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
 
-        t0 = time.time()
-        posities_voor_check = [
-            (naam_positie, isin, beurs_val, [
-                {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
-                for _, row in groep.iterrows()
-            ])
-            for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
-        ]
-        resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
+        with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(groepen)} positie(s))"):
+            posities_voor_check = [
+                (naam_positie, isin, beurs_val, [
+                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
+                    for _, row in groep.iterrows()
+                ])
+                for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
+            ]
+            resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
 
-        ticker_by_isin_beurs = {}
-        ticker_zekerheid = []
-        ticker_posities_ruw = []
-        for (naam_positie, isin, beurs_val, transacties_lijst), resultaat in zip(posities_voor_check, resultaten):
-            resultaat["isin"] = isin
-            resultaat["naam"] = naam_positie
-            resultaat["echte_naam"] = naam_positie
-            ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
-            ticker_zekerheid.append(resultaat)
-            ticker_posities_ruw.append({
-                "naam": naam_positie, "isin": isin, "beurs": beurs_val,
-                "transacties": transacties_lijst,
-            })
-            print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
-                  f"(zekerheid={resultaat['zekerheid']}, basis)")
-        print(f"[upload] {len(groepen)} positie(s) basis-ticker-resolutie (incl. snelle prijscheck, parallel) "
-              f"klaar in {time.time() - t0:.1f}s")
+            ticker_by_isin_beurs = {}
+            ticker_zekerheid = []
+            ticker_posities_ruw = []
+            for (naam_positie, isin, beurs_val, transacties_lijst), resultaat in zip(posities_voor_check, resultaten):
+                resultaat["isin"] = isin
+                resultaat["naam"] = naam_positie
+                resultaat["echte_naam"] = naam_positie
+                ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
+                ticker_zekerheid.append(resultaat)
+                ticker_posities_ruw.append({
+                    "naam": naam_positie, "isin": isin, "beurs": beurs_val,
+                    "transacties": transacties_lijst,
+                })
+                print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
+                      f"(zekerheid={resultaat['zekerheid']}, basis)")
+            print(f"[upload] {len(groepen)} positie(s) basis-ticker-resolutie (incl. snelle prijscheck, parallel)")
 
         transacties_df = pd.DataFrame({
             "datum": df["Datum"],
@@ -164,28 +165,30 @@ def _upload_impl():
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
+        log_yahoo_call_samenvatting()
         return jsonify(result)
 
     # Order ID-kolom kan door merged cells één kolom verschoven staan t.o.v. de header;
     # lees 'm daarom apart uit met openpyxl, die de waarden onder de merge vindt.
-    bestand1.seek(0)
-    wb = openpyxl.load_workbook(bestand1, data_only=True)
-    ws = wb.active
-    order_ids_ruw = []
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        gevonden = None
-        for cell in row:
-            if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
-                gevonden = cell.value
-                break
-        order_ids_ruw.append(gevonden)
+    with meet_tijd("excel_inlezen_orderid_openpyxl"):
+        bestand1.seek(0)
+        wb = openpyxl.load_workbook(bestand1, data_only=True)
+        ws = wb.active
+        order_ids_ruw = []
+        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+            gevonden = None
+            for cell in row:
+                if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
+                    gevonden = cell.value
+                    break
+            order_ids_ruw.append(gevonden)
 
-    if len(order_ids_ruw) == len(df):
-        df["Order ID"] = order_ids_ruw
-        print("[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
-    else:
-        print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)})")
-        df["Order ID"] = None
+        if len(order_ids_ruw) == len(df):
+            df["Order ID"] = order_ids_ruw
+            print("[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
+        else:
+            print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)})")
+            df["Order ID"] = None
 
     # rijen zonder echte (UUID-vormige) Order ID krijgen een synthetische, stabiele ID
     def basis_hash(row):
@@ -240,81 +243,83 @@ def _upload_impl():
         # bij elk bezoek hergebruikt. PARALLEL over de groepen — zie de
         # 'niet_opslaan'-tak hierboven voor de reden (koude-cache-
         # timeoutrisico bij veel unieke tickers).
-        t_tickers = time.time()
-        groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
-        transacties_per_groep = {
-            key: [
-                {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
-                for _, row in groep.iterrows()
+        with meet_tijd("ticker_resolutie"):
+            groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
+            transacties_per_groep = {
+                key: [
+                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
+                    for _, row in groep.iterrows()
+                ]
+                for key, groep in groepen
+            }
+            eerste_poging = [
+                (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
+                for key, groep in groepen
             ]
-            for key, groep in groepen
-        }
-        eerste_poging = [
-            (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
-            for key, groep in groepen
-        ]
-        resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging)
+            resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging)
 
-        ticker_by_isin_beurs = {}
-        for (key, groep), detail in zip(groepen, resultaten):
-            if not detail["ticker"]:
-                # Zeldzame fallback: de eerste Product-naam van de groep gaf
-                # geen match, probeer de overige rijen (zelfde gedrag als
-                # voorheen). Goedkoop: zonder ticker doet find_ticker_met_
-                # snelle_prijscheck() geen enkele prijscheck.
-                for _, row in groep.iterrows():
-                    detail = find_ticker_met_snelle_prijscheck(
-                        row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key]
+            ticker_by_isin_beurs = {}
+            for (key, groep), detail in zip(groepen, resultaten):
+                if not detail["ticker"]:
+                    # Zeldzame fallback: de eerste Product-naam van de groep gaf
+                    # geen match, probeer de overige rijen (zelfde gedrag als
+                    # voorheen). Goedkoop: zonder ticker doet find_ticker_met_
+                    # snelle_prijscheck() geen enkele prijscheck.
+                    for _, row in groep.iterrows():
+                        detail = find_ticker_met_snelle_prijscheck(
+                            row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key]
+                        )
+                        if detail["ticker"]:
+                            break
+                ticker_by_isin_beurs[key] = detail["ticker"]
+                isin, beurs_val = key
+                print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {detail['ticker']} "
+                      f"(zekerheid={detail['zekerheid']})")
+            print(f"[upload] ticker-resolutie (incl. snelle prijscheck, parallel) klaar")
+
+        with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
+            ingevoegd = 0
+            for _, row in rows_to_insert.iterrows():
+                try:
+                    kosten_waarde = row["_kosten_eur"]
+                    cur.execute(
+                        """INSERT INTO transacties
+                           (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, tijd)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                           ON CONFLICT (code, order_id) DO NOTHING""",
+                        (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+                         ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["Koers"]),
+                         float(row["Totaal EUR"]), row["Order ID"], row["Product"],
+                         float(kosten_waarde) if pd.notna(kosten_waarde) else None,
+                         _normaliseer_tijd(row["Tijd"])),
                     )
-                    if detail["ticker"]:
-                        break
-            ticker_by_isin_beurs[key] = detail["ticker"]
-            isin, beurs_val = key
-            print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {detail['ticker']} "
-                  f"(zekerheid={detail['zekerheid']})")
-        print(f"[upload] ticker-resolutie (incl. snelle prijscheck, parallel) klaar in {time.time() - t_tickers:.1f}s")
+                    ingevoegd += 1
+                except Exception as e:
+                    print(f"[upload] FOUT bij invoegen rij (Order ID {row['Order ID']}): {e}")
 
-        ingevoegd = 0
-        for _, row in rows_to_insert.iterrows():
-            try:
-                kosten_waarde = row["_kosten_eur"]
-                cur.execute(
-                    """INSERT INTO transacties
-                       (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, tijd)
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (code, order_id) DO NOTHING""",
-                    (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-                     ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["Koers"]),
-                     float(row["Totaal EUR"]), row["Order ID"], row["Product"],
-                     float(kosten_waarde) if pd.notna(kosten_waarde) else None,
-                     _normaliseer_tijd(row["Tijd"])),
-                )
-                ingevoegd += 1
-            except Exception as e:
-                print(f"[upload] FOUT bij invoegen rij (Order ID {row['Order ID']}): {e}")
-
-        print(f"[upload] {ingevoegd}/{len(rows_to_insert)} rijen succesvol verwerkt")
+            print(f"[upload] {ingevoegd}/{len(rows_to_insert)} rijen succesvol verwerkt")
 
     conn.commit()
     cur.close()
     conn.close()
 
     if not rows_bestaand.empty:
-        order_id_kosten = [
-            (row["Order ID"], float(row["_kosten_eur"]) if pd.notna(row["_kosten_eur"]) else None)
-            for _, row in rows_bestaand.iterrows()
-        ]
-        gebackfilld = backfill_transactiekosten(code, order_id_kosten)
-        if gebackfilld:
-            print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
+        with meet_tijd(f"db_backfill_kosten_en_tijd ({len(rows_bestaand)} rij(en))"):
+            order_id_kosten = [
+                (row["Order ID"], float(row["_kosten_eur"]) if pd.notna(row["_kosten_eur"]) else None)
+                for _, row in rows_bestaand.iterrows()
+            ]
+            gebackfilld = backfill_transactiekosten(code, order_id_kosten)
+            if gebackfilld:
+                print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
 
-        order_id_tijd = [
-            (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
-            for _, row in rows_bestaand.iterrows()
-        ]
-        tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
-        if tijd_gebackfilld:
-            print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
+            order_id_tijd = [
+                (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
+                for _, row in rows_bestaand.iterrows()
+            ]
+            tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
+            if tijd_gebackfilld:
+                print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
 
     if match_code:
         # Alleen zinvol bij een upload naar een BESTAANDE portfolio: een
@@ -323,18 +328,22 @@ def _upload_impl():
         # stond. Overschrijft alleen tickers die nu een prijsprobleem
         # hebben met een kandidaat die dat niet heeft (zie
         # analysis.backfill_verouderde_tickers).
-        tickers_gecorrigeerd = backfill_verouderde_tickers(code)
-        if tickers_gecorrigeerd:
-            print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
-                  f"gecorrigeerde ticker via backfill")
+        with meet_tijd("db_backfill_verouderde_tickers"):
+            tickers_gecorrigeerd = backfill_verouderde_tickers(code)
+            if tickers_gecorrigeerd:
+                print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
+                      f"gecorrigeerde ticker via backfill")
 
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
-        dividend_records = verwerk_rekeningoverzicht(bestand2)
-        save_dividenden(code, dividend_records)
-        print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
+        with meet_tijd("dividend_bestand_verwerken"):
+            dividend_records = verwerk_rekeningoverzicht(bestand2)
+            save_dividenden(code, dividend_records)
+            print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
 
-    return jsonify(build_portfolio_response(code))
+    response = jsonify(build_portfolio_response(code))
+    log_yahoo_call_samenvatting()
+    return response
 
 
 @app.route("/api/portfolio/<code>")
@@ -382,7 +391,14 @@ def portfolio_verrijking(code):
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
 
     try:
-        return jsonify(analyze_transacties_verrijking(transacties_df, code))
+        response = jsonify(analyze_transacties_verrijking(transacties_df, code))
+        # Geen reset_yahoo_call_teller() hier: /verrijking wordt door de
+        # frontend los van /upload aangeroepen, dus deze samenvatting toont
+        # het CUMULATIEVE aantal calls sinds de laatste reset in
+        # _upload_impl() (dus inclusief de kern-fase van /upload) -- zie
+        # opdracht performance-meting.
+        log_yahoo_call_samenvatting()
+        return response
     except Exception as e:
         print(f"[verrijking] ONVERWACHTE FOUT voor code={code}: {e}")
         return jsonify({
@@ -441,13 +457,15 @@ def benchmark_vergelijking(code):
     die niets met de eigen portfolio te maken heeft, wat de hoofdpagina
     onnodig zou vertragen voor een optie die de meeste bezoeken niet
     gebruiken. Query-param 'benchmark' is een sleutel uit BENCHMARK_TICKERS
-    (bv. "S%26P%20500" voor "S&P 500").
+    (bv. "S%26P%20500" voor "S&P 500"). Query-param 'eigen_ticker' is een
+    alternatief: een ticker die al in de eigen portfolio zit, voor de
+    "vergelijk ook met eigen aandeel"-optie — zelfde berekening
+    (bereken_benchmark_vergelijking is generiek genoeg), alleen een andere
+    koersbron.
     """
     code = code.strip().upper()
     benchmark_naam = request.args.get("benchmark", "")
-    benchmark_ticker = BENCHMARK_TICKERS.get(benchmark_naam)
-    if not benchmark_ticker:
-        return jsonify({"error": f"Onbekende benchmark '{benchmark_naam}'."}), 400
+    eigen_ticker = request.args.get("eigen_ticker", "")
 
     transacties_df, resultaat = _laad_transacties_en_resultaat(code)
     if transacties_df is None:
@@ -455,13 +473,25 @@ def benchmark_vergelijking(code):
     if resultaat is None:
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
-    benchmark_prices = get_prices([benchmark_ticker], transacties_df["datum"].min())
-    if benchmark_ticker not in benchmark_prices.columns:
-        return jsonify({"error": f"Geen koersdata gevonden voor benchmark '{benchmark_naam}'."}), 400
+    if eigen_ticker:
+        eigen_tickers_in_portfolio = transacties_df["ticker"].dropna().unique().tolist()
+        if eigen_ticker not in eigen_tickers_in_portfolio:
+            return jsonify({"error": f"Ticker '{eigen_ticker}' zit niet in deze portfolio."}), 400
+        vergelijk_ticker = eigen_ticker
+        vergelijk_label = eigen_ticker
+    else:
+        vergelijk_ticker = BENCHMARK_TICKERS.get(benchmark_naam)
+        if not vergelijk_ticker:
+            return jsonify({"error": f"Onbekende benchmark '{benchmark_naam}'."}), 400
+        vergelijk_label = benchmark_naam
 
-    vergelijking = bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_prices[benchmark_ticker])
+    vergelijk_prices = get_prices([vergelijk_ticker], transacties_df["datum"].min())
+    if vergelijk_ticker not in vergelijk_prices.columns:
+        return jsonify({"error": f"Geen koersdata gevonden voor '{vergelijk_label}'."}), 400
+
+    vergelijking = bereken_benchmark_vergelijking(transacties_df, resultaat, vergelijk_prices[vergelijk_ticker])
     if vergelijking is None:
-        return jsonify({"error": "Benchmarkvergelijking kon niet berekend worden."}), 400
+        return jsonify({"error": "Vergelijking kon niet berekend worden."}), 400
 
     return jsonify(vergelijking)
 
@@ -804,13 +834,13 @@ def analyze_transacties_kern(transacties_df, code, naam):
     opdracht_gefaseerd_laden.md). Die rest wordt lui opgehaald via
     analyze_transacties_verrijking() + de /verrijking-route.
     """
-    transacties_df = compute_split_adjusted_shares(transacties_df)
+    with meet_tijd("split_correctie_kern"):
+        transacties_df = compute_split_adjusted_shares(transacties_df)
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
-    t_prices = time.time()
-    price_data = get_prices(tickers, start_date)
-    print(f"[upload] koersen opgehaald voor {len(tickers)} ticker(s) in {time.time() - t_prices:.1f}s")
+    with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
+        price_data = get_prices(tickers, start_date)
 
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None}
@@ -844,7 +874,8 @@ def analyze_transacties_kern(transacties_df, code, naam):
     # Bij de 'niet opslaan'-analyse (zie de niet_opslaan-tak in /upload) is
     # code None -- er is dan nooit dividendhistorie (die zit in de database),
     # dus gewoon leeg laten i.p.v. crashen.
-    dividend_data = bereken_dividend_samenvatting(code) if code else None
+    with meet_tijd("dividend_samenvatting"):
+        dividend_data = bereken_dividend_samenvatting(code) if code else None
     dividend_per_ticker = (
         {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
         if dividend_data else {}
@@ -871,7 +902,7 @@ def analyze_transacties_kern(transacties_df, code, naam):
                 "ticker": t, "naam": ticker_namen.get(t, t), "echte_naam": echte_namen.get(t, t),
                 "nog_in_bezit": per_ticker[t]["nog_in_bezit"],
             }
-            for t in per_ticker.keys()
+            for t in _sorteer_tickers_voor_dropdown(per_ticker)
         ],
         "ticker_waarschuwingen": ticker_waarschuwingen,
         "laatste_koersdatum": laatste_koersdatum.strftime("%Y-%m-%d") if laatste_koersdatum else None,
@@ -891,11 +922,13 @@ def analyze_transacties_verrijking(transacties_df, code):
     compute_split_adjusted_shares/get_prices — dat is bij het gangbare
     gebruik (kern is al opgehaald) een warme cache-hit, geen nieuwe download.
     """
-    transacties_df = compute_split_adjusted_shares(transacties_df)
+    with meet_tijd("split_correctie_verrijking"):
+        transacties_df = compute_split_adjusted_shares(transacties_df)
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
-    price_data = get_prices(tickers, start_date)
+    with meet_tijd(f"koersen_ophalen_verrijking ({len(tickers)} ticker(s))"):
+        price_data = get_prices(tickers, start_date)
 
     if price_data.empty:
         return {"verdeling": [], "land_sector_verdeling": {}, "bedrijven_verdeling": {}, "etf_overlap": {}}
@@ -910,12 +943,19 @@ def analyze_transacties_verrijking(transacties_df, code):
     huidige_holdings = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
 
-    is_etf_map = classify_tickers(list(huidige_holdings.index))
-    _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map)
+    with meet_tijd("verrijking_totaal"):
+        with meet_tijd("verrijking_classificatie_en_cache_warm"):
+            is_etf_map = classify_tickers(list(huidige_holdings.index))
+            _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map)
 
-    land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data, is_etf_map)
-    bedrijven_verdeling = bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map)
-    etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)
+        with meet_tijd("verrijking_land_sector"):
+            land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data, is_etf_map)
+
+        with meet_tijd("verrijking_bedrijven"):
+            bedrijven_verdeling = bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map)
+
+        with meet_tijd("verrijking_etf_overlap"):
+            etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)
 
     verdeling = []
     for ticker, aantal in huidige_holdings.items():
@@ -930,6 +970,8 @@ def analyze_transacties_verrijking(transacties_df, code):
             "waarde": round(waarde, 2),
             "is_etf": is_etf_map.get(ticker, False),
         })
+
+    verdeling = _sorteer_verdeling_groot_naar_klein(verdeling)
 
     return {
         "verdeling": verdeling,
