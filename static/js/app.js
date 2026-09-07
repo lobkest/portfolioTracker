@@ -3174,9 +3174,13 @@ document.getElementById("codeForm").addEventListener("submit", async (e) => {
     const code = document.getElementById("codeInput").value.trim().toUpperCase();
     if (!code) return;
     document.getElementById("errorMsg").textContent = "";
+    const herbepaalAlleTickers = document.getElementById("herbepaalAlleTickersCode").checked;
+    const url = herbepaalAlleTickers
+        ? `/api/portfolio/${code}?herbepaal_alle_tickers=true`
+        : `/api/portfolio/${code}`;
     toonLaadOverlay("Ophalen...");
     try {
-        const res = await fetch(`/api/portfolio/${code}`);
+        const res = await fetch(url);
         const data = await res.json();
         if (!res.ok) {
             document.getElementById("errorMsg").textContent = data.error || "Code niet gevonden.";

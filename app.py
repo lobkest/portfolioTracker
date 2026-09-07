@@ -399,6 +399,16 @@ def _upload_impl():
 @app.route("/api/portfolio/<code>")
 def api_portfolio(code):
     code = code.strip().upper()
+    # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje bij het
+    # ophalen via code (zie templates/index.html) -- zelfde forceer-vlag/
+    # functie als bij de upload-flow (zie CLAUDE.md/opdracht "vinkje ticker-
+    # informatie opnieuw bepalen"). Standaard (parameter afwezig/leeg/iets
+    # anders dan "true") blijft het ophalen ONGEWIJZIGD: backfill_
+    # verouderde_tickers() werd hier vóór deze wijziging nooit aangeroepen,
+    # alleen bij /upload -- dat blijft zo zonder het vinkje.
+    if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
+        with meet_tijd("db_backfill_verouderde_tickers_ophalen"):
+            backfill_verouderde_tickers(code, forceer=True)
     result = build_portfolio_response(code)
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
