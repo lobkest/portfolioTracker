@@ -39,6 +39,9 @@
 
             <label class="checkboxLabel"><input type="checkbox" id="nietOpslaan" name="niet_opslaan"> Niet opslaan (eenmalige analyse, er wordt niets bewaard)</label>
 
+            <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickers" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
+            <p class="hint">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan de upload een stuk langzamer maken.</p>
+
             <button type="submit">Uploaden</button>
         </form>
 
@@ -91,7 +94,7 @@
 
             <select id="aandeelSelect" style="display: none; margin-bottom: 15px;"></select>
             <label id="benchmarkSelectWrapper" style="display: none; margin-bottom: 15px;">
-                Vergelijk met:
+                Vergelijk met benchmark:
                 <select id="benchmarkSelect">
                     <option value="">Geen</option>
                     <option value="S&P 500">S&P 500</option>
@@ -101,7 +104,7 @@
             </label>
             <p id="benchmarkMelding" style="display: none; font-size: 0.85em; color: #888;"></p>
             <label id="eigenAandeelSelectWrapper" style="display: none; margin-bottom: 15px;">
-                Vergelijk ook met:
+                Vergelijk met eigen aandeel al in portefeuille:
                 <select id="eigenAandeelSelect">
                     <option value="">Geen</option>
                 </select>

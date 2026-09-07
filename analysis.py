@@ -1607,10 +1607,21 @@ def compute_per_ticker(transacties_df, price_data):
                 # gedeeltelijke verkoop evenredig mee met het aantal
                 # resterende stukken i.p.v. met de volledige cashflow.
                 delta_aantal = float(row["aantal"])
+                # totaal_eur incl. AutoFX/transactiekosten; alleen gebruikt
+                # voor de cashflow-check (corporate-action-rijen hebben
+                # totaal_eur=0) en de verkoopkant, die bewust ongewijzigd
+                # blijft — zie CLAUDE.md, "GAK gebruikt verkeerde kolom".
                 delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
                 if delta_aantal > 0:
+                    # Kostenbasis o.b.v. de kale Waarde EUR (aantal x koers,
+                    # zonder kosten), niet totaal_eur — DEGIRO's eigen GAK
+                    # gebruikt ook de kale waarde. Valt terug op totaal_eur
+                    # als waarde_eur (nog) niet gevuld is (oudere, nog niet
+                    # gebackfillde rijen of een Excel-export zonder de kolom).
+                    waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
+                    delta_cash_aankoop = -float(waarde_bron)
                     aantal_lopend += delta_aantal
-                    kostprijs_lopend += delta_cash
+                    kostprijs_lopend += delta_cash_aankoop
                 elif delta_aantal < 0:
                     if delta_cash != 0 and aantal_lopend > 0:
                         gak_op_dat_moment = kostprijs_lopend / aantal_lopend
@@ -3158,7 +3169,7 @@ def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwi
     return resultaat
 
 
-def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_isin):
+def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_isin, bekende_ticker=None):
     """
     Lichte, STANDAARD prijscontrole — draait bij ELKE upload (opslaand én
     'niet opslaan'), in tegenstelling tot verifieer_ticker_met_prijs()
@@ -3168,6 +3179,20 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     kosten per unieke (ISIN, Beurs) — vergelijkbaar met de kosten die er al
     waren vóór de 'niet opslaan'-timeoutfix (CLAUDE.md, Statistieken-
     incident 2026-08-31).
+
+    'bekende_ticker' (optioneel): als gegeven, wordt find_ticker_detailed()
+    -- en dus de onvoorwaardelijke, nooit-gecachete yahooquery-zoekopdracht
+    -- overgeslagen; de rest van deze functie (prijscontrole + escalatie)
+    draait gewoon door op deze ticker. Voor het "ticker-informatie opnieuw
+    bepalen"-vinkje op het uploadscherm (zie app.py/_upload_impl): staat
+    het vinkje UIT, dan geeft de aanroeper hier de al bekende ticker van
+    een eerdere upload door voor posities die niet écht nieuw zijn. De
+    escalatie in stap 3 hieronder heeft dan geen alternatieven om op terug
+    te vallen (die kwamen normaal uit de overgeslagen zoekopdracht) -- geen
+    probleem: bij een échte ticker-fout signaleert de prijscontrole hier
+    het probleem gewoon (net als altijd), en pikt backfill_verouderde_
+    tickers() dat direct na deze upload alsnog op met een VOLLEDIGE
+    (wél bevraagde) hernieuwde zoekopdracht.
 
     Voegt op ELK return-pad ook een OpenFIGI-root-check toe (zie
     _voeg_openfigi_check_toe()) — een extra, ISIN-gebaseerd validatiesignaal
@@ -3213,7 +3238,10 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     bestaande gedrag: hooguit een 'aanbevolen_alternatief' als suggestie,
     niets wordt automatisch overgenomen.
     """
-    basis = find_ticker_detailed(product, isin, beurs)
+    if bekende_ticker:
+        basis = {"ticker": bekende_ticker, "zekerheid": "zeker", "alternatieven": []}
+    else:
+        basis = find_ticker_detailed(product, isin, beurs)
     ticker = basis["ticker"]
 
     # Corporate-action-/splitrijen (koers 0 of leeg) horen niet in de
@@ -3359,7 +3387,7 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     return probleem
 
 
-def backfill_verouderde_tickers(code):
+def backfill_verouderde_tickers(code, forceer=False):
     """
     Herbeoordeelt voor elke AL OPGESLAGEN (ISIN, Beurs)-groep van 'code' de
     ticker met find_ticker_met_snelle_prijscheck() — een verbeterde ticker-
@@ -3368,9 +3396,17 @@ def backfill_verouderde_tickers(code):
     corrigeert anders alleen NIEUWE rijen: de hoofdpagina gebruikt de al
     opgeslagen transacties.ticker-waarde, geen verse herberekening.
 
-    Overschrijft de opgeslagen ticker ALLEEN als:
-      - de OUDE ticker een prijsprobleem heeft (_ticker_heeft_prijsprobleem), ÉN
-      - de NIEUWE kandidaat dat probleem NIET heeft.
+    Standaard (forceer=False) wordt een groep alleen daadwerkelijk herzocht
+    als de OUDE ticker een prijsprobleem heeft (_ticker_heeft_prijsprobleem)
+    -- dit is het automatische self-healing-vangnet en blijft ongewijzigd.
+    forceer=True (het "ticker-informatie opnieuw bepalen"-vinkje op het
+    uploadscherm, zie app.py) slaat die check over en herzoekt ALTIJD elke
+    groep, ook zonder gedetecteerd prijsprobleem -- voor de gevallen waarin
+    de gebruiker zelf al weet dat er iets mis is en niet op de automatische
+    detectie wil wachten.
+
+    Overschrijft de opgeslagen ticker in BEIDE gevallen alleen als:
+      - de NIEUWE kandidaat GEEN prijsprobleem heeft (_ticker_heeft_prijsprobleem).
     Nooit een werkende ticker vervangen door een onzekerdere; bij twijfel
     (de nieuwe kandidaat heeft zelf ook een prijsprobleem) wordt NIET
     overschreven, maar wel gelogd zodat het zichtbaar blijft. Bedoeld om
@@ -3398,7 +3434,7 @@ def backfill_verouderde_tickers(code):
     for (isin, beurs), info in groepen.items():
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
-        if not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
+        if not forceer and not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
             print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): '{oude_ticker}' heeft geen "
                   f"prijsprobleem -- niets te backfillen")
             continue  # oude ticker werkt prima, niets te backfillen
@@ -3514,7 +3550,7 @@ def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
     return waarschuwingen
 
 
-def vind_tickers_met_snelle_prijscheck_parallel(posities, max_workers=8):
+def vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=None, max_workers=8):
     """
     Voert find_ticker_met_snelle_prijscheck() voor meerdere posities
     tegelijk uit (ThreadPoolExecutor), zelfde patroon als
@@ -3525,13 +3561,22 @@ def vind_tickers_met_snelle_prijscheck_parallel(posities, max_workers=8):
     kosten geen extra risico op rate-limiting per positie.
 
     posities: lijst van (product, isin, beurs, transacties_van_dit_isin).
+    bekende_tickers (optioneel): {(isin, beurs): ticker}-dict van al eerder
+    opgeloste posities uit een vorige upload -- per positie doorgegeven als
+    'bekende_ticker' aan find_ticker_met_snelle_prijscheck() (zie daar),
+    die dan de zoekopdracht overslaat. Leeg/None (standaard) betekent: geen
+    enkele positie overslaan, ongewijzigd bestaand gedrag.
     Geeft een lijst van resultaat-dicts terug, in dezelfde volgorde als
     'posities' (dus niet per se de volgorde waarin ze klaar zijn).
     """
+    bekende_tickers = bekende_tickers or {}
     resultaten = [None] * len(posities)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_naar_index = {
-            executor.submit(find_ticker_met_snelle_prijscheck, product, isin, beurs, transacties): i
+            executor.submit(
+                find_ticker_met_snelle_prijscheck, product, isin, beurs, transacties,
+                bekende_tickers.get((isin, beurs)),
+            ): i
             for i, (product, isin, beurs, transacties) in enumerate(posities)
         }
         for future in as_completed(future_naar_index):
@@ -4036,13 +4081,21 @@ def bereken_holdings_en_gesloten(transacties_df):
 
         for _, row in groep.iterrows():
             delta_aantal = float(row["aantal"])
+            # totaal_eur incl. AutoFX/transactiekosten; alleen gebruikt voor
+            # de cashflow-check (corporate-action-rijen hebben totaal_eur=0)
+            # en de verkoopkant, die bewust ongewijzigd blijft — zie
+            # CLAUDE.md, "GAK gebruikt verkeerde kolom".
             delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
             if delta_aantal > 0:
+                # Kostenbasis o.b.v. de kale Waarde EUR, niet totaal_eur —
+                # zie compute_per_ticker() hierboven voor dezelfde fix/reden.
+                waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
+                delta_cash_aankoop = -float(waarde_bron)
                 aantal_lopend += delta_aantal
-                kostprijs_lopend += delta_cash
+                kostprijs_lopend += delta_cash_aankoop
                 if delta_cash != 0:
                     totaal_gekocht_aantal += delta_aantal
-                    totaal_gekocht_bedrag += delta_cash
+                    totaal_gekocht_bedrag += delta_cash_aankoop
             elif delta_aantal < 0:
                 if delta_cash != 0 and aantal_lopend > 0:
                     gak_op_dat_moment = kostprijs_lopend / aantal_lopend

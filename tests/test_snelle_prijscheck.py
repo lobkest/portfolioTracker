@@ -28,6 +28,7 @@ import analysis
 from analysis import (
     find_ticker_met_snelle_prijscheck, prijswaarschuwing_voor_ticker,
     ticker_waarschuwingen_voor_transacties, basis_ticker_zekerheid_parallel,
+    vind_tickers_met_snelle_prijscheck_parallel,
 )
 
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
@@ -307,6 +308,104 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
         with patch.object(analysis, "prijswaarschuwing_voor_ticker", return_value=None):
             waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, {})
         self.assertEqual(waarschuwingen, [])
+
+
+class TestBekendeTickerSlaatZoekopdrachtOver(unittest.TestCase):
+    """Vinkje "ticker-informatie opnieuw bepalen" op het uploadscherm (zie
+    app.py/_upload_impl, CLAUDE.md): geeft de aanroeper een al bekende
+    ticker mee (vinkje UIT + positie al eerder opgelost), dan slaat
+    find_ticker_met_snelle_prijscheck() de dure, onvoorwaardelijke
+    yahooquery-zoekopdracht in find_ticker_detailed() over. Zonder
+    bekende_ticker (nieuwe positie, of vinkje AAN) blijft het bestaande
+    gedrag ongewijzigd."""
+
+    def test_bekende_ticker_slaat_find_ticker_detailed_over(self):
+        transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
+
+        with _basis_patch(ticker="MOET-NIET-GEBRUIKT-WORDEN") as mock_ftd, \
+             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
+            resultaat = find_ticker_met_snelle_prijscheck(
+                "APPLE INC", "US0378331005", "NASDAQ", transacties, bekende_ticker="AAPL",
+            )
+
+        mock_ftd.assert_not_called()
+        self.assertEqual(resultaat["ticker"], "AAPL")
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertEqual(resultaat["alternatieven"], [])
+
+    def test_geen_bekende_ticker_roept_find_ticker_detailed_gewoon_aan(self):
+        # Vinkje UIT + volledig nieuwe (ISIN, Beurs)-combinatie (geen
+        # bekende_ticker om door te geven) -- moet gewoon, ongewijzigd,
+        # via find_ticker_detailed() opgelost worden.
+        transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
+
+        with _basis_patch(ticker="AAPL") as mock_ftd, \
+             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
+            resultaat = find_ticker_met_snelle_prijscheck(
+                "APPLE INC", "US0378331005", "NASDAQ", transacties,
+            )
+
+        mock_ftd.assert_called_once_with("APPLE INC", "US0378331005", "NASDAQ")
+        self.assertEqual(resultaat["ticker"], "AAPL")
+
+    def test_bekende_ticker_met_prijsprobleem_escaleert_alsnog(self):
+        # Het overslaan van de zoekopdracht mag een écht prijsprobleem niet
+        # verbergen -- de prijscontrole/escalatie hieronder blijft gewoon
+        # draaien op de bekende ticker (alleen zonder alternatieven, die
+        # kwamen normaal uit de overgeslagen zoekopdracht; backfill_
+        # verouderde_tickers() pakt dit direct na de upload alsnog volledig op).
+        transacties = [
+            {"datum": date(2023, 1, 10), "koers": 100.0},
+            {"datum": date(2023, 6, 10), "koers": 100.0},
+        ]
+
+        with _basis_patch() as mock_ftd, \
+             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=15.0, match=False)):
+            resultaat = find_ticker_met_snelle_prijscheck(
+                "APPLE INC", "US0378331005", "NASDAQ", transacties, bekende_ticker="FOUT.TICKER",
+            )
+
+        mock_ftd.assert_not_called()
+        self.assertEqual(resultaat["ticker"], "FOUT.TICKER")
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertIsNotNone(resultaat["prijswaarschuwing"])
+        self.assertNotIn("aanbevolen_alternatief", resultaat)  # geen alternatieven om te doorzoeken
+
+
+class TestVindTickersMetSnelleParallelBekendeTickers(unittest.TestCase):
+    """bekende_tickers-dict van vind_tickers_met_snelle_prijscheck_parallel()
+    (zie app.py: gevuld uit de transacties-tabel als het "opnieuw bepalen"-
+    vinkje uit staat) -- geeft per positie de juiste bekende ticker door,
+    of None voor een positie die er niet in staat."""
+
+    def test_bekende_ticker_per_positie_wordt_doorgegeven(self):
+        posities = [
+            ("FONDS A", "ISINA", "EAM", []),
+            ("FONDS B", "ISINB", "EAM", []),
+        ]
+        bekende_tickers = {("ISINA", "EAM"): "TICK-A"}
+        ontvangen_bekende = {}
+
+        def fake_find(product, isin, beurs, transacties, bekende_ticker=None):
+            ontvangen_bekende[isin] = bekende_ticker
+            return {"ticker": bekende_ticker or f"NIEUW-{isin}", "zekerheid": "zeker",
+                    "alternatieven": [], "prijs_checks": [], "prijswaarschuwing": None}
+
+        with patch.object(analysis, "find_ticker_met_snelle_prijscheck", side_effect=fake_find):
+            resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
+
+        self.assertEqual(ontvangen_bekende["ISINA"], "TICK-A")
+        self.assertIsNone(ontvangen_bekende["ISINB"])
+        self.assertEqual(resultaten[0]["ticker"], "TICK-A")
+        self.assertEqual(resultaten[1]["ticker"], "NIEUW-ISINB")
+
+    def test_geen_bekende_tickers_ongewijzigd_gedrag(self):
+        posities = [("FONDS A", "ISINA", "EAM", [])]
+
+        with patch.object(analysis, "find_ticker_met_snelle_prijscheck", return_value={"ticker": "X"}) as mock_find:
+            vind_tickers_met_snelle_prijscheck_parallel(posities)  # geen bekende_tickers -> vinkje AAN-gedrag
+
+        mock_find.assert_called_once_with("FONDS A", "ISINA", "EAM", [], None)
 
 
 class TestBasisTickerZekerheidParallel(unittest.TestCase):
