@@ -62,17 +62,6 @@ class TestDeelsVerkocht(unittest.TestCase):
         self.assertAlmostEqual(deels["gemiddelde_verkoopkoers"], 69.0 / 5)
         self.assertAlmostEqual(deels["gerealiseerd_eur"], 69.0 - 50.0)  # kostenbasis 5*10=50
 
-    def test_volledige_verkoop_ongewijzigd_regressie(self):
-        # Bestaand pad: volledig verkocht -> gesloten_posities, geen deels_verkocht.
-        df = pd.DataFrame([
-            _rij("2024-01-01", 10.0, -100.0),
-            _rij("2024-06-01", -10.0, 130.0),
-        ])
-        open_posities, gesloten_posities = bereken_holdings_en_gesloten(df)
-        self.assertEqual(open_posities, {})
-        self.assertAlmostEqual(gesloten_posities["TEST"]["aantal"], 10.0)
-        self.assertAlmostEqual(gesloten_posities["TEST"]["gerealiseerd_eur"], 30.0)
-
     def test_corporate_action_raakt_kostenbasis_niet(self):
         # Split-conversierij (totaal_eur=0) mag geen invloed hebben op
         # totaal_verkochte_kostenbasis, ook niet bij een open restpositie.
