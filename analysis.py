@@ -12,7 +12,7 @@ import yfinance as yf
 from pyxirr import xirr
 from yahooquery import search
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from db import (get_db_connection, save_prices, get_cached_classifications, save_classification,
+from db import (get_db_connection, save_prices, upsert_prices, get_cached_classifications, save_classification,
                  get_cached_land_sector, save_land_sector, get_cached_etf_sector_verdeling,
                  save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
                  get_ticker_details, get_cached_prijscheck, save_prijscheck, get_dividenden,
@@ -110,6 +110,14 @@ FX_PAAR_PER_VALUTA = {"USD": "USDEUR=X", "GBP": "GBPEUR=X", "GBp": "GBPEUR=X"}
 # 2005-01-01 zit ruim ná die echte Yahoo-startdatums, en ruim VÓÓR elke
 # denkbare DeGiro-transactiedatum (DeGiro bestaat pas sinds 2008).
 FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
+
+# get_prices() ververst de cache-rij van "vandaag" voortaan bij ELKE
+# aanroep (i.p.v. pas als de cache >4 dagen achterloopt, zie CLAUDE.md,
+# "koersen bij élke portfolio-opening verversen") — deze drempel voorkomt
+# dat de meerdere endpoints van ÉÉN portfolio-opening (home, verrijking,
+# ticker-zekerheid) Yahoo binnen dezelfde paar seconden meermaals voor
+# dezelfde ticker bevragen.
+DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
 
 # Drempel voor de standaard, LICHTE prijscontrole (find_ticker_met_snelle_
 # prijscheck, i.t.t. de volledige verifieer_ticker_met_prijs hierboven):
@@ -1329,6 +1337,17 @@ def get_prices(tickers, start_date):
     )
     datums_cache = {row[0]: (pd.Timestamp(row[1]), pd.Timestamp(row[2])) for row in cur.fetchall()}
 
+    # Wanneer is de rij van "vandaag" (indien aanwezig) voor het laatst
+    # ververst — t.b.v. de hergebruik-drempel hieronder, die voorkomt dat
+    # meerdere endpoints van één portfolio-opening (home, verrijking,
+    # ticker-zekerheid) Yahoo binnen dezelfde paar seconden meermaals voor
+    # dezelfde ticker bevragen.
+    cur.execute(
+        "SELECT ticker, bijgewerkt_op FROM prijzen WHERE ticker = ANY(%s) AND datum = %s",
+        (tickers, vandaag.date()),
+    )
+    laatst_ververst_vandaag = {row[0]: row[1] for row in cur.fetchall()}
+
     cur.execute(
         "SELECT ticker, datum, koers_eur FROM prijzen WHERE ticker = ANY(%s) AND datum >= %s",
         (tickers, start_date.date()),
@@ -1354,10 +1373,23 @@ def get_prices(tickers, start_date):
                   f"download waarschijnlijk mislukt/afgebroken), wordt opnieuw volledig "
                   f"gedownload")
             continue
-        # marge van een paar dagen voor weekenden/feestdagen rond vandaag
-        if laatste < vandaag - pd.Timedelta(days=4):
-            stale[t] = laatste + pd.Timedelta(days=1)
-            print(f"[koersen] ⚠️ '{t}' cache loopt tot {laatste.date()}, ververst tot vandaag")
+        # Was: alleen verversen als de cache >4 dagen achterloopt. Nu: bij
+        # ELKE portfolio-opening verversen (zie CLAUDE.md, "koersen bij
+        # élke portfolio-opening verversen") — een rij voor "vandaag" die
+        # tijdens handelstijd is opgehaald (tussentijdse, niet-definitieve
+        # koers) bleef anders de rest van de dag ongewijzigd staan, ook na
+        # sluiting. DREMPEL_HERGEBRUIK_KOERS voorkomt dat de meerdere
+        # endpoints van ÉÉN opening (home, verrijking, ticker-zekerheid)
+        # Yahoo binnen dezelfde paar seconden meermaals bevragen.
+        laatste_fetch_vandaag = laatst_ververst_vandaag.get(t)
+        net_ververst = (
+            laatste_fetch_vandaag is not None
+            and pd.Timestamp.now() - pd.Timestamp(laatste_fetch_vandaag) < DREMPEL_HERGEBRUIK_KOERS
+        )
+        if not net_ververst:
+            stale[t] = laatste
+            dprint(f"[koersen] '{t}' wordt ververst vanaf {laatste.date()} "
+                   f"(bij elke opening, tenzij <2 min geleden al ververst)")
 
     cache_hits = len(tickers) - len(missing) - len(stale)
     print(f"[koersen] cache-samenvatting: {cache_hits} ticker(s) volledig uit cache, "
@@ -1419,7 +1451,7 @@ def get_prices(tickers, start_date):
                     stale_rows.append((t, datum.date(), float(koers)))
 
             if stale_rows:
-                save_prices(stale_rows)
+                upsert_prices(stale_rows)
                 stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
                 cached = pd.concat([cached, stale_df], ignore_index=True)
                 cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")

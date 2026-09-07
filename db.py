@@ -698,6 +698,33 @@ def save_prices(rows):
     conn.close()
 
 
+def upsert_prices(rows):
+    """rows: lijst van (ticker, datum, koers_eur) tuples. In tegenstelling
+    tot save_prices() (ON CONFLICT DO NOTHING — voor historische koersen,
+    die nooit meer veranderen) overschrijft dit een bestaande rij WEL,
+    inclusief bijgewerkt_op. Nodig om 'vandaag' bij elke portfolio-opening
+    te kunnen verversen: zonder DO UPDATE zou een eerder op dezelfde dag
+    gecachete (mogelijk tussentijdse, niet-definitieve) koers nooit
+    plaatsmaken voor een nieuwere/slotkoers. Gebruik dit UITSLUITEND voor
+    de verse-koers-refresh in get_prices() (analysis.py) — save_prices()
+    blijft de standaard voor de eerste/volledige historische download."""
+    if not rows:
+        return
+    conn = get_db_connection()
+    cur = conn.cursor()
+    execute_values(
+        cur,
+        "INSERT INTO prijzen (ticker, datum, koers_eur, bijgewerkt_op) VALUES %s "
+        "ON CONFLICT (ticker, datum) DO UPDATE SET "
+        "koers_eur = EXCLUDED.koers_eur, bijgewerkt_op = EXCLUDED.bijgewerkt_op",
+        rows,
+        template="(%s, %s, %s, NOW())",
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def get_laatste_prijs_update(tickers):
     """
     Geeft (laatste_koersdatum, laatst_opgehaald_op) terug voor de gegeven
