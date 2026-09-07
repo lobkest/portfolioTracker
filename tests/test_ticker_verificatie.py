@@ -290,19 +290,23 @@ class TestValutaConversie(unittest.TestCase):
     puur de ontbrekende EUR/USD-omrekening was."""
 
     def _mock_omgeving(self, yahoo_koers, valuta, fx_koers, fx_faalt=False):
+        # FX-koers wordt sinds de FX-caching-fix (zie CLAUDE.md, performance-
+        # meting upload/analyse-flow) niet meer via _haal_slotkoers_op
+        # opgehaald maar via _fx_koers_op_datum (op zijn beurt gecached via
+        # _fx_prijzen_serie/get_prices) -- dus die wordt nu los gemockt,
+        # i.p.v. _haal_slotkoers_op op de FX-ticker-naam te laten dispatchen.
+        # _haal_slotkoers_op zelf blijft alleen nog voor de PRIMAIRE ticker.
         stack = ExitStack()
         stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
         stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": valuta}))
         stack.enter_context(patch.object(analysis, "save_prijscheck"))
         stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))
         stack.enter_context(patch.object(analysis, "_haal_dagrange_op", return_value=(None, None)))
-
-        def fake_slotkoers(ticker, datum, *a, **kw):
-            if ticker in ("USDEUR=X", "GBPEUR=X"):
-                return None if fx_faalt else fx_koers
-            return yahoo_koers
-
-        stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", side_effect=fake_slotkoers))
+        stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", return_value=yahoo_koers))
+        stack.enter_context(patch.object(
+            analysis, "_fx_koers_op_datum",
+            return_value=(None if fx_faalt else fx_koers),
+        ))
         return stack
 
     def test_usd_ticker_wordt_naar_eur_omgerekend_voor_vergelijking(self):
