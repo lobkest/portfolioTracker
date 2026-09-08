@@ -20,7 +20,10 @@ Draait geheel offline (test 1 en 2): analysis.find_ticker_detailed en
 analysis.vergelijk_prijs_op_datum worden gemockt, dus geen echte
 yahooquery/yfinance-calls. Test 3 raakt wél de echte database aan (net als
 tests/test_dividend_db.py) om de ticker_prijscheck-cache zelf te testen,
-maar mockt de Yahoo-call (_haal_slotkoers_op) — geen netwerkverkeer.
+maar mockt de Yahoo-call (_haal_koers_en_dagrange_op, sinds kort de
+gecombineerde slotkoers+dagrange-download i.p.v. losse
+_haal_slotkoers_op/_haal_dagrange_op-aanroepen, zie CLAUDE.md/opdracht_
+slotkoers_dagrange_samenvoegen.md) — geen netwerkverkeer.
 """
 import os
 import sys
@@ -161,7 +164,8 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
 )
 class TestPrijscheckCache(unittest.TestCase):
     """Spoor 2: een (ticker, datum)-combinatie die al in ticker_prijscheck
-    staat mag geen nieuwe Yahoo-aanroep (_haal_slotkoers_op) veroorzaken."""
+    staat mag geen nieuwe Yahoo-aanroep (_haal_koers_en_dagrange_op)
+    veroorzaken."""
 
     TEST_TICKER = "TESTPRIJSCHECK.TST"
     TEST_DATUM = date(2023, 3, 15)
@@ -189,24 +193,15 @@ class TestPrijscheckCache(unittest.TestCase):
 
         call_count = {"n": 0}
 
-        def fake_haal_slotkoers_op(ticker, datum, **kwargs):
+        def fake_haal_koers_en_dagrange_op(ticker, datum, **kwargs):
             call_count["n"] += 1
-            return 123.45
+            return (123.45, 130.0, 120.0)
 
-        dagrange_call_count = {"n": 0}
-
-        def fake_haal_dagrange_op(ticker, datum, **kwargs):
-            dagrange_call_count["n"] += 1
-            return (130.0, 120.0)
-
-        with patch.object(analysis, "_haal_slotkoers_op", side_effect=fake_haal_slotkoers_op), \
-             patch.object(analysis, "_haal_dagrange_op", side_effect=fake_haal_dagrange_op), \
+        with patch.object(analysis, "_haal_koers_en_dagrange_op", side_effect=fake_haal_koers_en_dagrange_op), \
              patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}), \
              patch.object(analysis, "_haal_splits_op", return_value={}):
             eerste = vergelijk_prijs_op_datum(self.TEST_TICKER, self.TEST_DATUM, 123.45)
             tweede = vergelijk_prijs_op_datum(self.TEST_TICKER, self.TEST_DATUM, 123.45)
-
-        self.assertEqual(dagrange_call_count["n"], 1)
 
         self.assertEqual(call_count["n"], 1)
         self.assertEqual(eerste["yahoo_koers"], 123.45)
@@ -222,8 +217,7 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
     """
     stack = ExitStack()
     stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
-    stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", return_value=yahoo_koers))
-    stack.enter_context(patch.object(analysis, "_haal_dagrange_op", return_value=(None, None)))
+    stack.enter_context(patch.object(analysis, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
     stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
     stack.enter_context(patch.object(analysis, "save_prijscheck"))
     stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value=splits or {}))
@@ -294,15 +288,15 @@ class TestValutaConversie(unittest.TestCase):
         # meting upload/analyse-flow) niet meer via _haal_slotkoers_op
         # opgehaald maar via _fx_koers_op_datum (op zijn beurt gecached via
         # _fx_prijzen_serie/get_prices) -- dus die wordt nu los gemockt,
-        # i.p.v. _haal_slotkoers_op op de FX-ticker-naam te laten dispatchen.
-        # _haal_slotkoers_op zelf blijft alleen nog voor de PRIMAIRE ticker.
+        # i.p.v. de gecombineerde slotkoers+dagrange-fetch op de FX-ticker-
+        # naam te laten dispatchen. _haal_koers_en_dagrange_op zelf blijft
+        # alleen nog voor de PRIMAIRE ticker.
         stack = ExitStack()
         stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
         stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": valuta}))
         stack.enter_context(patch.object(analysis, "save_prijscheck"))
         stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))
-        stack.enter_context(patch.object(analysis, "_haal_dagrange_op", return_value=(None, None)))
-        stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", return_value=yahoo_koers))
+        stack.enter_context(patch.object(analysis, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
         stack.enter_context(patch.object(
             analysis, "_fx_koers_op_datum",
             return_value=(None if fx_faalt else fx_koers),

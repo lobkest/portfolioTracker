@@ -4,11 +4,17 @@ Unit tests voor de High/Low-dagrange op de Ticker-zekerheid-pagina
 samenvattende waarschuwingsmeldingen die er voortaan op leunen i.p.v. op de
 %-afwijkingsdrempel -- zie CLAUDE.md/opdracht_high_low_dagrange.md).
 
-Draait geheel offline: get_cached_prijscheck/_haal_slotkoers_op/
-_haal_dagrange_op/save_prijscheck worden gemockt (net als
-tests/test_ticker_verificatie.py), behalve TestBackfillHighLowDoUpdate, die
-bewust de echte database raakt (net als TestPrijscheckCache aldaar) om het
-bekende ON CONFLICT DO NOTHING-patroon te regressietesten.
+Draait geheel offline: get_cached_prijscheck/_haal_koers_en_dagrange_op/
+save_prijscheck worden gemockt (net als tests/test_ticker_verificatie.py),
+behalve TestBackfillHighLowDoUpdate, die bewust de echte database raakt
+(net als TestPrijscheckCache aldaar) om het bekende ON CONFLICT DO NOTHING-
+patroon te regressietesten.
+
+_haal_koers_en_dagrange_op() combineert sinds kort _haal_slotkoers_op() en
+_haal_dagrange_op() tot één yf.download()-call voor het pad hieronder waar
+altijd beide nodig zijn (zie CLAUDE.md/opdracht_slotkoers_dagrange_
+samenvoegen.md) -- deze tests mocken daarom die gecombineerde functie
+i.p.v. de twee losse.
 """
 import os
 import sys
@@ -45,8 +51,7 @@ def tearDownModule():
 def _mock_yahoo_omgeving(yahoo_koers, high, low):
     stack = ExitStack()
     stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
-    stack.enter_context(patch.object(analysis, "_haal_slotkoers_op", return_value=yahoo_koers))
-    stack.enter_context(patch.object(analysis, "_haal_dagrange_op", return_value=(high, low)))
+    stack.enter_context(patch.object(analysis, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, high, low)))
     stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
     stack.enter_context(patch.object(analysis, "save_prijscheck"))
     stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))

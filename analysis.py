@@ -2681,6 +2681,46 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
     return float(eerste["High"]), float(eerste["Low"])
 
 
+def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
+    """
+    Combinatie van _haal_slotkoers_op() en _haal_dagrange_op() hierboven in
+    ÉÉN yf.download()-call i.p.v. twee losse downloads voor exact dezelfde
+    ticker + periode -- gebruikt door vergelijk_prijs_op_datum() in het pad
+    waar altijd zowel de slotkoers als de dagrange nodig zijn (de eerste,
+    verse fetch). _haal_slotkoers_op()/_haal_dagrange_op() zelf blijven
+    ongewijzigd bestaan voor plekken die er maar één van nodig hebben: het
+    FX-pad (_fx_prijzen_serie(), dagrange niet relevant) en de
+    ticker_prijscheck-cache-backfill in vergelijk_prijs_op_datum() (daar is
+    de slotkoers al bekend uit de cache, alleen de dagrange ontbreekt nog).
+
+    Geeft (slotkoers, high, low) terug, of (None, None, None) bij dezelfde
+    faalcondities als _haal_slotkoers_op/_haal_dagrange_op (mislukte
+    download na alle retries, of geen koersdata in de periode).
+    """
+    einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
+
+    def _actie():
+        _tel_yahoo_call("yf.download(slotkoers+dagrange)")
+        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["Close", "High", "Low"]]
+
+    raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"'{ticker}'", pogingen, wachttijd)
+    if fout is not None:
+        print(f"[prijscheck] ❌ kon historische koers/dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
+        return None, None, None
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        # yf.download geeft bij 1 ticker soms toch multi-index-kolommen terug.
+        raw.columns = raw.columns.get_level_values(0)
+
+    geldig = raw.dropna()
+    if geldig.empty:
+        print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
+        return None, None, None
+
+    eerste = geldig.iloc[0]
+    return float(eerste["Close"]), float(eerste["High"]), float(eerste["Low"])
+
+
 def _haal_splits_op(ticker):
     """
     Haalt de bekende aandelensplitsingen van 'ticker' op via yfinance,
@@ -2810,9 +2850,8 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
             high, low = _haal_dagrange_op(ticker, datum)
             save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
     else:
-        yahoo_koers = _haal_slotkoers_op(ticker, datum)
+        yahoo_koers, high, low = _haal_koers_en_dagrange_op(ticker, datum)
         valuta = _ticker_details_met_cache(ticker).get("valuta")
-        high, low = _haal_dagrange_op(ticker, datum) if yahoo_koers is not None else (None, None)
         print(f"[prijscheck] '{ticker}' op {datum}: opgehaald -> yahoo_koers={yahoo_koers} ({valuta})")
         save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
