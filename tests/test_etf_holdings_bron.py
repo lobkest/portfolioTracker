@@ -16,6 +16,7 @@ import io
 import sys
 import os
 import unittest
+from unittest.mock import patch, Mock
 
 import openpyxl
 
@@ -35,7 +36,15 @@ from analysis import (
 
 NIEUWE_TICKERS = [
     "IWDA.AS", "IMAE.AS", "EMIM.AS", "CNDX.AS", "GDX.L",
-    "EUEA.AS", "TDT.AS", "VE6I.DE",
+    "EUEA.AS", "TDT.AS", "VE6I.DE", "IS3N.DE", "G2X.DE",
+]
+
+# (ticker, isin-zusje) — zelfde ISIN, andere beursnotering van hetzelfde
+# fonds, dus bewust dezelfde ETF_HOLDINGS_BRON-entry (zelfde bron-URL/
+# locale/provider) i.p.v. een eigen bron opzoeken.
+ISIN_ZUSJES = [
+    ("IS3N.DE", "EMIM.AS"),  # beide IE00BKM4GZ66, iShares Core MSCI EM IMI
+    ("G2X.DE", "GDX.L"),     # beide IE00BQQP9F84, VanEck Gold Miners
 ]
 
 
@@ -101,6 +110,20 @@ CSV_ISHARES_NL = (
     '"NVDA","NVIDIA","IT","Aandelen","8.021.108.962,68","5,25","8.021.108.962,68","38.257.698,00","209,66","Verenigde Staten","NASDAQ","USD"\n'
     '"ASML","ASML HOLDING","IT","Aandelen","1.000.000,00","2,50","1.000.000,00","1.000,00","500,00","Nederland","AMS","EUR"\n'
 ).encode("utf-8")
+
+
+class TestIsinZusjesZelfdeBron(unittest.TestCase):
+    # Regressietest: voorkomt dat IS3N.DE/EMIM.AS of G2X.DE/GDX.L later per
+    # ongeluk uit elkaar getrokken worden (bv. een van de twee wordt
+    # aangepast bij een site-update, de ander niet), terwijl het toch
+    # letterlijk hetzelfde fonds/dezelfde CSV/XLSX-bron is.
+    def test_isin_zusjes_hebben_identieke_bron_entry(self):
+        for ticker, zusje in ISIN_ZUSJES:
+            self.assertEqual(
+                ETF_HOLDINGS_BRON[ticker], ETF_HOLDINGS_BRON[zusje],
+                f"{ticker} en {zusje} zijn hetzelfde fonds (zelfde ISIN), "
+                f"maar hebben een verschillende ETF_HOLDINGS_BRON-entry",
+            )
 
 
 class TestParseIsharesHoldingsLocale(unittest.TestCase):
@@ -253,6 +276,59 @@ class TestFetchProviderHoldingsFallback(unittest.TestCase):
         self.assertIsNone(fetch_provider_holdings("VWCE.AS"))
         self.assertIsNone(fetch_provider_holdings("VUSA.AS"))
         self.assertIsNone(fetch_provider_holdings("EEN.TICKER.DIE.NIET.BESTAAT"))
+
+
+class TestFetchProviderHoldingsIsinZusjes(unittest.TestCase):
+    # Draait fetch_provider_holdings() echt end-to-end (met gemockte HTTP-
+    # respons) voor de twee nieuwe tickers, i.p.v. alleen te vertrouwen op
+    # de generieke provider/locale-parsertests: bevestigt dat de bestaande
+    # _parse_ishares_holdings()/_parse_vaneck_holdings() zonder enige
+    # aanpassing werken voor IS3N.DE/G2X.DE, precies omdat ze dezelfde
+    # provider+locale+parser-route volgen als hun ISIN-zusje EMIM.AS/GDX.L.
+    @patch("analysis.requests.get")
+    def test_is3n_de_gebruikt_ishares_nl_parser_zoals_emim(self, mock_get):
+        from analysis import fetch_provider_holdings
+
+        mock_response = Mock()
+        mock_response.content = CSV_ISHARES_NL
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        holdings = fetch_provider_holdings("IS3N.DE")
+
+        mock_get.assert_called_once()
+        called_url = mock_get.call_args[0][0]
+        self.assertEqual(called_url, ETF_HOLDINGS_BRON["EMIM.AS"]["url"])
+        self.assertEqual(len(holdings), 2)
+        nvda = next(h for h in holdings if h["naam"] == "NVIDIA")
+        self.assertAlmostEqual(nvda["gewicht"], 5.25)
+        self.assertEqual(nvda["land"], "United States")
+
+    @patch("analysis.requests.get")
+    def test_g2x_de_gebruikt_vaneck_nl_parser_zoals_gdx(self, mock_get):
+        from analysis import fetch_provider_holdings
+
+        content = _maak_vaneck_xlsx(
+            header=["Aantal", "Naam positie", "Ticker", "ISIN", "Aandelen", "Marktwaarde", "% van beheerd vermogen"],
+            rows=[
+                [1, "Agnico Eagle Mines Ltd", "AEM US", "CA0084741085", 100, "$ 1.00", "10,74%"],
+                [2, "Newmont Corp", "NEM US", "US6516391066", 200, "$ 2.00", "10,69%"],
+            ],
+        )
+        mock_response = Mock()
+        mock_response.content = content
+        mock_response.raise_for_status = Mock()
+        mock_get.return_value = mock_response
+
+        holdings = fetch_provider_holdings("G2X.DE")
+
+        mock_get.assert_called_once()
+        called_url = mock_get.call_args[0][0]
+        self.assertEqual(called_url, ETF_HOLDINGS_BRON["GDX.L"]["url"])
+        self.assertEqual(len(holdings), 2)
+        agnico = next(h for h in holdings if "Agnico" in h["naam"])
+        self.assertAlmostEqual(agnico["gewicht"], 10.74)
+        self.assertEqual(agnico["land"], "Canada")
 
 
 class TestDedupliceerHoldings(unittest.TestCase):

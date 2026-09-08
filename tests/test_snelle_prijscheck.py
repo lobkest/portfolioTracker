@@ -428,5 +428,28 @@ class TestBasisTickerZekerheidParallel(unittest.TestCase):
             self.assertEqual(r["prijs_checks"], [])
 
 
+class TestTickerResolutiePoolGrootte(unittest.TestCase):
+    """Poolgrootte voor de lichte ticker-resolutie -- op 12 gezet na de
+    28-posities-pooltest (4->8: totale tijd bijna gehalveerd, 8->12: nog
+    een reële extra winst, 12->16: nauwelijks meer, zonder aantoonbaar
+    hoger rate-limit-risico bij 12). Simpele waarde-check, geen live-call-
+    test nodig."""
+
+    def test_pool_grootte_constante_is_twaalf(self):
+        self.assertEqual(analysis.TICKER_RESOLUTIE_POOL_GROOTTE, 12)
+
+    def test_beide_functies_gebruiken_de_gedeelde_pool_grootte_als_default(self):
+        import inspect
+
+        self.assertEqual(
+            inspect.signature(vind_tickers_met_snelle_prijscheck_parallel).parameters["max_workers"].default,
+            analysis.TICKER_RESOLUTIE_POOL_GROOTTE,
+        )
+        self.assertEqual(
+            inspect.signature(basis_ticker_zekerheid_parallel).parameters["max_workers"].default,
+            analysis.TICKER_RESOLUTIE_POOL_GROOTTE,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
