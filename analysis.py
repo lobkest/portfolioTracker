@@ -309,11 +309,25 @@ ETF_HOLDINGS_BRON = {
         "locale": "nl",
         "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/264659/ishares-msci-emerging-markets-imi-ucits-etf/1497735778849.ajax?fileType=csv&fileName=EMIM_holdings&dataType=fund",
     },
+    # IS3N.DE = zelfde ISIN (IE00BKM4GZ66) als EMIM.AS, alleen een andere
+    # notering (Xetra i.p.v. Amsterdam) van hetzelfde fonds — zelfde bron-URL.
+    "IS3N.DE": {
+        "provider": "ishares",
+        "locale": "nl",
+        "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/264659/ishares-msci-emerging-markets-imi-ucits-etf/1497735778849.ajax?fileType=csv&fileName=EMIM_holdings&dataType=fund",
+    },
     "CNDX.AS": {
         "provider": "ishares",
         "url": "https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v1/get-fund-document?appType=PRODUCT_PAGE&appSubType=ISHARES&targetSite=ishares-uk&locale=en_GB&portfolioId=253741&userType=individual&component=holdings",
     },
     "GDX.L": {
+        "provider": "vaneck",
+        "locale": "nl",
+        "url": "https://www.vaneck.com/nl/nl/investments/gold-miners-etf/downloads/holdings/",
+    },
+    # G2X.DE = zelfde ISIN (IE00BQQP9F84) als GDX.L, alleen een andere
+    # notering (Xetra i.p.v. Londen) van hetzelfde fonds — zelfde bron-URL.
+    "G2X.DE": {
         "provider": "vaneck",
         "locale": "nl",
         "url": "https://www.vaneck.com/nl/nl/investments/gold-miners-etf/downloads/holdings/",
@@ -1184,7 +1198,18 @@ def basis_ticker_zekerheid(product, isin, beurs, transacties_van_dit_isin=None):
     return _naar_basis_vorm(beurs, resultaat)
 
 
-def basis_ticker_zekerheid_parallel(posities, max_workers=8):
+# Poolgrootte voor de LICHTE ticker-resolutie (basis_ticker_zekerheid_parallel/
+# vind_tickers_met_snelle_prijscheck_parallel hieronder) -- empirisch bepaald
+# op een cold-cache-test met 28 posities: 4->8 workers halveerde de totale
+# tijd bijna, 8->12 gaf nog een reële extra winst (~13%), 12->16 nauwelijks
+# meer, zonder aantoonbaar hoger rate-limit-risico bij 12. Losstaand van de
+# poolgrootte van de dúre verificatiecheck (verifieer_tickers_met_prijs_
+# parallel hieronder, max_workers=6) -- die bleef bewust lager, buiten deze
+# meting.
+TICKER_RESOLUTIE_POOL_GROOTTE = 12
+
+
+def basis_ticker_zekerheid_parallel(posities, max_workers=TICKER_RESOLUTIE_POOL_GROOTTE):
     """
     basis_ticker_zekerheid() voor meerdere posities tegelijk
     (ThreadPoolExecutor) -- zie vind_tickers_met_snelle_prijscheck_parallel()
@@ -1215,8 +1240,19 @@ RATE_LIMIT_WACHTTIJD_BASIS = 8  # seconden; oplopende backoff per poging: 8s, 16
 
 def _is_rate_limit_fout(e):
     """Herkent Yahoo's rate-limit-foutmeldingen, ongeacht exacte
-    formulering/hoofdlettergebruik."""
-    return "rate limit" in str(e).lower() or "too many requests" in str(e).lower()
+    formulering/hoofdlettergebruik. Telt ook een 'Invalid Crumb'-fout of een
+    HTTP 401 mee: bij een grotere gelijktijdige belasting (zie de
+    28-posities-pooltest bij TICKER_RESOLUTIE_POOL_GROOTTE) faalt Yahoo soms
+    hiermee i.p.v. een letterlijke rate-limit-melding, maar de remedie
+    (retry met oplopende backoff via _met_rate_limit_retry) is hetzelfde --
+    voorheen faalde dit in één keer definitief, zonder retry-poging."""
+    tekst = str(e).lower()
+    return (
+        "rate limit" in tekst
+        or "too many requests" in tekst
+        or "invalid crumb" in tekst
+        or "error 401" in tekst
+    )
 
 
 def _met_rate_limit_retry(actie, log_prefix, beschrijving,
@@ -3621,7 +3657,8 @@ def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
     return waarschuwingen
 
 
-def vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=None, max_workers=8):
+def vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=None,
+                                                 max_workers=TICKER_RESOLUTIE_POOL_GROOTTE):
     """
     Voert find_ticker_met_snelle_prijscheck() voor meerdere posities
     tegelijk uit (ThreadPoolExecutor), zelfde patroon als

@@ -98,6 +98,37 @@ class TestFxKoersCaching(unittest.TestCase):
         mock_download.assert_not_called()
 
 
+class TestIsRateLimitFout(unittest.TestCase):
+    """_is_rate_limit_fout() herkent naast de letterlijke rate-limit-
+    meldingen ook Yahoo's 'Invalid Crumb'/HTTP 401-foutbeeld (zie de
+    28-posities-pooltest bij TICKER_RESOLUTIE_POOL_GROOTTE) -- dat kwam
+    daar vooral voor bij breed-genoteerde ETF's zoals IWDA.AS/VWRL.AS en
+    faalde voorheen in één keer definitief, zonder retry-poging."""
+
+    def test_bestaande_rate_limit_meldingen_blijven_herkend(self):
+        self.assertTrue(analysis._is_rate_limit_fout(Exception("Rate limit exceeded")))
+        self.assertTrue(analysis._is_rate_limit_fout(Exception("Too Many Requests")))
+
+    def test_invalid_crumb_wordt_herkend(self):
+        fout = Exception(
+            'HTTP Error 401: {"finance":{"result":null,"error":'
+            '{"code":"Unauthorized","description":"Invalid Crumb"}}}'
+        )
+        self.assertTrue(analysis._is_rate_limit_fout(fout))
+
+    def test_http_401_zonder_invalid_crumb_wordt_ook_herkend(self):
+        fout = Exception(
+            'HTTP Error 401: {"finance":{"result":null,"error":'
+            '{"code":"Unauthorized","description":"User is unable to access '
+            'this feature - https://bit.ly/yahoo-finance-api-feedback"}}}'
+        )
+        self.assertTrue(analysis._is_rate_limit_fout(fout))
+
+    def test_andere_fout_wordt_niet_als_rate_limit_herkend(self):
+        self.assertFalse(analysis._is_rate_limit_fout(ValueError("iets heel anders")))
+        self.assertFalse(analysis._is_rate_limit_fout(Exception("Data doesn't exist for startDate")))
+
+
 class TestMetRateLimitRetry(unittest.TestCase):
     """Gedeelde retry/backoff-helper voor _fetch_yf_info, _haal_slotkoers_op
     en _haal_dagrange_op."""
@@ -131,6 +162,28 @@ class TestMetRateLimitRetry(unittest.TestCase):
         self.assertIsInstance(fout, Exception)
         # maar 2 pogingen ingesteld -> maar 1 keer wachten (na poging 1).
         self.assertEqual(mock_sleep.call_args_list, [call(5)])
+
+    @patch("analysis.time.sleep")
+    def test_invalid_crumb_gevolgd_door_succes_retryt_nu_ook(self, mock_sleep):
+        # Voorheen faalde dit in één keer definitief: _is_rate_limit_fout()
+        # herkende "Invalid Crumb" niet, dus geen retry-poging.
+        pogingen_gedaan = {"n": 0}
+
+        def actie():
+            pogingen_gedaan["n"] += 1
+            if pogingen_gedaan["n"] < 2:
+                raise Exception(
+                    'HTTP Error 401: {"finance":{"result":null,"error":'
+                    '{"code":"Unauthorized","description":"Invalid Crumb"}}}'
+                )
+            return "ok"
+
+        resultaat, fout = analysis._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
+
+        self.assertEqual(resultaat, "ok")
+        self.assertIsNone(fout)
+        self.assertEqual(pogingen_gedaan["n"], 2)
+        mock_sleep.assert_called_once_with(8)
 
     @patch("analysis.time.sleep")
     def test_niet_rate_limit_fout_stopt_meteen_zonder_retry(self, mock_sleep):
