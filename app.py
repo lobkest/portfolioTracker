@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown, BENCHMARK_TICKERS, bereken_rendement_over_tijd, _verwarm_land_sector_cache_parallel, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting
+from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, classify_tickers, compute_split_adjusted_shares, compute_land_sector_verdeling, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, verwerk_rekeningoverzicht, bereken_dividend_samenvatting, bereken_statistieken, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, bereken_bedrijven_verdeling, bereken_etf_overlap, bereken_benchmark_vergelijking, _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown, BENCHMARK_TICKERS, bereken_rendement_over_tijd, _verwarm_land_sector_cache_parallel, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting, dprint
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd, backfill_waarde_eur, get_laatste_prijs_update
 import hashlib
 import openpyxl
@@ -30,6 +30,38 @@ KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
 # (dat wel kosten meetelt en de GAK structureel te hoog maakt, zie
 # CLAUDE.md). Zelfde beschikbaarheids-check-patroon als KOSTEN_KOLOM.
 WAARDE_KOLOM = "Waarde EUR"
+
+# DEGIRO's eigen afrekenkoers voor deze transactie — preciezer dan een losse
+# historische FX-lookup achteraf. Gebruikt om de rauwe 'Koers'-kolom (die
+# voor een niet-EUR-genoteerde positie, bv. TTWO op NDQ, gewoon de
+# vreemde-valuta-koers bevat) naar EUR om te rekenen vóór opslag — zie
+# CLAUDE.md/opdracht "koers-kolom altijd in EUR opslaan". Leeg/NaN voor
+# EUR-genoteerde rijen. Zelfde beschikbaarheids-check-patroon als
+# KOSTEN_KOLOM/WAARDE_KOLOM.
+WISSELKOERS_KOLOM = "Wisselkoers"
+
+
+def _log_valuta_kolom_naast_koers(df):
+    """Debug-onderzoek (TTWO-valuta-hypothese, zie CLAUDE.md/opdracht): checkt
+    of er in het ingelezen Excel-bestand een aparte valuta-kolom direct
+    rechts van 'Koers' staat, en logt per unieke (ISIN, Beurs)-combinatie
+    welke kolom dat is en wat erin staat -- puur constaterend, geen aanname
+    vooraf over de inhoud."""
+    kolommen = df.columns.tolist()
+    if "Koers" not in kolommen:
+        dprint(f"[valuta-onderzoek] kolom 'Koers' niet gevonden, kolommen={kolommen}")
+        return
+    idx = kolommen.index("Koers")
+    if idx + 1 >= len(kolommen):
+        dprint(f"[valuta-onderzoek] geen kolom rechts van 'Koers', kolommen={kolommen}")
+        return
+    valuta_kolom = kolommen[idx + 1]
+    for (isin_val, beurs_val), groep in df.groupby(["ISIN", "Beurs"]):
+        dprint(
+            f"[valuta-onderzoek] ISIN={isin_val} Beurs={beurs_val}: "
+            f"kolom rechts van 'Koers' = '{valuta_kolom}', "
+            f"waarden={groep[valuta_kolom].unique().tolist()}"
+        )
 
 
 def _normaliseer_tijd(waarde):
@@ -110,6 +142,24 @@ def _upload_impl():
             # print(f"[upload] WAARSCHUWING: kolom '{WAARDE_KOLOM}' niet gevonden — "
                   # f"GAK valt terug op totaal_eur (incl. kosten) voor deze upload")
 
+        if WISSELKOERS_KOLOM in df.columns:
+            wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
+            heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
+            df["_koers_eur"] = df["Koers"].astype(float)
+            df.loc[heeft_wisselkoers, "_koers_eur"] = (
+                df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
+            )
+            for _, rij in df.loc[heeft_wisselkoers, ["ISIN", "Beurs", "Koers", WISSELKOERS_KOLOM, "_koers_eur"]].iterrows():
+                dprint(
+                    f"[koers-eur] ISIN={rij['ISIN']} Beurs={rij['Beurs']}: "
+                    f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
+                    f"_koers_eur={rij['_koers_eur']:.4f}"
+                )
+        else:
+            df["_koers_eur"] = df["Koers"].astype(float)
+            dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden — "
+                   f"koers-kolom blijft ongewijzigd (aanname: al EUR)")
+
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje (zie
     # templates/index.html): staat dit UIT (standaard), dan slaat de
@@ -148,10 +198,12 @@ def _upload_impl():
         groepen = list(df.groupby(["ISIN", "Beurs"]))
         namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
 
+        _log_valuta_kolom_naast_koers(df)
+
         with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(groepen)} positie(s))"):
             posities_voor_check = [
                 (naam_positie, isin, beurs_val, [
-                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
+                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
                     for _, row in groep.iterrows()
                 ])
                 for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
@@ -183,7 +235,7 @@ def _upload_impl():
             "ticker": [ticker_by_isin_beurs.get((isin_val, beurs_val))
                        for isin_val, beurs_val in zip(df["ISIN"], df["Beurs"])],
             "aantal": df["Aantal"].astype(float),
-            "koers": df["Koers"].astype(float),
+            "koers": df["_koers_eur"].astype(float),
             "totaal_eur": df["Totaal EUR"].astype(float),
             "echte_naam": df["Product"],
             "transactiekosten": df["_kosten_eur"],
@@ -271,6 +323,8 @@ def _upload_impl():
         # bij elk bezoek hergebruikt. PARALLEL over de groepen — zie de
         # 'niet_opslaan'-tak hierboven voor de reden (koude-cache-
         # timeoutrisico bij veel unieke tickers).
+        _log_valuta_kolom_naast_koers(rows_to_insert)
+
         with meet_tijd("ticker_resolutie"):
             groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
 
@@ -294,7 +348,7 @@ def _upload_impl():
 
             transacties_per_groep = {
                 key: [
-                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["Koers"])}
+                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
                     for _, row in groep.iterrows()
                 ]
                 for key, groep in groepen
@@ -337,7 +391,7 @@ def _upload_impl():
                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                            ON CONFLICT (code, order_id) DO NOTHING""",
                         (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-                         ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["Koers"]),
+                         ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["_koers_eur"]),
                          float(row["Totaal EUR"]), row["Order ID"], row["Product"],
                          float(kosten_waarde) if pd.notna(kosten_waarde) else None,
                          float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
