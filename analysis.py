@@ -1645,7 +1645,12 @@ def compute_value_over_time(transacties_df, price_data):
     rows = []
     trade_i = 0
 
-    for date in price_data.index:
+    # Snelle dict/array-toegang i.p.v. price_data.loc[date, t] per iteratie
+    # (zie CLAUDE.md, ".loc-overhead wegnemen") -- zelfde loop-structuur en
+    # -volgorde, alleen de koerslookup is nu een goedkope array-index.
+    prijs_per_ticker = {t: price_data[t].to_numpy() for t in tickers}
+
+    for i, date in enumerate(price_data.index):
         while trade_i < len(transacties_df) and pd.Timestamp(transacties_df.loc[trade_i, "datum"]) <= date:
             row = transacties_df.loc[trade_i]
             if row["ticker"] in holdings:
@@ -1654,9 +1659,9 @@ def compute_value_over_time(transacties_df, price_data):
             trade_i += 1
 
         waarde = sum(
-            holdings[t] * price_data.loc[date, t]
+            holdings[t] * prijs_per_ticker[t][i]
             for t in tickers
-            if pd.notna(price_data.loc[date, t])
+            if pd.notna(prijs_per_ticker[t][i])
         )
         rows.append({"datum": date, "waarde": waarde, "geinvesteerd": invested})
 
@@ -1690,7 +1695,13 @@ def compute_per_ticker(transacties_df, price_data):
         prev_waarde = None
         prev_invested = None
 
-        for date in price_data.index:
+        # Snelle array-toegang i.p.v. price_data.loc[date, ticker] per
+        # iteratie (zie CLAUDE.md, ".loc-overhead wegnemen") -- zelfde
+        # loop-structuur en -volgorde, alleen de koerslookup is nu een
+        # goedkope array-index.
+        prijzen_array = price_data[ticker].to_numpy()
+
+        for i, date in enumerate(price_data.index):
             activiteit = False
             while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
                 row = trades.loc[trade_i]
@@ -1728,7 +1739,7 @@ def compute_per_ticker(transacties_df, price_data):
 
                 trade_i += 1
                 activiteit = True
-            prijs = price_data.loc[date, ticker]
+            prijs = prijzen_array[i]
             waarde = holdings * prijs if pd.notna(prijs) else 0.0
             invested = max(kostprijs_lopend, 0.0)  # epsilon-afronding kan net onder 0 uitkomen
 
@@ -1821,14 +1832,20 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
         trade_i = 0
         rows = []
 
-        for date in price_data.index:
+        # Snelle array-toegang i.p.v. price_data.loc[date, ticker] per
+        # iteratie (zie CLAUDE.md, ".loc-overhead wegnemen") -- zelfde
+        # loop-structuur en -volgorde, alleen de koerslookup is nu een
+        # goedkope array-index.
+        prijzen_array = price_data[ticker].to_numpy()
+
+        for i, date in enumerate(price_data.index):
             activiteit = False
             while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
                 row = trades.loc[trade_i]
                 holdings += float(row["adj_aantal"])
                 trade_i += 1
                 activiteit = True
-            prijs = price_data.loc[date, ticker]
+            prijs = prijzen_array[i]
             rows.append({
                 "datum": date,
                 "koers": float(prijs) if pd.notna(prijs) else None,
@@ -2930,6 +2947,7 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     valuta_conversie_toegepast = False
     yahoo_koers_eur = yahoo_koers
     high_eur, low_eur = high, low
+    fx_koers = None
     if valuta not in (None, "EUR"):
         fx_koers = _fx_koers_op_datum(valuta, datum)
         if fx_koers is None:
@@ -2976,6 +2994,13 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         niveau = "waarschuwing"
 
     toon_gecorrigeerd = split_factor != 1.0 or valuta_conversie_toegepast
+    dprint(
+        f"[prijscheck-debug] ticker={ticker} datum={datum} "
+        f"yahoo_koers={yahoo_koers} valuta={valuta} "
+        f"fx_koers={fx_koers} yahoo_koers_eur={yahoo_koers_eur:.4f} "
+        f"split_factor={split_factor} yahoo_koers_gecorrigeerd={yahoo_koers_gecorrigeerd:.4f} "
+        f"bekende_koers={bekende_koers} afwijking_pct={afwijking_pct:.2f} niveau={niveau}"
+    )
     return {
         "yahoo_koers": yahoo_koers,
         "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if toon_gecorrigeerd else None,
@@ -3124,6 +3149,15 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             "gemiddelde_afwijking_pct": (sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None,
             "aantal_matches": sum(1 for m in alt_matches if m),
         })
+
+        wordt_aanbevolen = aanbevolen_alternatief is None and alt_matches and all(alt_matches)
+        dprint(
+            f"[alternatieven-debug] alt_ticker={alt_ticker} exchange={alt.get('exchange')} "
+            f"land={alt_land} sector={alt_sector} valuta={alt_details.get('valuta')} "
+            f"alt_matches={alt_matches} gemiddelde_afwijking_pct="
+            f"{(sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None} "
+            f"wordt_aanbevolen={wordt_aanbevolen}"
+        )
 
         if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
             aanbevolen_alternatief = alt_ticker
