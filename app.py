@@ -106,7 +106,9 @@ def upload():
     try:
         return _upload_impl()
     except Exception as e:
-        # print(f"[upload] ONVERWACHTE FOUT: {e}")
+        import traceback
+        print(f"[upload] ONVERWACHTE FOUT: {e}")
+        traceback.print_exc()
         return jsonify({
             "error": "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
                      "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
