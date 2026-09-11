@@ -26,7 +26,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis
-from analysis import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
+from analysis import DAGRANGE_TOLERANTIE, vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
@@ -88,19 +88,30 @@ class TestBinnenDagrange(unittest.TestCase):
 
 
 class TestDagrangeTolerantie(unittest.TestCase):
-    """1%-tolerantie (DAGRANGE_TOLERANTIE) op de exacte low<=koers<=high --
-    bekend-goede tickers (VUSA.AS, G2X.DE) hadden een Excel-koers die net
-    (~1-2%) buiten Yahoo's High/Low viel, vermoedelijk door net iets andere
-    sluitingsmomenten/afronding tussen DEGIRO en Yahoo."""
+    """De geconfigureerde tolerantie (DAGRANGE_TOLERANTIE) op de exacte
+    low<=koers<=high -- bekend-goede tickers (VUSA.AS, G2X.DE) hadden een
+    Excel-koers die net buiten Yahoo's High/Low viel, vermoedelijk door net
+    iets andere sluitingsmomenten/afronding tussen DEGIRO en Yahoo.
+
+    De testwaarden hieronder worden afgeleid van DAGRANGE_TOLERANTIE zelf
+    (i.p.v. hardcoded getallen), zodat "net binnen de grens" en "ver
+    buiten de grens" blijven kloppen als die constante ooit verandert."""
 
     def test_dagrange_tolerantie(self):
-        # low=95, high=105 -> met 1% tolerantie: ondergrens 94.05, bovengrens 106.05.
+        # low=95, high=105 -> effectieve grenzen na tolerantie:
+        # ondergrens = low * (1 - tolerantie), bovengrens = high * (1 + tolerantie).
+        ondergrens = 95.0 * (1 - DAGRANGE_TOLERANTIE)
+        bovengrens = 105.0 * (1 + DAGRANGE_TOLERANTIE)
+
         with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
-            net_onder = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 94.5)  # ~0.5% onder low
+            # Net binnen de ondergrens -- moet als randgeval nog wél binnen de dagrange tellen.
+            net_onder = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), ondergrens + 0.5)
         with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
-            net_boven = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 105.5)  # ~0.5% boven high
+            # Net binnen de bovengrens -- zelfde randgeval, andere kant.
+            net_boven = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), bovengrens - 0.5)
         with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
-            ver_onder = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 90.0)  # >1% onder low
+            # Met duidelijke marge onder de ondergrens -- geen randgeval, echt buiten.
+            ver_onder = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), ondergrens - 5)
 
         self.assertTrue(net_onder["binnen_dagrange"])
         self.assertTrue(net_boven["binnen_dagrange"])
