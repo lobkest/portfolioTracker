@@ -1921,6 +1921,27 @@ function maakDividendUitkeringenTabel(lijst) {
     return maakSorteerbareTabel(kolommen, lijst, { legeTekst: "Geen uitkeringen beschikbaar." });
 }
 
+// De volledige uitkeringenlijst staat in een EIGEN sectie, direct na de
+// cumulatieve grafiek (#chartWrapper) in de HTML, i.p.v. in
+// #dividendStatsSectie (die daarvóór staat) -- zo verschijnt de lijst
+// visueel onder de grafiek i.p.v. erboven, terwijl de totaal-/per-ticker-
+// samenvatting op zijn eigen (bestaande) plek blijft staan.
+function renderDividendUitkeringenlijst(lijst) {
+    const sectie = document.getElementById("dividendUitkeringenSectie");
+    sectie.innerHTML = "";
+
+    if (!lijst || lijst.length === 0) return;
+
+    const kop = document.createElement("h3");
+    kop.textContent = "Alle uitkeringen";
+    sectie.appendChild(kop);
+
+    const scrollWrapper = document.createElement("div");
+    scrollWrapper.className = "scrollbareTabel";
+    scrollWrapper.appendChild(maakDividendUitkeringenTabel(lijst));
+    sectie.appendChild(scrollWrapper);
+}
+
 function renderDividendStats(data) {
     const sectie = document.getElementById("dividendStatsSectie");
     sectie.innerHTML = "";
@@ -1941,14 +1962,6 @@ function renderDividendStats(data) {
     }
 
     sectie.appendChild(maakDividendTabel(data.per_ticker));
-
-    if (data.lijst && data.lijst.length > 0) {
-        const kop = document.createElement("h3");
-        kop.textContent = "Alle uitkeringen";
-        kop.style.marginTop = "24px";
-        sectie.appendChild(kop);
-        sectie.appendChild(maakDividendUitkeringenTabel(data.lijst));
-    }
 }
 
 function toonDividendChart(cumulatief) {
@@ -2018,8 +2031,10 @@ function maakGeenRekeningoverzichtMelding() {
 
 async function toonDividend() {
     const sectie = document.getElementById("dividendStatsSectie");
+    const lijstSectie = document.getElementById("dividendUitkeringenSectie");
     document.getElementById("chartWrapper").style.display = "block";
     sectie.innerHTML = "<p>Bezig met laden...</p>";
+    lijstSectie.innerHTML = "";
 
     if (!huidigeData.code) {
         if (chart) { chart.destroy(); chart = null; }
@@ -2052,6 +2067,7 @@ async function toonDividend() {
 
     renderDividendStats(data);
     toonDividendChart(data.cumulatief);
+    renderDividendUitkeringenlijst(data.lijst);
 }
 
 // Centrale plek voor alle euro-opmaak in de app — Nederlandse notatie
@@ -2918,6 +2934,7 @@ function pasViewToe(view) {
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
+    document.getElementById("dividendUitkeringenSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
     document.getElementById("bedrijvenSectie").style.display = view === "bedrijven" ? "block" : "none";
     document.getElementById("etfOverlapSectie").style.display = view === "etfoverlap" ? "block" : "none";
