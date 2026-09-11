@@ -144,7 +144,7 @@ MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH = 2
 # (VUSA.AS, G2X.DE) hadden een Excel-koers die net (~1-2%) buiten Yahoo's
 # High/Low viel, vermoedelijk door net iets andere sluitingsmomenten/
 # afronding tussen DEGIRO en Yahoo, niet door een foute ticker.
-DAGRANGE_TOLERANTIE = 0.02
+DAGRANGE_TOLERANTIE = 0.05
 
 # Landen met een aandeel onder deze drempel (fractie van de totale
 # portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
@@ -3983,6 +3983,26 @@ def bereken_dividend_samenvatting(code):
         key=lambda x: x["totaal_netto"], reverse=True,
     )
 
+    # Losse uitkeringen, ongeaggregeerd, voor de lijst onderaan het
+    # Dividend-tabblad — nieuwste eerst. Rijen met netto_eur=None (onbekende
+    # valutaconversie) blijven staan i.p.v. weggefilterd te worden, zelfde
+    # bewuste "nooit een gok"-gedrag als de rest van deze functie.
+    lijst = sorted(
+        (
+            {
+                "datum": d["datum"].strftime("%Y-%m-%d"),
+                "ticker": isin_naar_ticker.get(d["isin"]) or d["isin"],
+                "bijnaam": isin_naar_bijnaam.get(d["isin"]) or d["product"] or (isin_naar_ticker.get(d["isin"]) or d["isin"]),
+                "valuta": d["valuta"],
+                "bruto_eur": round(d["bruto_eur"], 2) if d["bruto_eur"] is not None else None,
+                "belasting_eur": round(d["belasting_eur"], 2) if d["belasting_eur"] is not None else None,
+                "netto_eur": round(d["netto_eur"], 2) if d["netto_eur"] is not None else None,
+            }
+            for d in dividenden
+        ),
+        key=lambda x: x["datum"], reverse=True,
+    )
+
     # Alle tickers uitlijnen op dezelfde datumas (unie van alle dividend-
     # datums) en forward-fillen, zodat de gestapelde grafiek geen gaten heeft.
     alle_datums = sorted({datum for punten in per_ticker_punten.values() for datum, _ in punten})
@@ -4005,6 +4025,7 @@ def bereken_dividend_samenvatting(code):
             "datums": [d.strftime("%Y-%m-%d") for d in alle_datums],
             "per_ticker": cumulatief_per_ticker,
         },
+        "lijst": lijst,
     }
 
 

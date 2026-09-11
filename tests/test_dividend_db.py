@@ -35,6 +35,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (self.TEST_CODE,))
+        cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
         conn.commit()
@@ -46,6 +47,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         conn = get_db_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (self.TEST_CODE,))
+        cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))
         conn.commit()
         cur.close()
@@ -98,6 +100,70 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         samenvatting = bereken_dividend_samenvatting(self.TEST_CODE)
         self.assertIsNotNone(samenvatting)
         self.assertAlmostEqual(samenvatting["totaal_netto"], 4.2)
+
+    def test_lijst_bevat_losse_uitkeringen_aflopend_gesorteerd_incl_onbekende_netto(self):
+        # Regressietest voor de "lijst"-key onder het Dividend-tabblad
+        # (uitkeringslijst-feature, 2026-09-11): moet ongeaggregeerd per
+        # uitkering teruggeven, nieuwste eerst, en een rij met
+        # netto_eur=None (onbekende valutaconversie) NIET wegfilteren.
+        from db import get_db_connection, save_dividenden
+        from analysis import bereken_dividend_samenvatting
+
+        # Eén ISIN heeft een gekoppelde transactie (dus een bijnaam/ticker
+        # via isin_naar_bijnaam/isin_naar_ticker), de andere niet -- om de
+        # fallback (product/isin zelf) ook te dekken.
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (self.TEST_CODE, date(2023, 1, 1), "Mijn Shell", "NL0000000001", "AEB", "SHELL.AS", 10, 30.0, -300.0),
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        save_dividenden(self.TEST_CODE, [
+            {
+                "dividend_id": "TEST-LIJST-1", "datum": date(2024, 1, 1),
+                "product": "TEST BV", "isin": "NL0000000001", "valuta": "EUR",
+                "bruto_eur": 5.0, "belasting_eur": 0.5, "netto_eur": 4.5,
+            },
+            {
+                "dividend_id": "TEST-LIJST-2", "datum": date(2024, 6, 1),
+                "product": "ONBEKEND FONDS", "isin": "IE0000000009", "valuta": "USD",
+                "bruto_eur": None, "belasting_eur": None, "netto_eur": None,
+            },
+            {
+                "dividend_id": "TEST-LIJST-3", "datum": date(2024, 3, 1),
+                "product": "TEST BV", "isin": "NL0000000001", "valuta": "EUR",
+                "bruto_eur": 2.0, "belasting_eur": 0.0, "netto_eur": 2.0,
+            },
+        ])
+
+        samenvatting = bereken_dividend_samenvatting(self.TEST_CODE)
+        self.assertIsNotNone(samenvatting)
+        lijst = samenvatting["lijst"]
+        self.assertEqual(len(lijst), 3)
+
+        # Aflopend op datum: 2024-06-01, 2024-03-01, 2024-01-01
+        self.assertEqual([r["datum"] for r in lijst], ["2024-06-01", "2024-03-01", "2024-01-01"])
+
+        # De onbekende-conversie-rij blijft staan, met netto_eur=None i.p.v.
+        # weggefilterd te worden.
+        onbekend = lijst[0]
+        self.assertIsNone(onbekend["netto_eur"])
+        self.assertIsNone(onbekend["bruto_eur"])
+        self.assertEqual(onbekend["ticker"], "IE0000000009")  # fallback: geen transactie -> isin zelf
+        self.assertEqual(onbekend["bijnaam"], "ONBEKEND FONDS")  # fallback: product uit dividenden-rij
+
+        # De gekoppelde ISIN gebruikt de bijnaam/ticker uit transacties.
+        gekoppeld = lijst[1]
+        self.assertEqual(gekoppeld["ticker"], "SHELL.AS")
+        self.assertEqual(gekoppeld["bijnaam"], "Mijn Shell")
+        self.assertAlmostEqual(gekoppeld["bruto_eur"], 2.0)
+        self.assertAlmostEqual(gekoppeld["belasting_eur"], 0.0)
+        self.assertAlmostEqual(gekoppeld["netto_eur"], 2.0)
 
     def test_geen_dividenden_voor_deze_code_geeft_none(self):
         from analysis import bereken_dividend_samenvatting

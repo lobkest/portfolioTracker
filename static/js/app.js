@@ -1850,6 +1850,77 @@ function maakDividendTabel(perTicker) {
     return tabel;
 }
 
+// bruto_eur/belasting_eur/netto_eur staan altijd al in EUR (zie CLAUDE.md,
+// "Valutaconversie-quirk") -- 'valuta' is de OORSPRONKELIJKE valuta van de
+// uitkering vóór conversie, dus nooit de eenheid van het getal zelf. Om dat
+// niet te suggereren (bv. "12,34 USD" zou net doen of het bedrag zelf in
+// USD is) tonen we het EUR-bedrag met de oorspronkelijke valuta erbij tussen
+// haakjes, alleen als die afwijkt van EUR.
+function formatteerDividendBedrag(bedragEur, valuta) {
+    const basis = formatteerEuro(bedragEur);
+    if (basis === "onbekend" || !valuta || valuta === "EUR") return basis;
+    return `${basis} (${valuta})`;
+}
+
+function maakDividendUitkeringenTabel(lijst) {
+    const kolommen = [
+        {
+            label: "Datum",
+            // maakSorteerbareTabel vergelijkt met wa - wb, dus als getal
+            // (timestamp) i.p.v. de ISO-string zelf -- anders sorteert de
+            // kolom niet chronologisch.
+            waarde: r => new Date(r.datum).getTime(),
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = formatDatum(r.datum);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Aandeel",
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = r.bijnaam;
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Bruto",
+            waarde: r => r.bruto_eur,
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = formatteerDividendBedrag(r.bruto_eur, r.valuta);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Belasting",
+            waarde: r => r.belasting_eur,
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = formatteerDividendBedrag(r.belasting_eur, r.valuta);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: "Netto",
+            waarde: r => r.netto_eur,
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = formatteerDividendBedrag(r.netto_eur, r.valuta);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+    ];
+
+    return maakSorteerbareTabel(kolommen, lijst, { legeTekst: "Geen uitkeringen beschikbaar." });
+}
+
 function renderDividendStats(data) {
     const sectie = document.getElementById("dividendStatsSectie");
     sectie.innerHTML = "";
@@ -1870,6 +1941,14 @@ function renderDividendStats(data) {
     }
 
     sectie.appendChild(maakDividendTabel(data.per_ticker));
+
+    if (data.lijst && data.lijst.length > 0) {
+        const kop = document.createElement("h3");
+        kop.textContent = "Alle uitkeringen";
+        kop.style.marginTop = "24px";
+        sectie.appendChild(kop);
+        sectie.appendChild(maakDividendUitkeringenTabel(data.lijst));
+    }
 }
 
 function toonDividendChart(cumulatief) {
