@@ -7,6 +7,14 @@ import hashlib
 import openpyxl
 import math
 import time
+try:
+    # Unix-only (o.a. niet op Windows, waar dit project lokaal draait --
+    # zie CLAUDE.md). Alleen gebruikt voor de [memory]-diagnostiek hieronder,
+    # die dus stilzwijgend wegvalt bij lokaal draaien op Windows en gewoon
+    # werkt op Render (Linux/gunicorn), waar de metingen om gaan.
+    import resource
+except ImportError:
+    resource = None
 
 app = Flask(__name__)
 init_db()
@@ -901,6 +909,8 @@ def analyze_transacties_kern(transacties_df, code, naam):
     opdracht_gefaseerd_laden.md). Die rest wordt lui opgehaald via
     analyze_transacties_verrijking() + de /verrijking-route.
     """
+    mem_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None
+
     with meet_tijd("split_correctie_kern"):
         transacties_df = compute_split_adjusted_shares(transacties_df)
 
@@ -937,6 +947,14 @@ def analyze_transacties_kern(transacties_df, code, naam):
     # snelle_prijscheck bij upload), dus dit kost hier geen nieuwe Yahoo-
     # calls in het gangbare geval.
     ticker_waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
+
+    if resource:
+        mem_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        print(
+            f"[memory] portfolio {code}: RSS {mem_start/1024:.0f}MB -> {mem_end/1024:.0f}MB "
+            f"(+{(mem_end-mem_start)/1024:.0f}MB), {len(tickers)} ticker(s), "
+            f"{len(price_data.index) if not price_data.empty else 0} handelsdagen"
+        )
 
     # Bij de 'niet opslaan'-analyse (zie de niet_opslaan-tak in /upload) is
     # code None -- er is dan nooit dividendhistorie (die zit in de database),

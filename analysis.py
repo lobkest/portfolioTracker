@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import pandas as pd
 import requests
 import yfinance as yf
+from flask import g, has_app_context
 from pyxirr import xirr
 from yahooquery import search
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1547,15 +1548,36 @@ def _fx_prijzen_serie(valuta):
     Geeft een lege Series terug bij een onbekende valuta of ontbrekende
     koersdata (aanroepers behandelen dat hetzelfde als voorheen: "geen
     conversie mogelijk").
+
+    Binnen één Flask-requestcontext wordt het resultaat per fx_pair
+    gememoized op `g` -- ticker_waarschuwingen_voor_transacties() roept dit
+    per unieke ticker aan, en zonder deze memo herhaalt elke aanroep dezelfde
+    DB-query + pivot/ffill voor exact dezelfde (fx_pair, FX_ANKER_DATUM).
+    Geen module-level cache: dat zou tussen requests/workers heen de
+    2-minuten-staleness-check van get_prices() omzeilen. Buiten een
+    requestcontext (unittests, losse scripts) valt dit terug op het oude
+    gedrag -- gewoon elke keer get_prices() aanroepen.
     """
     fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
     if fx_pair is None:
         return pd.Series(dtype=float)
+
+    cache = None
+    if has_app_context():
+        cache_attr = "_fx_serie_cache"
+        if not hasattr(g, cache_attr):
+            setattr(g, cache_attr, {})
+        cache = getattr(g, cache_attr)
+        if fx_pair in cache:
+            return cache[fx_pair]
+
     with _fx_serie_locks[fx_pair]:
         prijzen = get_prices([fx_pair], FX_ANKER_DATUM)
-    if prijzen.empty or fx_pair not in prijzen.columns:
-        return pd.Series(dtype=float)
-    return prijzen[fx_pair]
+    reeks = prijzen[fx_pair] if not prijzen.empty and fx_pair in prijzen.columns else pd.Series(dtype=float)
+
+    if cache is not None:
+        cache[fx_pair] = reeks
+    return reeks
 
 
 def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
