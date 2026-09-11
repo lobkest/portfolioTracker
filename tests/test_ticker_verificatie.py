@@ -42,11 +42,23 @@ from analysis import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, _cumu
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
 # blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
+#
+# Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix (zie
+# CLAUDE.md/opdracht_alternatieve_kandidaten_dagrange.md) doet
+# verifieer_ticker_met_prijs() een extra zoekopdracht zodra een ticker
+# degradeert naar "onzeker" mét een lege alternatieven-lijst (bv.
+# TestZekerheidOordeelMetMildeAfwijking's 71.3%-waarschuwingsgeval hieronder).
+# Module-breed op "niets gevonden" gepatcht zodat dat geen echte
+# yahooquery-call wordt; tests die deze extra zoekopdracht zelf willen
+# controleren patchen 'm lokaal opnieuw (zie test_alternatieve_kandidaten.py).
 _openfigi_patcher = None
+_yahoo_search_patcher = None
 
 
 def setUpModule():
-    global _openfigi_patcher
+    global _openfigi_patcher, _yahoo_search_patcher
+    _yahoo_search_patcher = patch.object(analysis, "_yahoo_search", return_value=[])
+    _yahoo_search_patcher.start()
     _openfigi_patcher = patch.object(
         analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
@@ -55,6 +67,7 @@ def setUpModule():
 
 def tearDownModule():
     _openfigi_patcher.stop()
+    _yahoo_search_patcher.stop()
 
 
 def _prijscheck(match, afwijking_pct=0.0, yahoo_koers=100.0, niveau=None):

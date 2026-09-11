@@ -74,6 +74,13 @@ body {
     height: 400px;
 }
 
+/* Scrollcontainer voor lange tabellen (bv. alle dividenduitkeringen) zodat
+   de pagina niet eindeloos lang wordt bij tientallen rijen. */
+.scrollbareTabel {
+    max-height: 420px;
+    overflow-y: auto;
+}
+
 label {
     display: block;
     margin-top: 15px;

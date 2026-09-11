@@ -3084,10 +3084,55 @@ def _land_sector_voor_weergave(ticker):
     return land, sector, None
 
 
+def _verzamel_extra_kandidaten(product, isin, bestaande_alternatieven, uitgesloten_ticker):
+    """
+    Extra, gerichte zoekopdracht naar mogelijke alternatieve tickers — alleen
+    gebruikt door verifieer_ticker_met_prijs() wanneer de kandidatenlijst uit
+    find_ticker_detailed() leeg is (zie de aanroep verderop). Die lijst is
+    namelijk geen eigen zoekopdracht naar alternatieven, maar simpelweg de
+    restlijst die toevallig al meekwam uit de zoekopdracht die de GEKOZEN
+    ticker vond — leverde die zoekopdracht daar maar 1 resultaat op (zoals
+    bij BYD: "BYD COMPANY LIMITED" vindt alleen 4BY1.F), dan is er niets om
+    te tonen, ook al staat de ticker op "Onzeker".
+
+    Zoekt op de VOLLEDIGE (niet-ingekorte) productnaam én op de ISIN, zonder
+    de beurs-beperking ('targets') die _zoek_product_progressief()/
+    _kies_beurs_match() al toepasten — juist om ook kandidaten op ANDERE
+    beurzen te vinden dan de oorspronkelijke zoekopdracht overwoog.
+
+    Sluit 'uitgesloten_ticker' (de al gekozen ticker) uit en dedupliceert op
+    'symbol', zowel onderling als tegen 'bestaande_alternatieven', zodat de
+    uiteindelijke lijst geen dubbele kandidaten bevat.
+
+    Geeft een lijst van {"symbol", "exchange"}-dicts terug, in hetzelfde
+    formaat als find_ticker_detailed()'s 'alternatieven' — rechtstreeks door
+    te geven aan _zoek_betere_alternatieven().
+    """
+    bekende_symbols = {uitgesloten_ticker} | {a.get("symbol") for a in bestaande_alternatieven}
+
+    extra = []
+    for query in (product, isin):
+        quotes = _yahoo_search(query)
+        for q in quotes:
+            symbol = q.get("symbol")
+            if not symbol or symbol in bekende_symbols:
+                continue
+            bekende_symbols.add(symbol)
+            extra.append({"symbol": symbol, "exchange": q.get("exchange")})
+
+    dprint(
+        f"[alternatieven] '{product}' ({isin}): extra zoekopdracht (zonder beurs-beperking) "
+        f"vond {len(extra)} nieuwe kandidaat/kandidaten: "
+        f"{[(e['symbol'], e['exchange']) for e in extra]}"
+    )
+    return extra
+
+
 def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_beurzen):
     """
     Rekent kandidaat-tickers (vorm {'symbol','exchange'}, zoals
-    find_ticker_detailed()'s 'alternatieven') één voor één door tegen de
+    find_ticker_detailed()'s 'alternatieven', eventueel aangevuld met
+    _verzamel_extra_kandidaten()'s resultaten) één voor één door tegen de
     prijssteekproef, en stopt zodra een kandidaat een overtuigende match
     oplevert (juiste beurs + alle steekproefdatums kloppen) — anders wordt
     de hele lijst doorgerekend. Geëxtraheerd uit verifieer_ticker_met_prijs()
@@ -3199,6 +3244,11 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     beoordelen (land/sector/valuta/... voor gekozen ticker + alternatieven),
     zodat de frontend niets zelf hoeft na te vragen.
 
+    'alternatieven' komt normaliter uit find_ticker_detailed()'s restlijst,
+    maar wordt aangevuld met een aparte, gerichte zoekopdracht
+    (_verzamel_extra_kandidaten()) als die restlijst leeg is — zie de
+    toelichting daar.
+
     Voegt op ELK return-pad ook een OpenFIGI-root-check toe (zie
     _voeg_openfigi_check_toe()) -- zelfde extra, ISIN-gebaseerde
     validatiesignaal als find_ticker_met_snelle_prijscheck(). Kost dankzij
@@ -3262,8 +3312,20 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     alternatieven = []
     aanbevolen_alternatief = None
     if zekerheid != "zeker":
+        alternatieven_kandidaten = list(basis["alternatieven"])
+        # 'alternatieven_kandidaten' is de restlijst van find_ticker_detailed()'s
+        # eigen zoekopdracht, niet een eigen zoekopdracht naar alternatieven —
+        # bij een lege lijst heeft _zoek_betere_alternatieven() dus niets om
+        # te beoordelen, ook al is de ticker "onzeker" (zie het BYD-geval in
+        # _verzamel_extra_kandidaten()'s docstring). Strikt op leeg (i.p.v.
+        # "klein aantal") gecheckt: zodra er al 1+ kandidaten zijn, heeft de
+        # pagina al iets te tonen en scheelt dit extra Yahoo-calls.
+        if not alternatieven_kandidaten:
+            alternatieven_kandidaten += _verzamel_extra_kandidaten(
+                product, isin, alternatieven_kandidaten, ticker
+            )
         alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
-            basis["alternatieven"], steekproef, verwachte_beurzen
+            alternatieven_kandidaten, steekproef, verwachte_beurzen
         )
 
     result = {
@@ -3806,8 +3868,8 @@ def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):
 def _koppel_valutaconversie_paren(df):
     """
     Bouwt de lijst van valutaconversie-'paren' uit een rekeningoverzicht:
-    een 'Valuta Debitering'-rij (vreemde valuta, negatief bedrag) en een
-    'Valuta Creditering'-rij (EUR, positief bedrag) die bij elkaar horen.
+    een 'Valuta Debitering'-rij en een 'Valuta Creditering'-rij die bij
+    elkaar horen.
 
     De koppeling gaat via een EXACT gelijke (Datum, Tijd) — DEGIRO boekt
     zo'n conversie altijd als twee rijen met identiek tijdstip. Dit is
@@ -3817,9 +3879,19 @@ def _koppel_valutaconversie_paren(df):
     afgewikkeld) — matchen op Valutadatum was precies de eerdere bug (zie
     verwerk_rekeningoverzicht).
 
-    Geeft een lijst van dicts terug: {datum, tijd, valuta, vreemd_bedrag
-    (positief), eur_bedrag (positief), gebruikt (bool, wordt True gezet
-    zodra een dividendgroep hem claimt)}.
+    Normaliter is de Debitering-rij de vreemde valuta (negatief) en de
+    Creditering-rij EUR (positief) — de normale dividend-conversie (vreemd
+    -> EUR). Maar soms wisselt DEGIRO de andere kant op: EUR -> vreemd, bv.
+    om een buitenlandse dividendbelasting te dekken die niet uit een eerder
+    ontvangen vreemde-valuta-dividend betaald kon worden. Dan is juist de
+    Debitering-rij EUR. Dit paar bepaalt daarom zelf, per rij, welke van de
+    twee EUR is (ongeacht Debitering/Creditering) i.p.v. dat aan te nemen.
+
+    Geeft een lijst van dicts terug: {datum, tijd, valuta (de vreemde
+    valuta), vreemd_bedrag (positief), eur_bedrag (het bedrag van de
+    EUR-rij MET teken: positief als EUR is bijgeschreven — vreemd->EUR —
+    negatief als EUR is afgeschreven — EUR->vreemd), gebruikt (bool, wordt
+    True gezet zodra een dividendgroep hem claimt)}.
     """
     fx_rows = df[df["Omschrijving"].isin(["Valuta Debitering", "Valuta Creditering"])]
     paren = []
@@ -3832,12 +3904,16 @@ def _koppel_valutaconversie_paren(df):
             continue
         deb = debitering.iloc[0]
         cred = creditering.iloc[0]
+        if deb["valuta_mutatie"] == "EUR":
+            eur_rij, vreemd_rij = deb, cred
+        else:
+            eur_rij, vreemd_rij = cred, deb
         paar = {
             "datum": datum,
             "tijd": tijd,
-            "valuta": deb["valuta_mutatie"],
-            "vreemd_bedrag": abs(float(deb["mutatie"])),
-            "eur_bedrag": float(cred["mutatie"]),
+            "valuta": vreemd_rij["valuta_mutatie"],
+            "vreemd_bedrag": abs(float(vreemd_rij["mutatie"])),
+            "eur_bedrag": float(eur_rij["mutatie"]),
             "gebruikt": False,
         }
         paren.append(paar)
@@ -3866,6 +3942,35 @@ def _match_valutaconversie(paren, valuta, netto_ruw, datum, tolerantie=0.02):
     return gekozen
 
 
+DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3
+# Hoeveel dagen twee opeenvolgende (op datum gesorteerde) ongematchte
+# dividendgroepen uit elkaar mogen liggen om nog in dezelfde STAP-A-pool
+# te vallen (zie verwerk_rekeningoverzicht_df). Bewust ruim genoeg voor
+# DeGiro's afwikkeltiming (dividend -> conversie is meestal 1 dag), maar
+# begrensd zodat losstaande dividenden van weken uit elkaar niet per
+# ongeluk samengevoegd worden.
+
+
+def _clusters_binnen_venster(items, max_dagen):
+    """Groepeert 'items' (dicts met een 'datum'-sleutel) in clusters van
+    opeenvolgende (op datum gesorteerde) items, waarbij het verschil
+    tussen twee opeenvolgende datums binnen een cluster niet groter is dan
+    'max_dagen'. Gebruikt door STAP A hieronder om per valuta alleen
+    dividendgroepen te poolen die qua datum dicht genoeg bij elkaar
+    liggen."""
+    items_gesorteerd = sorted(items, key=lambda x: x["datum"])
+    clusters = []
+    huidig = []
+    for item in items_gesorteerd:
+        if huidig and (item["datum"] - huidig[-1]["datum"]).days > max_dagen:
+            clusters.append(huidig)
+            huidig = []
+        huidig.append(item)
+    if huidig:
+        clusters.append(huidig)
+    return clusters
+
+
 def verwerk_rekeningoverzicht_df(df):
     """
     Doet het eigenlijke werk van verwerk_rekeningoverzicht() op een AL
@@ -3878,29 +3983,55 @@ def verwerk_rekeningoverzicht_df(df):
 
     Per dividenduitkering (gegroepeerd op Datum+ISIN, want correcties/
     meerdere boekingen voor dezelfde uitkering delen dezelfde Datum):
-    - alle 'Dividend'- en 'Dividendbelasting'-rijen worden genet (inclusief
-      eventuele negatieve correctierijen) tot één bedrag in de eigen valuta
+    - alle 'Dividend'-, 'Dividend Herinvestering'- en 'Dividendbelasting'-
+      rijen worden genet (inclusief eventuele negatieve correctierijen) tot
+      één bruto- en één belastingbedrag in de eigen valuta. Een 'Dividend
+      Herinvestering'-rij heft het bijbehorende 'Dividend'-bedrag geheel of
+      gedeeltelijk op (automatisch herbelegd i.p.v. uitgekeerd) — het
+      record krijgt een 'herinvesteerd'-vlag zodat de frontend kan tonen
+      *waarom* een bedrag klein/nul/negatief is.
     - is die valuta EUR, dan is dat meteen het EUR-bedrag
-    - is die valuta NIET EUR, dan wordt het GEKOPPELDE 'Valuta Creditering'-
-      bedrag gebruikt (via _match_valutaconversie) — NIET een eigen
-      FX-herberekening. Bruto/belasting worden naar rato van hun aandeel in
-      het netto ruwe bedrag verdeeld over dat EUR-bedrag, zodat bruto_eur +
-      belasting_eur altijd optelt tot netto_eur.
-    - is er geen gekoppeld conversieparen gevonden, dan blijven bruto_eur/
+    - is die valuta NIET EUR, dan wordt EERST geprobeerd deze ÉÉN groep
+      1-op-1 te koppelen aan een 'Valuta Debitering'/'Valuta Creditering'-
+      paar (via _match_valutaconversie) — NIET een eigen FX-herberekening.
+      Lukt dat niet, dan is er een TWEEDE ronde (STAP A hieronder): DeGiro
+      boekt soms meerdere dividenden van dezelfde dag/valuta samen in ÉÉN
+      conversie (bv. twee ETF-uitkeringen dezelfde dag) — dan wordt zo'n
+      conversie nooit door de 1-op-1 match gevonden. Alle nog ongematchte
+      groepen per valuta worden daarom geclusterd (zie
+      _clusters_binnen_venster, max DIVIDEND_POOL_MAX_DAGEN_VERSCHIL dagen
+      uit elkaar) en als cluster (som van hun netto ruwe bedragen) alsnog
+      tegen een ongebruikt conversiepaar geprobeerd. Bij een match wordt
+      het EUR-bedrag van het paar proportioneel verdeeld over de
+      deelnemende groepen naar rato van hun eigen aandeel in de pool-som.
+      In beide rondes worden bruto/belasting naar rato van hun eigen aandeel
+      in het (groeps- of pool-)netto ruwe bedrag verdeeld over het
+      gevonden EUR-bedrag, zodat bruto_eur + belasting_eur altijd optelt
+      tot netto_eur.
+    - is er ook na STAP A geen conversie gevonden, dan blijven bruto_eur/
       belasting_eur/netto_eur expliciet None ('onbekend') — nooit een gok.
     """
     conversie_paren = _koppel_valutaconversie_paren(df)
 
-    dividend_rows = df[df["Omschrijving"].isin(["Dividend", "Dividendbelasting"])]
-    # print(f"[dividend-debug] {len(dividend_rows)} ruwe Dividend/Dividendbelasting-rij(en) gevonden")
+    dividend_rows = df[df["Omschrijving"].isin(
+        ["Dividend", "Dividend Herinvestering", "Dividendbelasting"]
+    )]
+    # print(f"[dividend-debug] {len(dividend_rows)} ruwe Dividend/Dividend Herinvestering/"
+          # f"Dividendbelasting-rij(en) gevonden")
     for _, r in dividend_rows.iterrows():
         pass
         # print(f"[dividend-debug]   {r['Datum'].date()} | {r['Omschrijving']} | {r.get('Product')} | "
               # f"{r['mutatie']} {r['valuta_mutatie']}")
 
-    records = []
+    herinvesteerd_keys = {
+        (datum, isin) for datum, isin in
+        df.loc[df["Omschrijving"] == "Dividend Herinvestering", ["Datum", "ISIN"]]
+        .itertuples(index=False, name=None)
+    }
+
+    tussenresultaten = []
     for (datum, isin), groep in dividend_rows.groupby(["Datum", "ISIN"]):
-        bruto_rijen = groep[groep["Omschrijving"] == "Dividend"]
+        bruto_rijen = groep[groep["Omschrijving"].isin(["Dividend", "Dividend Herinvestering"])]
         belasting_rijen = groep[groep["Omschrijving"] == "Dividendbelasting"]
 
         product = groep["Product"].iloc[0]
@@ -3909,10 +4040,12 @@ def verwerk_rekeningoverzicht_df(df):
         bruto_ruw = float(bruto_rijen["mutatie"].sum()) if not bruto_rijen.empty else 0.0
         belasting_ruw = float(belasting_rijen["mutatie"].sum()) if not belasting_rijen.empty else 0.0
         netto_ruw = bruto_ruw + belasting_ruw
+        herinvesteerd = (datum, isin) in herinvesteerd_keys
 
         # print(f"[dividend-debug] groep {datum.date()} / {isin} ({product}): "
-              # f"{len(bruto_rijen)}x Dividend + {len(belasting_rijen)}x Dividendbelasting -> "
-              # f"netto {netto_ruw:.2f} {valuta} (bruto {bruto_ruw:.2f}, belasting {belasting_ruw:.2f})")
+              # f"{len(bruto_rijen)}x Dividend/Dividend Herinvestering + {len(belasting_rijen)}x "
+              # f"Dividendbelasting -> netto {netto_ruw:.2f} {valuta} (bruto {bruto_ruw:.2f}, "
+              # f"belasting {belasting_ruw:.2f}, herinvesteerd={herinvesteerd})")
 
         if valuta == "EUR":
             bruto_eur, belasting_eur, netto_eur = bruto_ruw, belasting_ruw, netto_ruw
@@ -3921,8 +4054,8 @@ def verwerk_rekeningoverzicht_df(df):
             match = _match_valutaconversie(conversie_paren, valuta, netto_ruw, datum)
             if match is None:
                 bruto_eur = belasting_eur = netto_eur = None
-                # print(f"[dividend-debug]   ❌ GEEN valutaconversie-paar gevonden voor {netto_ruw:.2f} {valuta} "
-                      # f"— netto_eur=None, deze uitkering wordt niet meegeteld in de totalen")
+                # print(f"[dividend-debug]   ❌ geen 1-op-1 valutaconversie-paar gevonden voor "
+                      # f"{netto_ruw:.2f} {valuta} — probeer STAP A (gepoold) hierna")
             else:
                 netto_eur = match["eur_bedrag"]
                 if netto_ruw != 0:
@@ -3940,16 +4073,68 @@ def verwerk_rekeningoverzicht_df(df):
             f"{datum.date()}|{isin}|{bruto_ruw:.6f}|{belasting_ruw:.6f}".encode()
         ).hexdigest()[:16]
 
-        records.append({
-            "datum": datum.date(),
+        tussenresultaten.append({
+            "datum": datum,
             "product": product,
             "isin": isin,
             "valuta": valuta,
+            "bruto_ruw": bruto_ruw,
+            "belasting_ruw": belasting_ruw,
+            "netto_ruw": netto_ruw,
             "bruto_eur": bruto_eur,
             "belasting_eur": belasting_eur,
             "netto_eur": netto_eur,
             "dividend_id": dividend_id,
+            "herinvesteerd": herinvesteerd,
         })
+
+    # STAP A — gepoolde valutaconversie (zie docstring hierboven). Alleen
+    # groepen die na de 1-op-1 ronde nog geen netto_eur hebben, gegroepeerd
+    # per valuta en geclusterd op datumnabijheid.
+    onopgelost_per_valuta = {}
+    for r in tussenresultaten:
+        if r["valuta"] != "EUR" and r["netto_eur"] is None:
+            onopgelost_per_valuta.setdefault(r["valuta"], []).append(r)
+
+    for valuta, items in onopgelost_per_valuta.items():
+        for cluster in _clusters_binnen_venster(items, DIVIDEND_POOL_MAX_DAGEN_VERSCHIL):
+            if len(cluster) < 2:
+                # Een cluster van 1 is exact dezelfde poging als de al
+                # mislukte 1-op-1 match hierboven — niets te winnen.
+                continue
+            som_netto_ruw = sum(item["netto_ruw"] for item in cluster)
+            referentiedatum = max(item["datum"] for item in cluster)
+            match = _match_valutaconversie(conversie_paren, valuta, som_netto_ruw, referentiedatum)
+            if match is None:
+                # print(f"[dividend-debug]   ❌ STAP A: geen conversie gevonden voor pool van "
+                      # f"{len(cluster)} groep(en), som {som_netto_ruw:.2f} {valuta}")
+                continue
+            for item in cluster:
+                aandeel = (item["netto_ruw"] / som_netto_ruw) if som_netto_ruw != 0 else 0.0
+                item["netto_eur"] = match["eur_bedrag"] * aandeel
+                if item["netto_ruw"] != 0:
+                    item["bruto_eur"] = item["netto_eur"] * (item["bruto_ruw"] / item["netto_ruw"])
+                    item["belasting_eur"] = item["netto_eur"] * (item["belasting_ruw"] / item["netto_ruw"])
+                else:
+                    item["bruto_eur"] = item["belasting_eur"] = 0.0
+                # print(f"[dividend-debug]   ✓ STAP A: groep {item['datum'].date()} / {item['isin']} "
+                      # f"gepoold gematcht -> netto_eur=€{item['netto_eur']:.2f} "
+                      # f"(aandeel {aandeel:.1%} van pool €{match['eur_bedrag']:.2f})")
+
+    records = [
+        {
+            "datum": r["datum"].date(),
+            "product": r["product"],
+            "isin": r["isin"],
+            "valuta": r["valuta"],
+            "bruto_eur": r["bruto_eur"],
+            "belasting_eur": r["belasting_eur"],
+            "netto_eur": r["netto_eur"],
+            "dividend_id": r["dividend_id"],
+            "herinvesteerd": r["herinvesteerd"],
+        }
+        for r in tussenresultaten
+    ]
 
     totaal = sum(r["netto_eur"] for r in records if r["netto_eur"] is not None)
     # print(f"[dividend-debug] TOTAAL: {len(records)} dividendgroep(en), "
@@ -4063,6 +4248,7 @@ def bereken_dividend_samenvatting(code):
                 "bruto_eur": round(d["bruto_eur"], 2) if d["bruto_eur"] is not None else None,
                 "belasting_eur": round(d["belasting_eur"], 2) if d["belasting_eur"] is not None else None,
                 "netto_eur": round(d["netto_eur"], 2) if d["netto_eur"] is not None else None,
+                "herinvesteerd": d.get("herinvesteerd", False),
             }
             for d in dividenden
         ),

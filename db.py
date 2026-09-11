@@ -164,6 +164,10 @@ def init_db():
             UNIQUE (code, dividend_id)
         );
     """)
+    # 'herinvesteerd' kwam later bij (Dividend Herinvestering-rijen meetellen,
+    # zie CLAUDE.md) -- zelfde migratiepatroon als transactiekosten/tijd
+    # hierboven, bestaande (Neon-)tabellen missen deze kolom dus nog.
+    cur.execute("ALTER TABLE dividenden ADD COLUMN IF NOT EXISTS herinvesteerd BOOLEAN DEFAULT FALSE;")
     conn.commit()
     cur.close()
     conn.close()
@@ -632,14 +636,15 @@ def save_dividenden(code, records):
     cur = conn.cursor()
     execute_values(
         cur,
-        "INSERT INTO dividenden (code, dividend_id, datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur) "
+        "INSERT INTO dividenden (code, dividend_id, datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd) "
         "VALUES %s ON CONFLICT (code, dividend_id) DO UPDATE SET "
         "datum = EXCLUDED.datum, product = EXCLUDED.product, isin = EXCLUDED.isin, "
         "valuta = EXCLUDED.valuta, bruto_eur = EXCLUDED.bruto_eur, "
-        "belasting_eur = EXCLUDED.belasting_eur, netto_eur = EXCLUDED.netto_eur",
+        "belasting_eur = EXCLUDED.belasting_eur, netto_eur = EXCLUDED.netto_eur, "
+        "herinvesteerd = EXCLUDED.herinvesteerd",
         [
             (code, r["dividend_id"], r["datum"], r["product"], r["isin"], r["valuta"],
-             r["bruto_eur"], r["belasting_eur"], r["netto_eur"])
+             r["bruto_eur"], r["belasting_eur"], r["netto_eur"], r.get("herinvesteerd", False))
             for r in records
         ],
     )
@@ -656,7 +661,7 @@ def get_dividenden(code):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur "
+        "SELECT datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd "
         "FROM dividenden WHERE code = %s ORDER BY datum",
         (code,),
     )
@@ -672,8 +677,9 @@ def get_dividenden(code):
             "bruto_eur": float(bruto_eur) if bruto_eur is not None else None,
             "belasting_eur": float(belasting_eur) if belasting_eur is not None else None,
             "netto_eur": float(netto_eur) if netto_eur is not None else None,
+            "herinvesteerd": bool(herinvesteerd),
         }
-        for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur in rows
+        for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd in rows
     ]
     aantal_bekend = sum(1 for r in resultaat if r["netto_eur"] is not None)
     # print(f"[dividend-debug] get_dividenden: code='{code}', {len(resultaat)} rij(en) opgehaald "
