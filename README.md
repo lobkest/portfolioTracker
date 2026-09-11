@@ -6,9 +6,8 @@ dashboard kunt terugzien zonder opnieuw te hoeven uploaden. De app
 analyseert de data (rendement, verdeling ETF/aandeel, land/sector, dividend,
 per-aandeel-detail) en toont dit interactief.
 
-Oorspronkelijk gestart als leerproject (vervolg op een eerdere Squat
-Tracker-oefening) om Python (Flask) en JavaScript beter te leren, inmiddels
-uitgegroeid tot een substantiële, in productie draaiende persoonlijke
+Oorspronkelijk gestart als leerproject om Python (Flask) en JavaScript beter te leren, inmiddels
+uitgegroeid tot een substantiële persoonlijke
 portfoliotool.
 
 ## Werkwijze: agentic coding
@@ -22,7 +21,7 @@ Belangrijk om te vermelden: **het domeinmodel, de architectuurkeuzes en de
 kernlogica van de backend (databasestructuur, analysestappen, hoe
 transacties/koersen/rendement met elkaar samenhangen) zijn door mijzelf
 bedacht en uitgedacht.** De agent implementeert, schrijft tests en helpt bij
-debugging binnen dat kader — niet andersom. Elke wijziging wordt lokaal in
+debugging binnen dat kader, niet andersom. Elke wijziging wordt lokaal in
 VS Code bekeken en pas na eigen review handmatig gecommit en gepusht.
 
 ## Tech stack
@@ -73,7 +72,7 @@ portfolioTracker/
 ```
 
 `class_degiro.py` en `trading_degiro.py` zijn de oude, niet-actief-gebruikte
-scripts van vóór dit project — puur relevant als referentiemateriaal voor
+scripts van vóór dit full-stack project, puur relevant als referentiemateriaal voor
 hoe bepaalde berekeningen (split-correctie, dividend, XIRR) oorspronkelijk
 zijn aangepakt.
 
@@ -110,26 +109,11 @@ zijn aangepakt.
 
 - DEGIRO-Excel-quirk: Order ID-kolomkop staat door merged cells één kolom
   verschoven t.o.v. de waarden — vereist een aparte openpyxl-doorloop
-- Ticker-koppeling per **(ISIN, Beurs)**, niet per ISIN alleen — anders
+- Ticker-koppeling per **(ISIN, Beurs)**, niet per ISIN alleen, anders
   vervuilt de ene notering van een fonds de prijscontrole van de andere
 - Postgres `NUMERIC` moet expliciet naar `float` gecast worden vóór
   berekeningen
-- NaN-koersen worden overgeslagen i.p.v. meegenomen in `sum()`
 - Stock-splits worden door DEGIRO als NON TRADEABLE-rijen geboekt en moeten
   apart gecorrigeerd worden
-- yfinance's ISIN-lookup heeft een zeer lage matchrate — OpenFIGI is
+- yfinance's ISIN-lookup heeft een zeer lage matchrate. OpenFIGI is
   betrouwbaarder voor ISIN-naar-ticker-validatie
-
-## Setup (lokaal)
-
-1. Python-omgeving met `python -m pip install -r requirements.txt`
-2. `.env` met `DATABASE_URL` naar een Postgres-instance (Neon)
-3. `python app.py` (let op: `init_db()` draait ook buiten
-   `__main__`-context, i.v.m. gunicorn/WSGI)
-4. Windows: gebruik `cmd`, niet PowerShell, voor consistentie met de
-   projectconventies
-
-## Licentie / status
-
-Privéproject, niet publiek gedeeld. Repo: `lobkest/portfolioTracker`
-(privé).
