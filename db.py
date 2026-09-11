@@ -645,8 +645,8 @@ def save_dividenden(code, records):
     )
     conn.commit()
     aantal_bekend = sum(1 for r in records if r["netto_eur"] is not None)
-    print(f"[dividend-debug] save_dividenden: code='{code}', {len(records)} record(s) ge-upsert "
-          f"({aantal_bekend} met een bekende netto_eur, {len(records) - aantal_bekend} met netto_eur=None)")
+    # print(f"[dividend-debug] save_dividenden: code='{code}', {len(records)} record(s) ge-upsert "
+          # f"({aantal_bekend} met een bekende netto_eur, {len(records) - aantal_bekend} met netto_eur=None)")
     cur.close()
     conn.close()
 
@@ -676,8 +676,8 @@ def get_dividenden(code):
         for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur in rows
     ]
     aantal_bekend = sum(1 for r in resultaat if r["netto_eur"] is not None)
-    print(f"[dividend-debug] get_dividenden: code='{code}', {len(resultaat)} rij(en) opgehaald "
-          f"({aantal_bekend} met een bekende netto_eur, {len(resultaat) - aantal_bekend} met netto_eur=None)")
+    # print(f"[dividend-debug] get_dividenden: code='{code}', {len(resultaat)} rij(en) opgehaald "
+          # f"({aantal_bekend} met een bekende netto_eur, {len(resultaat) - aantal_bekend} met netto_eur=None)")
     return resultaat
 
 
