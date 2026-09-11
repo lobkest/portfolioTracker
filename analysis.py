@@ -39,7 +39,8 @@ def meet_tijd(label):
     try:
         yield
     finally:
-        print(f"[timing] {label}: {time.time() - start:.2f}s")
+        pass
+        # print(f"[timing] {label}: {time.time() - start:.2f}s")
 
 
 # Telt individuele Yahoo-calls (yfinance + yahooquery) per type, voor de
@@ -70,7 +71,7 @@ def log_yahoo_call_samenvatting():
     with _yahoo_call_lock:
         samenvatting = dict(_yahoo_call_teller)
     totaal = sum(samenvatting.values())
-    print(f"[timing] Yahoo-calls deze upload: {totaal} totaal -> {samenvatting}")
+    # print(f"[timing] Yahoo-calls deze upload: {totaal} totaal -> {samenvatting}")
 
 
 # Drempels voor de prijscontrole op de Ticker-zekerheid-pagina (zie
@@ -517,8 +518,8 @@ def _vertaal_land_nl(land):
     duidelijk dat NL_LAND_VERTALING aangevuld moet worden."""
     if land in NL_LAND_VERTALING:
         return NL_LAND_VERTALING[land]
-    print(f"[etf-holdings-provider] ⚠️ onbekende Nederlandse landnaam '{land}' — "
-          f"NL_LAND_VERTALING aanvullen, blijft voor nu onvertaald staan")
+    # print(f"[etf-holdings-provider] ⚠️ onbekende Nederlandse landnaam '{land}' — "
+          # f"NL_LAND_VERTALING aanvullen, blijft voor nu onvertaald staan")
     return land
 
 
@@ -683,7 +684,7 @@ def fetch_provider_holdings(etf_ticker):
     locale = bron.get("locale", "en")
     parser = _PROVIDER_PARSERS.get(provider)
     if parser is None:
-        print(f"[etf-holdings-provider] ❌ onbekende provider '{provider}' voor '{etf_ticker}'")
+        # print(f"[etf-holdings-provider] ❌ onbekende provider '{provider}' voor '{etf_ticker}'")
         return None
 
     try:
@@ -691,23 +692,24 @@ def fetch_provider_holdings(etf_ticker):
         response.raise_for_status()
         holdings = parser(response.content, locale=locale)
     except Exception as e:
-        print(f"[etf-holdings-provider] ❌ kon holdings niet ophalen/parsen voor '{etf_ticker}' "
-              f"(provider={provider}, url={url}): {e}")
+        # print(f"[etf-holdings-provider] ❌ kon holdings niet ophalen/parsen voor '{etf_ticker}' "
+              # f"(provider={provider}, url={url}): {e}")
         return None
 
     if not holdings:
-        print(f"[etf-holdings-provider] ⚠️ lege holdings-lijst voor '{etf_ticker}' (provider={provider})")
+        # print(f"[etf-holdings-provider] ⚠️ lege holdings-lijst voor '{etf_ticker}' (provider={provider})")
         return None
 
     aantal_voor_dedup = len(holdings)
     holdings = _dedupliceer_holdings(holdings)
     if len(holdings) != aantal_voor_dedup:
-        print(f"[etf-holdings-provider] '{etf_ticker}': {aantal_voor_dedup - len(holdings)} "
-              f"dubbele holding-naam/namen samengevoegd ({aantal_voor_dedup} -> {len(holdings)})")
+        pass
+        # print(f"[etf-holdings-provider] '{etf_ticker}': {aantal_voor_dedup - len(holdings)} "
+              # f"dubbele holding-naam/namen samengevoegd ({aantal_voor_dedup} -> {len(holdings)})")
 
     totaal_gewicht = sum(h["gewicht"] for h in holdings)
-    print(f"[etf-holdings-provider] '{etf_ticker}': {len(holdings)} holdings opgehaald via {provider}, "
-          f"totaal gewicht {totaal_gewicht:.1f}%")
+    # print(f"[etf-holdings-provider] '{etf_ticker}': {len(holdings)} holdings opgehaald via {provider}, "
+          # f"totaal gewicht {totaal_gewicht:.1f}%")
     return holdings
 
 
@@ -726,18 +728,19 @@ def test_holdings_url(url, provider, locale="en"):
     """
     parser = _PROVIDER_PARSERS.get(provider)
     if parser is None:
-        print(f"[test-holdings-url] onbekende provider '{provider}', kies uit: {list(_PROVIDER_PARSERS)}")
+        # print(f"[test-holdings-url] onbekende provider '{provider}', kies uit: {list(_PROVIDER_PARSERS)}")
         return None
 
     response = requests.get(url, headers={"User-Agent": _PROVIDER_USER_AGENT}, timeout=30)
     response.raise_for_status()
     holdings = parser(response.content, locale=locale)
 
-    print(f"[test-holdings-url] {len(holdings)} holdings gevonden")
-    print(f"[test-holdings-url] som van gewichten: {sum(h['gewicht'] for h in holdings):.2f}%")
-    print("[test-holdings-url] eerste 5 rijen:")
+    # print(f"[test-holdings-url] {len(holdings)} holdings gevonden")
+    # print(f"[test-holdings-url] som van gewichten: {sum(h['gewicht'] for h in holdings):.2f}%")
+    # print("[test-holdings-url] eerste 5 rijen:")
     for h in holdings[:5]:
-        print("  ", h)
+        pass
+        # print("  ", h)
     return holdings
 
 
@@ -782,10 +785,11 @@ def compute_split_adjusted_shares(transacties_df):
             # vanaf hier niet meer) en hoort daarom net zo zichtbaar te zijn
             # als de andere ⚠️-waarschuwingen elders in het project, i.p.v.
             # alleen zichtbaar met debug-logging aan.
-            print(f"[split-detect]   ⚠️ GEEN conversion-rij gevonden (real trade met koers=0 en "
-                  f"aantal>0) ondanks {len(ca_rows)} corporate-action rij(en) voor ISIN={isin} "
-                  f"('{product_naam}') — deze split wordt NIET verwerkt! Aandelenaantal/rendement "
-                  f"voor '{product_naam}' klopt dan niet vanaf hier.")
+            pass
+            # print(f"[split-detect]   ⚠️ GEEN conversion-rij gevonden (real trade met koers=0 en "
+                  # f"aantal>0) ondanks {len(ca_rows)} corporate-action rij(en) voor ISIN={isin} "
+                  # f"('{product_naam}') — deze split wordt NIET verwerkt! Aandelenaantal/rendement "
+                  # f"voor '{product_naam}' klopt dan niet vanaf hier.")
 
         for _, conv in conversion_rows.iterrows():
             conv_date = conv["datum"]
@@ -807,8 +811,8 @@ def compute_split_adjusted_shares(transacties_df):
                 continue
 
             ratio = (shares_before + new_shares) / shares_before
-            print(f"[split] {isin} ('{product_naam}'): split gedetecteerd op {conv_date}, "
-                  f"{shares_before:.4f} -> {shares_before + new_shares:.4f} (ratio {ratio:.4f}x)")
+            # print(f"[split] {isin} ('{product_naam}'): split gedetecteerd op {conv_date}, "
+                  # f"{shares_before:.4f} -> {shares_before + new_shares:.4f} (ratio {ratio:.4f}x)")
 
             mask = (
                 (df["isin"] == isin)
@@ -1025,7 +1029,7 @@ def find_ticker_detailed(product, isin, beurs):
         symbol, zekerheid, alternatieven = beste
         return {"ticker": symbol, "zekerheid": zekerheid, "alternatieven": alternatieven}
 
-    print(f"[ticker] ❌ GEEN ticker gevonden voor '{product}' (ISIN={isin}, beurs={beurs})")
+    # print(f"[ticker] ❌ GEEN ticker gevonden voor '{product}' (ISIN={isin}, beurs={beurs})")
     return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
 
 
@@ -1280,8 +1284,8 @@ def _met_rate_limit_retry(actie, log_prefix, beschrijving,
         except Exception as e:
             if _is_rate_limit_fout(e) and poging < pogingen:
                 wacht = wachttijd * poging
-                print(f"[{log_prefix}] rate limited voor {beschrijving} (poging {poging}/{pogingen}), "
-                      f"{wacht}s wachten...")
+                # print(f"[{log_prefix}] rate limited voor {beschrijving} (poging {poging}/{pogingen}), "
+                      # f"{wacht}s wachten...")
                 time.sleep(wacht)
                 continue
             return None, e
@@ -1314,11 +1318,11 @@ def download_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOAD_POGING
             _tel_yahoo_call("yf.download")
             return yf.download(ticker_of_pair, start=start_date, auto_adjust=True, progress=False)["Close"]
         except Exception as e:
-            print(f"[koersen] poging {poging}/{pogingen} mislukt voor {ticker_of_pair}: {e}")
+            # print(f"[koersen] poging {poging}/{pogingen} mislukt voor {ticker_of_pair}: {e}")
             if poging < pogingen:
                 time.sleep(wachttijd)
             else:
-                print(f"[koersen] definitief mislukt voor {ticker_of_pair}, sla over")
+                # print(f"[koersen] definitief mislukt voor {ticker_of_pair}, sla over")
                 return pd.Series(dtype=float)
 
 
@@ -1404,10 +1408,10 @@ def get_prices(tickers, start_date):
         # kleine marge voor weekenden/feestdagen rond de gevraagde startdatum
         if eerste > start_date + pd.Timedelta(days=5):
             missing.append(t)
-            print(f"[koersen] ⚠️ '{t}' zit in cache maar pas vanaf {eerste.date()}, terwijl "
-                  f"vanaf {start_date.date()} nodig is — cache lijkt incompleet (eerdere "
-                  f"download waarschijnlijk mislukt/afgebroken), wordt opnieuw volledig "
-                  f"gedownload")
+            # print(f"[koersen] ⚠️ '{t}' zit in cache maar pas vanaf {eerste.date()}, terwijl "
+                  # f"vanaf {start_date.date()} nodig is — cache lijkt incompleet (eerdere "
+                  # f"download waarschijnlijk mislukt/afgebroken), wordt opnieuw volledig "
+                  # f"gedownload")
             continue
         # Was: alleen verversen als de cache >4 dagen achterloopt. Nu: bij
         # ELKE portfolio-opening verversen (zie CLAUDE.md, "koersen bij
@@ -1428,9 +1432,9 @@ def get_prices(tickers, start_date):
                    f"(bij elke opening, tenzij <2 min geleden al ververst)")
 
     cache_hits = len(tickers) - len(missing) - len(stale)
-    print(f"[koersen] cache-samenvatting: {cache_hits} ticker(s) volledig uit cache, "
-          f"{len(missing)} nieuw te downloaden, {len(stale)} incrementeel te verversen "
-          f"(totaal {len(tickers)} gevraagd)")
+    # print(f"[koersen] cache-samenvatting: {cache_hits} ticker(s) volledig uit cache, "
+          # f"{len(missing)} nieuw te downloaden, {len(stale)} incrementeel te verversen "
+          # f"(totaal {len(tickers)} gevraagd)")
 
     if missing:
         with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
@@ -1441,8 +1445,8 @@ def get_prices(tickers, start_date):
 
             for t in missing:
                 if t not in raw.columns:
-                    print(f"[koersen] ⚠️ '{t}' zit niet in yfinance-download resultaat "
-                          f"(mogelijk ongeldige/onbekende ticker)")
+                    # print(f"[koersen] ⚠️ '{t}' zit niet in yfinance-download resultaat "
+                          # f"(mogelijk ongeldige/onbekende ticker)")
                     continue
                 eerste_ruw = raw[t].first_valid_index()
                 dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
@@ -1501,15 +1505,16 @@ def get_prices(tickers, start_date):
 
     for t in tickers:
         if t not in pivot.columns:
-            print(f"[koersen] ❌ GEEN data gevonden voor ticker {t} (helemaal niet in pivot)")
+            # print(f"[koersen] ❌ GEEN data gevonden voor ticker {t} (helemaal niet in pivot)")
             continue
         eerste_geldige = pivot[t].first_valid_index()
         dprint(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
         if eerste_geldige is not None and pd.Timestamp(eerste_geldige) > pd.Timestamp(start_date) + pd.Timedelta(days=10):
-            print(f"[koersen] ⚠️ {t}: eerste geldige koers ({eerste_geldige}) ligt >10 dagen na "
-                  f"gevraagde startdatum ({start_date}) — 'waarde' voor deze ticker zal 0 zijn vóór "
-                  f"die datum, terwijl 'geïnvesteerd' wel al kan oplopen. Vaak een teken van een "
-                  f"verkeerde/onvolledige ticker.")
+            pass
+            # print(f"[koersen] ⚠️ {t}: eerste geldige koers ({eerste_geldige}) ligt >10 dagen na "
+                  # f"gevraagde startdatum ({start_date}) — 'waarde' voor deze ticker zal 0 zijn vóór "
+                  # f"die datum, terwijl 'geïnvesteerd' wel al kan oplopen. Vaak een teken van een "
+                  # f"verkeerde/onvolledige ticker.")
 
     return pivot
 
@@ -1601,7 +1606,8 @@ def compute_value_over_time(transacties_df, price_data):
 
     ontbrekend = [t for t in transacties_df["ticker"].unique() if t not in price_data.columns]
     if ontbrekend:
-        print(f"[waarde] ⚠️ tickers zonder koersdata, worden genegeerd in totale waarde: {ontbrekend}")
+        pass
+        # print(f"[waarde] ⚠️ tickers zonder koersdata, worden genegeerd in totale waarde: {ontbrekend}")
 
     if not price_data.empty:
         laatste_koersdatum = price_data.index.max()
@@ -1646,9 +1652,10 @@ def compute_per_ticker(transacties_df, price_data):
         laatste_koersdatum = price_data.index.max()
         na_laatste_koers = transacties_df[pd.to_datetime(transacties_df["datum"]) > laatste_koersdatum]
         if not na_laatste_koers.empty:
-            print(f"[per-ticker] ⚠️ {len(na_laatste_koers)} transactie(s) met datum ná de laatste "
-                  f"beschikbare koersdatum ({laatste_koersdatum.date()}) — deze tellen NIET mee "
-                  f"in de per-ticker-tijdreeks. Mogelijk is de koersencache verouderd.")
+            pass
+            # print(f"[per-ticker] ⚠️ {len(na_laatste_koers)} transactie(s) met datum ná de laatste "
+                  # f"beschikbare koersdatum ({laatste_koersdatum.date()}) — deze tellen NIET mee "
+                  # f"in de per-ticker-tijdreeks. Mogelijk is de koersencache verouderd.")
 
     result = {}
     for ticker in tickers:
@@ -1946,7 +1953,7 @@ def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WA
 
     info, fout = _met_rate_limit_retry(_actie, "yf-info", f"'{ticker}'", pogingen, wachttijd)
     if fout is not None:
-        print(f"[yf-info] ❌ kon info niet ophalen voor '{ticker}': {fout}")
+        # print(f"[yf-info] ❌ kon info niet ophalen voor '{ticker}': {fout}")
         return None
     return info
 
@@ -1984,9 +1991,9 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
             category is not None,
         ]
         is_etf = sum(signals) >= 2
-        print(f"[classify] ⚠️ quoteType onbekend voor '{ticker}', gok ETF={is_etf} "
-              f"(country={country}, sector={sector}, totalAssets={total_assets}, "
-              f"fundFamily={fund_family}, category={category})")
+        # print(f"[classify] ⚠️ quoteType onbekend voor '{ticker}', gok ETF={is_etf} "
+              # f"(country={country}, sector={sector}, totalAssets={total_assets}, "
+              # f"fundFamily={fund_family}, category={category})")
 
     # Land/sector kwam toch al mee met deze call — meteen ook in de aparte
     # ticker_land_sector-cache zetten, zodat get_land_sector() voor deze
@@ -2044,12 +2051,12 @@ def get_land_sector(ticker):
         # kon niet opgehaald worden (rate limit na alle retries) — niet
         # cachen, gewoon Unknown teruggeven voor déze keer maar volgende
         # keer opnieuw proberen
-        print(f"[land-sector] ⚠️ '{ticker}': kon niet opgehaald worden, Unknown voor nu")
+        # print(f"[land-sector] ⚠️ '{ticker}': kon niet opgehaald worden, Unknown voor nu")
         return ("Unknown", "Unknown")
 
     land = info.get("country")
     sector = info.get("sector")
-    print(f"[land-sector] '{ticker}': opgehaald -> land={land}, sector={sector}")
+    # print(f"[land-sector] '{ticker}': opgehaald -> land={land}, sector={sector}")
     save_land_sector(ticker, land, sector)  # None mag hier gecached worden, is niet kritiek
     return (land or "Unknown", sector or "Unknown")
 
@@ -2083,15 +2090,15 @@ def get_etf_sector_verdeling(ticker):
         _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")
         weightings = yf.Ticker(ticker).funds_data.sector_weightings
     except Exception as e:
-        print(f"[etf-sector] ❌ kon sectorverdeling niet ophalen voor '{ticker}': {e}")
+        # print(f"[etf-sector] ❌ kon sectorverdeling niet ophalen voor '{ticker}': {e}")
         return {}
 
     if not weightings:
-        print(f"[etf-sector] ⚠️ lege sectorverdeling voor '{ticker}', niet gecached")
+        # print(f"[etf-sector] ⚠️ lege sectorverdeling voor '{ticker}', niet gecached")
         return {}
 
     sector_dict = {_sector_naam(sector_key): float(gewicht) for sector_key, gewicht in weightings.items()}
-    print(f"[etf-sector] '{ticker}': opgehaald -> {sector_dict}")
+    # print(f"[etf-sector] '{ticker}': opgehaald -> {sector_dict}")
     save_etf_sector_verdeling(ticker, sector_dict)
     return sector_dict
 
@@ -2145,17 +2152,17 @@ def get_etf_holdings(ticker):
             ]
             save_etf_holdings(ticker, holdings)
             return holdings
-        print(f"[etf-holdings] '{ticker}': provider-holdings ophalen mislukt, terugvallen op yfinance-top-10")
+        # print(f"[etf-holdings] '{ticker}': provider-holdings ophalen mislukt, terugvallen op yfinance-top-10")
 
     try:
         _tel_yahoo_call("yf.Ticker.funds_data.top_holdings")
         top_holdings = yf.Ticker(ticker).funds_data.top_holdings
     except Exception as e:
-        print(f"[etf-holdings] ❌ kon top-holdings niet ophalen voor '{ticker}': {e}")
+        # print(f"[etf-holdings] ❌ kon top-holdings niet ophalen voor '{ticker}': {e}")
         return cached or []
 
     if top_holdings is None or top_holdings.empty:
-        print(f"[etf-holdings] ⚠️ geen top-holdings gevonden voor '{ticker}', niet gecached")
+        # print(f"[etf-holdings] ⚠️ geen top-holdings gevonden voor '{ticker}', niet gecached")
         return cached or []
 
     holdings = []
@@ -2169,7 +2176,7 @@ def get_etf_holdings(ticker):
             "bron": "yfinance_top10",
         })
 
-    print(f"[etf-holdings] '{ticker}': opgehaald -> {len(holdings)} holdings (yfinance_top10)")
+    # print(f"[etf-holdings] '{ticker}': opgehaald -> {len(holdings)} holdings (yfinance_top10)")
     save_etf_holdings(ticker, holdings)
     return holdings
 
@@ -2667,7 +2674,7 @@ def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGING
 
     raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"'{ticker}'", pogingen, wachttijd)
     if fout is not None:
-        print(f"[prijscheck] ❌ kon historische koers niet ophalen voor '{ticker}' rond {datum}: {fout}")
+        # print(f"[prijscheck] ❌ kon historische koers niet ophalen voor '{ticker}' rond {datum}: {fout}")
         return None
 
     if isinstance(raw, pd.DataFrame):
@@ -2676,7 +2683,7 @@ def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGING
 
     geldig = raw.dropna()
     if geldig.empty:
-        print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
+        # print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
         return None
 
     return float(geldig.iloc[0])
@@ -2701,7 +2708,7 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
 
     raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"dagrange '{ticker}'", pogingen, wachttijd)
     if fout is not None:
-        print(f"[prijscheck] ❌ kon dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
+        # print(f"[prijscheck] ❌ kon dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
         return None, None
 
     if isinstance(raw.columns, pd.MultiIndex):
@@ -2710,7 +2717,7 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
 
     geldig = raw.dropna()
     if geldig.empty:
-        print(f"[prijscheck] ⚠️ geen dagrange gevonden voor '{ticker}' rond {datum}")
+        # print(f"[prijscheck] ⚠️ geen dagrange gevonden voor '{ticker}' rond {datum}")
         return None, None
 
     eerste = geldig.iloc[0]
@@ -2741,7 +2748,7 @@ def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMI
 
     raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"'{ticker}'", pogingen, wachttijd)
     if fout is not None:
-        print(f"[prijscheck] ❌ kon historische koers/dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
+        # print(f"[prijscheck] ❌ kon historische koers/dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
         return None, None, None
 
     if isinstance(raw.columns, pd.MultiIndex):
@@ -2750,7 +2757,7 @@ def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMI
 
     geldig = raw.dropna()
     if geldig.empty:
-        print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
+        # print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
         return None, None, None
 
     eerste = geldig.iloc[0]
@@ -2777,10 +2784,10 @@ def _haal_splits_op(ticker):
         _tel_yahoo_call("yf.Ticker.splits")
         splits = yf.Ticker(ticker).splits
     except Exception as e:
-        print(f"[splits] kon split-geschiedenis niet ophalen voor '{ticker}': {e}")
+        # print(f"[splits] kon split-geschiedenis niet ophalen voor '{ticker}': {e}")
         return {}
     resultaat = {pd.Timestamp(datum).date().isoformat(): float(ratio) for datum, ratio in splits.items()}
-    print(f"[splits] '{ticker}': opgehaald -> {len(resultaat)} split(s)")
+    # print(f"[splits] '{ticker}': opgehaald -> {len(resultaat)} split(s)")
     save_splits(ticker, resultaat)
     return resultaat
 
@@ -2827,7 +2834,7 @@ def _fx_koers_op_datum(valuta, datum, dagen_buffer=7):
     """
     fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
     if fx_pair is None:
-        print(f"[prijscheck] ⚠️ onbekende valuta '{valuta}' voor FX-conversie, geen conversie toegepast")
+        # print(f"[prijscheck] ⚠️ onbekende valuta '{valuta}' voor FX-conversie, geen conversie toegepast")
         return None
 
     datum = pd.Timestamp(datum)
@@ -2835,7 +2842,7 @@ def _fx_koers_op_datum(valuta, datum, dagen_buffer=7):
     reeks = _fx_prijzen_serie(valuta)
     geldig = reeks[(reeks.index >= datum) & (reeks.index <= einddatum)].dropna()
     if geldig.empty:
-        print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
+        # print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
         return None
     return float(geldig.iloc[0])
 
@@ -2888,7 +2895,7 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     else:
         yahoo_koers, high, low = _haal_koers_en_dagrange_op(ticker, datum)
         valuta = _ticker_details_met_cache(ticker).get("valuta")
-        print(f"[prijscheck] '{ticker}' op {datum}: opgehaald -> yahoo_koers={yahoo_koers} ({valuta})")
+        # print(f"[prijscheck] '{ticker}' op {datum}: opgehaald -> yahoo_koers={yahoo_koers} ({valuta})")
         save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
     if yahoo_koers is None or not bekende_koers:
@@ -2919,8 +2926,8 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
             high_eur = high_eur / divisor * fx_koers
             low_eur = low_eur / divisor * fx_koers
         valuta_conversie_toegepast = True
-        print(f"[prijscheck] '{ticker}' op {datum}: valutaconversie toegepast ({valuta} -> EUR, "
-              f"FX-koers {fx_koers:.4f}) -> yahoo_koers {yahoo_koers} wordt {yahoo_koers_eur:.4f}")
+        # print(f"[prijscheck] '{ticker}' op {datum}: valutaconversie toegepast ({valuta} -> EUR, "
+              # f"FX-koers {fx_koers:.4f}) -> yahoo_koers {yahoo_koers} wordt {yahoo_koers_eur:.4f}")
 
     split_factor = _cumulatieve_split_factor(ticker, datum)
     yahoo_koers_gecorrigeerd = yahoo_koers_eur * split_factor
@@ -2928,8 +2935,9 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         high_eur = high_eur * split_factor
         low_eur = low_eur * split_factor
     if split_factor != 1.0:
-        print(f"[prijscheck] '{ticker}' op {datum}: split-correctie toegepast (factor {split_factor:.4f}) "
-              f"-> yahoo_koers {yahoo_koers_eur} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
+        pass
+        # print(f"[prijscheck] '{ticker}' op {datum}: split-correctie toegepast (factor {split_factor:.4f}) "
+              # f"-> yahoo_koers {yahoo_koers_eur} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
 
     binnen_dagrange = (
         low_eur * (1 - DAGRANGE_TOLERANTIE) <= bekende_koers <= high_eur * (1 + DAGRANGE_TOLERANTIE)
@@ -3183,7 +3191,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
                 f"datums valt buiten de dagrange (grootste afwijking "
                 f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
             )
-        print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
+        # print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
 
     details = _ticker_details_met_cache(ticker)
     is_etf = classify_ticker(ticker)
@@ -3267,7 +3275,7 @@ def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwi
         f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
         f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
     )
-    print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
+    # print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
 
     bestaande = resultaat.get(waarschuwing_veld)
     resultaat[waarschuwing_veld] = f"{bestaande}\n{extra_waarschuwing}" if bestaande else extra_waarschuwing
@@ -3372,9 +3380,9 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     # _prijscheck_is_probleem() geeft bij ontbrekende data GEEN probleem
     # terug (match=None), dus die check hier expliciet ervoor houden.
     escaleert = check_laatste["afwijking_pct"] is None or _prijscheck_is_probleem(check_laatste)
-    print(f"[snelle-prijscheck] '{ticker}' ({isin}, beurs={beurs}) laatste={check_laatste['datum']} "
-          f"afwijking={check_laatste['afwijking_pct']} binnen_dagrange={check_laatste.get('binnen_dagrange')} "
-          f"-> escaleert={escaleert}")
+    # print(f"[snelle-prijscheck] '{ticker}' ({isin}, beurs={beurs}) laatste={check_laatste['datum']} "
+          # f"afwijking={check_laatste['afwijking_pct']} binnen_dagrange={check_laatste.get('binnen_dagrange')} "
+          # f"-> escaleert={escaleert}")
 
     if not escaleert:
         # Koers klopt -- het gangbare geval, klaar na 1 (gecachete) call.
@@ -3410,7 +3418,7 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
             f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
             f"controleer op het Ticker-zekerheid-tabblad."
         )
-    print(f"[snelle-prijscheck] ⚠️ '{ticker}' ({isin}): {prijswaarschuwing}")
+    # print(f"[snelle-prijscheck] ⚠️ '{ticker}' ({isin}): {prijswaarschuwing}")
 
     resultaat = {
         **basis, "zekerheid": zekerheid, "prijs_checks": prijs_checks,
@@ -3451,8 +3459,8 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
                 reden = f"beurs ({gekozen['beurs']}) + prijs bevestigd ({gekozen['aantal_matches']} datums)"
             else:
                 reden = f"beurs niet bevestigd, maar prijs klopt op alle {len(steekproef)} gecontroleerde datums"
-            print(f"[snelle-prijscheck] ✅ '{ticker}' ({isin}) automatisch vervangen door "
-                  f"'{gekozen['ticker']}' ({reden})")
+            # print(f"[snelle-prijscheck] ✅ '{ticker}' ({isin}) automatisch vervangen door "
+                  # f"'{gekozen['ticker']}' ({reden})")
             resultaat["ticker"] = gekozen["ticker"]
             resultaat["zekerheid"] = "zeker"
             resultaat["prijswaarschuwing"] = None
@@ -3460,11 +3468,12 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
         elif aanbevolen_alternatief:
             # Geen van beide tiers voldoende bewijs -- bestaand gedrag: alleen
             # tonen als suggestie, niets automatisch overnemen.
-            print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): alternatief '{aanbevolen_alternatief}' "
-                  f"gevonden maar onvoldoende bewijs voor automatische correctie -- alleen als suggestie getoond")
+            # print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): alternatief '{aanbevolen_alternatief}' "
+                  # f"gevonden maar onvoldoende bewijs voor automatische correctie -- alleen als suggestie getoond")
             resultaat["aanbevolen_alternatief"] = aanbevolen_alternatief
         else:
-            print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): geëscaleerd, maar geen enkel alternatief gevonden")
+            pass
+            # print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): geëscaleerd, maar geen enkel alternatief gevonden")
 
     return _voeg_openfigi_check_toe(resultaat, isin)
 
@@ -3489,8 +3498,8 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     laatste = max(geldige, key=lambda t: t["datum"])
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
     probleem = check["afwijking_pct"] is None or _prijscheck_is_probleem(check)
-    print(f"[backfill-check] '{ticker}' laatste={laatste['datum']} afwijking={check['afwijking_pct']} "
-          f"binnen_dagrange={check.get('binnen_dagrange')} -> probleem={probleem}")
+    # print(f"[backfill-check] '{ticker}' laatste={laatste['datum']} afwijking={check['afwijking_pct']} "
+          # f"binnen_dagrange={check.get('binnen_dagrange')} -> probleem={probleem}")
     return probleem
 
 
@@ -3542,8 +3551,8 @@ def backfill_verouderde_tickers(code, forceer=False):
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
         if not forceer and not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
-            print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): '{oude_ticker}' heeft geen "
-                  f"prijsprobleem -- niets te backfillen")
+            # print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): '{oude_ticker}' heeft geen "
+                  # f"prijsprobleem -- niets te backfillen")
             continue  # oude ticker werkt prima, niets te backfillen
 
         nieuw = find_ticker_met_snelle_prijscheck(info["naam"], isin, beurs, transacties)
@@ -3552,9 +3561,9 @@ def backfill_verouderde_tickers(code, forceer=False):
             continue
 
         if _ticker_heeft_prijsprobleem(nieuwe_ticker, transacties):
-            print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): oude ticker '{oude_ticker}' had een "
-                  f"prijsprobleem, maar kandidaat '{nieuwe_ticker}' ook -- NIET overschreven, "
-                  f"handmatige controle nodig.")
+            # print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): oude ticker '{oude_ticker}' had een "
+                  # f"prijsprobleem, maar kandidaat '{nieuwe_ticker}' ook -- NIET overschreven, "
+                  # f"handmatige controle nodig.")
             continue
 
         cur.execute(
@@ -3562,9 +3571,9 @@ def backfill_verouderde_tickers(code, forceer=False):
             (nieuwe_ticker, code, isin, beurs),
         )
         gecorrigeerd += 1
-        print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): ticker gecorrigeerd van '{oude_ticker}' "
-              f"naar '{nieuwe_ticker}' ({cur.rowcount} rij(en)) -- oude ticker had een prijsprobleem, "
-              f"nieuwe niet.")
+        # print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): ticker gecorrigeerd van '{oude_ticker}' "
+              # f"naar '{nieuwe_ticker}' ({cur.rowcount} rij(en)) -- oude ticker had een prijsprobleem, "
+              # f"nieuwe niet.")
 
     conn.commit()
     cur.close()
@@ -3626,7 +3635,7 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
         f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
         f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
     )
-    print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
+    # print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
     return f"{boodschap}\n{extra_waarschuwing}" if boodschap else extra_waarschuwing
 
 
@@ -3724,7 +3733,7 @@ def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):
     def _verifieer_met_timing(naam, isin, beurs, transacties):
         t0 = time.time()
         resultaat = verifieer_ticker_met_prijs(naam, isin, beurs, transacties)
-        print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s")
+        # print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s")
         return resultaat
 
     resultaten = [None] * len(posities)
@@ -3762,8 +3771,8 @@ def _koppel_valutaconversie_paren(df):
         debitering = groep[groep["Omschrijving"] == "Valuta Debitering"]
         creditering = groep[groep["Omschrijving"] == "Valuta Creditering"]
         if debitering.empty or creditering.empty:
-            print(f"[dividend-debug] ⚠️ onvolledig valutaconversie-paar op {datum.date()} {tijd}: "
-                  f"{len(debitering)}x Debitering, {len(creditering)}x Creditering — overgeslagen")
+            # print(f"[dividend-debug] ⚠️ onvolledig valutaconversie-paar op {datum.date()} {tijd}: "
+                  # f"{len(debitering)}x Debitering, {len(creditering)}x Creditering — overgeslagen")
             continue
         deb = debitering.iloc[0]
         cred = creditering.iloc[0]
@@ -3776,8 +3785,8 @@ def _koppel_valutaconversie_paren(df):
             "gebruikt": False,
         }
         paren.append(paar)
-        print(f"[dividend-debug] valutaconversie-paar: {datum.date()} {tijd} — "
-              f"{paar['vreemd_bedrag']:.2f} {paar['valuta']} -> €{paar['eur_bedrag']:.2f}")
+        # print(f"[dividend-debug] valutaconversie-paar: {datum.date()} {tijd} — "
+              # f"{paar['vreemd_bedrag']:.2f} {paar['valuta']} -> €{paar['eur_bedrag']:.2f}")
     return paren
 
 
@@ -3827,10 +3836,11 @@ def verwerk_rekeningoverzicht_df(df):
     conversie_paren = _koppel_valutaconversie_paren(df)
 
     dividend_rows = df[df["Omschrijving"].isin(["Dividend", "Dividendbelasting"])]
-    print(f"[dividend-debug] {len(dividend_rows)} ruwe Dividend/Dividendbelasting-rij(en) gevonden")
+    # print(f"[dividend-debug] {len(dividend_rows)} ruwe Dividend/Dividendbelasting-rij(en) gevonden")
     for _, r in dividend_rows.iterrows():
-        print(f"[dividend-debug]   {r['Datum'].date()} | {r['Omschrijving']} | {r.get('Product')} | "
-              f"{r['mutatie']} {r['valuta_mutatie']}")
+        pass
+        # print(f"[dividend-debug]   {r['Datum'].date()} | {r['Omschrijving']} | {r.get('Product')} | "
+              # f"{r['mutatie']} {r['valuta_mutatie']}")
 
     records = []
     for (datum, isin), groep in dividend_rows.groupby(["Datum", "ISIN"]):
@@ -3844,19 +3854,19 @@ def verwerk_rekeningoverzicht_df(df):
         belasting_ruw = float(belasting_rijen["mutatie"].sum()) if not belasting_rijen.empty else 0.0
         netto_ruw = bruto_ruw + belasting_ruw
 
-        print(f"[dividend-debug] groep {datum.date()} / {isin} ({product}): "
-              f"{len(bruto_rijen)}x Dividend + {len(belasting_rijen)}x Dividendbelasting -> "
-              f"netto {netto_ruw:.2f} {valuta} (bruto {bruto_ruw:.2f}, belasting {belasting_ruw:.2f})")
+        # print(f"[dividend-debug] groep {datum.date()} / {isin} ({product}): "
+              # f"{len(bruto_rijen)}x Dividend + {len(belasting_rijen)}x Dividendbelasting -> "
+              # f"netto {netto_ruw:.2f} {valuta} (bruto {bruto_ruw:.2f}, belasting {belasting_ruw:.2f})")
 
         if valuta == "EUR":
             bruto_eur, belasting_eur, netto_eur = bruto_ruw, belasting_ruw, netto_ruw
-            print(f"[dividend-debug]   -> al in EUR, netto_eur=€{netto_eur:.2f}")
+            # print(f"[dividend-debug]   -> al in EUR, netto_eur=€{netto_eur:.2f}")
         else:
             match = _match_valutaconversie(conversie_paren, valuta, netto_ruw, datum)
             if match is None:
                 bruto_eur = belasting_eur = netto_eur = None
-                print(f"[dividend-debug]   ❌ GEEN valutaconversie-paar gevonden voor {netto_ruw:.2f} {valuta} "
-                      f"— netto_eur=None, deze uitkering wordt niet meegeteld in de totalen")
+                # print(f"[dividend-debug]   ❌ GEEN valutaconversie-paar gevonden voor {netto_ruw:.2f} {valuta} "
+                      # f"— netto_eur=None, deze uitkering wordt niet meegeteld in de totalen")
             else:
                 netto_eur = match["eur_bedrag"]
                 if netto_ruw != 0:
@@ -3864,8 +3874,8 @@ def verwerk_rekeningoverzicht_df(df):
                     belasting_eur = netto_eur * (belasting_ruw / netto_ruw)
                 else:
                     bruto_eur = belasting_eur = 0.0
-                print(f"[dividend-debug]   ✓ gekoppeld aan conversie {match['datum'].date()} {match['tijd']} "
-                      f"-> netto_eur=€{netto_eur:.2f}")
+                # print(f"[dividend-debug]   ✓ gekoppeld aan conversie {match['datum'].date()} {match['tijd']} "
+                      # f"-> netto_eur=€{netto_eur:.2f}")
 
         # Ruwe (niet-EUR-geconverteerde) bedragen in de dividend_id, zodat die
         # stabiel blijft ongeacht welk valutaconversie-paar er (opnieuw)
@@ -3886,8 +3896,8 @@ def verwerk_rekeningoverzicht_df(df):
         })
 
     totaal = sum(r["netto_eur"] for r in records if r["netto_eur"] is not None)
-    print(f"[dividend-debug] TOTAAL: {len(records)} dividendgroep(en), "
-          f"€{totaal:.2f} netto (som van de rijen met een bekend netto_eur)")
+    # print(f"[dividend-debug] TOTAAL: {len(records)} dividendgroep(en), "
+          # f"€{totaal:.2f} netto (som van de rijen met een bekend netto_eur)")
     return records
 
 
@@ -4086,7 +4096,7 @@ def bereken_xirr(cashflows):
     try:
         return xirr(datums, bedragen)
     except Exception as e:
-        print(f"[statistieken] XIRR-berekening mislukt: {e}")
+        # print(f"[statistieken] XIRR-berekening mislukt: {e}")
         return None
 
 

@@ -66,7 +66,7 @@ def upload():
     try:
         return _upload_impl()
     except Exception as e:
-        print(f"[upload] ONVERWACHTE FOUT: {e}")
+        # print(f"[upload] ONVERWACHTE FOUT: {e}")
         return jsonify({
             "error": "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
                      "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
@@ -84,7 +84,7 @@ def _upload_impl():
     with meet_tijd("excel_inlezen_pandas"):
         bestand1.seek(0)
         df = pd.read_excel(bestand1)
-        print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
+        # print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
 
         df.columns = df.columns.str.strip()
         df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
@@ -93,14 +93,14 @@ def _upload_impl():
             df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
         else:
             df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
-            print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
+            # print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
 
         if WAARDE_KOLOM in df.columns:
             df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
         else:
             df["_waarde_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
-            print(f"[upload] WAARSCHUWING: kolom '{WAARDE_KOLOM}' niet gevonden — "
-                  f"GAK valt terug op totaal_eur (incl. kosten) voor deze upload")
+            # print(f"[upload] WAARSCHUWING: kolom '{WAARDE_KOLOM}' niet gevonden — "
+                  # f"GAK valt terug op totaal_eur (incl. kosten) voor deze upload")
 
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje (zie
@@ -110,7 +110,7 @@ def _upload_impl():
     # CLAUDE.md/opdracht "vinkje ticker-informatie opnieuw bepalen".
     herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
     if niet_opslaan:
-        print("[upload] 'Niet opslaan' aangevinkt — eenmalige analyse, niets wordt in de database opgeslagen")
+        # print("[upload] 'Niet opslaan' aangevinkt — eenmalige analyse, niets wordt in de database opgeslagen")
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen: dezelfde ISIN kan
         # op meerdere beurzen genoteerd staan (bv. een fonds met een
         # Amsterdam- én een Londen-notering) en dat zijn dan ECHT
@@ -163,9 +163,9 @@ def _upload_impl():
                     "naam": naam_positie, "isin": isin, "beurs": beurs_val,
                     "transacties": transacties_lijst,
                 })
-                print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
-                      f"(zekerheid={resultaat['zekerheid']}, basis)")
-            print(f"[upload] {len(groepen)} positie(s) basis-ticker-resolutie (incl. snelle prijscheck, parallel)")
+                # print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
+                      # f"(zekerheid={resultaat['zekerheid']}, basis)")
+            # print(f"[upload] {len(groepen)} positie(s) basis-ticker-resolutie (incl. snelle prijscheck, parallel)")
 
         transacties_df = pd.DataFrame({
             "datum": df["Datum"],
@@ -205,9 +205,9 @@ def _upload_impl():
 
         if len(order_ids_ruw) == len(df):
             df["Order ID"] = order_ids_ruw
-            print("[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
+            # print("[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
         else:
-            print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)})")
+            # print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)})")
             df["Order ID"] = None
 
     # rijen zonder echte (UUID-vormige) Order ID krijgen een synthetische, stabiele ID
@@ -222,16 +222,16 @@ def _upload_impl():
         volgnummer = synthetische_ids.groupby(synthetische_ids).cumcount()
         synthetische_ids = synthetische_ids + "-" + volgnummer.astype(str)
         df.loc[~heeft_order_id, "Order ID"] = synthetische_ids
-        print(f"[upload] {(~heeft_order_id).sum()} rijen kregen een synthetische Order ID")
+        # print(f"[upload] {(~heeft_order_id).sum()} rijen kregen een synthetische Order ID")
 
     new_order_ids = set(df["Order ID"])
-    print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
+    # print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
 
     conn = get_db_connection()
     cur = conn.cursor()
 
     match_code, missing_ids = find_matching_code(cur, new_order_ids)
-    print(f"[upload] match_code={match_code}, aantal missing_ids={len(missing_ids) if missing_ids is not None else 'N/A'}")
+    # print(f"[upload] match_code={match_code}, aantal missing_ids={len(missing_ids) if missing_ids is not None else 'N/A'}")
 
     if match_code:
         code = match_code
@@ -249,7 +249,7 @@ def _upload_impl():
         rows_to_insert = df
         rows_bestaand = df.iloc[0:0]
 
-    print(f"[upload] code={code}, rows_to_insert={len(rows_to_insert)} rijen")
+    # print(f"[upload] code={code}, rows_to_insert={len(rows_to_insert)} rijen")
 
     if not rows_to_insert.empty:
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen — zie de
@@ -313,9 +313,9 @@ def _upload_impl():
                             break
                 ticker_by_isin_beurs[key] = detail["ticker"]
                 isin, beurs_val = key
-                print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {detail['ticker']} "
-                      f"(zekerheid={detail['zekerheid']})")
-            print(f"[upload] ticker-resolutie (incl. snelle prijscheck, parallel) klaar")
+                # print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {detail['ticker']} "
+                      # f"(zekerheid={detail['zekerheid']})")
+            # print(f"[upload] ticker-resolutie (incl. snelle prijscheck, parallel) klaar")
 
         with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
             ingevoegd = 0
@@ -337,9 +337,10 @@ def _upload_impl():
                     )
                     ingevoegd += 1
                 except Exception as e:
-                    print(f"[upload] FOUT bij invoegen rij (Order ID {row['Order ID']}): {e}")
+                    pass
+                    # print(f"[upload] FOUT bij invoegen rij (Order ID {row['Order ID']}): {e}")
 
-            print(f"[upload] {ingevoegd}/{len(rows_to_insert)} rijen succesvol verwerkt")
+            # print(f"[upload] {ingevoegd}/{len(rows_to_insert)} rijen succesvol verwerkt")
 
     conn.commit()
     cur.close()
@@ -353,7 +354,8 @@ def _upload_impl():
             ]
             gebackfilld = backfill_transactiekosten(code, order_id_kosten)
             if gebackfilld:
-                print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
+                pass
+                # print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
 
             order_id_waarde = [
                 (row["Order ID"], float(row["_waarde_eur"]) if pd.notna(row["_waarde_eur"]) else None)
@@ -361,7 +363,8 @@ def _upload_impl():
             ]
             waarde_gebackfilld = backfill_waarde_eur(code, order_id_waarde)
             if waarde_gebackfilld:
-                print(f"[upload] {waarde_gebackfilld} bestaande rij(en) kregen een backfilled waarde_eur-bedrag")
+                pass
+                # print(f"[upload] {waarde_gebackfilld} bestaande rij(en) kregen een backfilled waarde_eur-bedrag")
 
             order_id_tijd = [
                 (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
@@ -369,7 +372,8 @@ def _upload_impl():
             ]
             tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
             if tijd_gebackfilld:
-                print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
+                pass
+                # print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
 
     if match_code:
         # Alleen zinvol bij een upload naar een BESTAANDE portfolio: een
@@ -381,15 +385,16 @@ def _upload_impl():
         with meet_tijd("db_backfill_verouderde_tickers"):
             tickers_gecorrigeerd = backfill_verouderde_tickers(code, forceer=herbepaal_alle_tickers)
             if tickers_gecorrigeerd:
-                print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
-                      f"gecorrigeerde ticker via backfill")
+                pass
+                # print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
+                      # f"gecorrigeerde ticker via backfill")
 
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
         with meet_tijd("dividend_bestand_verwerken"):
             dividend_records = verwerk_rekeningoverzicht(bestand2)
             save_dividenden(code, dividend_records)
-            print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
+            # print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
 
     response = jsonify(build_portfolio_response(code))
     log_yahoo_call_samenvatting()
@@ -461,7 +466,7 @@ def portfolio_verrijking(code):
         log_yahoo_call_samenvatting()
         return response
     except Exception as e:
-        print(f"[verrijking] ONVERWACHTE FOUT voor code={code}: {e}")
+        # print(f"[verrijking] ONVERWACHTE FOUT voor code={code}: {e}")
         return jsonify({
             "error": "Verdeling/land/sector/bedrijven ophalen duurde te lang of is mislukt. Probeer het "
                      "opnieuw door de pagina te verversen."
@@ -702,18 +707,18 @@ def ticker_zekerheid(code):
     if groepen is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
-    print(f"[ticker-zekerheid] {len(groepen)} positie(s) parallel verifiëren voor code={code}")
+    # print(f"[ticker-zekerheid] {len(groepen)} positie(s) parallel verifiëren voor code={code}")
     t0 = time.time()
     try:
         resultaten = verifieer_tickers_met_prijs_parallel(
             [(info["echte_naam"], isin, info["beurs"], info["transacties"]) for (isin, beurs), info in groepen]
         )
     except Exception as e:
-        print(f"[ticker-zekerheid] FOUT bij verifiëren voor code={code}: {e}")
+        # print(f"[ticker-zekerheid] FOUT bij verifiëren voor code={code}: {e}")
         return jsonify({
             "error": "Ticker-zekerheid controleren duurde te lang of is mislukt. Probeer het opnieuw."
         }), 500
-    print(f"[ticker-zekerheid] {len(groepen)} positie(s) geverifieerd in {time.time() - t0:.1f}s")
+    # print(f"[ticker-zekerheid] {len(groepen)} positie(s) geverifieerd in {time.time() - t0:.1f}s")
 
     posities = []
     for ((isin, beurs), info), resultaat in zip(groepen, resultaten):
@@ -776,11 +781,11 @@ def ticker_zekerheid_positie(code):
     try:
         resultaat = verifieer_ticker_met_prijs(info["echte_naam"], isin, info["beurs"], info["transacties"])
     except Exception as e:
-        print(f"[ticker-zekerheid] FOUT bij verifiëren van {isin} ({beurs}) voor code={code}: {e}")
+        # print(f"[ticker-zekerheid] FOUT bij verifiëren van {isin} ({beurs}) voor code={code}: {e}")
         return jsonify({
             "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
         }), 500
-    print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s voor code={code}")
+    # print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s voor code={code}")
 
     resultaat["isin"] = isin
     resultaat["naam"] = info["naam"]
@@ -807,7 +812,7 @@ def ticker_zekerheid_check():
     if not posities:
         return jsonify({"error": "Geen posities meegestuurd."}), 400
 
-    print(f"[ticker-zekerheid-check] {len(posities)} positie(s) parallel verifiëren (niet-opgeslagen analyse)")
+    # print(f"[ticker-zekerheid-check] {len(posities)} positie(s) parallel verifiëren (niet-opgeslagen analyse)")
     t0 = time.time()
     try:
         input_tuples = [
@@ -819,12 +824,12 @@ def ticker_zekerheid_check():
         ]
         resultaten = verifieer_tickers_met_prijs_parallel(input_tuples)
     except Exception as e:
-        print(f"[ticker-zekerheid-check] FOUT: {e}")
+        # print(f"[ticker-zekerheid-check] FOUT: {e}")
         return jsonify({
             "error": "Ticker-zekerheid controleren duurde te lang of is mislukt. Probeer het opnieuw, eventueel "
                      "met minder posities tegelijk."
         }), 500
-    print(f"[ticker-zekerheid-check] {len(posities)} positie(s) geverifieerd in {time.time() - t0:.1f}s")
+    # print(f"[ticker-zekerheid-check] {len(posities)} positie(s) geverifieerd in {time.time() - t0:.1f}s")
 
     uitkomst = []
     for p, resultaat in zip(posities, resultaten):
