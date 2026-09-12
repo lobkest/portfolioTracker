@@ -369,6 +369,20 @@ class TestValutaConversie(unittest.TestCase):
         self.assertEqual(resultaat["niveau"], "waarschuwing")
         self.assertFalse(resultaat["match"])
 
+    def test_fx_koers_op_datum_wordt_altijd_met_verversen_false_aangeroepen(self):
+        """vergelijk_prijs_op_datum vergelijkt altijd tegen een HISTORISCHE
+        transactiedatum -- een verse FX-koers van 'vandaag' is daarvoor
+        nooit relevant, dus geeft dit onvoorwaardelijk verversen=False door
+        aan _fx_koers_op_datum() (zie analysis.py, opdracht 'FX-koers in
+        prijscheck-stap niet onnodig verversen')."""
+        with self._mock_omgeving(yahoo_koers=82.23, valuta="USD", fx_koers=0.8311):
+            with patch.object(analysis, "_fx_koers_op_datum", return_value=0.8311) as mock_fx:
+                vergelijk_prijs_op_datum("NFLX", date(2024, 3, 1), 68.38)
+
+        mock_fx.assert_called_once()
+        _, kwargs = mock_fx.call_args
+        self.assertEqual(kwargs.get("verversen"), False)
+
 
 class TestDrieNiveausIndicator(unittest.TestCase):
     """Bugfix: elke afwijking >0% kreeg hetzelfde ⚠️-icoon. Nu drie niveaus

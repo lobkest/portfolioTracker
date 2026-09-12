@@ -21,7 +21,7 @@ yf.Ticker/time.sleep worden gemockt, geen echte database- of Yahoo-calls.
 import os
 import sys
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, call, patch
 
 import pandas as pd
@@ -96,6 +96,75 @@ class TestFxKoersCaching(unittest.TestCase):
 
         self.assertIsNone(resultaat)
         mock_download.assert_not_called()
+
+
+class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
+    """Opdracht 'FX-koers in prijscheck-stap niet onnodig verversen':
+    vergelijk_prijs_op_datum() vergelijkt altijd tegen een HISTORISCHE
+    transactiedatum, dus een stale 'vandaag'-rij in de FX-cache mag géén
+    download triggeren zodra _fx_koers_op_datum() met verversen=False wordt
+    aangeroepen -- ongeacht hoe oud die cache-rij is."""
+
+    @patch("analysis.upsert_prices")
+    @patch("analysis.download_met_retry")
+    @patch("analysis.get_db_connection")
+    def test_stale_fx_cache_triggert_geen_download_bij_verversen_false(
+        self, mock_get_conn, mock_download, mock_upsert
+    ):
+        vandaag = pd.Timestamp.now().normalize()
+        gevraagde_datum = pd.Timestamp("2024-03-01")
+        oud_moment = datetime.now() - timedelta(hours=3)
+
+        cur = MagicMock()
+        cur.fetchall.side_effect = [
+            [("USDEUR=X", analysis.FX_ANKER_DATUM.date(), vandaag.date())],  # MIN/MAX: ver genoeg terug, maar stale
+            [("USDEUR=X", oud_moment)],  # laatst ververst: 3 uur geleden, dus > DREMPEL_HERGEBRUIK_KOERS
+            [
+                ("USDEUR=X", gevraagde_datum.date(), 0.9),
+                ("USDEUR=X", vandaag.date(), 0.95),
+            ],
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur
+        mock_get_conn.return_value = conn
+
+        resultaat = analysis._fx_koers_op_datum("USD", gevraagde_datum, verversen=False)
+
+        mock_download.assert_not_called()
+        mock_upsert.assert_not_called()
+        self.assertEqual(resultaat, 0.9)
+
+    @patch("analysis.upsert_prices")
+    @patch("analysis.download_met_retry")
+    @patch("analysis.get_db_connection")
+    def test_zelfde_stale_cache_zou_wel_verversen_bij_verversen_true(
+        self, mock_get_conn, mock_download, mock_upsert
+    ):
+        """Contrast-test: exact dezelfde stale cache-situatie als hierboven
+        MOET nog altijd een download triggeren als verversen niet expliciet
+        op False staat -- deze fix mag het bestaande 'elke opening
+        verversen'-gedrag niet per ongeluk breed uitschakelen."""
+        vandaag = pd.Timestamp.now().normalize()
+        gevraagde_datum = pd.Timestamp("2024-03-01")
+        oud_moment = datetime.now() - timedelta(hours=3)
+
+        cur = MagicMock()
+        cur.fetchall.side_effect = [
+            [("USDEUR=X", analysis.FX_ANKER_DATUM.date(), vandaag.date())],
+            [("USDEUR=X", oud_moment)],
+            [
+                ("USDEUR=X", gevraagde_datum.date(), 0.9),
+                ("USDEUR=X", vandaag.date(), 0.95),
+            ],
+        ]
+        conn = MagicMock()
+        conn.cursor.return_value = cur
+        mock_get_conn.return_value = conn
+        mock_download.return_value = pd.Series({vandaag: 0.93}, name="USDEUR=X")
+
+        analysis._fx_koers_op_datum("USD", gevraagde_datum, verversen=True)
+
+        mock_download.assert_called_once()
 
 
 class TestIsRateLimitFout(unittest.TestCase):

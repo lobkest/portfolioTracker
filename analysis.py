@@ -1326,13 +1326,18 @@ def download_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOAD_POGING
                 return pd.Series(dtype=float)
 
 
-def _converteer_naar_eur(raw, tickers_kolommen):
+def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
     """Past USD/GBP/GBp -> EUR-conversie toe op raw[t] voor elke t in
     tickers_kolommen, in-place. FX-reeks komt uit _fx_prijzen_serie()
     (persistent gecached via prijzen/get_prices(), zie daar) i.p.v. bij
     elke aanroep een eigen download te doen -- vóór deze fix werd dezelfde
     FX-koers soms meermaals per upload opnieuw gedownload (zie CLAUDE.md,
-    performance-meting upload/analyse-flow)."""
+    performance-meting upload/analyse-flow).
+
+    `verversen` wordt ongewijzigd doorgegeven aan _fx_prijzen_serie(): dit
+    pad hoort het gedrag van zijn aanroeper (get_prices(), voor het
+    converteren van actuele aandelenkoersen) te volgen, niet een eigen vaste
+    keuze te maken zoals vergelijk_prijs_op_datum() dat wel doet."""
     for t in tickers_kolommen:
         if t not in raw.columns:
             continue
@@ -1342,7 +1347,7 @@ def _converteer_naar_eur(raw, tickers_kolommen):
         except Exception:
             currency = "EUR"
         if currency in ("USD", "GBP", "GBp"):
-            fx = _fx_prijzen_serie(currency)
+            fx = _fx_prijzen_serie(currency, verversen=verversen)
             fx = fx.reindex(raw.index).ffill()
             divisor = 100 if currency == "GBp" else 1
             raw[t] = raw[t] / divisor * fx
@@ -1459,7 +1464,7 @@ def get_prices(tickers, start_date, verversen=True):
                 dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
                        f"gevraagd vanaf {start_date}")
 
-            _converteer_naar_eur(raw, missing)
+            _converteer_naar_eur(raw, missing, verversen=verversen)
 
             fresh_rows = []
             for t in missing:
@@ -1493,7 +1498,7 @@ def get_prices(tickers, start_date, verversen=True):
                     dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
                            f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
                     continue
-                _converteer_naar_eur(raw_t, [t])
+                _converteer_naar_eur(raw_t, [t], verversen=verversen)
                 for datum, koers in raw_t[t].dropna().items():
                     stale_rows.append((t, datum.date(), float(koers)))
 
@@ -1539,7 +1544,7 @@ def get_prices(tickers, start_date, verversen=True):
 _fx_serie_locks = {fx_pair: threading.Lock() for fx_pair in set(FX_PAAR_PER_VALUTA.values())}
 
 
-def _fx_prijzen_serie(valuta):
+def _fx_prijzen_serie(valuta, verversen=True):
     """
     Ruwe FX-koersreeks (valuta -> EUR) vanaf FX_ANKER_DATUM, persistent
     gecached via de prijzen-tabel/get_prices() -- een FX-paar zoals
@@ -1551,6 +1556,12 @@ def _fx_prijzen_serie(valuta):
     ook binnen dezelfde upload voor exact dezelfde (valuta, datum) (zie
     CLAUDE.md, performance-meting upload/analyse-flow).
 
+    `verversen` wordt doorgegeven aan get_prices(): vergelijk_prijs_op_datum()
+    vergelijkt altijd tegen een HISTORISCHE datum en geeft hier bewust
+    verversen=False door (een verse FX-koers van vandaag is voor die
+    vergelijking nooit relevant), terwijl _converteer_naar_eur() (actuele
+    aandelenkoersen omrekenen) het gedrag van zijn eigen aanroeper volgt.
+
     Geeft een lege Series terug bij een onbekende valuta of ontbrekende
     koersdata (aanroepers behandelen dat hetzelfde als voorheen: "geen
     conversie mogelijk").
@@ -1559,6 +1570,15 @@ def _fx_prijzen_serie(valuta):
     gememoized op `g` -- ticker_waarschuwingen_voor_transacties() roept dit
     per unieke ticker aan, en zonder deze memo herhaalt elke aanroep dezelfde
     DB-query + pivot/ffill voor exact dezelfde (fx_pair, FX_ANKER_DATUM).
+    De memo onthoudt ook MET welke verversen-waarde hij gevuld is: een
+    eerdere aanroep met verversen=False heeft nooit geprobeerd te
+    verversen, dus een latere aanroep binnen hetzelfde request die wél wil
+    verversen (verversen=True) mag daar niet blindelings op vertrouwen --
+    zonder dit onderscheid zou bv. tijdens /upload de (verversen=False)
+    prijscontrole van een net-opgeloste ticker de FX-verversing voor de
+    (verversen=True) aandelenkoers-conversie verderop in diezelfde request
+    stilzwijgend blokkeren. Andersom (cache al met verversen=True gevuld)
+    is een latere verversen=False-aanroep altijd veilig te hergebruiken.
     Geen module-level cache: dat zou tussen requests/workers heen de
     2-minuten-staleness-check van get_prices() omzeilen. Buiten een
     requestcontext (unittests, losse scripts) valt dit terug op het oude
@@ -1574,15 +1594,18 @@ def _fx_prijzen_serie(valuta):
         if not hasattr(g, cache_attr):
             setattr(g, cache_attr, {})
         cache = getattr(g, cache_attr)
-        if fx_pair in cache:
-            return cache[fx_pair]
+        cached_entry = cache.get(fx_pair)
+        if cached_entry is not None:
+            cached_reeks, cached_verversen = cached_entry
+            if cached_verversen or not verversen:
+                return cached_reeks
 
     with _fx_serie_locks[fx_pair]:
-        prijzen = get_prices([fx_pair], FX_ANKER_DATUM)
+        prijzen = get_prices([fx_pair], FX_ANKER_DATUM, verversen=verversen)
     reeks = prijzen[fx_pair] if not prijzen.empty and fx_pair in prijzen.columns else pd.Series(dtype=float)
 
     if cache is not None:
-        cache[fx_pair] = reeks
+        cache[fx_pair] = (reeks, verversen)
     return reeks
 
 
@@ -2862,7 +2885,7 @@ def _cumulatieve_split_factor(ticker, vanaf_datum):
     return factor
 
 
-def _fx_koers_op_datum(valuta, datum, dagen_buffer=7):
+def _fx_koers_op_datum(valuta, datum, dagen_buffer=7, verversen=True):
     """
     FX-koers (valuta -> EUR) op de eerste geldige handelsdag op of ná
     'datum' (zelfde weekend/feestdag-buffer als _haal_slotkoers_op), voor
@@ -2876,6 +2899,9 @@ def _fx_koers_op_datum(valuta, datum, dagen_buffer=7):
     lookup — de aanroeper behandelt dat dan als "geen betrouwbare
     vergelijking mogelijk", niet als een (mogelijk misleidende) rauwe
     cross-currency-vergelijking.
+
+    `verversen` wordt ongewijzigd doorgegeven aan _fx_prijzen_serie() --
+    vergelijk_prijs_op_datum() geeft hier bewust verversen=False door.
     """
     fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
     if fx_pair is None:
@@ -2884,7 +2910,7 @@ def _fx_koers_op_datum(valuta, datum, dagen_buffer=7):
 
     datum = pd.Timestamp(datum)
     einddatum = datum + pd.Timedelta(days=dagen_buffer)
-    reeks = _fx_prijzen_serie(valuta)
+    reeks = _fx_prijzen_serie(valuta, verversen=verversen)
     geldig = reeks[(reeks.index >= datum) & (reeks.index <= einddatum)].dropna()
     if geldig.empty:
         # print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
@@ -2955,7 +2981,10 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     high_eur, low_eur = high, low
     fx_koers = None
     if valuta not in (None, "EUR"):
-        fx_koers = _fx_koers_op_datum(valuta, datum)
+        # Deze vergelijking is altijd tegen een HISTORISCHE transactiedatum
+        # -- een verse FX-koers van vandaag is hier nooit relevant, dus
+        # onvoorwaardelijk verversen=False (zie _fx_prijzen_serie()).
+        fx_koers = _fx_koers_op_datum(valuta, datum, verversen=False)
         if fx_koers is None:
             # Geen betrouwbare EUR-vergelijking mogelijk (net zo'n signaal
             # als "geen koersdata" hierboven) -- NIET stilzwijgend de rauwe,

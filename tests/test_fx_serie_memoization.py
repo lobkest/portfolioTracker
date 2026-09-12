@@ -54,7 +54,7 @@ class TestFxSerieMemoizationBinnenRequest(unittest.TestCase):
 
     @patch("analysis.get_prices")
     def test_verschillende_valuta_binnen_request_wel_eigen_get_prices_aanroep(self, mock_get_prices):
-        def fake_get_prices(tickers, start_date):
+        def fake_get_prices(tickers, start_date, verversen=True):
             return _fx_prijzen_frame(tickers[0])
 
         mock_get_prices.side_effect = fake_get_prices
@@ -66,6 +66,55 @@ class TestFxSerieMemoizationBinnenRequest(unittest.TestCase):
         self.assertEqual(mock_get_prices.call_count, 2)
         aangevraagde_pairs = [c.args[0][0] for c in mock_get_prices.call_args_list]
         self.assertEqual(aangevraagde_pairs, ["USDEUR=X", "GBPEUR=X"])
+
+
+class TestFxSerieMemoizationVerversenBewust(unittest.TestCase):
+    """Opdracht 'FX-koers in prijscheck-stap niet onnodig verversen': de
+    memo op `g` moet ONDERSCHEID maken tussen een resultaat dat met
+    verversen=False is opgehaald (nooit geprobeerd te verversen) en een
+    resultaat met verversen=True (wél geprobeerd) -- anders zou bv. tijdens
+    /upload de (verversen=False) prijscontrole van een net-opgeloste ticker
+    de latere (verversen=True) aandelenkoers-conversie in dezelfde request
+    stilzwijgend blokkeren."""
+
+    def setUp(self):
+        self.app = Flask(__name__)
+
+    @patch("analysis.get_prices")
+    def test_na_verversen_false_triggert_een_latere_verversen_true_aanroep_alsnog_get_prices(
+        self, mock_get_prices
+    ):
+        mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
+
+        with self.app.test_request_context():
+            analysis._fx_prijzen_serie("USD", verversen=False)
+            analysis._fx_prijzen_serie("USD", verversen=True)
+
+        self.assertEqual(mock_get_prices.call_count, 2)
+        self.assertEqual(mock_get_prices.call_args_list[0].kwargs.get("verversen"), False)
+        self.assertEqual(mock_get_prices.call_args_list[1].kwargs.get("verversen"), True)
+
+    @patch("analysis.get_prices")
+    def test_na_verversen_true_hergebruikt_een_latere_verversen_false_aanroep_de_cache(
+        self, mock_get_prices
+    ):
+        mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
+
+        with self.app.test_request_context():
+            analysis._fx_prijzen_serie("USD", verversen=True)
+            analysis._fx_prijzen_serie("USD", verversen=False)
+
+        self.assertEqual(mock_get_prices.call_count, 1)
+
+    @patch("analysis.get_prices")
+    def test_twee_verversen_false_aanroepen_hergebruiken_elkaars_cache(self, mock_get_prices):
+        mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
+
+        with self.app.test_request_context():
+            analysis._fx_prijzen_serie("USD", verversen=False)
+            analysis._fx_prijzen_serie("USD", verversen=False)
+
+        self.assertEqual(mock_get_prices.call_count, 1)
 
 
 class TestFxSerieMemoizationTussenRequests(unittest.TestCase):
