@@ -468,6 +468,11 @@ def _upload_impl():
 @app.route("/api/portfolio/<code>")
 def api_portfolio(code):
     code = code.strip().upper()
+    # Eigen, schone Yahoo-call-telling voor dit bezoek -- zonder deze reset
+    # draagt de teller het cumulatieve aantal calls mee sinds de laatste
+    # upload, wat de [timing]-samenvatting hieronder misleidend zou maken
+    # (zie opdracht performance-meting).
+    reset_yahoo_call_teller()
     # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje bij het
     # ophalen via code (zie templates/index.html) -- zelfde forceer-vlag/
     # functie als bij de upload-flow (zie CLAUDE.md/opdracht "vinkje ticker-
@@ -481,6 +486,7 @@ def api_portfolio(code):
     result = build_portfolio_response(code)
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    log_yahoo_call_samenvatting()
     return jsonify(result)
 
 
@@ -926,7 +932,7 @@ def dividend(code):
     return jsonify(samenvatting)
 
 
-def build_portfolio_response(code):
+def build_portfolio_response(code, verversen=True):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
@@ -953,10 +959,10 @@ def build_portfolio_response(code):
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
     transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
 
-    return analyze_transacties_kern(transacties_df, code, naam)
+    return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen)
 
 
-def analyze_transacties_kern(transacties_df, code, naam):
+def analyze_transacties_kern(transacties_df, code, naam, verversen=True):
     """
     Alles wat de Home-, Rendement-, Per-aandeel- en Statistieken-tabbladen
     nodig hebben — bewust ZONDER classify_tickers/land/sector/bedrijven-
@@ -973,7 +979,7 @@ def analyze_transacties_kern(transacties_df, code, naam):
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
     with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
-        price_data = get_prices(tickers, start_date)
+        price_data = get_prices(tickers, start_date, verversen=verversen)
 
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None}
@@ -1154,7 +1160,7 @@ def set_bijnaam(code):
     conn.commit()
     cur.close()
     conn.close()
-    return jsonify(build_portfolio_response(code))
+    return jsonify(build_portfolio_response(code, verversen=False))
 
 
 @app.route("/api/portfolio/<code>/reset-bijnaam", methods=["POST"])
@@ -1174,7 +1180,7 @@ def reset_bijnaam(code):
     conn.commit()
     cur.close()
     conn.close()
-    return jsonify(build_portfolio_response(code))
+    return jsonify(build_portfolio_response(code, verversen=False))
 
 
 @app.route("/api/portfolio/<code>", methods=["DELETE"])
@@ -1199,7 +1205,7 @@ def wijzig_code(code):
     if not success:
         return jsonify({"error": foutmelding}), 400
 
-    return jsonify(build_portfolio_response(nieuwe_code))
+    return jsonify(build_portfolio_response(nieuwe_code, verversen=False))
 
 if __name__ == "__main__":
     app.run(debug=True)
