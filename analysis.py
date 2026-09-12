@@ -40,8 +40,7 @@ def meet_tijd(label):
     try:
         yield
     finally:
-        pass
-        # print(f"[timing] {label}: {time.time() - start:.2f}s")
+        print(f"[timing] {label}: {time.time() - start:.2f}s")
 
 
 # Telt individuele Yahoo-calls (yfinance + yahooquery) per type, voor de
@@ -72,7 +71,7 @@ def log_yahoo_call_samenvatting():
     with _yahoo_call_lock:
         samenvatting = dict(_yahoo_call_teller)
     totaal = sum(samenvatting.values())
-    # print(f"[timing] Yahoo-calls deze upload: {totaal} totaal -> {samenvatting}")
+    print(f"[timing] Yahoo-calls sinds laatste reset: {totaal} totaal -> {samenvatting}")
 
 
 # Drempels voor de prijscontrole op de Ticker-zekerheid-pagina (zie
@@ -1349,8 +1348,15 @@ def _converteer_naar_eur(raw, tickers_kolommen):
             raw[t] = raw[t] / divisor * fx
 
 
-def get_prices(tickers, start_date):
-    """Haalt koersen (in EUR) op voor een lijst tickers, met caching via de database."""
+def get_prices(tickers, start_date, verversen=True):
+    """Haalt koersen (in EUR) op voor een lijst tickers, met caching via de database.
+
+    verversen=False slaat de incrementele "stale"-verversing over (behandelt
+    zulke tickers als cache-hit) — gebruikt door bijnaam/code wijzigen, wat
+    geen koersdata raakt en dus niets aan Yahoo hoeft te vragen. Tickers die
+    nog helemaal niet gecached zijn ('missing') worden altijd gedownload,
+    ongeacht deze parameter.
+    """
     tickers = [t for t in tickers if t]
     if not tickers:
         return pd.DataFrame()
@@ -1471,7 +1477,7 @@ def get_prices(tickers, start_date):
             cached = pd.concat([cached, fresh_df], ignore_index=True)
             cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
-    if stale:
+    if stale and verversen:
         # Per ticker apart gedownload (i.p.v. één bulk-call zoals bij
         # 'missing') omdat elke stale ticker een eigen 'vanaf'-datum heeft
         # (zijn eigen laatst gecachte datum + 1 dag) — een bulk-download

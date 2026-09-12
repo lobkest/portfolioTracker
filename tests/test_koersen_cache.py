@@ -147,6 +147,59 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         self.assertEqual(result.loc[vandaag, "AAPL"], 200.0)
 
 
+class TestGetPricesVerversenFalse(unittest.TestCase):
+    """Opdracht 'koersen niet onnodig verversen bij bijnaam/code wijzigen':
+    get_prices(..., verversen=False) moet stale tickers als cache-hit
+    behandelen (geen download), maar een écht ontbrekende ticker nog
+    altijd downloaden."""
+
+    @patch("analysis.upsert_prices")
+    @patch("analysis.download_met_retry")
+    @patch("analysis.get_db_connection")
+    def test_stale_ticker_wordt_niet_ververst_als_verversen_false(
+        self, mock_get_conn, mock_download, mock_upsert
+    ):
+        vandaag = pd.Timestamp.now().normalize()
+        eerste = vandaag - pd.Timedelta(days=100)
+        oud_moment = datetime.now() - timedelta(hours=3)
+
+        mock_get_conn.return_value = _mock_conn(
+            min_max_rows=[("AAPL", eerste.date(), vandaag.date())],
+            laatst_ververst_rows=[("AAPL", oud_moment)],
+            cached_rows=[("AAPL", eerste.date(), 100.0), ("AAPL", vandaag.date(), 200.0)],
+        )
+
+        result = analysis.get_prices(["AAPL"], eerste, verversen=False)
+
+        mock_download.assert_not_called()
+        mock_upsert.assert_not_called()
+        self.assertEqual(result.loc[vandaag, "AAPL"], 200.0)
+
+    @patch("analysis.yf.Ticker")
+    @patch("analysis.save_prices")
+    @patch("analysis.download_met_retry")
+    @patch("analysis.get_db_connection")
+    def test_missende_ticker_wordt_alsnog_gedownload_als_verversen_false(
+        self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
+    ):
+        mock_yf_ticker.return_value.info = {"currency": "EUR"}
+        vandaag = pd.Timestamp.now().normalize()
+        eerste = vandaag - pd.Timedelta(days=100)
+
+        mock_get_conn.return_value = _mock_conn(
+            min_max_rows=[],  # "MSFT" zit nog helemaal niet in de cache
+            laatst_ververst_rows=[],
+            cached_rows=[],
+        )
+        mock_download.return_value = pd.Series({vandaag: 300.0}, name="MSFT")
+
+        result = analysis.get_prices(["MSFT"], eerste, verversen=False)
+
+        mock_download.assert_called_once()
+        mock_save.assert_called_once()
+        self.assertEqual(result.loc[vandaag, "MSFT"], 300.0)
+
+
 class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
     """Opdracht 3: transacties ná price_data.index.max() moeten niet meer
     stil verdwijnen -- er komt nu een waarschuwing in de logs."""
