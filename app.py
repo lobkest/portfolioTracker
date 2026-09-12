@@ -7,6 +7,7 @@ import hashlib
 import openpyxl
 import math
 import time
+import threading
 try:
     # Unix-only (o.a. niet op Windows, waar dit project lokaal draait --
     # zie CLAUDE.md). Alleen gebruikt voor de [memory]-diagnostiek hieronder,
@@ -18,6 +19,100 @@ except ImportError:
 
 app = Flask(__name__)
 init_db()
+
+# Korte-levende, in-process cache voor de "basis" van een portfolio-bezoek
+# (transacties + split-correctie + koersen) -- zonder deze cache haalt elke
+# losse frontend-aanroep binnen hetzelfde bezoek (kern via
+# build_portfolio_response, verrijking via portfolio_verrijking,
+# ticker-zekerheid via _ticker_zekerheid_groepen) dezelfde transacties
+# opnieuw uit Postgres op en herhaalt compute_split_adjusted_shares()/
+# get_prices() vanaf nul, terwijl die data een paar seconden eerder al
+# berekend is (zie opdracht performance-meting/dubbele-fetches). Dit is GEEN
+# vervanging van de prijzen-cache in de database -- alleen een cache tussen
+# de 2-3 requests van één portfolio-bezoek. TTL kort houden zodat een nieuw
+# bezoek of een nieuwe upload snel weer verse data ziet.
+#
+# Werkt alleen binnen één gunicorn-worker (in-process dict) -- bij meerdere
+# workers kan een opeenvolgende request toevallig bij een andere worker
+# terechtkomen die de cache niet heeft; dan valt dat ene request gewoon
+# terug op het oude (trage) gedrag, er gaat niets stuk.
+_BASIS_CACHE_TTL_SECONDEN = 20
+_basis_cache = {}
+_basis_cache_lock = threading.Lock()
+
+
+def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
+    """Haalt (naam, transacties_df, price_data) op voor `code` -- gedeeld
+    door build_portfolio_response(), portfolio_verrijking() en
+    _ticker_zekerheid_groepen(), zodat die binnen hetzelfde portfolio-bezoek
+    niet elk apart dezelfde SELECT + split-correctie + get_prices() doen.
+    transacties_df is hier AL split-gecorrigeerd. Geeft (None, None, None)
+    terug als de code niet bestaat.
+
+    `verversen` wordt doorgegeven aan get_prices() (zie daar) en wordt ook
+    in de cache-entry gestopt -- een cache-hit binnen de TTL kan dus in
+    theorie data teruggeven die met een ander verversen-gedrag is opgehaald
+    dan de huidige aanroep vraagt. Dat is bewust geaccepteerd: de enige
+    aanroepers die verversen=False gebruiken (bijnaam/code wijzigen)
+    wissen de cache expliciet vóór ze build_portfolio_response() aanroepen
+    (zie _wis_portfolio_basis_cache), dus in de praktijk komt deze
+    situatie niet voor binnen de TTL."""
+    nu = time.time()
+    if not forceer_vers:
+        with _basis_cache_lock:
+            cached = _basis_cache.get(code)
+        if cached and (nu - cached["op"]) < _BASIS_CACHE_TTL_SECONDEN:
+            return cached["naam"], cached["transacties_df"], cached["price_data"]
+
+    with meet_tijd(f"basis_ophalen_db (code={code})"):
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+        result = cur.fetchone()
+        if result is None:
+            cur.close()
+            conn.close()
+            return None, None, None
+        naam = result[0]
+
+        cur.execute(
+            "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
+            "FROM transacties WHERE code = %s",
+            (code,),
+        )
+        rows = cur.fetchall()
+        cur.close()
+        conn.close()
+
+    transacties_df = pd.DataFrame(
+        rows,
+        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
+    )
+    transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
+    transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
+
+    with meet_tijd("basis_split_correctie"):
+        transacties_df = compute_split_adjusted_shares(transacties_df)
+
+    tickers = transacties_df["ticker"].dropna().unique().tolist()
+    start_date = transacties_df["datum"].min()
+    with meet_tijd(f"basis_koersen_ophalen ({len(tickers)} ticker(s))"):
+        price_data = get_prices(tickers, start_date, verversen=verversen) if tickers else pd.DataFrame()
+
+    with _basis_cache_lock:
+        _basis_cache[code] = {"naam": naam, "transacties_df": transacties_df, "price_data": price_data, "op": nu}
+
+    return naam, transacties_df, price_data
+
+
+def _wis_portfolio_basis_cache(code):
+    """Cache-invalidatie -- aanroepen ná elke wijziging aan `code`'s
+    transacties (nieuwe upload, bijnaam aanpassen/resetten, code wijzigen,
+    portfolio verwijderen, of een geforceerde ticker-herberekening), zodat
+    een volgend bezoek niet de oude data uit de cache terugkrijgt."""
+    with _basis_cache_lock:
+        _basis_cache.pop(code, None)
+
 
 # Kolomnaam exact zoals DeGiro 'm in het transactiebestand zet (na
 # df.columns.str.strip(), dat evt. rondom-spaties in de header wegwerkt).
@@ -460,6 +555,10 @@ def _upload_impl():
             save_dividenden(code, dividend_records)
             # print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
 
+    # Cache wissen ná ALLE mutaties hierboven (insert, backfills, ticker-
+    # herberekening) -- een upload moet altijd verse data opleveren, nooit
+    # de _basis_cache van vóór deze upload (zie opdracht dubbele-fetches).
+    _wis_portfolio_basis_cache(code)
     response = jsonify(build_portfolio_response(code))
     log_yahoo_call_samenvatting()
     return response
@@ -483,6 +582,9 @@ def api_portfolio(code):
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
         with meet_tijd("db_backfill_verouderde_tickers_ophalen"):
             backfill_verouderde_tickers(code, forceer=True)
+        # Anders krijgt build_portfolio_response() hieronder de oude tickers
+        # terug uit de _basis_cache i.p.v. de net herberekende.
+        _wis_portfolio_basis_cache(code)
     result = build_portfolio_response(code)
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
@@ -502,32 +604,12 @@ def portfolio_verrijking(code):
     tabbladen zodra dit antwoord binnenkomt.
     """
     code = code.strip().upper()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    if cur.fetchone() is None:
-        cur.close()
-        conn.close()
+    naam, transacties_df, price_data = _haal_portfolio_basis(code)
+    if naam is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
-    cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
-        "FROM transacties WHERE code = %s",
-        (code,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    transacties_df = pd.DataFrame(
-        rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
-    )
-    transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
-    transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
-
     try:
-        response = jsonify(analyze_transacties_verrijking(transacties_df, code))
+        response = jsonify(analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data))
         # Geen reset_yahoo_call_teller() hier: /verrijking wordt door de
         # frontend los van /upload aangeroepen, dus deze samenvatting toont
         # het CUMULATIEVE aantal calls sinds de laatste reset in
@@ -725,25 +807,21 @@ def _ticker_zekerheid_groepen(code):
     (analysis._is_corporate_action_row), hier vóór het groeperen toegepast
     zodat zo'n rij nooit een kansloze eigen (ISIN, Beurs)-groep vormt.
     """
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    if cur.fetchone() is None:
-        cur.close()
-        conn.close()
+    naam_portfolio, transacties_df, _price_data = _haal_portfolio_basis(code)
+    if naam_portfolio is None:
         return None
 
-    cur.execute(
-        "SELECT isin, product, echte_naam, beurs, datum, koers "
-        "FROM transacties WHERE code = %s ORDER BY isin, datum",
-        (code,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    # _haal_portfolio_basis() geeft transacties_df niet gegarandeerd terug in
+    # (isin, datum)-volgorde (de oorspronkelijke query deed ORDER BY isin,
+    # datum) -- hier alsnog sorteren zodat de volgorde binnen elke groep
+    # ongewijzigd blijft.
+    transacties_df = transacties_df.sort_values(["isin", "datum"])
 
     per_isin_beurs = {}
-    for isin, product, echte_naam, beurs, datum, koers in rows:
+    for _, rij in transacties_df.iterrows():
+        isin, product, echte_naam, beurs, datum, koers = (
+            rij["isin"], rij["product"], rij["echte_naam"], rij["beurs"], rij["datum"], rij["koers"],
+        )
         if _is_corporate_action_row({"beurs": beurs, "product": product}):
             continue
         groep = per_isin_beurs.setdefault(
@@ -933,36 +1011,13 @@ def dividend(code):
 
 
 def build_portfolio_response(code, verversen=True):
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    result = cur.fetchone()
-    if result is None:
-        cur.close()
-        conn.close()
+    naam, transacties_df, price_data = _haal_portfolio_basis(code, verversen=verversen)
+    if naam is None:
         return None
-    naam = result[0]
-
-    cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
-        "FROM transacties WHERE code = %s",
-        (code,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    transacties_df = pd.DataFrame(
-        rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
-    )
-    transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
-    transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
-
-    return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen)
+    return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
 
 
-def analyze_transacties_kern(transacties_df, code, naam, verversen=True):
+def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None):
     """
     Alles wat de Home-, Rendement-, Per-aandeel- en Statistieken-tabbladen
     nodig hebben — bewust ZONDER classify_tickers/land/sector/bedrijven-
@@ -970,16 +1025,26 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True):
     nieuwe, koude-cache-portfolio de meeste tijd kost (zie CLAUDE.md /
     opdracht_gefaseerd_laden.md). Die rest wordt lui opgehaald via
     analyze_transacties_verrijking() + de /verrijking-route.
+
+    `prijs_data_al_klaar`: optioneel, al opgehaalde price_data -- als
+    meegegeven wordt aangenomen dat transacties_df AL split-gecorrigeerd is
+    (gebeurde dan al in _haal_portfolio_basis()) en worden de split-
+    correctie + get_prices() hier overgeslagen. Gebruikt door
+    build_portfolio_response(); de 'niet opslaan'-tak (analyze_transacties())
+    laat dit weg en rekent alles zelf uit, zoals voorheen.
     """
     mem_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None
 
-    with meet_tijd("split_correctie_kern"):
-        transacties_df = compute_split_adjusted_shares(transacties_df)
-
     tickers = transacties_df["ticker"].dropna().unique().tolist()
-    start_date = transacties_df["datum"].min()
-    with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
-        price_data = get_prices(tickers, start_date, verversen=verversen)
+
+    if prijs_data_al_klaar is not None:
+        price_data = prijs_data_al_klaar
+    else:
+        with meet_tijd("split_correctie_kern"):
+            transacties_df = compute_split_adjusted_shares(transacties_df)
+        start_date = transacties_df["datum"].min()
+        with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
+            price_data = get_prices(tickers, start_date, verversen=verversen)
 
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None}
@@ -1061,21 +1126,33 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True):
     }
 
 
-def analyze_transacties_verrijking(transacties_df, code):
+def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None):
     """
     Het netwerk-zware deel: Verdeling, Land/Sector, Top-bedrijven en ETF-
     overlap — lui opgevraagd via /api/portfolio/<code>/verrijking, ná de
-    Home-pagina (zie analyze_transacties_kern). Doet ZELF opnieuw
-    compute_split_adjusted_shares/get_prices — dat is bij het gangbare
-    gebruik (kern is al opgehaald) een warme cache-hit, geen nieuwe download.
-    """
-    with meet_tijd("split_correctie_verrijking"):
-        transacties_df = compute_split_adjusted_shares(transacties_df)
+    Home-pagina (zie analyze_transacties_kern). Doet zonder
+    `prijs_data_al_klaar` ZELF opnieuw compute_split_adjusted_shares/
+    get_prices — dat was bij het gangbare gebruik (kern al opgehaald) een
+    warme cache-hit, geen nieuwe download, maar wel dubbel werk; zie
+    `prijs_data_al_klaar` hieronder voor hoe dat nu overgeslagen wordt.
 
+    `prijs_data_al_klaar`: optioneel, al opgehaalde price_data -- als
+    meegegeven wordt aangenomen dat transacties_df AL split-gecorrigeerd is
+    (gebeurde dan al in _haal_portfolio_basis()) en worden de split-
+    correctie + get_prices() hier overgeslagen. Gebruikt door
+    portfolio_verrijking(); analyze_transacties() (de 'niet opslaan'-tak)
+    laat dit weg en rekent alles zelf uit, zoals voorheen.
+    """
     tickers = transacties_df["ticker"].dropna().unique().tolist()
-    start_date = transacties_df["datum"].min()
-    with meet_tijd(f"koersen_ophalen_verrijking ({len(tickers)} ticker(s))"):
-        price_data = get_prices(tickers, start_date)
+
+    if prijs_data_al_klaar is not None:
+        price_data = prijs_data_al_klaar
+    else:
+        with meet_tijd("split_correctie_verrijking"):
+            transacties_df = compute_split_adjusted_shares(transacties_df)
+        start_date = transacties_df["datum"].min()
+        with meet_tijd(f"koersen_ophalen_verrijking ({len(tickers)} ticker(s))"):
+            price_data = get_prices(tickers, start_date)
 
     if price_data.empty:
         return {"verdeling": [], "land_sector_verdeling": {}, "bedrijven_verdeling": {}, "etf_overlap": {}}
@@ -1160,6 +1237,7 @@ def set_bijnaam(code):
     conn.commit()
     cur.close()
     conn.close()
+    _wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
@@ -1180,6 +1258,7 @@ def reset_bijnaam(code):
     conn.commit()
     cur.close()
     conn.close()
+    _wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
@@ -1187,6 +1266,7 @@ def reset_bijnaam(code):
 def verwijder_portfolio(code):
     code = code.strip().upper()
     delete_portfolio(code)
+    _wis_portfolio_basis_cache(code)
     return jsonify({"success": True})
 
 
@@ -1205,6 +1285,12 @@ def wijzig_code(code):
     if not success:
         return jsonify({"error": foutmelding}), 400
 
+    # Oude code bestaat na de rename niet meer, en de nieuwe code is nog
+    # nooit via _haal_portfolio_basis() opgehaald onder die naam -- beide
+    # cache-entries wissen voorkomt dat een eventuele stale entry (bv. de
+    # oude code kort hiervoor bezocht) blijft rondhangen.
+    _wis_portfolio_basis_cache(code)
+    _wis_portfolio_basis_cache(nieuwe_code)
     return jsonify(build_portfolio_response(nieuwe_code, verversen=False))
 
 if __name__ == "__main__":
