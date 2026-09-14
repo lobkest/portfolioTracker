@@ -16,8 +16,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import _normaliseer_bedrijfsnaam, bereken_bedrijven_verdeling
+import portfolio_verdeling
+from portfolio_verdeling import _normaliseer_bedrijfsnaam, bereken_bedrijven_verdeling
 
 
 class TestNormaliseerBedrijfsnaam(unittest.TestCase):
@@ -60,7 +60,7 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         })
         price_data = _price_data(["AAPL", "CSPX.AS"])
 
-        with patch.object(analysis, "get_etf_holdings", return_value=[
+        with patch.object(portfolio_verdeling, "get_etf_holdings", return_value=[
                  {"holding_naam": "Apple Inc", "holding_ticker": "AAPL", "gewicht": 0.5,
                   "land": "United States", "bron": "provider_csv"},
                  {"holding_naam": "Microsoft Corp", "holding_ticker": "MSFT", "gewicht": 0.5,
@@ -89,7 +89,7 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["CSPX.AS"], "aantal": [1.0]})
         price_data = _price_data(["CSPX.AS"], waarde=100.0)
 
-        with patch.object(analysis, "get_etf_holdings", return_value=[
+        with patch.object(portfolio_verdeling, "get_etf_holdings", return_value=[
                  {"holding_naam": "Apple Inc", "holding_ticker": "AAPL", "gewicht": 0.6,
                   "land": "United States", "bron": "yfinance_top10"},
              ]):
@@ -128,7 +128,7 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["ETF_A"], "aantal": [1.0]})
         price_data = _price_data(["ETF_A"], waarde=100.0)
 
-        with patch.object(analysis, "get_etf_holdings", side_effect=AssertionError(
+        with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=AssertionError(
                 "get_etf_holdings mag niet aangeroepen worden -- is_etf_map zegt False")):
             resultaat = bereken_bedrijven_verdeling(transacties_df, price_data, {"ETF_A": False})
 

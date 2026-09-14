@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown
+from portfolio_verdeling import _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown
 
 
 class TestSorteerVerdelingGrootNaarKlein(unittest.TestCase):

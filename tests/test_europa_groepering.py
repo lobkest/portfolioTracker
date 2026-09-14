@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import (
+from portfolio_verdeling import (
     _groepeer_europa_samen,
     _groepeer_europa_samen_per_bron,
     _voeg_kleine_landen_samen,
