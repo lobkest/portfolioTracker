@@ -57,23 +57,24 @@ def _price_data():
 @unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestGefaseerdLaden(unittest.TestCase):
     def setUp(self):
-        import app as app_module
-        self.app_module = app_module
+        import app as app_module  # noqa: F401 -- triggert init_db(), zie SKIP_REDEN
+        import portfolio_orchestratie
+        self.portfolio_orchestratie = portfolio_orchestratie
         self._patchers = [
-            patch.object(app_module, "get_prices", return_value=_price_data()),
-            patch.object(app_module, "ticker_waarschuwingen_voor_transacties", return_value=[]),
-            patch.object(app_module, "classify_tickers", return_value={"ETF_A": True, "AAPL": False}),
-            patch.object(app_module, "_verwarm_land_sector_cache_parallel", return_value=None),
-            patch.object(app_module, "compute_land_sector_verdeling", return_value={"land": {}, "sector": {}}),
-            patch.object(app_module, "bereken_bedrijven_verdeling", return_value={"top": []}),
-            patch.object(app_module, "bereken_etf_overlap", return_value={}),
+            patch.object(portfolio_orchestratie, "get_prices", return_value=_price_data()),
+            patch.object(portfolio_orchestratie, "ticker_waarschuwingen_voor_transacties", return_value=[]),
+            patch.object(portfolio_orchestratie, "classify_tickers", return_value={"ETF_A": True, "AAPL": False}),
+            patch.object(portfolio_orchestratie, "_verwarm_land_sector_cache_parallel", return_value=None),
+            patch.object(portfolio_orchestratie, "compute_land_sector_verdeling", return_value={"land": {}, "sector": {}}),
+            patch.object(portfolio_orchestratie, "bereken_bedrijven_verdeling", return_value={"top": []}),
+            patch.object(portfolio_orchestratie, "bereken_etf_overlap", return_value={}),
         ]
         for p in self._patchers:
             p.start()
             self.addCleanup(p.stop)
 
     def test_kern_bevat_geen_verrijkingsvelden(self):
-        resultaat = self.app_module.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
+        resultaat = self.portfolio_orchestratie.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
 
         self.assertIsNotNone(resultaat["chart_data"])
         self.assertIn("per_ticker", resultaat)
@@ -82,16 +83,16 @@ class TestGefaseerdLaden(unittest.TestCase):
             self.assertNotIn(veld, resultaat)
 
     def test_verrijking_bevat_alleen_verrijkingsvelden(self):
-        resultaat = self.app_module.analyze_transacties_verrijking(_transacties_df(), code=None)
+        resultaat = self.portfolio_orchestratie.analyze_transacties_verrijking(_transacties_df(), code=None)
 
         self.assertEqual(set(resultaat.keys()), VERRIJKINGSVELDEN)
 
     def test_analyze_transacties_wrapper_is_gelijk_aan_kern_plus_verrijking(self):
-        kern = self.app_module.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
-        verrijking = self.app_module.analyze_transacties_verrijking(_transacties_df(), code=None)
+        kern = self.portfolio_orchestratie.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
+        verrijking = self.portfolio_orchestratie.analyze_transacties_verrijking(_transacties_df(), code=None)
         verwacht = {**kern, **verrijking}
 
-        wrapper_resultaat = self.app_module.analyze_transacties(_transacties_df(), code=None, naam="Test")
+        wrapper_resultaat = self.portfolio_orchestratie.analyze_transacties(_transacties_df(), code=None, naam="Test")
 
         self.assertEqual(wrapper_resultaat, verwacht)
 
