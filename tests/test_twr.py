@@ -14,7 +14,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import bereken_twr
+from statistieken import bereken_twr
 
 
 class TestTwr(unittest.TestCase):

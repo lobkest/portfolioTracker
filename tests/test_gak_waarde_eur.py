@@ -17,7 +17,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import bereken_holdings_en_gesloten, compute_per_ticker
+from analysis import compute_per_ticker
+from statistieken import bereken_holdings_en_gesloten
 
 
 class TestGakGebruiktWaardeEurNietTotaalEur(unittest.TestCase):

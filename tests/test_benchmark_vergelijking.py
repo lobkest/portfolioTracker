@@ -16,7 +16,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import bereken_benchmark_vergelijking
+from statistieken import bereken_benchmark_vergelijking
 
 
 class TestBenchmarkVergelijking(unittest.TestCase):

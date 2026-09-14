@@ -24,12 +24,11 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from analysis import (
-    bereken_holdings_en_gesloten,
-    bereken_holdings_gak,
     compute_value_over_time,
     compute_per_ticker,
-    _sorteer_chronologisch,
 )
+from statistieken import bereken_holdings_en_gesloten, bereken_holdings_gak
+from transactie_utils import _sorteer_chronologisch
 
 
 class TestSorteerChronologisch(unittest.TestCase):

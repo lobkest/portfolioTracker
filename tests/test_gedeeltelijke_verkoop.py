@@ -14,7 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import bereken_holdings_en_gesloten, compute_per_ticker, bereken_statistieken
+from analysis import compute_per_ticker
+from statistieken import bereken_holdings_en_gesloten, bereken_statistieken
 
 
 def _rij(datum, aantal, totaal_eur, ticker="TEST", koers=0.0, beurs="EAM"):
