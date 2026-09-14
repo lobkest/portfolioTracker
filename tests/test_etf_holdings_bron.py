@@ -22,7 +22,7 @@ import openpyxl
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import (
+from etf_holdings_provider import (
     ETF_HOLDINGS_BRON,
     _PROVIDER_PARSERS,
     _parse_ishares_holdings,
@@ -272,7 +272,7 @@ class TestFetchProviderHoldingsFallback(unittest.TestCase):
         # entry) moeten hier gewoon None opleveren, zodat de aanroeper
         # (get_etf_holdings) netjes terugvalt op yfinance-top-10 i.p.v. een
         # KeyError/crash.
-        from analysis import fetch_provider_holdings
+        from etf_holdings_provider import fetch_provider_holdings
         self.assertIsNone(fetch_provider_holdings("VWCE.AS"))
         self.assertIsNone(fetch_provider_holdings("VUSA.AS"))
         self.assertIsNone(fetch_provider_holdings("EEN.TICKER.DIE.NIET.BESTAAT"))
@@ -285,9 +285,9 @@ class TestFetchProviderHoldingsIsinZusjes(unittest.TestCase):
     # _parse_ishares_holdings()/_parse_vaneck_holdings() zonder enige
     # aanpassing werken voor IS3N.DE/G2X.DE, precies omdat ze dezelfde
     # provider+locale+parser-route volgen als hun ISIN-zusje EMIM.AS/GDX.L.
-    @patch("analysis.requests.get")
+    @patch("etf_holdings_provider.requests.get")
     def test_is3n_de_gebruikt_ishares_nl_parser_zoals_emim(self, mock_get):
-        from analysis import fetch_provider_holdings
+        from etf_holdings_provider import fetch_provider_holdings
 
         mock_response = Mock()
         mock_response.content = CSV_ISHARES_NL
@@ -304,9 +304,9 @@ class TestFetchProviderHoldingsIsinZusjes(unittest.TestCase):
         self.assertAlmostEqual(nvda["gewicht"], 5.25)
         self.assertEqual(nvda["land"], "United States")
 
-    @patch("analysis.requests.get")
+    @patch("etf_holdings_provider.requests.get")
     def test_g2x_de_gebruikt_vaneck_nl_parser_zoals_gdx(self, mock_get):
-        from analysis import fetch_provider_holdings
+        from etf_holdings_provider import fetch_provider_holdings
 
         content = _maak_vaneck_xlsx(
             header=["Aantal", "Naam positie", "Ticker", "ISIN", "Aandelen", "Marktwaarde", "% van beheerd vermogen"],
