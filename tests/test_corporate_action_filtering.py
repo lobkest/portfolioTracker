@@ -31,7 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 load_dotenv()
 
 import analysis
-from analysis import find_ticker_detailed, _is_corporate_action_row
+from analysis import find_ticker_detailed
+from transactie_utils import _is_corporate_action_row
 
 
 class TestIsCorporateActionRow(unittest.TestCase):

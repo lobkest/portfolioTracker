@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import (
+from statistieken import (
     bereken_positie_rendement,
     bereken_totaal_rendement,
     bereken_jaar_rendement,
