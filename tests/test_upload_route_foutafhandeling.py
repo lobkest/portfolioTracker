@@ -74,12 +74,14 @@ class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
+        import upload_verwerking
         self.app_module = app_module
+        self.upload_verwerking = upload_verwerking
         self.client = app_module.app.test_client()
 
     def test_niet_opslaan_roept_de_dure_check_niet_aan(self):
         with patch.object(self.app_module, "verifieer_tickers_met_prijs_parallel") as mock_dure_check, \
-             patch.object(self.app_module, "basis_ticker_zekerheid_parallel",
+             patch.object(self.upload_verwerking, "basis_ticker_zekerheid_parallel",
                            side_effect=lambda posities, **kw: [dict(BASIS_RESULTAAT) for _ in posities]) as mock_basis, \
              patch.object(self.app_module, "get_prices", return_value=pd.DataFrame()):
             excel = _maak_transacties_excel(n_posities=5)
@@ -107,11 +109,13 @@ class TestUploadGeeftNetteFoutrespons(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
+        import upload_verwerking
         self.app_module = app_module
+        self.upload_verwerking = upload_verwerking
         self.client = app_module.app.test_client()
 
     def test_onverwachte_fout_in_niet_opslaan_pad_geeft_500_met_foutmelding(self):
-        with patch.object(self.app_module, "basis_ticker_zekerheid_parallel",
+        with patch.object(self.upload_verwerking, "basis_ticker_zekerheid_parallel",
                            side_effect=RuntimeError("gesimuleerde Yahoo-storing")):
             excel = _maak_transacties_excel(n_posities=2)
             res = self.client.post(
