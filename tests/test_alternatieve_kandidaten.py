@@ -26,7 +26,7 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import ticker_zekerheid
-from ticker_zekerheid import verifieer_ticker_met_prijs, _verzamel_extra_kandidaten
+from ticker_zekerheid import verifieer_ticker_met_prijs, _verzamel_extra_kandidaten, _verrijk_met_openfigi_kandidaten
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
@@ -252,6 +252,206 @@ class TestZekerGeenExtraZoekopdracht(unittest.TestCase):
         mock_search.assert_not_called()
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertEqual(resultaat["alternatieven"], [])
+        # debug-info moet expliciet tonen dat _verrijk_met_openfigi_kandidaten()
+        # hier NIET draaide (zekere match) -- zie CLAUDE.md-opdracht "OpenFIGI-
+        # kandidaten zichtbaar maken".
+        self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+
+
+class TestVerrijkMetOpenfigiKandidaten(unittest.TestCase):
+    """Pure logica van _verrijk_met_openfigi_kandidaten() zelf -- welke
+    OpenFIGI-roots als nieuw gelden en hoeveel/welke Yahoo-zoekopdrachten
+    daarvoor gedaan worden, los van verifieer_ticker_met_prijs()."""
+
+    def test_doorzoekt_alleen_nog_onbekende_roots_en_dedupliceert_resultaten(self):
+        openfigi_resultaten = {
+            "resultaten": [
+                {"ticker": "GEKOZEN"},  # root van de al gekozen ticker -> overslaan
+                {"ticker": "BESTAAND"},  # root al in alternatieven_kandidaten -> overslaan
+                {"ticker": "ROOT1"},
+                {"ticker": "ROOT1"},  # dubbele root -> maar 1 zoekopdracht
+                {"ticker": "ROOT2"},
+            ],
+            "fout": None,
+        }
+
+        def fake_search(query):
+            if query == "ROOT1":
+                return [
+                    {"symbol": "ROOT1.AS", "exchange": "EAM"},
+                    {"symbol": "ROOT1.AS", "exchange": "EAM"},  # dubbel symbool binnen 1 query
+                ]
+            if query == "ROOT2":
+                return [{"symbol": "BESTAAND.MU", "exchange": "MUN"}]  # al bekend symbool -> uitgesloten
+            raise AssertionError(f"onverwachte zoekopdracht: {query}")
+
+        with patch.object(ticker_zekerheid, "haal_openfigi_resultaten", return_value=openfigi_resultaten), \
+             patch.object(ticker_zekerheid, "_yahoo_search", side_effect=fake_search) as mock_search:
+            resultaat, debug = _verrijk_met_openfigi_kandidaten(
+                [{"symbol": "BESTAAND.MU", "exchange": "MUN"}], "GEKOZEN.XYZ", "ISIN123"
+            )
+
+        mock_search.assert_any_call("ROOT1")
+        mock_search.assert_any_call("ROOT2")
+        self.assertEqual(mock_search.call_count, 2)  # 1 call per unieke nieuwe root, niet per OpenFIGI-resultaat
+        self.assertEqual([a["symbol"] for a in resultaat], ["BESTAAND.MU", "ROOT1.AS"])
+
+        # debug-info (zie CLAUDE.md-opdracht "OpenFIGI-kandidaten zichtbaar
+        # maken"): alle unieke roots, welke als nieuw golden, en de ruwe
+        # Yahoo-zoekresultaten per nieuwe root (vóór filtering op bekende
+        # symbolen -- 'ROOT1' leverde een dubbel symbool en 'ROOT2' leverde
+        # alleen een al-bekend symbool, dat moet hier toch nog zichtbaar zijn).
+        self.assertEqual(debug["roots"], ["GEKOZEN", "BESTAAND", "ROOT1", "ROOT2"])
+        self.assertEqual(debug["nieuwe_roots"], ["ROOT1", "ROOT2"])
+        self.assertEqual(debug["overgeslagen_roots"], ["GEKOZEN", "BESTAAND"])
+        self.assertEqual(
+            debug["yahoo_resultaten"],
+            {
+                "ROOT1": [{"symbol": "ROOT1.AS", "exchange": "EAM"}, {"symbol": "ROOT1.AS", "exchange": "EAM"}],
+                "ROOT2": [{"symbol": "BESTAAND.MU", "exchange": "MUN"}],
+            },
+        )
+
+    def test_geen_openfigi_resultaten_geeft_ongewijzigde_lijst_geen_zoekopdracht(self):
+        with patch.object(
+            ticker_zekerheid, "haal_openfigi_resultaten",
+            return_value={"resultaten": [], "fout": "Geen match bij OpenFIGI."},
+        ), patch.object(ticker_zekerheid, "_yahoo_search") as mock_search:
+            resultaat, debug = _verrijk_met_openfigi_kandidaten(
+                [{"symbol": "BESTAAND.MU", "exchange": "MUN"}], "GEKOZEN.XYZ", "ISIN123"
+            )
+
+        mock_search.assert_not_called()
+        self.assertEqual(resultaat, [{"symbol": "BESTAAND.MU", "exchange": "MUN"}])
+        self.assertEqual(
+            debug,
+            {"roots": [], "nieuwe_roots": [], "overgeslagen_roots": [], "yahoo_resultaten": {}},
+        )
+
+
+class TestOpenfigiKandidatenIntegratieMetVerificatie(unittest.TestCase):
+    """Integratietest: verifieer_ticker_met_prijs() moet OpenFIGI-roots die
+    nog niet in de (al gevulde) Yahoo-kandidatenlijst zitten alsnog laten
+    doorzoeken en meenemen in de uiteindelijke 'alternatieven' -- het
+    AEX-fonds-scenario uit de opdracht (Yahoo's productnaam-zoekindex vindt
+    weinig, OpenFIGI kent de notering wel)."""
+
+    def setUp(self):
+        self.transacties = [
+            {"datum": date(2023, 1, 10), "koers": 100.0},
+            {"datum": date(2023, 6, 10), "koers": 100.0},
+        ]
+        for name, value in (
+            ("_ticker_details_met_cache", {}),
+            ("_land_sector_voor_weergave", (None, None, None)),
+            ("classify_ticker", False),
+        ):
+            p = patch.object(ticker_zekerheid, name, return_value=value)
+            p.start()
+            self.addCleanup(p.stop)
+
+        find_patch = patch.object(
+            ticker_zekerheid, "find_ticker_detailed",
+            return_value={
+                "ticker": "TDT.MU",
+                "zekerheid": "onzeker",
+                "alternatieven": [{"symbol": "TDT.AS", "exchange": "MUN"}],
+            },
+        )
+        find_patch.start()
+        self.addCleanup(find_patch.stop)
+
+    def test_nieuwe_openfigi_root_wordt_doorzocht_en_toegevoegd_aan_alternatieven(self):
+        openfigi_patch = patch.object(
+            ticker_zekerheid, "haal_openfigi_resultaten",
+            return_value={
+                "resultaten": [
+                    {"ticker": "TDT", "exchCode": "GR"},  # root al bekend (TDT.MU/TDT.AS) -> geen extra call
+                    {"ticker": "AEXFND", "exchCode": "AS"},  # nieuwe root
+                ],
+                "fout": None,
+            },
+        )
+
+        def fake_yahoo_search(query):
+            if query == "AEXFND":
+                return [{"symbol": "AEXF.AS", "exchange": "EAM"}]
+            raise AssertionError(f"onverwachte zoekopdracht: {query}")
+
+        def fake_vergelijk(ticker, datum, bekende_koers):
+            if ticker == "TDT.MU":
+                return _prijscheck(match=False, binnen_dagrange=False, afwijking_pct=15.0, yahoo_koers=85.0)
+            if ticker == "TDT.AS":
+                return _prijscheck(match=False, binnen_dagrange=False, afwijking_pct=20.0, yahoo_koers=80.0)
+            if ticker == "AEXF.AS":
+                return _prijscheck(match=True, binnen_dagrange=True)
+            raise AssertionError(f"onverwachte ticker {ticker}")
+
+        with openfigi_patch, \
+             patch.object(ticker_zekerheid, "_yahoo_search", side_effect=fake_yahoo_search) as mock_search, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+            resultaat = verifieer_ticker_met_prijs(
+                "AEX FONDS", "NL0000000001", "TDG", self.transacties
+            )
+
+        mock_search.assert_called_once_with("AEXFND")
+        alt_tickers = [a["ticker"] for a in resultaat["alternatieven"]]
+        self.assertIn("AEXF.AS", alt_tickers)
+        self.assertEqual(resultaat["aanbevolen_alternatief"], "AEXF.AS")
+
+        # debug-info moet laten zien dát de functie draaide en wat ze deed --
+        # het doel van de opdracht ("kan ik zien of dit iets doet").
+        debug = resultaat["openfigi_kandidaten_debug"]
+        self.assertTrue(debug["aangeroepen"])
+        self.assertEqual(debug["roots"], ["TDT", "AEXFND"])
+        self.assertEqual(debug["nieuwe_roots"], ["AEXFND"])
+        self.assertEqual(debug["overgeslagen_roots"], ["TDT"])
+        self.assertEqual(debug["yahoo_resultaten"], {"AEXFND": [{"symbol": "AEXF.AS", "exchange": "EAM"}]})
+
+    def test_root_die_al_bekend_is_wordt_niet_opnieuw_doorzocht(self):
+        openfigi_patch = patch.object(
+            ticker_zekerheid, "haal_openfigi_resultaten",
+            return_value={"resultaten": [{"ticker": "TDT", "exchCode": "GR"}], "fout": None},
+        )
+
+        def fake_vergelijk(ticker, datum, bekende_koers):
+            if ticker == "TDT.MU":
+                return _prijscheck(match=False, binnen_dagrange=False, afwijking_pct=15.0, yahoo_koers=85.0)
+            if ticker == "TDT.AS":
+                return _prijscheck(match=True, binnen_dagrange=True)
+            raise AssertionError(f"'{ticker}' had niet meer doorzocht mogen worden")
+
+        with openfigi_patch, \
+             patch.object(ticker_zekerheid, "_yahoo_search") as mock_search, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+            resultaat = verifieer_ticker_met_prijs(
+                "AEX FONDS", "NL0000000001", "TDG", self.transacties
+            )
+
+        mock_search.assert_not_called()
+        self.assertEqual([a["ticker"] for a in resultaat["alternatieven"]], ["TDT.AS"])
+
+        debug = resultaat["openfigi_kandidaten_debug"]
+        self.assertTrue(debug["aangeroepen"])
+        self.assertEqual(debug["roots"], ["TDT"])
+        self.assertEqual(debug["nieuwe_roots"], [])
+        self.assertEqual(debug["overgeslagen_roots"], ["TDT"])
+        self.assertEqual(debug["yahoo_resultaten"], {})
+
+    def test_geen_openfigi_resultaten_geen_extra_zoekopdracht(self):
+        with patch.object(
+            ticker_zekerheid, "haal_openfigi_resultaten",
+            return_value={"resultaten": [], "fout": "Geen match bij OpenFIGI."},
+        ), patch.object(ticker_zekerheid, "_yahoo_search") as mock_search, patch.object(
+            ticker_zekerheid, "vergelijk_prijs_op_datum",
+            side_effect=lambda *a, **kw: _prijscheck(match=True, binnen_dagrange=True),
+        ):
+            resultaat = verifieer_ticker_met_prijs("AEX FONDS", "NL0000000001", "TDG", self.transacties)
+
+        mock_search.assert_not_called()
+        debug = resultaat["openfigi_kandidaten_debug"]
+        self.assertTrue(debug["aangeroepen"])
+        self.assertEqual(debug["roots"], [])
 
 
 if __name__ == "__main__":

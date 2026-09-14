@@ -267,6 +267,91 @@ def _verzamel_extra_kandidaten(product, isin, bestaande_alternatieven, uitgeslot
     return extra
 
 
+def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, isin):
+    """
+    Vult 'alternatieven_kandidaten' aan met kandidaten die via OpenFIGI's
+    ISIN-lookup bekend zijn, maar die de bestaande Yahoo-zoekopdrachten
+    (find_ticker_detailed()'s restlijst, eventueel al aangevuld door
+    _verzamel_extra_kandidaten()) nog niet opleverden — voor fondsen die
+    Yahoo's zoekindex op productnaam nauwelijks vindt (bv. een minder
+    liquide AEX-fonds), terwijl OpenFIGI de notering wel kent.
+
+    Voor elke unieke OpenFIGI-ticker-root die nog niet voorkomt tussen de
+    roots van 'gekozen_ticker' + 'alternatieven_kandidaten' (root = het deel
+    vóór een eventuele Yahoo-beurssuffix, bv. 'BY6' uit 'BY6.MU' — zelfde
+    root-vorm als _openfigi_root_matches() in ticker_matching.py gebruikt),
+    wordt één Yahoo-zoekopdracht gedaan MET DIE ROOT als zoekterm. Geen
+    handmatige Bloomberg-exchange-code -> Yahoo-suffix-tabel (die twee
+    systemen komen niet 1-op-1 overeen, zie de toelichting bij
+    MANUAL_TICKER_OVERRIDES_ISIN in ticker_matching.py) — Yahoo zelf bepaalt
+    welk koersbaar symbool bij die root hoort. Maximaal 1 Yahoo-call per
+    unieke OpenFIGI-root, niet per OpenFIGI-resultaat.
+
+    Alleen aangeroepen vanuit verifieer_ticker_met_prijs() wanneer de match
+    al 'onzeker' is -- zelfde terughoudendheid als _verzamel_extra_
+    kandidaten() hierboven, om niet bij elke upload extra calls te maken
+    (deze functie wordt uitsluitend gebruikt door de lui geladen, volledige
+    Ticker-zekerheid-pagina-check, niet door find_ticker_met_snelle_
+    prijscheck()). Dankzij haal_openfigi_resultaten()'s permanente cache
+    kost de OpenFIGI-lookup zelf hier geen extra externe call zodra deze
+    ISIN al eens opgehaald is.
+
+    Geeft (extra, debug) terug:
+      extra: NIEUWE lijst (alternatieven_kandidaten + eventuele OpenFIGI-
+        gevonden extra's), in hetzelfde {"symbol","exchange"}-formaat.
+      debug: __TIJDELIJK, diagnostisch__ (zie CLAUDE.md-opdracht "OpenFIGI-
+        kandidaten zichtbaar maken", makkelijk te verwijderen samen met het
+        'openfigi_kandidaten_debug'-veld in verifieer_ticker_met_prijs()) —
+        dict met 'roots' (alle unieke OpenFIGI-roots voor deze ISIN),
+        'nieuwe_roots' (roots die een Yahoo-zoekopdracht triggerden),
+        'overgeslagen_roots' (roots die al bekend waren, dus overgeslagen),
+        'yahoo_resultaten' ({root: ruwe [{"symbol","exchange"}, ...]} per
+        doorzochte nieuwe root, vóór filtering op reeds-bekende symbolen).
+    """
+    openfigi = haal_openfigi_resultaten(isin)
+    if not openfigi["resultaten"]:
+        return list(alternatieven_kandidaten), {
+            "roots": [], "nieuwe_roots": [], "overgeslagen_roots": [], "yahoo_resultaten": {},
+        }
+
+    alle_roots = []
+    for r in openfigi["resultaten"]:
+        root = (r.get("ticker") or "").upper()
+        if root and root not in alle_roots:
+            alle_roots.append(root)
+
+    bekende_symbols = {gekozen_ticker} | {a.get("symbol") for a in alternatieven_kandidaten}
+    bekende_roots = {s.split(".")[0].upper() for s in bekende_symbols if s}
+
+    nieuwe_roots = [r for r in alle_roots if r not in bekende_roots]
+    overgeslagen_roots = [r for r in alle_roots if r in bekende_roots]
+
+    extra = list(alternatieven_kandidaten)
+    yahoo_resultaten = {}
+    for root in nieuwe_roots:
+        quotes = _yahoo_search(root)
+        yahoo_resultaten[root] = [{"symbol": q.get("symbol"), "exchange": q.get("exchange")} for q in quotes]
+        for q in quotes:
+            symbol = q.get("symbol")
+            if not symbol or symbol in bekende_symbols:
+                continue
+            bekende_symbols.add(symbol)
+            extra.append({"symbol": symbol, "exchange": q.get("exchange")})
+
+    dprint(
+        f"[alternatieven-openfigi] ISIN={isin}: {len(nieuwe_roots)} nieuwe OpenFIGI-root(s) "
+        f"{nieuwe_roots} doorzocht, {len(extra) - len(alternatieven_kandidaten)} nieuwe "
+        f"kandidaat/kandidaten gevonden."
+    )
+    debug = {
+        "roots": alle_roots,
+        "nieuwe_roots": nieuwe_roots,
+        "overgeslagen_roots": overgeslagen_roots,
+        "yahoo_resultaten": yahoo_resultaten,
+    }
+    return extra, debug
+
+
 def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_beurzen):
     """
     Rekent kandidaat-tickers (vorm {'symbol','exchange'}, zoals
@@ -369,7 +454,12 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     'alternatieven' komt normaliter uit find_ticker_detailed()'s restlijst,
     maar wordt aangevuld met een aparte, gerichte zoekopdracht
     (_verzamel_extra_kandidaten()) als die restlijst leeg is — zie de
-    toelichting daar.
+    toelichting daar — en vervolgens met kandidaten uit OpenFIGI's
+    ISIN-lookup die nog niet in de lijst zitten (_verrijk_met_openfigi_
+    kandidaten()), voor fondsen die Yahoo's zoekindex op productnaam
+    nauwelijks vindt. 'openfigi_kandidaten_debug' (__TIJDELIJK__, zie
+    _verrijk_met_openfigi_kandidaten()'s docstring) laat zien of/hoe die
+    laatste stap draaide, voor de Ticker-zekerheid-pagina.
 
     Voegt op ELK return-pad ook een OpenFIGI-root-check toe (zie
     _voeg_openfigi_check_toe()) -- zelfde extra, ISIN-gebaseerde
@@ -433,6 +523,16 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     # winnen met het checken van kandidaten die toch niet gekozen zijn.
     alternatieven = []
     aanbevolen_alternatief = None
+    # __TIJDELIJK, diagnostisch__ (zie CLAUDE.md-opdracht "OpenFIGI-
+    # kandidaten zichtbaar maken"): laat op de Ticker-zekerheid-pagina zien
+    # of _verrijk_met_openfigi_kandidaten() hieronder daadwerkelijk draait,
+    # en zo ja met welke roots/resultaten -- makkelijk te verwijderen samen
+    # met het 'openfigi_kandidaten_debug'-veld in 'result' hieronder en het
+    # bijbehorende blok in static/js/app.js (maakOpenfigiKandidatenDebugBlok).
+    openfigi_kandidaten_debug = {
+        "aangeroepen": False,
+        "reden": "ticker al 'zeker' -- alternatieven worden niet doorgerekend",
+    }
     if zekerheid != "zeker":
         alternatieven_kandidaten = list(basis["alternatieven"])
         # 'alternatieven_kandidaten' is de restlijst van find_ticker_detailed()'s
@@ -446,6 +546,10 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
             alternatieven_kandidaten += _verzamel_extra_kandidaten(
                 product, isin, alternatieven_kandidaten, ticker
             )
+        alternatieven_kandidaten, openfigi_debug_info = _verrijk_met_openfigi_kandidaten(
+            alternatieven_kandidaten, ticker, isin
+        )
+        openfigi_kandidaten_debug = {"aangeroepen": True, **openfigi_debug_info}
         alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
             alternatieven_kandidaten, steekproef, verwachte_beurzen
         )
@@ -467,6 +571,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
         "beurs_klopt": beurs_klopt,
         "prijs_checks": prijs_checks,
         "alternatieven": alternatieven,
+        "openfigi_kandidaten_debug": openfigi_kandidaten_debug,
     }
     if aanbevolen_alternatief:
         result["aanbevolen_alternatief"] = aanbevolen_alternatief

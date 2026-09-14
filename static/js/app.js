@@ -1249,6 +1249,13 @@ function toonInstellingen() {
         opslaanBtn.textContent = "Opslaan";
         opslaanBtn.onclick = () => slaBijnaamOp(t.ticker, input.value.trim());
 
+        input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+                e.preventDefault();
+                opslaanBtn.click();
+            }
+        });
+
         const resetBtn = document.createElement("button");
         resetBtn.textContent = "Reset";
         resetBtn.style.marginLeft = "6px";
@@ -1518,6 +1525,77 @@ function maakOpenfigiRegel(p) {
     return regel;
 }
 
+// __TIJDELIJK, diagnostisch__ (CLAUDE.md-opdracht "OpenFIGI-kandidaten
+// zichtbaar maken"): laat zien of _verrijk_met_openfigi_kandidaten()
+// (ticker_zekerheid.py) voor deze positie daadwerkelijk draaide, welke
+// unieke OpenFIGI-roots er voor deze ISIN zijn, welke daarvan als "nieuw"
+// golden (dus een extra Yahoo-zoekopdracht triggerden) en wat die
+// zoekopdracht ruw teruggaf -- zodat op deze pagina te zien is of de
+// verrijking iets doet, zonder in serverlogs te hoeven kijken. Leest alleen
+// het 'openfigi_kandidaten_debug'-veld dat de backend al meestuurt, roept
+// zelf niets aan. Later weer te verwijderen: dit blok + die aanroep
+// hieronder + het 'openfigi_kandidaten_debug'-veld in ticker_zekerheid.py.
+function maakOpenfigiKandidatenDebugBlok(p) {
+    const debug = p.openfigi_kandidaten_debug;
+    if (!debug) return null;
+
+    const details = document.createElement("details");
+    details.style.fontSize = "0.8em";
+    details.style.marginTop = "4px";
+    details.style.color = "#555";
+
+    const summary = document.createElement("summary");
+    summary.textContent = "🐛 Debug: OpenFIGI-kandidaten";
+    summary.style.cursor = "pointer";
+    details.appendChild(summary);
+
+    const inhoud = document.createElement("div");
+    inhoud.style.marginTop = "4px";
+    inhoud.style.paddingLeft = "10px";
+
+    if (!debug.aangeroepen) {
+        const regel = document.createElement("div");
+        regel.textContent = `Niet aangeroepen (${debug.reden || "onbekende reden"}).`;
+        inhoud.appendChild(regel);
+    } else {
+        const rootsRegel = document.createElement("div");
+        rootsRegel.textContent = debug.roots.length > 0
+            ? `Unieke OpenFIGI-roots voor deze ISIN: ${debug.roots.join(", ")}`
+            : "Geen OpenFIGI-resultaten voor deze ISIN.";
+        inhoud.appendChild(rootsRegel);
+
+        if (debug.roots.length > 0) {
+            const nieuwRegel = document.createElement("div");
+            nieuwRegel.textContent = debug.nieuwe_roots.length > 0
+                ? `Nieuw doorzocht (nog niet bekend): ${debug.nieuwe_roots.join(", ")}`
+                : "Geen enkele root was nieuw — allemaal al bekend.";
+            inhoud.appendChild(nieuwRegel);
+
+            if (debug.overgeslagen_roots.length > 0) {
+                const overgeslagenRegel = document.createElement("div");
+                overgeslagenRegel.textContent = `Overgeslagen (al bekend): ${debug.overgeslagen_roots.join(", ")}`;
+                inhoud.appendChild(overgeslagenRegel);
+            }
+
+            debug.nieuwe_roots.forEach(root => {
+                const resultaten = (debug.yahoo_resultaten && debug.yahoo_resultaten[root]) || [];
+                const regel = document.createElement("div");
+                regel.style.marginTop = "2px";
+                if (resultaten.length === 0) {
+                    regel.textContent = `Yahoo-zoekopdracht op '${root}': geen resultaten.`;
+                } else {
+                    const items = resultaten.map(r => `${r.symbol || "?"} (${r.exchange || "?"})`).join(", ");
+                    regel.textContent = `Yahoo-zoekopdracht op '${root}': ${items}`;
+                }
+                inhoud.appendChild(regel);
+            });
+        }
+    }
+
+    details.appendChild(inhoud);
+    return details;
+}
+
 function maakTickerZekerheidKaart(p) {
     const rij = document.createElement("div");
     rij.style.marginBottom = "18px";
@@ -1592,6 +1670,9 @@ function maakTickerZekerheidKaart(p) {
 
     const openfigiRegel = maakOpenfigiRegel(p);
     if (openfigiRegel) rij.appendChild(openfigiRegel);
+
+    const openfigiKandidatenDebugBlok = maakOpenfigiKandidatenDebugBlok(p);
+    if (openfigiKandidatenDebugBlok) rij.appendChild(openfigiKandidatenDebugBlok);
 
     const prijsKop = document.createElement("div");
     prijsKop.textContent = "Prijscontrole";
@@ -2783,6 +2864,13 @@ function maakPrognoseInputVeld(id, labelTekst, waarde, opts) {
     if (opts.min !== undefined) input.min = opts.min;
     if (opts.max !== undefined) input.max = opts.max;
 
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            berekenEnToonPrognose();
+        }
+    });
+
     wrapper.appendChild(label);
     wrapper.appendChild(input);
     return wrapper;
@@ -3383,6 +3471,13 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
         }
     } finally {
         verbergLaadOverlay();
+    }
+});
+
+document.getElementById("nieuweCodeInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        document.getElementById("wijzigCodeBtn").click();
     }
 });
 
