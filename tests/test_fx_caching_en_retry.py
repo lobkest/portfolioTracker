@@ -30,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis
 import prijzen
+import ticker_classificatie
 
 
 def _mock_conn_voor_twee_aanroepen(
@@ -268,8 +269,8 @@ class TestMetRateLimitRetry(unittest.TestCase):
 
     @patch("yahoo_client.time.sleep")
     def test_fetch_yf_info_gebruikt_gedeelde_retry_en_geeft_none_na_mislukking(self, mock_sleep):
-        with patch("analysis.yf.Ticker", side_effect=Exception("Too Many Requests")):
-            resultaat = analysis._fetch_yf_info("AAPL", pogingen=2, wachttijd=5)
+        with patch("ticker_classificatie.yf.Ticker", side_effect=Exception("Too Many Requests")):
+            resultaat = ticker_classificatie._fetch_yf_info("AAPL", pogingen=2, wachttijd=5)
 
         self.assertIsNone(resultaat)
         self.assertEqual(mock_sleep.call_args_list, [call(5)])
