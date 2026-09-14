@@ -17,8 +17,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import compute_land_sector_verdeling
+import portfolio_verdeling
+from portfolio_verdeling import compute_land_sector_verdeling
 
 
 def _price_data(tickers, waarde=100.0, datum="2024-01-02"):
@@ -38,14 +38,14 @@ class TestLandSectorPerBron(unittest.TestCase):
         })
         price_data = _price_data(["ETF_A", "AAPL"], waarde=100.0)
 
-        with patch.object(analysis, "get_etf_sector_verdeling", return_value={}), \
-             patch.object(analysis, "get_etf_holdings", return_value=[
+        with patch.object(portfolio_verdeling, "get_etf_sector_verdeling", return_value={}), \
+             patch.object(portfolio_verdeling, "get_etf_holdings", return_value=[
                  {"holding_naam": "X", "holding_ticker": "X", "gewicht": 0.6,
                   "land": "United States", "bron": "provider_csv"},
                  {"holding_naam": "Y", "holding_ticker": "Y", "gewicht": 0.4,
                   "land": "Japan", "bron": "provider_csv"},
              ]), \
-             patch.object(analysis, "get_land_sector", return_value=("United States", "Technology")):
+             patch.object(portfolio_verdeling, "get_land_sector", return_value=("United States", "Technology")):
             resultaat = compute_land_sector_verdeling(
                 transacties_df, price_data, {"ETF_A": True, "AAPL": False}
             )
@@ -68,7 +68,7 @@ class TestLandSectorPerBron(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["AAPL"], "aantal": [1.0]})
         price_data = _price_data(["AAPL"], waarde=100.0)
 
-        with patch.object(analysis, "get_land_sector", return_value=("United States", "Technology")):
+        with patch.object(portfolio_verdeling, "get_land_sector", return_value=("United States", "Technology")):
             resultaat = compute_land_sector_verdeling(transacties_df, price_data, {"AAPL": False})
 
         self.assertIn("Technology", resultaat["sector_per_bron"])
@@ -87,11 +87,11 @@ class TestLandSectorPerBron(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["ETF_A"], "aantal": [1.0]})
         price_data = _price_data(["ETF_A"], waarde=100.0)
 
-        with patch.object(analysis, "get_etf_holdings", side_effect=AssertionError(
+        with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=AssertionError(
                  "get_etf_holdings mag niet aangeroepen worden -- is_etf_map zegt False")), \
-             patch.object(analysis, "get_etf_sector_verdeling", side_effect=AssertionError(
+             patch.object(portfolio_verdeling, "get_etf_sector_verdeling", side_effect=AssertionError(
                  "get_etf_sector_verdeling mag niet aangeroepen worden -- is_etf_map zegt False")), \
-             patch.object(analysis, "get_land_sector", return_value=("Germany", "Industrials")):
+             patch.object(portfolio_verdeling, "get_land_sector", return_value=("Germany", "Industrials")):
             resultaat = compute_land_sector_verdeling(transacties_df, price_data, {"ETF_A": False})
 
         self.assertAlmostEqual(resultaat["land"]["Germany"], 100.0)

@@ -14,8 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import bereken_etf_overlap
+import portfolio_verdeling
+from portfolio_verdeling import bereken_etf_overlap
 
 
 def _price_data(tickers, waarde=100.0, datum="2024-01-02"):
@@ -33,7 +33,7 @@ class TestBerekenEtfOverlap(unittest.TestCase):
              "land": "United States", "bron": "provider_csv"},
         ]
 
-        with patch.object(analysis, "get_etf_holdings", return_value=holdings):
+        with patch.object(portfolio_verdeling, "get_etf_holdings", return_value=holdings):
             matrix = bereken_etf_overlap(transacties_df, price_data, {"ETF_A": True, "ETF_B": True})
 
         self.assertAlmostEqual(matrix["ETF_A"]["ETF_B"], 1.0)
@@ -50,7 +50,7 @@ class TestBerekenEtfOverlap(unittest.TestCase):
             return [{"holding_naam": "Nestle SA", "holding_ticker": "NESN.SW", "gewicht": 1.0,
                      "land": "Switzerland", "bron": "provider_csv"}]
 
-        with patch.object(analysis, "get_etf_holdings", side_effect=fake_holdings):
+        with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=fake_holdings):
             matrix = bereken_etf_overlap(transacties_df, price_data, {"ETF_A": True, "ETF_B": True})
 
         self.assertAlmostEqual(matrix["ETF_A"]["ETF_B"], 0.0)
@@ -74,7 +74,7 @@ class TestBerekenEtfOverlap(unittest.TestCase):
         transacties_df = pd.DataFrame({"ticker": ["ETF_A", "ETF_B"], "aantal": [1.0, 1.0]})
         price_data = _price_data(["ETF_A", "ETF_B"])
 
-        with patch.object(analysis, "get_etf_holdings", side_effect=AssertionError(
+        with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=AssertionError(
                 "get_etf_holdings mag niet aangeroepen worden -- is_etf_map zegt overal False")):
             matrix = bereken_etf_overlap(transacties_df, price_data, {"ETF_A": False, "ETF_B": False})
 
