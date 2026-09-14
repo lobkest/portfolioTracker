@@ -34,11 +34,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import verifieer_tickers_met_prijs_parallel, basis_ticker_zekerheid_parallel
+import ticker_zekerheid
+from ticker_zekerheid import verifieer_tickers_met_prijs_parallel, basis_ticker_zekerheid_parallel
 
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
-# (zie _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_
+# (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
 # doen -- dat zou zowel de "geen databasetoegang nodig"-belofte hierboven
 # breken als de tijdmetingen hieronder vervuilen. Module-breed op "geen
@@ -50,7 +50,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -105,11 +105,11 @@ class TestOudeAanpakRisicoOpTimeout(unittest.TestCase):
                 "niveau": "ok" if match else "waarschuwing", "match": match,
             }
 
-        with patch.object(analysis, "find_ticker_detailed", side_effect=trage_find_ticker_detailed), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=traag_vergelijk), \
-             patch.object(analysis, "_ticker_details_met_cache", return_value={}), \
-             patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None)), \
-             patch.object(analysis, "classify_ticker", return_value=False):  # generieke test-tickers, geen echt fonds
+        with patch.object(ticker_zekerheid, "find_ticker_detailed", side_effect=trage_find_ticker_detailed), \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=traag_vergelijk), \
+             patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={}), \
+             patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None)), \
+             patch.object(ticker_zekerheid, "classify_ticker", return_value=False):  # generieke test-tickers, geen echt fonds
             start = time.time()
             verifieer_tickers_met_prijs_parallel(posities, max_workers=6)
             duur = time.time() - start
@@ -139,8 +139,8 @@ class TestNieuweAanpakBlijftSnel(unittest.TestCase):
 
         posities = [(f"FONDS {i}", f"ISIN{i}", "TDG", _transacties()) for i in range(AANTAL_POSITIES)]
 
-        with patch.object(analysis, "find_ticker_detailed", side_effect=trage_find_ticker_detailed), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=trage_vergelijk):
+        with patch.object(ticker_zekerheid, "find_ticker_detailed", side_effect=trage_find_ticker_detailed), \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=trage_vergelijk):
             start = time.time()
             basis_ticker_zekerheid_parallel(posities, max_workers=8)
             duur = time.time() - start

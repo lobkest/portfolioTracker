@@ -24,10 +24,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
+import ticker_zekerheid
 
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
-# (zie _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_
+# (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
 # doen. Module-breed op "geen resultaten" gepatcht zodat de bestaande
 # tests hier offline en ongewijzigd blijven -- _openfigi_root_bekend()
@@ -38,7 +38,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -51,8 +51,8 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
     def setUp(self):
         self.transacties = [{"datum": "2026-02-16", "koers": 10.39}]
 
-    @patch("analysis.vergelijk_prijs_op_datum")
-    @patch("analysis.find_ticker_detailed")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.find_ticker_detailed")
     def test_escaleert_nu_bij_dagrange_probleem_met_lage_pct(self, mock_find, mock_vergelijk):
         # BYD-achtig geval: afwijking maar 3.7% (< 6%-drempel), maar WEL
         # buiten de dagrange -- moet nu escaleren voorbij stap 1. Stap 3
@@ -66,14 +66,14 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
             "afwijking_pct": 3.7, "match": False, "binnen_dagrange": False,
             "yahoo_koers": 10.0, "high": 10.0, "low": 9.9,
         }
-        resultaat = analysis.find_ticker_met_snelle_prijscheck(
+        resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
             "BYD Company Limited", "CNE100000296", "TDG", self.transacties
         )
         self.assertIsNotNone(resultaat["prijswaarschuwing"])
         self.assertEqual(resultaat["zekerheid"], "onzeker")
 
-    @patch("analysis.vergelijk_prijs_op_datum")
-    @patch("analysis.find_ticker_detailed")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.find_ticker_detailed")
     def test_escaleert_niet_bij_lage_pct_en_binnen_dagrange(self, mock_find, mock_vergelijk):
         # VUSA.AS-achtig geval: laatste transactie oprecht in orde -- moet
         # NIET escaleren (ongewijzigd gedrag).
@@ -82,14 +82,14 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
             "afwijking_pct": 1.1, "match": True, "binnen_dagrange": True,
             "yahoo_koers": 110.0, "high": 111.2, "low": 110.3,
         }
-        resultaat = analysis.find_ticker_met_snelle_prijscheck(
+        resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
             "Vanguard S&P 500 UCITS ETF USD Dis", "IE00B3XXRP09", "EAM", self.transacties
         )
         self.assertIsNone(resultaat["prijswaarschuwing"])
 
-    @patch("analysis._zoek_betere_alternatieven")
-    @patch("analysis.vergelijk_prijs_op_datum")
-    @patch("analysis.find_ticker_detailed")
+    @patch("ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.find_ticker_detailed")
     def test_ontbrekende_koersdata_escaleert_nog_steeds(self, mock_find, mock_vergelijk, mock_alt):
         # Regressietest: het G2X.MU-geval (geen koersdata = verdacht) mag
         # niet stuklopen door deze wijziging.
@@ -99,29 +99,29 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
             "yahoo_koers": None, "high": None, "low": None,
         }
         mock_alt.return_value = ([], None)
-        resultaat = analysis.find_ticker_met_snelle_prijscheck(
+        resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
             "Onbekend Fonds", "XX0000000000", "TDG", self.transacties
         )
         self.assertIsNotNone(resultaat["prijswaarschuwing"])
 
 
 class TestTickerHeeftPrijsprobleemDagrangeBewust(unittest.TestCase):
-    @patch("analysis.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
     def test_dagrange_probleem_met_lage_pct_telt_als_probleem(self, mock_vergelijk):
         mock_vergelijk.return_value = {
             "afwijking_pct": 3.7, "match": False, "binnen_dagrange": False,
         }
         self.assertTrue(
-            analysis._ticker_heeft_prijsprobleem("BY6.MU", [{"datum": "2026-02-16", "koers": 10.39}])
+            ticker_zekerheid._ticker_heeft_prijsprobleem("BY6.MU", [{"datum": "2026-02-16", "koers": 10.39}])
         )
 
-    @patch("analysis.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
     def test_binnen_dagrange_telt_niet_als_probleem(self, mock_vergelijk):
         mock_vergelijk.return_value = {
             "afwijking_pct": 1.1, "match": True, "binnen_dagrange": True,
         }
         self.assertFalse(
-            analysis._ticker_heeft_prijsprobleem("VUSA.AS", [{"datum": "2025-12-02", "koers": 111.78}])
+            ticker_zekerheid._ticker_heeft_prijsprobleem("VUSA.AS", [{"datum": "2025-12-02", "koers": 111.78}])
         )
 
 

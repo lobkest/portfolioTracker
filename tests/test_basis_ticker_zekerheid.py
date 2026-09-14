@@ -1,5 +1,5 @@
 """
-Unit tests voor analysis.basis_ticker_zekerheid() -- de goedkope,
+Unit tests voor ticker_zekerheid.basis_ticker_zekerheid() -- de goedkope,
 NIET-prijsgeverifieerde ticker-zekerheid die het 'niet opslaan'-pad in
 app.py sinds het Statistieken-incident van 2026-08-31 standaard gebruikt
 i.p.v. altijd de dure verifieer_tickers_met_prijs_parallel() voor de volle
@@ -13,12 +13,12 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import basis_ticker_zekerheid
+import ticker_zekerheid
+from ticker_zekerheid import basis_ticker_zekerheid
 
 # basis_ticker_zekerheid() draait via find_ticker_met_snelle_prijscheck(),
 # dat sinds de OpenFIGI-root-check (zie _voeg_openfigi_check_toe in
-# analysis.py) altijd haal_openfigi_resultaten() aanroept -- zonder deze
+# ticker_zekerheid.py) altijd haal_openfigi_resultaten() aanroept -- zonder deze
 # patch dus een echte DB/netwerk-call. Module-breed op "geen resultaten"
 # gepatcht zodat deze tests offline blijven, net als in de andere
 # find_ticker_met_snelle_prijscheck-tests.
@@ -28,7 +28,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -40,7 +40,7 @@ def tearDownModule():
 class TestBasisTickerZekerheid(unittest.TestCase):
     def test_zekere_match_geeft_ticker_en_zekerheid_door(self):
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AKZA.AS", "zekerheid": "zeker", "alternatieven": []},
         ):
             resultaat = basis_ticker_zekerheid("AKZO NOBEL NV", "NL0013267909", "EAM")
@@ -54,7 +54,7 @@ class TestBasisTickerZekerheid(unittest.TestCase):
         # prijscall, dus land/sector/valuta/prijs_checks/alternatieven
         # (die verifieer_ticker_met_prijs WEL zou vullen) blijven leeg.
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "GDX.L", "zekerheid": "onzeker", "alternatieven": [{"symbol": "VEF5.MU", "exchange": "MUN"}]},
         ):
             resultaat = basis_ticker_zekerheid("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG")
@@ -75,7 +75,7 @@ class TestBasisTickerZekerheid(unittest.TestCase):
 
     def test_excel_beurs_wordt_overgenomen_yahoo_beurs_nog_onbekend(self):
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []},
         ):
             resultaat = basis_ticker_zekerheid("APPLE INC", "US0378331005", "NSY")
@@ -85,7 +85,7 @@ class TestBasisTickerZekerheid(unittest.TestCase):
 
     def test_geen_ticker_gevonden(self):
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": None, "zekerheid": "geen_match", "alternatieven": []},
         ):
             resultaat = basis_ticker_zekerheid("ONBEKEND FONDS", "XX0000000000", "XYZ")

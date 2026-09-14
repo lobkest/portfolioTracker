@@ -1,6 +1,6 @@
 """
 Unit tests voor de High/Low-dagrange op de Ticker-zekerheid-pagina
-(analysis.vergelijk_prijs_op_datum's 'binnen_dagrange'-veld, en de twee
+(ticker_zekerheid.vergelijk_prijs_op_datum's 'binnen_dagrange'-veld, en de twee
 samenvattende waarschuwingsmeldingen die er voortaan op leunen i.p.v. op de
 %-afwijkingsdrempel -- zie CLAUDE.md/opdracht_high_low_dagrange.md).
 
@@ -25,13 +25,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
+import ticker_zekerheid
 import ticker_prijscheck
-from analysis import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
+from ticker_zekerheid import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
 from ticker_prijscheck import DAGRANGE_TOLERANTIE
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
-# _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
+# _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
 # blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
@@ -48,10 +48,10 @@ _yahoo_search_patcher = None
 
 def setUpModule():
     global _openfigi_patcher, _yahoo_search_patcher
-    _yahoo_search_patcher = patch.object(analysis, "_yahoo_search", return_value=[])
+    _yahoo_search_patcher = patch.object(ticker_zekerheid, "_yahoo_search", return_value=[])
     _yahoo_search_patcher.start()
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -141,19 +141,19 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
             {"datum": date(2023, 6, 10), "koers": 100.0},
         ]
         patcher = patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []},
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        details_patch = patch.object(analysis, "_ticker_details_met_cache", return_value={})
+        details_patch = patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={})
         details_patch.start()
         self.addCleanup(details_patch.stop)
-        land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
+        land_sector_patch = patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None))
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
         # AAPL is een aandeel, geen ETF.
-        classify_patch = patch.object(analysis, "classify_ticker", return_value=False)
+        classify_patch = patch.object(ticker_zekerheid, "classify_ticker", return_value=False)
         classify_patch.start()
         self.addCleanup(classify_patch.stop)
 
@@ -167,7 +167,7 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
         return basis
 
     def test_melding_gebruikt_dagrange_niet_afwijking(self):
-        with patch.object(analysis, "vergelijk_prijs_op_datum",
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum",
                            side_effect=lambda *a, **kw: self._check()):
             resultaat = verifieer_ticker_met_prijs("APPLE INC", "US0378331005", "NASDAQ", self.transacties)
 
@@ -175,7 +175,7 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
         self.assertIsNone(resultaat["waarschuwing"])
 
     def test_buiten_dagrange_degradeert_naar_onzeker_met_dagrange_tekst(self):
-        with patch.object(analysis, "vergelijk_prijs_op_datum",
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum",
                            side_effect=lambda *a, **kw: self._check(binnen_dagrange=False)):
             resultaat = verifieer_ticker_met_prijs("APPLE INC", "US0378331005", "NASDAQ", self.transacties)
 

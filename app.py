@@ -1,8 +1,22 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import find_ticker_detailed, get_prices, compute_value_over_time, compute_per_ticker, compute_per_ticker_koers_en_aankopen, compute_split_adjusted_shares, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, BENCHMARK_TICKERS, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting, dprint
-from statistieken import bereken_statistieken, bereken_benchmark_vergelijking, bereken_rendement_over_tijd
+from ticker_matching import find_ticker_detailed
+from prijzen import get_prices
+from portfolio_calc import (
+    compute_value_over_time, compute_per_ticker, compute_per_ticker_koers_en_aankopen,
+    compute_split_adjusted_shares,
+)
+from ticker_zekerheid import (
+    verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, basis_ticker_zekerheid,
+    basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck,
+    vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties,
+    backfill_verouderde_tickers,
+)
+from transactie_utils import _is_corporate_action_row
+from debug_utils import meet_tijd, dprint
+from yahoo_client import reset_yahoo_call_teller, log_yahoo_call_samenvatting
+from statistieken import bereken_statistieken, bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
 from dividend import verwerk_rekeningoverzicht, bereken_dividend_samenvatting
 from portfolio_verdeling import (
     compute_land_sector_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
