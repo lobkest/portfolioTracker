@@ -1,8 +1,8 @@
 """
 Unit tests voor het progressief-inkorten van de productnaam bij het zoeken
-van een Yahoo-ticker (analysis._zoek_product_progressief).
+van een Yahoo-ticker (ticker_matching._zoek_product_progressief).
 
-Draait geheel offline: analysis._yahoo_search wordt gemockt, dus geen
+Draait geheel offline: ticker_matching._yahoo_search wordt gemockt, dus geen
 echte yahooquery/netwerk-calls nodig. Regressietest voor de bug waarbij een
 mislukte exacte-beurs-match blind terugviel op de eerste (mogelijk
 verkeerde) kandidaat van de volledige-naam-zoekopdracht, i.p.v. de
@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import (
+import ticker_matching
+from ticker_matching import (
     _zoek_product_progressief, _woorden_varianten, BEURS_MAP,
     find_ticker_detailed, MANUAL_TICKER_OVERRIDES_ISIN,
 )
@@ -66,7 +66,7 @@ class TestZoekProductProgressief(unittest.TestCase):
                 return [_quote("GDX", "PCX"), _quote("GDX.L", "LSE"), _quote("VEF5.MU", "MUN")]
             raise AssertionError(f"onverwachte query: {query!r}")
 
-        with patch.object(analysis, "_yahoo_search", side_effect=fake_search):
+        with patch.object(ticker_matching, "_yahoo_search", side_effect=fake_search):
             symbol, zekerheid, alternatieven = _zoek_product_progressief(
                 "VANECK GOLD MINERS UCITS ETF USD A", "TDG", self.TARGETS,
             )
@@ -88,7 +88,7 @@ class TestZoekProductProgressief(unittest.TestCase):
             aantal_calls.append(query)
             return [_quote("VEF5.MU", "MUN"), _quote("GDX.L", "LSE")]
 
-        with patch.object(analysis, "_yahoo_search", side_effect=fake_search):
+        with patch.object(ticker_matching, "_yahoo_search", side_effect=fake_search):
             symbol, zekerheid, alternatieven = _zoek_product_progressief(
                 "VANECK GOLD MINERS UCITS ETF USD A", "TDG", self.TARGETS,
             )
@@ -109,7 +109,7 @@ class TestZoekProductProgressief(unittest.TestCase):
             # kortere varianten geven dezelfde (foute) kandidaten
             return [_quote("GDX.L", "LSE"), _quote("GDX.SW", "EBS")]
 
-        with patch.object(analysis, "_yahoo_search", side_effect=fake_search):
+        with patch.object(ticker_matching, "_yahoo_search", side_effect=fake_search):
             symbol, zekerheid, alternatieven = _zoek_product_progressief(
                 "VANECK GOLD MINERS UCITS ETF USD A", "TDG", self.TARGETS,
             )
@@ -119,7 +119,7 @@ class TestZoekProductProgressief(unittest.TestCase):
         self.assertIn({"symbol": "GDX.SW", "exchange": "EBS"}, alternatieven)
 
     def test_niets_gevonden_geeft_geen_match(self):
-        with patch.object(analysis, "_yahoo_search", return_value=[]):
+        with patch.object(ticker_matching, "_yahoo_search", return_value=[]):
             symbol, zekerheid, alternatieven = _zoek_product_progressief(
                 "COMPLEET ONBEKEND FONDS NAAM HIER", "TDG", self.TARGETS,
             )
@@ -135,7 +135,7 @@ class TestZoekProductProgressief(unittest.TestCase):
             gezochte_queries.append(query)
             return []  # nooit iets vinden, dwingt door tot de ondergrens
 
-        with patch.object(analysis, "_yahoo_search", side_effect=fake_search):
+        with patch.object(ticker_matching, "_yahoo_search", side_effect=fake_search):
             _zoek_product_progressief(
                 "VANECK GOLD MINERS UCITS ETF USD A", "TDG", self.TARGETS, min_woorden=3,
             )
@@ -160,7 +160,7 @@ class TestFindTickerDetailedIsinOverride(unittest.TestCase):
     """
 
     def test_isin_override_wint_van_automatische_zekere_match(self):
-        with patch.object(analysis, "_yahoo_search") as mock_search:
+        with patch.object(ticker_matching, "_yahoo_search") as mock_search:
             resultaat = find_ticker_detailed("BYD COMPANY LIMITED", "CNE100000296", "TDG")
 
         self.assertEqual(resultaat, {"ticker": "BY6.MU", "zekerheid": "zeker", "alternatieven": []})
@@ -173,7 +173,7 @@ class TestFindTickerDetailedIsinOverride(unittest.TestCase):
         # mag NIET door de BYD/TDG-override geraakt worden -- normale
         # zoeklogica moet gewoon blijven draaien.
         self.assertNotIn(("CNE100000296", "HKG"), MANUAL_TICKER_OVERRIDES_ISIN)
-        with patch.object(analysis, "_yahoo_search", return_value=[{"symbol": "1211.HK", "exchange": "HKG"}]):
+        with patch.object(ticker_matching, "_yahoo_search", return_value=[{"symbol": "1211.HK", "exchange": "HKG"}]):
             resultaat = find_ticker_detailed("BYD COMPANY LIMITED", "CNE100000296", "HKG")
 
         self.assertEqual(resultaat["ticker"], "1211.HK")
@@ -191,7 +191,7 @@ class TestFindTickerDetailedVwceOverride(unittest.TestCase):
     """
 
     def test_isin_override_wint_van_automatische_zekere_match(self):
-        with patch.object(analysis, "_yahoo_search") as mock_search:
+        with patch.object(ticker_matching, "_yahoo_search") as mock_search:
             resultaat = find_ticker_detailed(
                 "VANGUARD FTSE ALL-WORLD UCITS ETF USD DIS", "IE00B3RBWM25", "EAM",
             )

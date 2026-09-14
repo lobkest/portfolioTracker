@@ -16,7 +16,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests
 import analysis
-from analysis import haal_openfigi_resultaten
+import ticker_matching
+from ticker_matching import haal_openfigi_resultaten
 
 
 def _mock_response(status_code=200, json_data=None):
@@ -32,8 +33,8 @@ def _leeg_cache_patch():
     requests.post-mock-pad doorloopt i.p.v. een cache-hit van een vorige
     test (of een vorige testrun) te zien."""
     return (
-        patch.object(analysis, "get_cached_openfigi", return_value=None),
-        patch.object(analysis, "save_openfigi"),
+        patch.object(ticker_matching, "get_cached_openfigi", return_value=None),
+        patch.object(ticker_matching, "save_openfigi"),
     )
 
 
@@ -45,7 +46,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.addCleanup(self._cache_get_patcher.stop)
         self.addCleanup(self._cache_save_patcher.stop)
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_succesvolle_match(self, mock_post):
         mock_post.return_value = _mock_response(200, [{
             "data": [{
@@ -60,7 +61,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertEqual(result["resultaten"][0]["ticker"], "AAPL")
         self.mock_save_cache.assert_called_once_with("US0378331005", result["resultaten"])
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_geen_match(self, mock_post):
         mock_post.return_value = _mock_response(200, [{"warning": "No identifier found."}])
         result = haal_openfigi_resultaten("XX0000000000")
@@ -70,7 +71,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         # haal_openfigi_resultaten) -- net zo stabiel als een positieve match.
         self.mock_save_cache.assert_called_once_with("XX0000000000", [])
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_rate_limit(self, mock_post):
         mock_post.return_value = _mock_response(429)
         result = haal_openfigi_resultaten("US0378331005")
@@ -78,7 +79,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIn("rate limit", result["fout"].lower())
         self.mock_save_cache.assert_not_called()
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_netwerkfout(self, mock_post):
         mock_post.side_effect = requests.exceptions.ConnectionError("boom")
         result = haal_openfigi_resultaten("US0378331005")
@@ -86,7 +87,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIn("niet bereikbaar", result["fout"].lower())
         self.mock_save_cache.assert_not_called()
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_meerdere_beursnoteringen(self, mock_post):
         mock_post.return_value = _mock_response(200, [{
             "data": [
@@ -97,21 +98,21 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         result = haal_openfigi_resultaten("IE00BK5BQT80")
         self.assertEqual(len(result["resultaten"]), 2)
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_lege_isin_geen_crash_geen_netwerkcall(self, mock_post):
         result = haal_openfigi_resultaten("")
         self.assertEqual(result["resultaten"], [])
         self.assertIsNotNone(result["fout"])
         mock_post.assert_not_called()
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_none_isin_geen_crash_geen_netwerkcall(self, mock_post):
         result = haal_openfigi_resultaten(None)
         self.assertEqual(result["resultaten"], [])
         self.assertIsNotNone(result["fout"])
         mock_post.assert_not_called()
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_onverwachte_status_code(self, mock_post):
         mock_post.return_value = _mock_response(500)
         result = haal_openfigi_resultaten("US0378331005")
@@ -119,7 +120,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIn("500", result["fout"])
         self.mock_save_cache.assert_not_called()
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_cache_hit_slaat_netwerkcall_over(self, mock_post):
         self.mock_get_cache.return_value = [{"ticker": "AAPL", "exchCode": "US"}]
         result = haal_openfigi_resultaten("US0378331005")
@@ -127,7 +128,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIsNone(result["fout"])
         self.assertEqual(result["resultaten"], [{"ticker": "AAPL", "exchCode": "US"}])
 
-    @patch("analysis.requests.post")
+    @patch("ticker_matching.requests.post")
     def test_cache_hit_op_geen_match_geeft_lege_lijst_geen_fout(self, mock_post):
         # Een eerder gecachete "geen match" (lege lijst, zie test_geen_match
         # hierboven) mag bij een volgende aanroep niet als fout terugkomen.
@@ -141,24 +142,24 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
 class TestOpenfigiRootBekend(unittest.TestCase):
     def test_root_gevonden_exact(self):
         resultaten = [{"ticker": "BY6", "exchCode": "GR"}, {"ticker": "1211", "exchCode": "HK"}]
-        self.assertIs(analysis._openfigi_root_bekend("BY6.MU", resultaten), True)
+        self.assertIs(ticker_matching._openfigi_root_bekend("BY6.MU", resultaten), True)
 
     def test_root_gevonden_met_suffix_variant(self):
         resultaten = [{"ticker": "1211HKD", "exchCode": "X2"}]
-        self.assertIs(analysis._openfigi_root_bekend("1211.HK", resultaten), True)
+        self.assertIs(ticker_matching._openfigi_root_bekend("1211.HK", resultaten), True)
 
     def test_root_niet_gevonden(self):
         resultaten = [{"ticker": "VWRL", "exchCode": "NA"}, {"ticker": "VGWL", "exchCode": "GR"}]
-        self.assertIs(analysis._openfigi_root_bekend("VWCE.AS", resultaten), False)
+        self.assertIs(ticker_matching._openfigi_root_bekend("VWCE.AS", resultaten), False)
 
     def test_geen_oordeel_zonder_ticker(self):
-        self.assertIsNone(analysis._openfigi_root_bekend(None, [{"ticker": "AAPL"}]))
+        self.assertIsNone(ticker_matching._openfigi_root_bekend(None, [{"ticker": "AAPL"}]))
 
     def test_geen_oordeel_zonder_resultaten(self):
-        self.assertIsNone(analysis._openfigi_root_bekend("AAPL", []))
+        self.assertIsNone(ticker_matching._openfigi_root_bekend("AAPL", []))
 
     def test_ticker_zonder_punt_geen_crash(self):
-        self.assertIs(analysis._openfigi_root_bekend("AAPL", [{"ticker": "AAPL"}]), True)
+        self.assertIs(ticker_matching._openfigi_root_bekend("AAPL", [{"ticker": "AAPL"}]), True)
 
 
 class TestOpenfigiRootMatches(unittest.TestCase):
@@ -167,15 +168,15 @@ class TestOpenfigiRootMatches(unittest.TestCase):
             {"ticker": "BY6", "exchCode": "GR"}, {"ticker": "BY6", "exchCode": "GF"},
             {"ticker": "1211", "exchCode": "HK"},
         ]
-        self.assertEqual(analysis._openfigi_root_matches("BY6.MU", resultaten), 2)
+        self.assertEqual(ticker_matching._openfigi_root_matches("BY6.MU", resultaten), 2)
 
     def test_geen_matches_geeft_nul_niet_none(self):
         resultaten = [{"ticker": "VWRL", "exchCode": "NA"}]
-        self.assertEqual(analysis._openfigi_root_matches("VWCE.AS", resultaten), 0)
+        self.assertEqual(ticker_matching._openfigi_root_matches("VWCE.AS", resultaten), 0)
 
     def test_none_zonder_ticker_of_resultaten(self):
-        self.assertIsNone(analysis._openfigi_root_matches(None, [{"ticker": "AAPL"}]))
-        self.assertIsNone(analysis._openfigi_root_matches("AAPL", []))
+        self.assertIsNone(ticker_matching._openfigi_root_matches(None, [{"ticker": "AAPL"}]))
+        self.assertIsNone(ticker_matching._openfigi_root_matches("AAPL", []))
 
 
 class TestVoegOpenfigiCheckToe(unittest.TestCase):
