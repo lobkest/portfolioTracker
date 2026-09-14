@@ -2512,6 +2512,27 @@ def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
     return resultaat
 
 
+def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE_LANDEN):
+    """Zelfde idee als _groepeer_europa_samen(), maar dan op de per-bron-
+    uitgesplitste land_per_bron-structuur ({land: {bron: bedrag}}) --
+    gebruikt door de Europa-samenvoeg-toggle op de staafgrafiek-weergave
+    van het Land-tabblad (renderGestapeldeStaafgrafiek in app.js). De
+    per-bron-bedragen van elk Europees land worden per bron opgeteld onder
+    een gezamenlijke "Europe"-rij; niet-Europese landen blijven ongewijzigd."""
+    resultaat = {}
+    europa_per_bron = {}
+    for land, per_bron in land_per_bron_dict.items():
+        if land in europese_landen:
+            for bron, bedrag in per_bron.items():
+                europa_per_bron[bron] = europa_per_bron.get(bron, 0.0) + bedrag
+        else:
+            resultaat[land] = dict(per_bron)
+
+    if europa_per_bron:
+        resultaat["Europe"] = europa_per_bron
+    return resultaat
+
+
 def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
     """
     Land- en sectorverdeling van de hele portfolio (huidige holdings x
@@ -2539,10 +2560,18 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
                 # naar welke positie (ETF-ticker of los aandeel) 'm inbrengt
                 # -- voor de gestapelde-staafgrafiek-weergave op het Land-
                 # tabblad (renderGestapeldeStaafgrafiek in app.js). LET OP:
-                # dit is de RUWE, ongegroepeerde verdeling (geen Overig-/
-                # Europa-samenvoeging zoals bij "land"/"land_europa" -- die
-                # groeperingen slaan een keuze in het totaal-bedrag, niet in
-                # de per-bron-uitsplitsing, dus consequent los gehouden).
+                # dit is de RUWE, ongegroepeerde verdeling (geen Overig-
+                # samenvoeging zoals bij "land"/"land_europa" -- die
+                # drempel-groepering slaat een keuze in het totaal-bedrag,
+                # niet in de per-bron-uitsplitsing, dus daar los van
+                # gehouden; de Overig-balk in de staafgrafiek wordt i.p.v.
+                # daarvan client-side bepaald op basis van top-10, zie
+                # opts.maxCategorieen in renderGestapeldeStaafgrafiek).
+            "land_per_bron_europa": {...},  # zelfde als "land_per_bron",
+                # maar met alle EUROPESE_LANDEN samengevoegd tot één
+                # "Europe"-rij (per bron opgeteld) -- zodat de Europa-
+                # samenvoeg-toggle ook in de staafgrafiek-weergave werkt,
+                # niet alleen in de taart/platte weergave.
             "sector_per_bron": {...},  # zelfde idee, voor sector
         }
     """
@@ -2621,6 +2650,7 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
         "sector": sector,
         "per_etf": per_etf,
         "land_per_bron": land_per_bron,
+        "land_per_bron_europa": _groepeer_europa_samen_per_bron(land_per_bron),
         "sector_per_bron": sector_per_bron,
     }
 

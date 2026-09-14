@@ -12,7 +12,12 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import _groepeer_europa_samen, _voeg_kleine_landen_samen, EUROPESE_LANDEN
+from analysis import (
+    _groepeer_europa_samen,
+    _groepeer_europa_samen_per_bron,
+    _voeg_kleine_landen_samen,
+    EUROPESE_LANDEN,
+)
 
 
 class TestGroepeerEuropaSamen(unittest.TestCase):
@@ -110,6 +115,65 @@ class TestEuropaSamenvoegingMetOverigDrempel(unittest.TestCase):
         )
         self.assertIn("Peru", resultaat)
         self.assertNotIn("Overig", resultaat)
+
+
+class TestGroepeerEuropaSamenPerBron(unittest.TestCase):
+    """Zelfde toggle, maar dan op de per-bron-uitgesplitste land_per_bron-
+    structuur die de gestapelde-staafgrafiek-weergave voedt (zie
+    renderGestapeldeStaafgrafiek in app.js) -- dit was de bug: de toggle
+    werkte al op de taart/platte data ("land"/"land_europa"), maar niet op
+    deze per-bron data, waardoor de staafgrafiek alle losse landen bleef
+    tonen ook met de toggle aan."""
+
+    def test_europese_landen_per_bron_worden_samengevoegd(self):
+        land_per_bron = {
+            "Germany": {"CSPX.AS": 300.0},
+            "France": {"CSPX.AS": 150.0, "AAPL": 50.0},
+            "United States": {"AAPL": 350.0},
+            "Japan": {"CSPX.AS": 50.0},
+        }
+        resultaat = _groepeer_europa_samen_per_bron(land_per_bron)
+
+        self.assertNotIn("Germany", resultaat)
+        self.assertNotIn("France", resultaat)
+        self.assertEqual(resultaat["Europe"], {"CSPX.AS": 450.0, "AAPL": 50.0})
+        self.assertEqual(resultaat["United States"], {"AAPL": 350.0})
+        self.assertEqual(resultaat["Japan"], {"CSPX.AS": 50.0})
+
+    def test_geen_europese_landen_geen_europe_rij(self):
+        land_per_bron = {
+            "United States": {"AAPL": 700.0},
+            "Japan": {"SONY": 300.0},
+        }
+        resultaat = _groepeer_europa_samen_per_bron(land_per_bron)
+        self.assertNotIn("Europe", resultaat)
+        self.assertEqual(resultaat, land_per_bron)
+
+    def test_niets_verloren_gegaan_per_bron(self):
+        land_per_bron = {
+            "Germany": {"CSPX.AS": 100.0, "AAPL": 20.0},
+            "Netherlands": {"CSPX.AS": 30.0},
+            "United States": {"AAPL": 850.0},
+        }
+        resultaat = _groepeer_europa_samen_per_bron(land_per_bron)
+
+        totaal_voor = sum(
+            bedrag for per_bron in land_per_bron.values() for bedrag in per_bron.values()
+        )
+        totaal_na = sum(
+            bedrag for per_bron in resultaat.values() for bedrag in per_bron.values()
+        )
+        self.assertAlmostEqual(totaal_voor, totaal_na)
+        self.assertAlmostEqual(resultaat["Europe"]["CSPX.AS"], 130.0)
+        self.assertAlmostEqual(resultaat["Europe"]["AAPL"], 20.0)
+
+    def test_origineel_dict_wordt_niet_gemuteerd(self):
+        # De platte per-bron-subdicts moeten gekopieerd worden, anders zou
+        # een latere wijziging aan het resultaat ook de input aanpassen.
+        land_per_bron = {"United States": {"AAPL": 100.0}}
+        resultaat = _groepeer_europa_samen_per_bron(land_per_bron)
+        resultaat["United States"]["AAPL"] = 999.0
+        self.assertEqual(land_per_bron["United States"]["AAPL"], 100.0)
 
 
 if __name__ == "__main__":
