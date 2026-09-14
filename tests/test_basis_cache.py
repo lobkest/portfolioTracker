@@ -55,53 +55,55 @@ def _fake_conn():
 class TestBasisCache(unittest.TestCase):
     def setUp(self):
         import app as app_module
+        import portfolio_orchestratie
         self.app_module = app_module
+        self.portfolio_orchestratie = portfolio_orchestratie
         # Eigen entry opruimen vóór en na de test, nooit de hele cache leegen
         # (die kan entries van andere, écht opgeslagen codes bevatten).
-        app_module._basis_cache.pop(TEST_CODE, None)
-        self.addCleanup(app_module._basis_cache.pop, TEST_CODE, None)
+        portfolio_orchestratie._basis_cache.pop(TEST_CODE, None)
+        self.addCleanup(portfolio_orchestratie._basis_cache.pop, TEST_CODE, None)
 
         self._get_conn_patcher = patch.object(
-            app_module, "get_db_connection", side_effect=lambda: _fake_conn()
+            portfolio_orchestratie, "get_db_connection", side_effect=lambda: _fake_conn()
         )
         self.mock_get_conn = self._get_conn_patcher.start()
         self.addCleanup(self._get_conn_patcher.stop)
 
     def test_tweede_aanroep_binnen_ttl_doet_geen_nieuwe_db_call(self):
-        with patch.object(self.app_module.time, "time", return_value=1000.0):
-            naam1, df1, prices1 = self.app_module._haal_portfolio_basis(TEST_CODE)
+        with patch.object(self.portfolio_orchestratie.time, "time", return_value=1000.0):
+            naam1, df1, prices1 = self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE)
         self.assertEqual(naam1, "Testportfolio")
         self.assertEqual(self.mock_get_conn.call_count, 1)
 
         # 5s later, ruim binnen de TTL van 20s -> cache-hit, geen nieuwe call.
-        with patch.object(self.app_module.time, "time", return_value=1005.0):
-            naam2, df2, prices2 = self.app_module._haal_portfolio_basis(TEST_CODE)
+        with patch.object(self.portfolio_orchestratie.time, "time", return_value=1005.0):
+            naam2, df2, prices2 = self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE)
         self.assertEqual(naam2, "Testportfolio")
         self.assertEqual(self.mock_get_conn.call_count, 1, "cache-hit had geen nieuwe DB-call mogen doen")
         self.assertIs(df2, df1, "cache-hit moet hetzelfde (gecachete) DataFrame teruggeven")
 
     def test_forceer_vers_negeert_de_cache(self):
-        with patch.object(self.app_module.time, "time", return_value=1000.0):
-            self.app_module._haal_portfolio_basis(TEST_CODE)
+        with patch.object(self.portfolio_orchestratie.time, "time", return_value=1000.0):
+            self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE)
         self.assertEqual(self.mock_get_conn.call_count, 1)
 
-        with patch.object(self.app_module.time, "time", return_value=1001.0):
-            self.app_module._haal_portfolio_basis(TEST_CODE, forceer_vers=True)
+        with patch.object(self.portfolio_orchestratie.time, "time", return_value=1001.0):
+            self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE, forceer_vers=True)
         self.assertEqual(self.mock_get_conn.call_count, 2, "forceer_vers=True had een nieuwe DB-call moeten forceren")
 
     def test_wis_cache_verwijdert_entry_en_volgende_call_is_weer_vers(self):
-        with patch.object(self.app_module.time, "time", return_value=1000.0):
-            self.app_module._haal_portfolio_basis(TEST_CODE)
+        with patch.object(self.portfolio_orchestratie.time, "time", return_value=1000.0):
+            self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE)
         self.assertEqual(self.mock_get_conn.call_count, 1)
-        self.assertIn(TEST_CODE, self.app_module._basis_cache)
+        self.assertIn(TEST_CODE, self.portfolio_orchestratie._basis_cache)
 
-        self.app_module._wis_portfolio_basis_cache(TEST_CODE)
-        self.assertNotIn(TEST_CODE, self.app_module._basis_cache)
+        self.portfolio_orchestratie._wis_portfolio_basis_cache(TEST_CODE)
+        self.assertNotIn(TEST_CODE, self.portfolio_orchestratie._basis_cache)
 
         # Nog steeds ruim binnen wat de TTL zou zijn geweest -- zonder de
         # invalidatie zou dit een cache-hit zijn geweest (geen nieuwe call).
-        with patch.object(self.app_module.time, "time", return_value=1001.0):
-            self.app_module._haal_portfolio_basis(TEST_CODE)
+        with patch.object(self.portfolio_orchestratie.time, "time", return_value=1001.0):
+            self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE)
         self.assertEqual(self.mock_get_conn.call_count, 2, "na _wis_portfolio_basis_cache() moet de volgende call weer vers ophalen")
 
 
