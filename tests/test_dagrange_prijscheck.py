@@ -26,7 +26,9 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis
-from analysis import DAGRANGE_TOLERANTIE, vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
+import ticker_prijscheck
+from analysis import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
+from ticker_prijscheck import DAGRANGE_TOLERANTIE
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
@@ -61,11 +63,11 @@ def tearDownModule():
 
 def _mock_yahoo_omgeving(yahoo_koers, high, low):
     stack = ExitStack()
-    stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
-    stack.enter_context(patch.object(analysis, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, high, low)))
-    stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
-    stack.enter_context(patch.object(analysis, "save_prijscheck"))
-    stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))
+    stack.enter_context(patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None))
+    stack.enter_context(patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, high, low)))
+    stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
+    stack.enter_context(patch.object(ticker_prijscheck, "save_prijscheck"))
+    stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value={}))
     return stack
 
 

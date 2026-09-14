@@ -35,7 +35,9 @@ from unittest.mock import patch
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis
-from analysis import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, _cumulatieve_split_factor, BEURS_MAP
+import ticker_prijscheck
+from analysis import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, BEURS_MAP
+from ticker_prijscheck import _cumulatieve_split_factor
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
@@ -210,9 +212,9 @@ class TestPrijscheckCache(unittest.TestCase):
             call_count["n"] += 1
             return (123.45, 130.0, 120.0)
 
-        with patch.object(analysis, "_haal_koers_en_dagrange_op", side_effect=fake_haal_koers_en_dagrange_op), \
-             patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}), \
-             patch.object(analysis, "_haal_splits_op", return_value={}):
+        with patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", side_effect=fake_haal_koers_en_dagrange_op), \
+             patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"}), \
+             patch.object(ticker_prijscheck, "_haal_splits_op", return_value={}):
             eerste = vergelijk_prijs_op_datum(self.TEST_TICKER, self.TEST_DATUM, 123.45)
             tweede = vergelijk_prijs_op_datum(self.TEST_TICKER, self.TEST_DATUM, 123.45)
 
@@ -229,11 +231,11 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
     of None (= geen bekende splits, de standaard "geen correctie"-situatie).
     """
     stack = ExitStack()
-    stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
-    stack.enter_context(patch.object(analysis, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
-    stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
-    stack.enter_context(patch.object(analysis, "save_prijscheck"))
-    stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value=splits or {}))
+    stack.enter_context(patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None))
+    stack.enter_context(patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
+    stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
+    stack.enter_context(patch.object(ticker_prijscheck, "save_prijscheck"))
+    stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value=splits or {}))
     return stack
 
 
@@ -273,7 +275,7 @@ class TestSplitCorrectie(unittest.TestCase):
         # Een split die AL had plaatsgevonden vóór de transactiedatum zit al
         # verdisconteerd in zowel de Excel-prijs als Yahoo's koers van na
         # die datum — die mag dus niet nog eens meegeteld worden.
-        with patch.object(analysis, "_haal_splits_op", return_value={"2023-01-01": 3.0}):
+        with patch.object(ticker_prijscheck, "_haal_splits_op", return_value={"2023-01-01": 3.0}):
             factor = _cumulatieve_split_factor("BY6.MU", date(2024, 6, 21))
         self.assertEqual(factor, 1.0)
 
@@ -305,13 +307,13 @@ class TestValutaConversie(unittest.TestCase):
         # naam te laten dispatchen. _haal_koers_en_dagrange_op zelf blijft
         # alleen nog voor de PRIMAIRE ticker.
         stack = ExitStack()
-        stack.enter_context(patch.object(analysis, "get_cached_prijscheck", return_value=None))
-        stack.enter_context(patch.object(analysis, "_ticker_details_met_cache", return_value={"valuta": valuta}))
-        stack.enter_context(patch.object(analysis, "save_prijscheck"))
-        stack.enter_context(patch.object(analysis, "_haal_splits_op", return_value={}))
-        stack.enter_context(patch.object(analysis, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
+        stack.enter_context(patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None))
+        stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": valuta}))
+        stack.enter_context(patch.object(ticker_prijscheck, "save_prijscheck"))
+        stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value={}))
+        stack.enter_context(patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
         stack.enter_context(patch.object(
-            analysis, "_fx_koers_op_datum",
+            ticker_prijscheck, "_fx_koers_op_datum",
             return_value=(None if fx_faalt else fx_koers),
         ))
         return stack
@@ -376,7 +378,7 @@ class TestValutaConversie(unittest.TestCase):
         aan _fx_koers_op_datum() (zie analysis.py, opdracht 'FX-koers in
         prijscheck-stap niet onnodig verversen')."""
         with self._mock_omgeving(yahoo_koers=82.23, valuta="USD", fx_koers=0.8311):
-            with patch.object(analysis, "_fx_koers_op_datum", return_value=0.8311) as mock_fx:
+            with patch.object(ticker_prijscheck, "_fx_koers_op_datum", return_value=0.8311) as mock_fx:
                 vergelijk_prijs_op_datum("NFLX", date(2024, 3, 1), 68.38)
 
         mock_fx.assert_called_once()
