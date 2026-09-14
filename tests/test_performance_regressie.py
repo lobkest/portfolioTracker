@@ -24,7 +24,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import (
+from portfolio_calc import (
     compute_value_over_time,
     compute_per_ticker,
     compute_per_ticker_koers_en_aankopen,

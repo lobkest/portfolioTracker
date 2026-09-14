@@ -23,10 +23,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import (
-    compute_value_over_time,
-    compute_per_ticker,
-)
+from portfolio_calc import compute_value_over_time, compute_per_ticker
 from statistieken import bereken_holdings_en_gesloten, bereken_holdings_gak
 from transactie_utils import _sorteer_chronologisch
 
