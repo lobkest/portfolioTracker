@@ -232,6 +232,283 @@ def upload():
         }), 500
 
 
+def _lees_transacties_excel(bestand1):
+    """Taak 1/6 (Excel inlezen): leest het transactiebestand in en zet de
+    kolomnamen/Datum-kolom in bruikbare vorm."""
+    bestand1.seek(0)
+    df = pd.read_excel(bestand1)
+    df.columns = df.columns.str.strip()
+    df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    return df
+
+
+def _normaliseer_transactie_kolommen(df):
+    """Taak 2/6 (kolom-normalisatie): voegt _kosten_eur/_waarde_eur/_koers_eur
+    toe op basis van KOSTEN_KOLOM/WAARDE_KOLOM/WISSELKOERS_KOLOM -- met een
+    nette fallback (NaN resp. ongewijzigde Koers-kolom) als die kolommen in
+    dit DeGiro-exportformaat ontbreken."""
+    if KOSTEN_KOLOM in df.columns:
+        df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
+    else:
+        df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
+
+    if WAARDE_KOLOM in df.columns:
+        df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
+    else:
+        df["_waarde_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
+
+    if WISSELKOERS_KOLOM in df.columns:
+        wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
+        heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
+        df["_koers_eur"] = df["Koers"].astype(float)
+        df.loc[heeft_wisselkoers, "_koers_eur"] = (
+            df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
+        )
+        for _, rij in df.loc[heeft_wisselkoers, ["ISIN", "Beurs", "Koers", WISSELKOERS_KOLOM, "_koers_eur"]].iterrows():
+            dprint(
+                f"[koers-eur] ISIN={rij['ISIN']} Beurs={rij['Beurs']}: "
+                f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
+                f"_koers_eur={rij['_koers_eur']:.4f}"
+            )
+    else:
+        df["_koers_eur"] = df["Koers"].astype(float)
+        dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden — "
+               f"koers-kolom blijft ongewijzigd (aanname: al EUR)")
+    return df
+
+
+def _ticker_resolutie_niet_opslaan_pad(df):
+    """Taak 3/6 (ticker-resolutie 'niet opslaan'-pad): lichte, parallelle
+    ticker-zekerheid per (ISIN, Beurs)-groep -- zie de uitgebreide toelichting
+    in _upload_impl() voor waarom dit bewust de goedkope variant is (geen
+    volledige verifieer_tickers_met_prijs_parallel(), zie CLAUDE.md,
+    Statistieken-incident 2026-08-31). Geeft (ticker_by_isin_beurs,
+    ticker_zekerheid, ticker_posities_ruw) terug."""
+    groepen = list(df.groupby(["ISIN", "Beurs"]))
+    namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
+
+    _log_valuta_kolom_naast_koers(df)
+
+    with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(groepen)} positie(s))"):
+        posities_voor_check = [
+            (naam_positie, isin, beurs_val, [
+                {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
+                for _, row in groep.iterrows()
+            ])
+            for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
+        ]
+        resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
+
+        ticker_by_isin_beurs = {}
+        ticker_zekerheid = []
+        ticker_posities_ruw = []
+        for (naam_positie, isin, beurs_val, transacties_lijst), resultaat in zip(posities_voor_check, resultaten):
+            resultaat["isin"] = isin
+            resultaat["naam"] = naam_positie
+            resultaat["echte_naam"] = naam_positie
+            ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
+            ticker_zekerheid.append(resultaat)
+            ticker_posities_ruw.append({
+                "naam": naam_positie, "isin": isin, "beurs": beurs_val,
+                "transacties": transacties_lijst,
+            })
+
+    return ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw
+
+
+def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
+    """Bouwt de transacties_df voor het 'niet opslaan'-pad uit de ruwe
+    Excel-df + de opgeloste tickers -- zelfde kolomvorm als wat normaal uit
+    de database komt, zodat analyze_transacties() ongewijzigd kan blijven."""
+    return pd.DataFrame({
+        "datum": df["Datum"],
+        "product": df["Product"],
+        "isin": df["ISIN"],
+        "beurs": df["Beurs"],
+        "ticker": [ticker_by_isin_beurs.get((isin_val, beurs_val))
+                   for isin_val, beurs_val in zip(df["ISIN"], df["Beurs"])],
+        "aantal": df["Aantal"].astype(float),
+        "koers": df["_koers_eur"].astype(float),
+        "totaal_eur": df["Totaal EUR"].astype(float),
+        "echte_naam": df["Product"],
+        "transactiekosten": df["_kosten_eur"],
+        "waarde_eur": df["_waarde_eur"],
+        "tijd": df["Tijd"],
+    })
+
+
+def _bepaal_order_ids(bestand1, df):
+    """Order ID-kolom kan door merged cells één kolom verschoven staan
+    t.o.v. de header; leest 'm daarom apart uit met openpyxl, die de
+    waarden onder de merge vindt. Rijen zonder echte (UUID-vormige) Order
+    ID krijgen daarna een synthetische, stabiele ID."""
+    bestand1.seek(0)
+    wb = openpyxl.load_workbook(bestand1, data_only=True)
+    ws = wb.active
+    order_ids_ruw = []
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        gevonden = None
+        for cell in row:
+            if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
+                gevonden = cell.value
+                break
+        order_ids_ruw.append(gevonden)
+
+    if len(order_ids_ruw) == len(df):
+        df["Order ID"] = order_ids_ruw
+    else:
+        df["Order ID"] = None
+
+    def basis_hash(row):
+        basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
+        return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
+
+    heeft_order_id = df["Order ID"].notna()
+    if (~heeft_order_id).any():
+        synthetische_ids = df.loc[~heeft_order_id].apply(basis_hash, axis=1)
+        volgnummer = synthetische_ids.groupby(synthetische_ids).cumcount()
+        synthetische_ids = synthetische_ids + "-" + volgnummer.astype(str)
+        df.loc[~heeft_order_id, "Order ID"] = synthetische_ids
+
+    return df
+
+
+def _vind_of_maak_portfolio_code(cur, df, naam):
+    """Zoekt een bestaande portfolio die dezelfde persoon vertegenwoordigt
+    (via Order ID-overlap, zie find_matching_code) of maakt een nieuwe code
+    aan. Geeft (code, match_code, rows_to_insert, rows_bestaand) terug --
+    rows_bestaand zijn rijen die al bestonden maar mogelijk nog een
+    backfill nodig hebben (zie _backfill_bestaande_rijen)."""
+    new_order_ids = set(df["Order ID"])
+    match_code, missing_ids = find_matching_code(cur, new_order_ids)
+
+    if match_code:
+        code = match_code
+        if naam:
+            cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
+        rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
+        rows_bestaand = df[~df["Order ID"].isin(missing_ids)]
+    else:
+        code = generate_code(cur)
+        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam or None))
+        rows_to_insert = df
+        rows_bestaand = df.iloc[0:0]
+
+    return code, match_code, rows_to_insert, rows_bestaand
+
+
+def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers):
+    """Taak 4/6 (ticker-resolutie opslaan-pad): lichte, parallelle
+    prijscontrole per (ISIN, Beurs)-groep, met hergebruik van al bekende
+    tickers tenzij het 'ticker-informatie opnieuw bepalen'-vinkje aan
+    staat (zie CLAUDE.md). Geeft ticker_by_isin_beurs terug."""
+    groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
+
+    bekende_tickers = {}
+    if not herbepaal_alle_tickers:
+        cur.execute(
+            "SELECT isin, beurs, ticker FROM transacties WHERE code = %s AND ticker IS NOT NULL",
+            (code,),
+        )
+        bekende_tickers = {(isin_val, beurs_val): ticker for isin_val, beurs_val, ticker in cur.fetchall()}
+
+    transacties_per_groep = {
+        key: [
+            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
+            for _, row in groep.iterrows()
+        ]
+        for key, groep in groepen
+    }
+    eerste_poging = [
+        (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
+        for key, groep in groepen
+    ]
+    resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging, bekende_tickers=bekende_tickers)
+
+    ticker_by_isin_beurs = {}
+    for (key, groep), detail in zip(groepen, resultaten):
+        if not detail["ticker"]:
+            # Zeldzame fallback: de eerste Product-naam van de groep gaf
+            # geen match, probeer de overige rijen (zelfde gedrag als
+            # voorheen). Goedkoop: zonder ticker doet find_ticker_met_
+            # snelle_prijscheck() geen enkele prijscheck.
+            for _, row in groep.iterrows():
+                detail = find_ticker_met_snelle_prijscheck(
+                    row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key],
+                    bekende_tickers.get(key),
+                )
+                if detail["ticker"]:
+                    break
+        ticker_by_isin_beurs[key] = detail["ticker"]
+
+    return ticker_by_isin_beurs
+
+
+def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
+    """Taak 5/6 (DB-insert, deel a): voegt nieuwe transactierijen in;
+    ON CONFLICT DO NOTHING negeert rijen die (op order_id) al bestaan.
+    Geeft het aantal succesvol ingevoegde rijen terug."""
+    ingevoegd = 0
+    for _, row in rows_to_insert.iterrows():
+        try:
+            kosten_waarde = row["_kosten_eur"]
+            waarde_eur_waarde = row["_waarde_eur"]
+            cur.execute(
+                """INSERT INTO transacties
+                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (code, order_id) DO NOTHING""",
+                (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+                 ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["_koers_eur"]),
+                 float(row["Totaal EUR"]), row["Order ID"], row["Product"],
+                 float(kosten_waarde) if pd.notna(kosten_waarde) else None,
+                 float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
+                 _normaliseer_tijd(row["Tijd"])),
+            )
+            ingevoegd += 1
+        except Exception as e:
+            pass
+    return ingevoegd
+
+
+def _backfill_bestaande_rijen(code, rows_bestaand):
+    """Taak 5/6 (DB-insert, deel b): backfillt transactiekosten/waarde_eur/
+    tijd voor rijen die al bestonden maar deze velden nog niet hadden
+    (kolommen kwamen later bij, zie CLAUDE.md/db.py). Geeft (aantal
+    kosten-backfills, aantal waarde-backfills, aantal tijd-backfills)
+    terug."""
+    order_id_kosten = [
+        (row["Order ID"], float(row["_kosten_eur"]) if pd.notna(row["_kosten_eur"]) else None)
+        for _, row in rows_bestaand.iterrows()
+    ]
+    gebackfilld = backfill_transactiekosten(code, order_id_kosten)
+
+    order_id_waarde = [
+        (row["Order ID"], float(row["_waarde_eur"]) if pd.notna(row["_waarde_eur"]) else None)
+        for _, row in rows_bestaand.iterrows()
+    ]
+    waarde_gebackfilld = backfill_waarde_eur(code, order_id_waarde)
+
+    order_id_tijd = [
+        (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
+        for _, row in rows_bestaand.iterrows()
+    ]
+    tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
+
+    return gebackfilld, waarde_gebackfilld, tijd_gebackfilld
+
+
+def _verwerk_dividend_bestand_indien_aanwezig(code):
+    """Taak 6/6 (dividend-verwerking): leest het optionele Account-
+    rekeningoverzicht-bestand (request.files['bestand2']) en slaat de
+    dividenden op. Doet niets als er geen bestand2 is meegestuurd."""
+    bestand2 = request.files.get("bestand2")
+    if bestand2 and bestand2.filename != "":
+        with meet_tijd("dividend_bestand_verwerken"):
+            dividend_records = verwerk_rekeningoverzicht(bestand2)
+            save_dividenden(code, dividend_records)
+
+
 def _upload_impl():
     reset_yahoo_call_teller()
     naam = request.form.get("naam", "").strip()
@@ -241,43 +518,8 @@ def _upload_impl():
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
 
     with meet_tijd("excel_inlezen_pandas"):
-        bestand1.seek(0)
-        df = pd.read_excel(bestand1)
-        # print(f"[upload] Excel ingelezen: {df.shape[0]} rijen, kolommen: {df.columns.tolist()}")
-
-        df.columns = df.columns.str.strip()
-        df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
-
-        if KOSTEN_KOLOM in df.columns:
-            df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
-        else:
-            df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
-            # print(f"[upload] WAARSCHUWING: kolom '{KOSTEN_KOLOM}' niet gevonden — transactiekosten niet beschikbaar")
-
-        if WAARDE_KOLOM in df.columns:
-            df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
-        else:
-            df["_waarde_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
-            # print(f"[upload] WAARSCHUWING: kolom '{WAARDE_KOLOM}' niet gevonden — "
-                  # f"GAK valt terug op totaal_eur (incl. kosten) voor deze upload")
-
-        if WISSELKOERS_KOLOM in df.columns:
-            wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
-            heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
-            df["_koers_eur"] = df["Koers"].astype(float)
-            df.loc[heeft_wisselkoers, "_koers_eur"] = (
-                df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
-            )
-            for _, rij in df.loc[heeft_wisselkoers, ["ISIN", "Beurs", "Koers", WISSELKOERS_KOLOM, "_koers_eur"]].iterrows():
-                dprint(
-                    f"[koers-eur] ISIN={rij['ISIN']} Beurs={rij['Beurs']}: "
-                    f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
-                    f"_koers_eur={rij['_koers_eur']:.4f}"
-                )
-        else:
-            df["_koers_eur"] = df["Koers"].astype(float)
-            dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden — "
-                   f"koers-kolom blijft ongewijzigd (aanname: al EUR)")
+        df = _lees_transacties_excel(bestand1)
+        df = _normaliseer_transactie_kolommen(df)
 
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje (zie
@@ -287,7 +529,6 @@ def _upload_impl():
     # CLAUDE.md/opdracht "vinkje ticker-informatie opnieuw bepalen".
     herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
     if niet_opslaan:
-        # print("[upload] 'Niet opslaan' aangevinkt — eenmalige analyse, niets wordt in de database opgeslagen")
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen: dezelfde ISIN kan
         # op meerdere beurzen genoteerd staan (bv. een fonds met een
         # Amsterdam- én een Londen-notering) en dat zijn dan ECHT
@@ -314,121 +555,21 @@ def _upload_impl():
         # te halen), dus krijgt de eenmalige analyse in plaats daarvan een
         # losse /api/ticker-zekerheid-check-aanroep vanuit de frontend, met
         # de transactiedata die hieronder als 'ticker_posities_ruw' meegaat.
-        groepen = list(df.groupby(["ISIN", "Beurs"]))
-        namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
-
-        _log_valuta_kolom_naast_koers(df)
-
-        with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(groepen)} positie(s))"):
-            posities_voor_check = [
-                (naam_positie, isin, beurs_val, [
-                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
-                    for _, row in groep.iterrows()
-                ])
-                for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
-            ]
-            resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
-
-            ticker_by_isin_beurs = {}
-            ticker_zekerheid = []
-            ticker_posities_ruw = []
-            for (naam_positie, isin, beurs_val, transacties_lijst), resultaat in zip(posities_voor_check, resultaten):
-                resultaat["isin"] = isin
-                resultaat["naam"] = naam_positie
-                resultaat["echte_naam"] = naam_positie
-                ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
-                ticker_zekerheid.append(resultaat)
-                ticker_posities_ruw.append({
-                    "naam": naam_positie, "isin": isin, "beurs": beurs_val,
-                    "transacties": transacties_lijst,
-                })
-                # print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {resultaat['ticker']} "
-                      # f"(zekerheid={resultaat['zekerheid']}, basis)")
-            # print(f"[upload] {len(groepen)} positie(s) basis-ticker-resolutie (incl. snelle prijscheck, parallel)")
-
-        transacties_df = pd.DataFrame({
-            "datum": df["Datum"],
-            "product": df["Product"],
-            "isin": df["ISIN"],
-            "beurs": df["Beurs"],
-            "ticker": [ticker_by_isin_beurs.get((isin_val, beurs_val))
-                       for isin_val, beurs_val in zip(df["ISIN"], df["Beurs"])],
-            "aantal": df["Aantal"].astype(float),
-            "koers": df["_koers_eur"].astype(float),
-            "totaal_eur": df["Totaal EUR"].astype(float),
-            "echte_naam": df["Product"],
-            "transactiekosten": df["_kosten_eur"],
-            "waarde_eur": df["_waarde_eur"],
-            "tijd": df["Tijd"],
-        })
+        ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = _ticker_resolutie_niet_opslaan_pad(df)
+        transacties_df = _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs)
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
         log_yahoo_call_samenvatting()
         return jsonify(result)
 
-    # Order ID-kolom kan door merged cells één kolom verschoven staan t.o.v. de header;
-    # lees 'm daarom apart uit met openpyxl, die de waarden onder de merge vindt.
     with meet_tijd("excel_inlezen_orderid_openpyxl"):
-        bestand1.seek(0)
-        wb = openpyxl.load_workbook(bestand1, data_only=True)
-        ws = wb.active
-        order_ids_ruw = []
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            gevonden = None
-            for cell in row:
-                if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
-                    gevonden = cell.value
-                    break
-            order_ids_ruw.append(gevonden)
-
-        if len(order_ids_ruw) == len(df):
-            df["Order ID"] = order_ids_ruw
-            # print("[upload] Order ID's uitgelezen via openpyxl (merged-cell fix)")
-        else:
-            # print(f"[upload] WAARSCHUWING: rijaantal komt niet overeen ({len(order_ids_ruw)} vs {len(df)})")
-            df["Order ID"] = None
-
-    # rijen zonder echte (UUID-vormige) Order ID krijgen een synthetische, stabiele ID
-    def basis_hash(row):
-        basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
-        return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
-
-    heeft_order_id = df["Order ID"].notna()
-
-    if (~heeft_order_id).any():
-        synthetische_ids = df.loc[~heeft_order_id].apply(basis_hash, axis=1)
-        volgnummer = synthetische_ids.groupby(synthetische_ids).cumcount()
-        synthetische_ids = synthetische_ids + "-" + volgnummer.astype(str)
-        df.loc[~heeft_order_id, "Order ID"] = synthetische_ids
-        # print(f"[upload] {(~heeft_order_id).sum()} rijen kregen een synthetische Order ID")
-
-    new_order_ids = set(df["Order ID"])
-    # print(f"[upload] {len(new_order_ids)} unieke Order ID's in geüpload bestand")
+        df = _bepaal_order_ids(bestand1, df)
 
     conn = get_db_connection()
     cur = conn.cursor()
 
-    match_code, missing_ids = find_matching_code(cur, new_order_ids)
-    # print(f"[upload] match_code={match_code}, aantal missing_ids={len(missing_ids) if missing_ids is not None else 'N/A'}")
-
-    if match_code:
-        code = match_code
-        if naam:
-            cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
-        rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
-        # Rijen die al bestonden (order_id niet in missing_ids) maar toen
-        # zonder transactiekosten zijn opgeslagen (kolom kwam er pas later
-        # bij, DO NOTHING liet oude rijen dus voor altijd NULL) alsnog
-        # backfillen met de waarde uit deze upload.
-        rows_bestaand = df[~df["Order ID"].isin(missing_ids)]
-    else:
-        code = generate_code(cur)
-        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam or None))
-        rows_to_insert = df
-        rows_bestaand = df.iloc[0:0]
-
-    # print(f"[upload] code={code}, rows_to_insert={len(rows_to_insert)} rijen")
+    code, match_code, rows_to_insert, rows_bestaand = _vind_of_maak_portfolio_code(cur, df, naam)
 
     if not rows_to_insert.empty:
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen — zie de
@@ -445,83 +586,10 @@ def _upload_impl():
         _log_valuta_kolom_naast_koers(rows_to_insert)
 
         with meet_tijd("ticker_resolutie"):
-            groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
-
-            # Vinkje "ticker-informatie opnieuw bepalen" UIT (standaard): een
-            # (ISIN, Beurs)-groep die al eerder is opgelost (staat al met een
-            # ticker in transacties voor deze code) hoeft niet opnieuw door de
-            # dure, onvoorwaardelijke yahooquery-zoekopdracht heen, ook al
-            # bevat de groep hier een gloednieuwe transactierij. Een écht
-            # nieuwe (ISIN, Beurs)-combinatie staat hier vanzelfsprekend nog
-            # niet in en wordt dus altijd gewoon opgelost. Vinkje AAN:
-            # bekende_tickers leeg laten -> forceert een verse zoekopdracht
-            # voor elke groep (zie CLAUDE.md/opdracht "vinkje ticker-
-            # informatie opnieuw bepalen").
-            bekende_tickers = {}
-            if not herbepaal_alle_tickers:
-                cur.execute(
-                    "SELECT isin, beurs, ticker FROM transacties WHERE code = %s AND ticker IS NOT NULL",
-                    (code,),
-                )
-                bekende_tickers = {(isin_val, beurs_val): ticker for isin_val, beurs_val, ticker in cur.fetchall()}
-
-            transacties_per_groep = {
-                key: [
-                    {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
-                    for _, row in groep.iterrows()
-                ]
-                for key, groep in groepen
-            }
-            eerste_poging = [
-                (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
-                for key, groep in groepen
-            ]
-            resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging, bekende_tickers=bekende_tickers)
-
-            ticker_by_isin_beurs = {}
-            for (key, groep), detail in zip(groepen, resultaten):
-                if not detail["ticker"]:
-                    # Zeldzame fallback: de eerste Product-naam van de groep gaf
-                    # geen match, probeer de overige rijen (zelfde gedrag als
-                    # voorheen). Goedkoop: zonder ticker doet find_ticker_met_
-                    # snelle_prijscheck() geen enkele prijscheck.
-                    for _, row in groep.iterrows():
-                        detail = find_ticker_met_snelle_prijscheck(
-                            row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key],
-                            bekende_tickers.get(key),
-                        )
-                        if detail["ticker"]:
-                            break
-                ticker_by_isin_beurs[key] = detail["ticker"]
-                isin, beurs_val = key
-                # print(f"[upload] ISIN {isin} (beurs={beurs_val}) -> ticker {detail['ticker']} "
-                      # f"(zekerheid={detail['zekerheid']})")
-            # print(f"[upload] ticker-resolutie (incl. snelle prijscheck, parallel) klaar")
+            ticker_by_isin_beurs = _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)
 
         with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
-            ingevoegd = 0
-            for _, row in rows_to_insert.iterrows():
-                try:
-                    kosten_waarde = row["_kosten_eur"]
-                    waarde_eur_waarde = row["_waarde_eur"]
-                    cur.execute(
-                        """INSERT INTO transacties
-                           (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                           ON CONFLICT (code, order_id) DO NOTHING""",
-                        (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-                         ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["_koers_eur"]),
-                         float(row["Totaal EUR"]), row["Order ID"], row["Product"],
-                         float(kosten_waarde) if pd.notna(kosten_waarde) else None,
-                         float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
-                         _normaliseer_tijd(row["Tijd"])),
-                    )
-                    ingevoegd += 1
-                except Exception as e:
-                    pass
-                    # print(f"[upload] FOUT bij invoegen rij (Order ID {row['Order ID']}): {e}")
-
-            # print(f"[upload] {ingevoegd}/{len(rows_to_insert)} rijen succesvol verwerkt")
+            _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs)
 
     conn.commit()
     cur.close()
@@ -529,32 +597,7 @@ def _upload_impl():
 
     if not rows_bestaand.empty:
         with meet_tijd(f"db_backfill_kosten_en_tijd ({len(rows_bestaand)} rij(en))"):
-            order_id_kosten = [
-                (row["Order ID"], float(row["_kosten_eur"]) if pd.notna(row["_kosten_eur"]) else None)
-                for _, row in rows_bestaand.iterrows()
-            ]
-            gebackfilld = backfill_transactiekosten(code, order_id_kosten)
-            if gebackfilld:
-                pass
-                # print(f"[upload] {gebackfilld} bestaande rij(en) kregen een backfilled transactiekosten-bedrag")
-
-            order_id_waarde = [
-                (row["Order ID"], float(row["_waarde_eur"]) if pd.notna(row["_waarde_eur"]) else None)
-                for _, row in rows_bestaand.iterrows()
-            ]
-            waarde_gebackfilld = backfill_waarde_eur(code, order_id_waarde)
-            if waarde_gebackfilld:
-                pass
-                # print(f"[upload] {waarde_gebackfilld} bestaande rij(en) kregen een backfilled waarde_eur-bedrag")
-
-            order_id_tijd = [
-                (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
-                for _, row in rows_bestaand.iterrows()
-            ]
-            tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
-            if tijd_gebackfilld:
-                pass
-                # print(f"[upload] {tijd_gebackfilld} bestaande rij(en) kregen een backfilled tijdstip")
+            _backfill_bestaande_rijen(code, rows_bestaand)
 
     if match_code:
         # Alleen zinvol bij een upload naar een BESTAANDE portfolio: een
@@ -562,20 +605,11 @@ def _upload_impl():
         # anders alleen nieuw ingevoegde rijen, nooit wat al in de database
         # stond. Overschrijft alleen tickers die nu een prijsprobleem
         # hebben met een kandidaat die dat niet heeft (zie
-        # analysis.backfill_verouderde_tickers).
+        # ticker_zekerheid.backfill_verouderde_tickers).
         with meet_tijd("db_backfill_verouderde_tickers"):
-            tickers_gecorrigeerd = backfill_verouderde_tickers(code, forceer=herbepaal_alle_tickers)
-            if tickers_gecorrigeerd:
-                pass
-                # print(f"[upload] {tickers_gecorrigeerd} bestaande (ISIN, Beurs)-groep(en) kregen een "
-                      # f"gecorrigeerde ticker via backfill")
+            backfill_verouderde_tickers(code, forceer=herbepaal_alle_tickers)
 
-    bestand2 = request.files.get("bestand2")
-    if bestand2 and bestand2.filename != "":
-        with meet_tijd("dividend_bestand_verwerken"):
-            dividend_records = verwerk_rekeningoverzicht(bestand2)
-            save_dividenden(code, dividend_records)
-            # print(f"[upload] rekeningoverzicht verwerkt: {len(dividend_records)} dividendrecord(s) opgeslagen voor code {code}")
+    _verwerk_dividend_bestand_indien_aanwezig(code)
 
     # Cache wissen ná ALLE mutaties hierboven (insert, backfills, ticker-
     # herberekening) -- een upload moet altijd verse data opleveren, nooit
