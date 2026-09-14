@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import verwerk_rekeningoverzicht_df, _koppel_valutaconversie_paren
+from dividend import verwerk_rekeningoverzicht_df, _koppel_valutaconversie_paren
 
 
 def _rij(datum, tijd, omschrijving, mutatie, valuta_mutatie, product=None, isin=None):

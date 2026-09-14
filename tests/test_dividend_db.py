@@ -55,7 +55,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
 
     def test_opgeslagen_dividend_komt_terug_in_de_samenvatting(self):
         from db import save_dividenden
-        from analysis import bereken_dividend_samenvatting
+        from dividend import bereken_dividend_samenvatting
 
         save_dividenden(self.TEST_CODE, [{
             "dividend_id": "TEST-EUR-1", "datum": date(2024, 1, 1),
@@ -75,7 +75,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # ON CONFLICT DO NOTHING zou de eerste (foutieve) waarde blijven
         # staan; met de upsert-fix moet de tweede (juiste) waarde winnen.
         from db import save_dividenden
-        from analysis import bereken_dividend_samenvatting
+        from dividend import bereken_dividend_samenvatting
 
         foutief = [{
             "dividend_id": "TEST-USD-1", "datum": date(2024, 2, 1),
@@ -107,7 +107,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # uitkering teruggeven, nieuwste eerst, en een rij met
         # netto_eur=None (onbekende valutaconversie) NIET wegfilteren.
         from db import get_db_connection, save_dividenden
-        from analysis import bereken_dividend_samenvatting
+        from dividend import bereken_dividend_samenvatting
 
         # Eén ISIN heeft een gekoppelde transactie (dus een bijnaam/ticker
         # via isin_naar_bijnaam/isin_naar_ticker), de andere niet -- om de
@@ -166,7 +166,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         self.assertAlmostEqual(gekoppeld["netto_eur"], 2.0)
 
     def test_geen_dividenden_voor_deze_code_geeft_none(self):
-        from analysis import bereken_dividend_samenvatting
+        from dividend import bereken_dividend_samenvatting
         # TEST_CODE bestaat als portfolio (zie setUp) maar heeft hier geen
         # dividendrijen -> moet None zijn, niet een lege-maar-beschikbare
         # samenvatting (dat onderscheid bepaalt de "niet geupload"-melding

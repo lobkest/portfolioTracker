@@ -80,7 +80,7 @@ class TestWijzigPortfolioCode(unittest.TestCase):
 
     def test_gekoppelde_transacties_en_dividenden_volgen_de_nieuwe_code(self):
         from db import wijzig_portfolio_code, get_db_connection
-        from analysis import bereken_dividend_samenvatting
+        from dividend import bereken_dividend_samenvatting
 
         success, _ = wijzig_portfolio_code(self.OUD, self.NIEUW)
         self.assertTrue(success)
