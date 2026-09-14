@@ -29,6 +29,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import analysis
+import prijzen
 
 
 def _mock_conn_voor_twee_aanroepen(
@@ -56,10 +57,10 @@ class TestFxKoersCaching(unittest.TestCase):
     _fx_koers_op_datum() heen -- vóór de fix downloadde elke aanroep zijn
     eigen, ongecachete FX-koers."""
 
-    @patch("analysis.yf.Ticker")
-    @patch("analysis.save_prices")
-    @patch("analysis.download_met_retry")
-    @patch("analysis.get_db_connection")
+    @patch("prijzen.yf.Ticker")
+    @patch("prijzen.save_prices")
+    @patch("prijzen.download_met_retry")
+    @patch("prijzen.get_db_connection")
     def test_tweede_fx_opzoeking_zelfde_valuta_en_datum_doet_geen_nieuwe_download(
         self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
     ):
@@ -91,7 +92,7 @@ class TestFxKoersCaching(unittest.TestCase):
         self.assertEqual(tweede, 0.9)
 
     def test_onbekende_valuta_geeft_none_zonder_download(self):
-        with patch("analysis.download_met_retry") as mock_download:
+        with patch("prijzen.download_met_retry") as mock_download:
             resultaat = analysis._fx_koers_op_datum("JPY", pd.Timestamp("2024-03-01"))
 
         self.assertIsNone(resultaat)
@@ -105,9 +106,9 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
     download triggeren zodra _fx_koers_op_datum() met verversen=False wordt
     aangeroepen -- ongeacht hoe oud die cache-rij is."""
 
-    @patch("analysis.upsert_prices")
-    @patch("analysis.download_met_retry")
-    @patch("analysis.get_db_connection")
+    @patch("prijzen.upsert_prices")
+    @patch("prijzen.download_met_retry")
+    @patch("prijzen.get_db_connection")
     def test_stale_fx_cache_triggert_geen_download_bij_verversen_false(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -134,9 +135,9 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
         mock_upsert.assert_not_called()
         self.assertEqual(resultaat, 0.9)
 
-    @patch("analysis.upsert_prices")
-    @patch("analysis.download_met_retry")
-    @patch("analysis.get_db_connection")
+    @patch("prijzen.upsert_prices")
+    @patch("prijzen.download_met_retry")
+    @patch("prijzen.get_db_connection")
     def test_zelfde_stale_cache_zou_wel_verversen_bij_verversen_true(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -202,7 +203,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
     """Gedeelde retry/backoff-helper voor _fetch_yf_info, _haal_slotkoers_op
     en _haal_dagrange_op."""
 
-    @patch("analysis.time.sleep")
+    @patch("yahoo_client.time.sleep")
     def test_rate_limit_gevolgd_door_succes_retryt_met_oplopende_backoff(self, mock_sleep):
         pogingen_gedaan = {"n": 0}
 
@@ -220,7 +221,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         # oplopende backoff: 8s na poging 1, 16s na poging 2.
         self.assertEqual(mock_sleep.call_args_list, [call(8), call(16)])
 
-    @patch("analysis.time.sleep")
+    @patch("yahoo_client.time.sleep")
     def test_definitieve_mislukking_na_alle_pogingen_geeft_fout_terug(self, mock_sleep):
         def actie():
             raise Exception("rate limit exceeded")
@@ -232,7 +233,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         # maar 2 pogingen ingesteld -> maar 1 keer wachten (na poging 1).
         self.assertEqual(mock_sleep.call_args_list, [call(5)])
 
-    @patch("analysis.time.sleep")
+    @patch("yahoo_client.time.sleep")
     def test_invalid_crumb_gevolgd_door_succes_retryt_nu_ook(self, mock_sleep):
         # Voorheen faalde dit in één keer definitief: _is_rate_limit_fout()
         # herkende "Invalid Crumb" niet, dus geen retry-poging.
@@ -254,7 +255,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         self.assertEqual(pogingen_gedaan["n"], 2)
         mock_sleep.assert_called_once_with(8)
 
-    @patch("analysis.time.sleep")
+    @patch("yahoo_client.time.sleep")
     def test_niet_rate_limit_fout_stopt_meteen_zonder_retry(self, mock_sleep):
         def actie():
             raise ValueError("iets heel anders")
@@ -265,7 +266,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         self.assertIsInstance(fout, ValueError)
         mock_sleep.assert_not_called()
 
-    @patch("analysis.time.sleep")
+    @patch("yahoo_client.time.sleep")
     def test_fetch_yf_info_gebruikt_gedeelde_retry_en_geeft_none_na_mislukking(self, mock_sleep):
         with patch("analysis.yf.Ticker", side_effect=Exception("Too Many Requests")):
             resultaat = analysis._fetch_yf_info("AAPL", pogingen=2, wachttijd=5)

@@ -27,7 +27,7 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
+import prijzen
 
 
 def _fx_prijzen_frame(fx_pair, waarde=0.9):
@@ -41,18 +41,18 @@ class TestFxSerieMemoizationBinnenRequest(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_tweede_aanroep_zelfde_valuta_binnen_request_geen_nieuwe_get_prices(self, mock_get_prices):
         mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
 
         with self.app.test_request_context():
-            eerste = analysis._fx_prijzen_serie("USD")
-            tweede = analysis._fx_prijzen_serie("USD")
+            eerste = prijzen._fx_prijzen_serie("USD")
+            tweede = prijzen._fx_prijzen_serie("USD")
 
         self.assertEqual(mock_get_prices.call_count, 1)
         pd.testing.assert_series_equal(eerste, tweede)
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_verschillende_valuta_binnen_request_wel_eigen_get_prices_aanroep(self, mock_get_prices):
         def fake_get_prices(tickers, start_date, verversen=True):
             return _fx_prijzen_frame(tickers[0])
@@ -60,8 +60,8 @@ class TestFxSerieMemoizationBinnenRequest(unittest.TestCase):
         mock_get_prices.side_effect = fake_get_prices
 
         with self.app.test_request_context():
-            analysis._fx_prijzen_serie("USD")
-            analysis._fx_prijzen_serie("GBP")
+            prijzen._fx_prijzen_serie("USD")
+            prijzen._fx_prijzen_serie("GBP")
 
         self.assertEqual(mock_get_prices.call_count, 2)
         aangevraagde_pairs = [c.args[0][0] for c in mock_get_prices.call_args_list]
@@ -80,39 +80,39 @@ class TestFxSerieMemoizationVerversenBewust(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_na_verversen_false_triggert_een_latere_verversen_true_aanroep_alsnog_get_prices(
         self, mock_get_prices
     ):
         mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
 
         with self.app.test_request_context():
-            analysis._fx_prijzen_serie("USD", verversen=False)
-            analysis._fx_prijzen_serie("USD", verversen=True)
+            prijzen._fx_prijzen_serie("USD", verversen=False)
+            prijzen._fx_prijzen_serie("USD", verversen=True)
 
         self.assertEqual(mock_get_prices.call_count, 2)
         self.assertEqual(mock_get_prices.call_args_list[0].kwargs.get("verversen"), False)
         self.assertEqual(mock_get_prices.call_args_list[1].kwargs.get("verversen"), True)
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_na_verversen_true_hergebruikt_een_latere_verversen_false_aanroep_de_cache(
         self, mock_get_prices
     ):
         mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
 
         with self.app.test_request_context():
-            analysis._fx_prijzen_serie("USD", verversen=True)
-            analysis._fx_prijzen_serie("USD", verversen=False)
+            prijzen._fx_prijzen_serie("USD", verversen=True)
+            prijzen._fx_prijzen_serie("USD", verversen=False)
 
         self.assertEqual(mock_get_prices.call_count, 1)
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_twee_verversen_false_aanroepen_hergebruiken_elkaars_cache(self, mock_get_prices):
         mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
 
         with self.app.test_request_context():
-            analysis._fx_prijzen_serie("USD", verversen=False)
-            analysis._fx_prijzen_serie("USD", verversen=False)
+            prijzen._fx_prijzen_serie("USD", verversen=False)
+            prijzen._fx_prijzen_serie("USD", verversen=False)
 
         self.assertEqual(mock_get_prices.call_count, 1)
 
@@ -124,16 +124,16 @@ class TestFxSerieMemoizationTussenRequests(unittest.TestCase):
     def setUp(self):
         self.app = Flask(__name__)
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_nieuwe_requestcontext_triggert_nieuwe_get_prices_aanroep(self, mock_get_prices):
         mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
 
         with self.app.test_request_context():
-            analysis._fx_prijzen_serie("USD")
-            analysis._fx_prijzen_serie("USD")
+            prijzen._fx_prijzen_serie("USD")
+            prijzen._fx_prijzen_serie("USD")
 
         with self.app.test_request_context():
-            analysis._fx_prijzen_serie("USD")
+            prijzen._fx_prijzen_serie("USD")
 
         self.assertEqual(mock_get_prices.call_count, 2)
 
@@ -144,12 +144,12 @@ class TestFxSerieMemoizationBuitenRequestContext(unittest.TestCase):
     app-context aanroepen) blijft het oude gedrag intact: gewoon geen
     memoization, geen crash door een ontbrekende applicatiecontext."""
 
-    @patch("analysis.get_prices")
+    @patch("prijzen.get_prices")
     def test_werkt_zonder_crash_zonder_app_context(self, mock_get_prices):
         mock_get_prices.return_value = _fx_prijzen_frame("USDEUR=X")
 
-        eerste = analysis._fx_prijzen_serie("USD")
-        tweede = analysis._fx_prijzen_serie("USD")
+        eerste = prijzen._fx_prijzen_serie("USD")
+        tweede = prijzen._fx_prijzen_serie("USD")
 
         self.assertEqual(mock_get_prices.call_count, 2)
         pd.testing.assert_series_equal(eerste, tweede)
