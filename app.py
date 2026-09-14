@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
-from analysis import generate_code, is_geldige_code, CODE_LENGTH, find_ticker_detailed, get_prices, compute_value_over_time, find_matching_code, compute_per_ticker, compute_per_ticker_koers_en_aankopen, compute_split_adjusted_shares, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, BENCHMARK_TICKERS, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting, dprint
+from analysis import find_ticker_detailed, get_prices, compute_value_over_time, compute_per_ticker, compute_per_ticker_koers_en_aankopen, compute_split_adjusted_shares, verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, basis_ticker_zekerheid, basis_ticker_zekerheid_parallel, find_ticker_met_snelle_prijscheck, vind_tickers_met_snelle_prijscheck_parallel, ticker_waarschuwingen_voor_transacties, _is_corporate_action_row, backfill_verouderde_tickers, BENCHMARK_TICKERS, meet_tijd, reset_yahoo_call_teller, log_yahoo_call_samenvatting, dprint
 from statistieken import bereken_statistieken, bereken_benchmark_vergelijking, bereken_rendement_over_tijd
 from dividend import verwerk_rekeningoverzicht, bereken_dividend_samenvatting
 from portfolio_verdeling import (
@@ -9,6 +9,7 @@ from portfolio_verdeling import (
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
 )
 from ticker_classificatie import classify_tickers, _verwarm_land_sector_cache_parallel
+from portfolio_admin import generate_code, is_geldige_code, CODE_LENGTH, find_matching_code
 from db import save_dividenden, backfill_transactiekosten, backfill_tijd, backfill_waarde_eur, get_laatste_prijs_update
 import hashlib
 import openpyxl
