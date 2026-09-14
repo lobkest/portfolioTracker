@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import _kies_beurs_match, BEURS_MAP
+from ticker_matching import _kies_beurs_match, BEURS_MAP
 
 
 class TestBeursMapTdg(unittest.TestCase):

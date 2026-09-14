@@ -30,8 +30,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
-import analysis
-from analysis import find_ticker_detailed
+import ticker_matching
+from ticker_matching import find_ticker_detailed
 from transactie_utils import _is_corporate_action_row
 
 
@@ -58,10 +58,10 @@ class TestFindTickerDetailedFiltertCorporateActionRijen(unittest.TestCase):
     productnaam op een andere beurs (het BYD-geval)."""
 
     def setUp(self):
-        patcher1 = patch.object(analysis, "_zoek_product_progressief", side_effect=_geen_netwerk_toegestaan)
+        patcher1 = patch.object(ticker_matching, "_zoek_product_progressief", side_effect=_geen_netwerk_toegestaan)
         patcher1.start()
         self.addCleanup(patcher1.stop)
-        patcher2 = patch.object(analysis, "_yahoo_search", side_effect=_geen_netwerk_toegestaan)
+        patcher2 = patch.object(ticker_matching, "_yahoo_search", side_effect=_geen_netwerk_toegestaan)
         patcher2.start()
         self.addCleanup(patcher2.stop)
 
