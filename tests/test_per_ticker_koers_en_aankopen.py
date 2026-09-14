@@ -14,7 +14,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from analysis import compute_per_ticker_koers_en_aankopen, compute_per_ticker
+from portfolio_calc import compute_per_ticker_koers_en_aankopen, compute_per_ticker
 
 
 class TestPerTickerKoersEnAankopen(unittest.TestCase):
