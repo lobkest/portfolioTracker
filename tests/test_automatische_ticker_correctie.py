@@ -1,6 +1,6 @@
 """
 Unit tests voor de tweetraps automatische ticker-correctie in
-analysis.find_ticker_met_snelle_prijscheck() (stap 3).
+ticker_zekerheid.find_ticker_met_snelle_prijscheck() (stap 3).
 
 Achtergrond: bij een forse prijsafwijking rekent stap 3 alternatieve
 kandidaat-tickers door (_zoek_betere_alternatieven). Vroeger was dat puur
@@ -24,10 +24,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
+import ticker_zekerheid
 
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
-# (zie _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_
+# (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
 # doen. Module-breed op "geen resultaten" gepatcht zodat de bestaande
 # tests hier offline en ongewijzigd blijven -- _openfigi_root_bekend()
@@ -38,7 +38,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -63,9 +63,9 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
             {"datum": "2024-12-01", "koers": 10.0},
         ]
 
-    @patch("analysis._zoek_betere_alternatieven")
-    @patch("analysis.vergelijk_prijs_op_datum")
-    @patch("analysis.find_ticker_detailed")
+    @patch("ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.find_ticker_detailed")
     def test_tier1_beurs_en_2_matches_wordt_overgenomen(self, mock_find, mock_vergelijk, mock_alt):
         mock_find.return_value = {
             "ticker": "FOUT.AS", "zekerheid": "zeker",
@@ -78,16 +78,16 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
               "gemiddelde_afwijking_pct": 1.0, "aantal_matches": 2}],  # 2 van de 3 datums
             "GOED.AS",
         )
-        resultaat = analysis.find_ticker_met_snelle_prijscheck(
+        resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
             "Fout Fonds", "NL000TEST01", "EAM", self.transacties
         )
         self.assertEqual(resultaat["ticker"], "GOED.AS")
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertEqual(resultaat.get("automatisch_gecorrigeerd_van"), "FOUT.AS")
 
-    @patch("analysis._zoek_betere_alternatieven")
-    @patch("analysis.vergelijk_prijs_op_datum")
-    @patch("analysis.find_ticker_detailed")
+    @patch("ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.find_ticker_detailed")
     def test_tier2_andere_beurs_maar_alle_datums_wordt_overgenomen(self, mock_find, mock_vergelijk, mock_alt):
         # Vanguard/iShares-scenario: kandidaat NIET op AMS (verwachte
         # beurs voor EAM), maar wel alle 3 steekproefdatums kloppend.
@@ -102,16 +102,16 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
               "gemiddelde_afwijking_pct": 0.8, "aantal_matches": 3}],  # alle 3
             "VUAA.L",
         )
-        resultaat = analysis.find_ticker_met_snelle_prijscheck(
+        resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
             "Vanguard S&P 500 UCITS ETF USD Dis", "IE00B3XXRP09", "EAM", self.transacties
         )
         self.assertEqual(resultaat["ticker"], "VUAA.L")
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertEqual(resultaat.get("automatisch_gecorrigeerd_van"), "VUSA.AS")
 
-    @patch("analysis._zoek_betere_alternatieven")
-    @patch("analysis.vergelijk_prijs_op_datum")
-    @patch("analysis.find_ticker_detailed")
+    @patch("ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("ticker_zekerheid.find_ticker_detailed")
     def test_andere_beurs_met_slechts_2_van_3_wordt_NIET_overgenomen(self, mock_find, mock_vergelijk, mock_alt):
         # Zelfde als hierboven, maar nu maar 2 van de 3 datums matchen op
         # de andere beurs -- te weinig voor tier 2 (die eist ALLE datums).
@@ -126,7 +126,7 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
               "gemiddelde_afwijking_pct": 3.0, "aantal_matches": 2}],  # niet alle 3
             "TWIJFEL.L",
         )
-        resultaat = analysis.find_ticker_met_snelle_prijscheck(
+        resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
             "Vanguard S&P 500 UCITS ETF USD Dis", "IE00B3XXRP09", "EAM", self.transacties
         )
         self.assertEqual(resultaat["ticker"], "VUSA.AS")  # NIET overgenomen

@@ -1,6 +1,6 @@
 """
 Unit tests voor het verrijken van alternatieve tickerkandidaten op de
-Ticker-zekerheid-pagina (analysis._verzamel_extra_kandidaten /
+Ticker-zekerheid-pagina (ticker_zekerheid._verzamel_extra_kandidaten /
 verifieer_ticker_met_prijs) -- zie CLAUDE.md/opdracht_alternatieve_
 kandidaten_dagrange.md.
 
@@ -13,8 +13,8 @@ een restlijst. _verzamel_extra_kandidaten() doet nu een gerichte extra
 zoekopdracht (volledige productnaam + ISIN, zonder beurs-beperking) zodra
 die restlijst leeg is EN de ticker niet "zeker" is.
 
-Draait geheel offline: analysis.find_ticker_detailed, analysis._yahoo_search
-en analysis.vergelijk_prijs_op_datum worden gemockt, dus geen echte
+Draait geheel offline: ticker_zekerheid.find_ticker_detailed, ticker_zekerheid._yahoo_search
+en ticker_zekerheid.vergelijk_prijs_op_datum worden gemockt, dus geen echte
 yahooquery/yfinance-calls.
 """
 import os
@@ -25,11 +25,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import verifieer_ticker_met_prijs, _verzamel_extra_kandidaten
+import ticker_zekerheid
+from ticker_zekerheid import verifieer_ticker_met_prijs, _verzamel_extra_kandidaten
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
-# _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
+# _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
 # blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
@@ -39,7 +39,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -76,7 +76,7 @@ class TestVerzamelExtraKandidaten(unittest.TestCase):
                 ]
             return []
 
-        with patch.object(analysis, "_yahoo_search", side_effect=fake_search) as mock_search:
+        with patch.object(ticker_zekerheid, "_yahoo_search", side_effect=fake_search) as mock_search:
             resultaat = _verzamel_extra_kandidaten(
                 "PRODUCT NAAM", "ISIN123",
                 bestaande_alternatieven=[{"symbol": "BESTAAND", "exchange": "FRA"}],
@@ -88,7 +88,7 @@ class TestVerzamelExtraKandidaten(unittest.TestCase):
         self.assertEqual([r["symbol"] for r in resultaat], ["ALT1", "ALT2"])
 
     def test_geen_kandidaten_gevonden_geeft_lege_lijst(self):
-        with patch.object(analysis, "_yahoo_search", return_value=[]):
+        with patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]):
             resultaat = _verzamel_extra_kandidaten("PRODUCT", "ISIN", [], "GEKOZEN")
         self.assertEqual(resultaat, [])
 
@@ -110,12 +110,12 @@ class TestExtraZoekopdrachtBijLegeAlternatieven(unittest.TestCase):
             ("_land_sector_voor_weergave", (None, None, None)),
             ("classify_ticker", False),
         ):
-            p = patch.object(analysis, name, return_value=value)
+            p = patch.object(ticker_zekerheid, name, return_value=value)
             p.start()
             self.addCleanup(p.stop)
 
         find_patch = patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "4BY1.F", "zekerheid": "zeker", "alternatieven": []},
         )
         find_patch.start()
@@ -137,8 +137,8 @@ class TestExtraZoekopdrachtBijLegeAlternatieven(unittest.TestCase):
                 return _prijscheck(match=True, binnen_dagrange=True)
             raise AssertionError(f"onverwachte ticker {ticker}")
 
-        with patch.object(analysis, "_yahoo_search", side_effect=fake_yahoo_search) as mock_search, \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with patch.object(ticker_zekerheid, "_yahoo_search", side_effect=fake_yahoo_search) as mock_search, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             resultaat = verifieer_ticker_met_prijs(
                 "BYD COMPANY LIMITED", "CNE100000296", "TDG", self.transacties
             )
@@ -151,8 +151,8 @@ class TestExtraZoekopdrachtBijLegeAlternatieven(unittest.TestCase):
         self.assertEqual(resultaat["aanbevolen_alternatief"], "BY6.MU")
 
     def test_ook_extra_zoekopdracht_levert_niets_op_blijft_lege_lijst_geen_crash(self):
-        with patch.object(analysis, "_yahoo_search", return_value=[]) as mock_search, \
-             patch.object(analysis, "vergelijk_prijs_op_datum",
+        with patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]) as mock_search, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum",
                            side_effect=lambda *a, **kw: _prijscheck(match=False, binnen_dagrange=False)):
             resultaat = verifieer_ticker_met_prijs(
                 "BYD COMPANY LIMITED", "CNE100000296", "TDG", self.transacties
@@ -178,12 +178,12 @@ class TestGevuldeAlternatievenNietOverschreven(unittest.TestCase):
             ("_land_sector_voor_weergave", (None, None, None)),
             ("classify_ticker", True),
         ):
-            p = patch.object(analysis, name, return_value=value)
+            p = patch.object(ticker_zekerheid, name, return_value=value)
             p.start()
             self.addCleanup(p.stop)
 
         find_patch = patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={
                 "ticker": "TDT.MU",
                 "zekerheid": "zeker",
@@ -207,8 +207,8 @@ class TestGevuldeAlternatievenNietOverschreven(unittest.TestCase):
                 return _prijscheck(match=True, binnen_dagrange=True)
             raise AssertionError(f"'{ticker}' had niet meer gecheckt mogen worden")
 
-        with patch.object(analysis, "_yahoo_search") as mock_search, \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with patch.object(ticker_zekerheid, "_yahoo_search") as mock_search, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             resultaat = verifieer_ticker_met_prijs(
                 "VANECK AEX UCITS ETF", "NL0009690239", "TDG", self.transacties
             )
@@ -232,20 +232,20 @@ class TestZekerGeenExtraZoekopdracht(unittest.TestCase):
             ("_land_sector_voor_weergave", (None, None, None)),
             ("classify_ticker", False),
         ):
-            p = patch.object(analysis, name, return_value=value)
+            p = patch.object(ticker_zekerheid, name, return_value=value)
             p.start()
             self.addCleanup(p.stop)
 
         find_patch = patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []},
         )
         find_patch.start()
         self.addCleanup(find_patch.stop)
 
     def test_geen_yahoo_search_call_bij_zekere_match(self):
-        with patch.object(analysis, "_yahoo_search") as mock_search, \
-             patch.object(analysis, "vergelijk_prijs_op_datum",
+        with patch.object(ticker_zekerheid, "_yahoo_search") as mock_search, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum",
                            side_effect=lambda *a, **kw: _prijscheck(match=True, binnen_dagrange=True)):
             resultaat = verifieer_ticker_met_prijs("APPLE INC", "US0378331005", "NASDAQ", self.transacties)
 

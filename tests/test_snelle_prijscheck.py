@@ -1,6 +1,6 @@
 """
-Unit tests voor analysis.find_ticker_met_snelle_prijscheck() en
-analysis.prijswaarschuwing_voor_ticker() -- de standaard, LICHTE
+Unit tests voor ticker_zekerheid.find_ticker_met_snelle_prijscheck() en
+ticker_zekerheid.prijswaarschuwing_voor_ticker() -- de standaard, LICHTE
 prijscontrole die nu bij ELKE upload draait (opslaand én 'niet opslaan'),
 i.t.t. de volledige verifieer_ticker_met_prijs() die duur is en alleen
 lui/on-demand draait op de Ticker-zekerheid-pagina.
@@ -24,15 +24,15 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
-from analysis import (
+import ticker_zekerheid
+from ticker_zekerheid import (
     find_ticker_met_snelle_prijscheck, prijswaarschuwing_voor_ticker,
     ticker_waarschuwingen_voor_transacties, basis_ticker_zekerheid_parallel,
     vind_tickers_met_snelle_prijscheck_parallel,
 )
 
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
-# (zie _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_
+# (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
 # doen. Module-breed op "geen resultaten" gepatcht zodat de bestaande
 # tests hier offline en ongewijzigd blijven -- _openfigi_root_bekend()
@@ -43,7 +43,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -54,7 +54,7 @@ def tearDownModule():
 
 def _basis_patch(ticker="AAPL", zekerheid="zeker", alternatieven=None):
     return patch.object(
-        analysis, "find_ticker_detailed",
+        ticker_zekerheid, "find_ticker_detailed",
         return_value={"ticker": ticker, "zekerheid": zekerheid, "alternatieven": alternatieven or []},
     )
 
@@ -79,7 +79,7 @@ class TestStap1AlleenLaatsteDatum(unittest.TestCase):
             call_count["n"] += 1
             return _prijscheck(afwijking_pct=3.0, match=True)
 
-        with _basis_patch(), patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with _basis_patch(), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertEqual(call_count["n"], 1)
@@ -98,7 +98,7 @@ class TestStap1AlleenLaatsteDatum(unittest.TestCase):
             gecheckte_datums.append(datum)
             return _prijscheck(afwijking_pct=1.0, match=True)
 
-        with _basis_patch(), patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with _basis_patch(), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertEqual(gecheckte_datums, [date(2023, 6, 10)])
@@ -124,7 +124,7 @@ class TestStap1AlleenLaatsteDatum(unittest.TestCase):
             gecheckte_koersen.append(bekende_koers)
             return _prijscheck(afwijking_pct=1.0, match=True)
 
-        with _basis_patch(), patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with _basis_patch(), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertEqual(gecheckte_koersen, [100.0])
@@ -144,8 +144,8 @@ class TestStap2EscaleertNaarSteekproef(unittest.TestCase):
             return _prijscheck(afwijking_pct=8.0, match=False)  # >6%, <=10%
 
         with _basis_patch(zekerheid="zeker", alternatieven=[{"symbol": "ALT", "exchange": "NMS"}]), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(analysis, "_zoek_betere_alternatieven") as mock_alternatieven:
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven") as mock_alternatieven:
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         # Laatste datum (stap 1) + 2 resterende steekproefdatums (stap 2) = 3.
@@ -170,8 +170,8 @@ class TestStap2EscaleertNaarSteekproef(unittest.TestCase):
                 return _prijscheck(afwijking_pct=9.9, match=False)  # grootste, maar < 10%
             return _prijscheck(afwijking_pct=2.0, match=True)
 
-        with _basis_patch(alternatieven=[]), patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(analysis, "_zoek_betere_alternatieven") as mock_alternatieven:
+        with _basis_patch(alternatieven=[]), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven") as mock_alternatieven:
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertIn("9.9%", resultaat["prijswaarschuwing"])
@@ -190,8 +190,8 @@ class TestStap3EscaleertNaarAlternatieven(unittest.TestCase):
             return _prijscheck(afwijking_pct=15.0, match=False)
 
         with _basis_patch(zekerheid="zeker", alternatieven=[{"symbol": "ALT", "exchange": "NMS"}]), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(analysis, "_zoek_betere_alternatieven", return_value=([{"ticker": "ALT"}], "ALT")) as mock_alt:
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven", return_value=([{"ticker": "ALT"}], "ALT")) as mock_alt:
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         mock_alt.assert_called_once()
@@ -205,8 +205,8 @@ class TestStap3EscaleertNaarAlternatieven(unittest.TestCase):
             return _prijscheck(afwijking_pct=15.0, match=False)
 
         with _basis_patch(alternatieven=[{"symbol": "ALT", "exchange": "NMS"}]), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(analysis, "_zoek_betere_alternatieven", return_value=([{"ticker": "ALT"}], None)):
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven", return_value=([{"ticker": "ALT"}], None)):
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertNotIn("aanbevolen_alternatief", resultaat)
@@ -228,7 +228,7 @@ class TestGeenYahooData(unittest.TestCase):
                      "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0, "bekende_koers": 100.0}
 
         with _basis_patch(zekerheid="zeker", alternatieven=[]), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_data):
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=geen_data):
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertIsNotNone(resultaat["prijswaarschuwing"])
@@ -241,8 +241,8 @@ class TestGeenYahooData(unittest.TestCase):
                      "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0, "bekende_koers": 100.0}
 
         with _basis_patch(zekerheid="zeker", alternatieven=[{"symbol": "GDX.L", "exchange": "LSE"}]), \
-             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_data), \
-             patch.object(analysis, "_zoek_betere_alternatieven", return_value=([{"ticker": "GDX.L"}], "GDX.L")) as mock_alt:
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=geen_data), \
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven", return_value=([{"ticker": "GDX.L"}], "GDX.L")) as mock_alt:
             resultaat = find_ticker_met_snelle_prijscheck("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", transacties)
 
         mock_alt.assert_called_once()
@@ -254,15 +254,15 @@ class TestPrijswaarschuwingVoorTicker(unittest.TestCase):
     een opgeslagen portfolio) -- roept BEWUST find_ticker_detailed niet aan."""
 
     def test_geen_afwijking_geeft_geen_waarschuwing(self):
-        with patch.object(analysis, "find_ticker_detailed") as mock_find, \
-             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
+        with patch.object(ticker_zekerheid, "find_ticker_detailed") as mock_find, \
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
             boodschap = prijswaarschuwing_voor_ticker("AAPL", [{"datum": date(2023, 6, 10), "koers": 100.0}])
 
         mock_find.assert_not_called()
         self.assertIsNone(boodschap)
 
     def test_afwijking_boven_drempel_geeft_boodschap_met_ticker_en_percentage(self):
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=12.3, match=False)):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=12.3, match=False)):
             boodschap = prijswaarschuwing_voor_ticker("AAPL", [{"datum": date(2023, 6, 10), "koers": 100.0}])
 
         self.assertIn("AAPL", boodschap)
@@ -293,7 +293,7 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
                 return "Koers van AAPL wijkt 15.0% af van Yahoo — controleer op het Ticker-zekerheid-tabblad."
             return None
 
-        with patch.object(analysis, "prijswaarschuwing_voor_ticker", side_effect=fake_prijswaarschuwing):
+        with patch.object(ticker_zekerheid, "prijswaarschuwing_voor_ticker", side_effect=fake_prijswaarschuwing):
             waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
 
         self.assertEqual(len(waarschuwingen), 1)
@@ -305,7 +305,7 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
         transacties_df = pd.DataFrame({
             "ticker": ["AAPL"], "datum": [date(2023, 6, 10)], "koers": [100.0],
         })
-        with patch.object(analysis, "prijswaarschuwing_voor_ticker", return_value=None):
+        with patch.object(ticker_zekerheid, "prijswaarschuwing_voor_ticker", return_value=None):
             waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, {})
         self.assertEqual(waarschuwingen, [])
 
@@ -323,7 +323,7 @@ class TestBekendeTickerSlaatZoekopdrachtOver(unittest.TestCase):
         transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
 
         with _basis_patch(ticker="MOET-NIET-GEBRUIKT-WORDEN") as mock_ftd, \
-             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
             resultaat = find_ticker_met_snelle_prijscheck(
                 "APPLE INC", "US0378331005", "NASDAQ", transacties, bekende_ticker="AAPL",
             )
@@ -340,7 +340,7 @@ class TestBekendeTickerSlaatZoekopdrachtOver(unittest.TestCase):
         transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
 
         with _basis_patch(ticker="AAPL") as mock_ftd, \
-             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
             resultaat = find_ticker_met_snelle_prijscheck(
                 "APPLE INC", "US0378331005", "NASDAQ", transacties,
             )
@@ -360,7 +360,7 @@ class TestBekendeTickerSlaatZoekopdrachtOver(unittest.TestCase):
         ]
 
         with _basis_patch() as mock_ftd, \
-             patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=15.0, match=False)):
+             patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=15.0, match=False)):
             resultaat = find_ticker_met_snelle_prijscheck(
                 "APPLE INC", "US0378331005", "NASDAQ", transacties, bekende_ticker="FOUT.TICKER",
             )
@@ -391,7 +391,7 @@ class TestVindTickersMetSnelleParallelBekendeTickers(unittest.TestCase):
             return {"ticker": bekende_ticker or f"NIEUW-{isin}", "zekerheid": "zeker",
                     "alternatieven": [], "prijs_checks": [], "prijswaarschuwing": None}
 
-        with patch.object(analysis, "find_ticker_met_snelle_prijscheck", side_effect=fake_find):
+        with patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck", side_effect=fake_find):
             resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
 
         self.assertEqual(ontvangen_bekende["ISINA"], "TICK-A")
@@ -402,7 +402,7 @@ class TestVindTickersMetSnelleParallelBekendeTickers(unittest.TestCase):
     def test_geen_bekende_tickers_ongewijzigd_gedrag(self):
         posities = [("FONDS A", "ISINA", "EAM", [])]
 
-        with patch.object(analysis, "find_ticker_met_snelle_prijscheck", return_value={"ticker": "X"}) as mock_find:
+        with patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck", return_value={"ticker": "X"}) as mock_find:
             vind_tickers_met_snelle_prijscheck_parallel(posities)  # geen bekende_tickers -> vinkje AAN-gedrag
 
         mock_find.assert_called_once_with("FONDS A", "ISINA", "EAM", [], None)
@@ -419,7 +419,7 @@ class TestBasisTickerZekerheidParallel(unittest.TestCase):
         def fake_find_ticker_detailed(product, isin, beurs):
             return {"ticker": f"TICK-{isin}", "zekerheid": "zeker", "alternatieven": []}
 
-        with patch.object(analysis, "find_ticker_detailed", side_effect=fake_find_ticker_detailed):
+        with patch.object(ticker_zekerheid, "find_ticker_detailed", side_effect=fake_find_ticker_detailed):
             resultaten = basis_ticker_zekerheid_parallel(posities)
 
         self.assertEqual([r["ticker"] for r in resultaten], ["TICK-ISINA", "TICK-ISINB", "TICK-ISINC"])
@@ -436,18 +436,18 @@ class TestTickerResolutiePoolGrootte(unittest.TestCase):
     test nodig."""
 
     def test_pool_grootte_constante_is_twaalf(self):
-        self.assertEqual(analysis.TICKER_RESOLUTIE_POOL_GROOTTE, 12)
+        self.assertEqual(ticker_zekerheid.TICKER_RESOLUTIE_POOL_GROOTTE, 12)
 
     def test_beide_functies_gebruiken_de_gedeelde_pool_grootte_als_default(self):
         import inspect
 
         self.assertEqual(
             inspect.signature(vind_tickers_met_snelle_prijscheck_parallel).parameters["max_workers"].default,
-            analysis.TICKER_RESOLUTIE_POOL_GROOTTE,
+            ticker_zekerheid.TICKER_RESOLUTIE_POOL_GROOTTE,
         )
         self.assertEqual(
             inspect.signature(basis_ticker_zekerheid_parallel).parameters["max_workers"].default,
-            analysis.TICKER_RESOLUTIE_POOL_GROOTTE,
+            ticker_zekerheid.TICKER_RESOLUTIE_POOL_GROOTTE,
         )
 
 

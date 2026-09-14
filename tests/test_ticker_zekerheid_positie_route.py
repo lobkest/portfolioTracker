@@ -5,7 +5,7 @@ portfolio's liepen vast op /api/portfolio/<code>/ticker-zekerheid omdat die
 route moet wachten tot ALLE posities klaar zijn (verifieer_tickers_met_
 prijs_parallel), waardoor één trage/rate-limited positie de hele opvraag
 liet mislukken. De nieuwe route verifieert precies 1 positie en hergebruikt
-daarvoor de bestaande analysis.verifieer_ticker_met_prijs() zonder eigen
+daarvoor de bestaande ticker_zekerheid.verifieer_ticker_met_prijs() zonder eigen
 backend-logica -- deze test bevestigt dat de route exact hetzelfde
 resultaat geeft als een directe aanroep van die functie.
 
@@ -27,10 +27,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
-import analysis
+import ticker_zekerheid
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
-# _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
+# _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze route-test offline en ongewijzigd
 # blijft t.o.v. de directe aanroep waarmee 'ie vergeleken wordt.
@@ -40,7 +40,7 @@ _openfigi_patcher = None
 def setUpModule():
     global _openfigi_patcher
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -63,9 +63,9 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
-        import analysis
+        import ticker_zekerheid
         self.app_module = app_module
-        self.analysis = analysis
+        self.ticker_zekerheid = ticker_zekerheid
         self.client = app_module.app.test_client()
         self._opschonen()
 
@@ -109,13 +109,13 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
                 "high": 102.0, "low": 99.0, "binnen_dagrange": True,
             }
 
-        with patch.object(self.analysis, "find_ticker_detailed",
+        with patch.object(self.ticker_zekerheid, "find_ticker_detailed",
                            return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []}), \
-             patch.object(self.analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(self.analysis, "_ticker_details_met_cache", return_value={}), \
-             patch.object(self.analysis, "_land_sector_voor_weergave", return_value=(None, None, None)), \
-             patch.object(self.analysis, "classify_ticker", return_value=False):
-            verwacht = self.analysis.verifieer_ticker_met_prijs("APPLE INC", self.ISIN, self.BEURS, transacties)
+             patch.object(self.ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
+             patch.object(self.ticker_zekerheid, "_ticker_details_met_cache", return_value={}), \
+             patch.object(self.ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None)), \
+             patch.object(self.ticker_zekerheid, "classify_ticker", return_value=False):
+            verwacht = self.ticker_zekerheid.verifieer_ticker_met_prijs("APPLE INC", self.ISIN, self.BEURS, transacties)
 
             res = self.client.get(
                 f"/api/portfolio/{self.TEST_CODE}/ticker-zekerheid/positie",

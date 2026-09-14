@@ -33,8 +33,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
 import prijzen
+import portfolio_calc
 
 
 def _mock_conn(min_max_rows, laatst_ververst_rows, cached_rows):
@@ -219,7 +219,7 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = analysis.compute_value_over_time(transacties_df, price_data)
+            result = portfolio_calc.compute_value_over_time(transacties_df, price_data)
 
         self.assertIn("ná de laatste beschikbare koersdatum", buf.getvalue())
         # bestaand (nog niet gewijzigd) gedrag: de transactie van 2024-01-05
@@ -241,7 +241,7 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
 
         buf = io.StringIO()
         with redirect_stdout(buf):
-            analysis.compute_value_over_time(transacties_df, price_data)
+            portfolio_calc.compute_value_over_time(transacties_df, price_data)
 
         self.assertNotIn("ná de laatste beschikbare koersdatum", buf.getvalue())
 

@@ -28,10 +28,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
 import prijzen
 import ticker_classificatie
 import ticker_prijscheck
+import yahoo_client
 
 
 def _mock_conn_voor_twee_aanroepen(
@@ -77,7 +77,7 @@ class TestFxKoersCaching(unittest.TestCase):
         mock_get_conn.return_value = _mock_conn_voor_twee_aanroepen(
             eerste_min_max=[],  # 1e aanroep: FX-paar nog nooit gecached
             eerste_cached=[],
-            tweede_min_max=[("USDEUR=X", analysis.FX_ANKER_DATUM.date(), vandaag.date())],
+            tweede_min_max=[("USDEUR=X", prijzen.FX_ANKER_DATUM.date(), vandaag.date())],
             tweede_cached=[("USDEUR=X", gevraagde_datum.date(), 0.9)],
             # 2e aanroep: net (binnen 2 min) ververst door de 1e aanroep
             # (net als in productie -- de prijzen-tabel zet bijgewerkt_op
@@ -120,7 +120,7 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
 
         cur = MagicMock()
         cur.fetchall.side_effect = [
-            [("USDEUR=X", analysis.FX_ANKER_DATUM.date(), vandaag.date())],  # MIN/MAX: ver genoeg terug, maar stale
+            [("USDEUR=X", prijzen.FX_ANKER_DATUM.date(), vandaag.date())],  # MIN/MAX: ver genoeg terug, maar stale
             [("USDEUR=X", oud_moment)],  # laatst ververst: 3 uur geleden, dus > DREMPEL_HERGEBRUIK_KOERS
             [
                 ("USDEUR=X", gevraagde_datum.date(), 0.9),
@@ -153,7 +153,7 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
 
         cur = MagicMock()
         cur.fetchall.side_effect = [
-            [("USDEUR=X", analysis.FX_ANKER_DATUM.date(), vandaag.date())],
+            [("USDEUR=X", prijzen.FX_ANKER_DATUM.date(), vandaag.date())],
             [("USDEUR=X", oud_moment)],
             [
                 ("USDEUR=X", gevraagde_datum.date(), 0.9),
@@ -178,15 +178,15 @@ class TestIsRateLimitFout(unittest.TestCase):
     faalde voorheen in één keer definitief, zonder retry-poging."""
 
     def test_bestaande_rate_limit_meldingen_blijven_herkend(self):
-        self.assertTrue(analysis._is_rate_limit_fout(Exception("Rate limit exceeded")))
-        self.assertTrue(analysis._is_rate_limit_fout(Exception("Too Many Requests")))
+        self.assertTrue(yahoo_client._is_rate_limit_fout(Exception("Rate limit exceeded")))
+        self.assertTrue(yahoo_client._is_rate_limit_fout(Exception("Too Many Requests")))
 
     def test_invalid_crumb_wordt_herkend(self):
         fout = Exception(
             'HTTP Error 401: {"finance":{"result":null,"error":'
             '{"code":"Unauthorized","description":"Invalid Crumb"}}}'
         )
-        self.assertTrue(analysis._is_rate_limit_fout(fout))
+        self.assertTrue(yahoo_client._is_rate_limit_fout(fout))
 
     def test_http_401_zonder_invalid_crumb_wordt_ook_herkend(self):
         fout = Exception(
@@ -194,11 +194,11 @@ class TestIsRateLimitFout(unittest.TestCase):
             '{"code":"Unauthorized","description":"User is unable to access '
             'this feature - https://bit.ly/yahoo-finance-api-feedback"}}}'
         )
-        self.assertTrue(analysis._is_rate_limit_fout(fout))
+        self.assertTrue(yahoo_client._is_rate_limit_fout(fout))
 
     def test_andere_fout_wordt_niet_als_rate_limit_herkend(self):
-        self.assertFalse(analysis._is_rate_limit_fout(ValueError("iets heel anders")))
-        self.assertFalse(analysis._is_rate_limit_fout(Exception("Data doesn't exist for startDate")))
+        self.assertFalse(yahoo_client._is_rate_limit_fout(ValueError("iets heel anders")))
+        self.assertFalse(yahoo_client._is_rate_limit_fout(Exception("Data doesn't exist for startDate")))
 
 
 class TestMetRateLimitRetry(unittest.TestCase):
@@ -215,7 +215,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
                 raise Exception("Too Many Requests")
             return "ok"
 
-        resultaat, fout = analysis._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
 
         self.assertEqual(resultaat, "ok")
         self.assertIsNone(fout)
@@ -228,7 +228,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         def actie():
             raise Exception("rate limit exceeded")
 
-        resultaat, fout = analysis._met_rate_limit_retry(actie, "test", "'X'", pogingen=2, wachttijd=5)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=2, wachttijd=5)
 
         self.assertIsNone(resultaat)
         self.assertIsInstance(fout, Exception)
@@ -250,7 +250,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
                 )
             return "ok"
 
-        resultaat, fout = analysis._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
 
         self.assertEqual(resultaat, "ok")
         self.assertIsNone(fout)
@@ -262,7 +262,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         def actie():
             raise ValueError("iets heel anders")
 
-        resultaat, fout = analysis._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=5)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=5)
 
         self.assertIsNone(resultaat)
         self.assertIsInstance(fout, ValueError)

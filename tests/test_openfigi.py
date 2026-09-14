@@ -1,8 +1,8 @@
 """
-Unit tests voor analysis.haal_openfigi_resultaten() — EXPERIMENTEEL/
+Unit tests voor ticker_zekerheid.haal_openfigi_resultaten() — EXPERIMENTEEL/
 DIAGNOSTISCH paneel op de Ticker-zekerheid-pagina (zie CLAUDE.md), inmiddels
 aangevuld met een permanente DB-cache (openfigi_cache). Draait geheel
-offline: analysis.requests.post EN de cache-functies (get_cached_openfigi/
+offline: ticker_zekerheid.requests.post EN de cache-functies (get_cached_openfigi/
 save_openfigi) worden gemockt, dus geen echte OpenFIGI-netwerk-calls en geen
 (gedeelde, persistente) databasetoegang nodig -- zonder die laatste mock zou
 elke test tegen dezelfde echte Neon-DB lopen en elkaars cache-writes zien.
@@ -15,7 +15,7 @@ from unittest.mock import patch, Mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import requests
-import analysis
+import ticker_zekerheid
 import ticker_matching
 from ticker_matching import haal_openfigi_resultaten
 
@@ -188,10 +188,10 @@ class TestVoegOpenfigiCheckToe(unittest.TestCase):
 
     def test_root_bekend_zet_samenvattingsvelden_zonder_waarschuwing(self):
         with patch.object(
-            analysis, "haal_openfigi_resultaten",
+            ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "AAPL", "exchCode": "US"}], "fout": None},
         ):
-            resultaat = analysis._voeg_openfigi_check_toe(
+            resultaat = ticker_zekerheid._voeg_openfigi_check_toe(
                 {"ticker": "AAPL", "zekerheid": "zeker", "prijswaarschuwing": None}, "US0378331005"
             )
         self.assertIs(resultaat["openfigi_root_bekend"], True)
@@ -201,10 +201,10 @@ class TestVoegOpenfigiCheckToe(unittest.TestCase):
 
     def test_root_niet_bekend_voegt_waarschuwing_toe_op_gegeven_veld(self):
         with patch.object(
-            analysis, "haal_openfigi_resultaten",
+            ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
         ):
-            resultaat = analysis._voeg_openfigi_check_toe(
+            resultaat = ticker_zekerheid._voeg_openfigi_check_toe(
                 {"ticker": "VWCE.AS", "zekerheid": "zeker", "waarschuwing": None},
                 "LU1737085518", waarschuwing_veld="waarschuwing",
             )
@@ -216,10 +216,10 @@ class TestVoegOpenfigiCheckToe(unittest.TestCase):
 
     def test_root_niet_bekend_vult_bestaande_waarschuwing_aan_i_p_v_te_overschrijven(self):
         with patch.object(
-            analysis, "haal_openfigi_resultaten",
+            ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
         ):
-            resultaat = analysis._voeg_openfigi_check_toe(
+            resultaat = ticker_zekerheid._voeg_openfigi_check_toe(
                 {"ticker": "VWCE.AS", "zekerheid": "onzeker", "waarschuwing": "Bestaande prijswaarschuwing."},
                 "LU1737085518", waarschuwing_veld="waarschuwing",
             )
@@ -228,8 +228,8 @@ class TestVoegOpenfigiCheckToe(unittest.TestCase):
         self.assertIn("\n", resultaat["waarschuwing"])
 
     def test_geen_oordeel_laat_resultaat_ongemoeid(self):
-        with patch.object(analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}):
-            resultaat = analysis._voeg_openfigi_check_toe(
+        with patch.object(ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}):
+            resultaat = ticker_zekerheid._voeg_openfigi_check_toe(
                 {"ticker": "AAPL", "zekerheid": "zeker", "prijswaarschuwing": None}, "US0378331005"
             )
         self.assertIsNone(resultaat["openfigi_root_bekend"])
@@ -238,8 +238,8 @@ class TestVoegOpenfigiCheckToe(unittest.TestCase):
         self.assertIsNone(resultaat["prijswaarschuwing"])
 
     def test_zonder_ticker_geen_netwerkcall_en_lege_samenvattingsvelden(self):
-        with patch.object(analysis, "haal_openfigi_resultaten") as mock_haal:
-            resultaat = analysis._voeg_openfigi_check_toe(
+        with patch.object(ticker_zekerheid, "haal_openfigi_resultaten") as mock_haal:
+            resultaat = ticker_zekerheid._voeg_openfigi_check_toe(
                 {"ticker": None, "zekerheid": "geen_match"}, "US0378331005"
             )
         mock_haal.assert_not_called()
@@ -259,19 +259,19 @@ class TestFindTickerMetSnellePrijscheckOpenfigiIntegratie(unittest.TestCase):
         transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
 
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "VWCE.AS", "zekerheid": "zeker", "alternatieven": []},
         ), patch.object(
-            analysis, "vergelijk_prijs_op_datum",
+            ticker_zekerheid, "vergelijk_prijs_op_datum",
             return_value={
                 "yahoo_koers": 100.0, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
                 "bekende_koers": 100.0, "afwijking_pct": 0.5, "niveau": "ok", "match": True,
             },
         ), patch.object(
-            analysis, "haal_openfigi_resultaten",
+            ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
         ):
-            resultaat = analysis.find_ticker_met_snelle_prijscheck(
+            resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
                 "VANGUARD FTSE ALL-WORLD USD DIS", "LU1737085518", "EAM", transacties
             )
 
@@ -285,19 +285,19 @@ class TestFindTickerMetSnellePrijscheckOpenfigiIntegratie(unittest.TestCase):
         transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
 
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []},
         ), patch.object(
-            analysis, "vergelijk_prijs_op_datum",
+            ticker_zekerheid, "vergelijk_prijs_op_datum",
             return_value={
                 "yahoo_koers": 100.0, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
                 "bekende_koers": 100.0, "afwijking_pct": 0.5, "niveau": "ok", "match": True,
             },
         ), patch.object(
-            analysis, "haal_openfigi_resultaten",
+            ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "AAPL", "exchCode": "US"}], "fout": None},
         ):
-            resultaat = analysis.find_ticker_met_snelle_prijscheck(
+            resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
                 "APPLE INC", "US0378331005", "NASDAQ", transacties
             )
 
@@ -323,21 +323,21 @@ class TestVerifieerTickerMetPrijsOpenfigiIntegratie(unittest.TestCase):
         }
 
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "VWCE.AS", "zekerheid": "zeker", "alternatieven": []},
         ), patch.object(
-            analysis, "vergelijk_prijs_op_datum", return_value=prijs_ok,
+            ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=prijs_ok,
         ), patch.object(
-            analysis, "_ticker_details_met_cache", return_value={},
+            ticker_zekerheid, "_ticker_details_met_cache", return_value={},
         ), patch.object(
-            analysis, "_land_sector_voor_weergave", return_value=(None, None, None),
+            ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None),
         ), patch.object(
-            analysis, "classify_ticker", return_value=False,
+            ticker_zekerheid, "classify_ticker", return_value=False,
         ), patch.object(
-            analysis, "haal_openfigi_resultaten",
+            ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
         ):
-            resultaat = analysis.verifieer_ticker_met_prijs(
+            resultaat = ticker_zekerheid.verifieer_ticker_met_prijs(
                 "VANGUARD FTSE ALL-WORLD USD DIS", "LU1737085518", "EAM", transacties
             )
 
@@ -348,10 +348,10 @@ class TestVerifieerTickerMetPrijsOpenfigiIntegratie(unittest.TestCase):
 
     def test_geen_ticker_pad_zet_ook_lege_openfigi_velden_geen_crash(self):
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": None, "zekerheid": "geen_match", "alternatieven": []},
-        ), patch.object(analysis, "haal_openfigi_resultaten") as mock_haal:
-            resultaat = analysis.verifieer_ticker_met_prijs("ONBEKEND FONDS", "XX0000000000", "XYZ", [])
+        ), patch.object(ticker_zekerheid, "haal_openfigi_resultaten") as mock_haal:
+            resultaat = ticker_zekerheid.verifieer_ticker_met_prijs("ONBEKEND FONDS", "XX0000000000", "XYZ", [])
 
         mock_haal.assert_not_called()
         self.assertIsNone(resultaat["ticker"])
@@ -369,12 +369,12 @@ class TestPrijswaarschuwingVoorTickerOpenfigiIntegratie(unittest.TestCase):
             "yahoo_koers": 100.0, "bekende_koers": 100.0, "afwijking_pct": 0.5,
             "niveau": "ok", "match": True, "binnen_dagrange": True,
         }
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_probleem), \
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=geen_probleem), \
              patch.object(
-                 analysis, "haal_openfigi_resultaten",
+                 ticker_zekerheid, "haal_openfigi_resultaten",
                  return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
              ):
-            boodschap = analysis.prijswaarschuwing_voor_ticker(
+            boodschap = ticker_zekerheid.prijswaarschuwing_voor_ticker(
                 "VWCE.AS", [{"datum": date(2023, 6, 10), "koers": 100.0}], isin="LU1737085518",
             )
 
@@ -388,9 +388,9 @@ class TestPrijswaarschuwingVoorTickerOpenfigiIntegratie(unittest.TestCase):
             "yahoo_koers": 100.0, "bekende_koers": 100.0, "afwijking_pct": 0.5,
             "niveau": "ok", "match": True, "binnen_dagrange": True,
         }
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=geen_probleem), \
-             patch.object(analysis, "haal_openfigi_resultaten") as mock_haal:
-            boodschap = analysis.prijswaarschuwing_voor_ticker(
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=geen_probleem), \
+             patch.object(ticker_zekerheid, "haal_openfigi_resultaten") as mock_haal:
+            boodschap = ticker_zekerheid.prijswaarschuwing_voor_ticker(
                 "VWCE.AS", [{"datum": date(2023, 6, 10), "koers": 100.0}],
             )
 
@@ -403,12 +403,12 @@ class TestPrijswaarschuwingVoorTickerOpenfigiIntegratie(unittest.TestCase):
             "yahoo_koers": 50.0, "bekende_koers": 100.0, "afwijking_pct": 50.0,
             "niveau": "waarschuwing", "match": False, "binnen_dagrange": False,
         }
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=afwijking), \
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=afwijking), \
              patch.object(
-                 analysis, "haal_openfigi_resultaten",
+                 ticker_zekerheid, "haal_openfigi_resultaten",
                  return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
              ):
-            boodschap = analysis.prijswaarschuwing_voor_ticker(
+            boodschap = ticker_zekerheid.prijswaarschuwing_voor_ticker(
                 "VWCE.AS", [{"datum": date(2023, 6, 10), "koers": 100.0}], isin="LU1737085518",
             )
 

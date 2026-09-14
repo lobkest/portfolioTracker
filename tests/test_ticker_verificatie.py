@@ -1,6 +1,6 @@
 """
 Unit tests voor de performance-fix van de Ticker-zekerheid-pagina
-(analysis.verifieer_ticker_met_prijs / vergelijk_prijs_op_datum).
+(ticker_zekerheid.verifieer_ticker_met_prijs / vergelijk_prijs_op_datum).
 
 Achtergrond: GET /api/portfolio/<code>/ticker-zekerheid gaf op Render een
 500 (gunicorn worker timeout) doordat elke onzekere positie ALLE
@@ -16,8 +16,8 @@ tests dekken de twee losstaande fixes:
 3. vergelijk_prijs_op_datum gebruikt de ticker_prijscheck-cache: een tweede
    aanroep voor dezelfde (ticker, datum) doet geen nieuwe Yahoo-call.
 
-Draait geheel offline (test 1 en 2): analysis.find_ticker_detailed en
-analysis.vergelijk_prijs_op_datum worden gemockt, dus geen echte
+Draait geheel offline (test 1 en 2): ticker_zekerheid.find_ticker_detailed en
+ticker_zekerheid.vergelijk_prijs_op_datum worden gemockt, dus geen echte
 yahooquery/yfinance-calls. Test 3 raakt wél de echte database aan (net als
 tests/test_dividend_db.py) om de ticker_prijscheck-cache zelf te testen,
 maar mockt de Yahoo-call (_haal_koers_en_dagrange_op, sinds kort de
@@ -34,13 +34,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import analysis
+import ticker_zekerheid
 import ticker_prijscheck
-from analysis import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, BEURS_MAP
+from ticker_zekerheid import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, BEURS_MAP
 from ticker_prijscheck import _cumulatieve_split_factor
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
-# _voeg_openfigi_check_toe in analysis.py) altijd haal_openfigi_resultaten()
+# _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
 # blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
@@ -59,10 +59,10 @@ _yahoo_search_patcher = None
 
 def setUpModule():
     global _openfigi_patcher, _yahoo_search_patcher
-    _yahoo_search_patcher = patch.object(analysis, "_yahoo_search", return_value=[])
+    _yahoo_search_patcher = patch.object(ticker_zekerheid, "_yahoo_search", return_value=[])
     _yahoo_search_patcher.start()
     _openfigi_patcher = patch.object(
-        analysis, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
+        ticker_zekerheid, "haal_openfigi_resultaten", return_value={"resultaten": [], "fout": None}
     )
     _openfigi_patcher.start()
 
@@ -95,7 +95,7 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
         # geen match), ALT2 (juiste beurs + kloppende prijs -> overtuigend),
         # ALT3/4/5 mogen daarna niet meer aangeraakt worden.
         self.alternatieven_patch = patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={
                 "ticker": "AAA",
                 "zekerheid": "onzeker",
@@ -111,18 +111,18 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
         self.alternatieven_patch.start()
         self.addCleanup(self.alternatieven_patch.stop)
 
-        details_patch = patch.object(analysis, "_ticker_details_met_cache", return_value={})
+        details_patch = patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={})
         details_patch.start()
         self.addCleanup(details_patch.stop)
 
-        land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
+        land_sector_patch = patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None))
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
 
         # Generieke placeholder-tickers (AAA/ALT1-5), geen echt fonds of
         # aandeel -- classify_ticker() zou anders de echte database aanraken
         # (KeyError: 'DATABASE_URL' zonder .env, zie CLAUDE.md).
-        classify_patch = patch.object(analysis, "classify_ticker", return_value=False)
+        classify_patch = patch.object(ticker_zekerheid, "classify_ticker", return_value=False)
         classify_patch.start()
         self.addCleanup(classify_patch.stop)
 
@@ -137,7 +137,7 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
                 return _prijscheck(match=False, afwijking_pct=50.0, yahoo_koers=150.0)
             raise AssertionError(f"'{ticker}' had niet meer gecheckt mogen worden na de match op ALT2")
 
-        with patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             resultaat = verifieer_ticker_met_prijs("PRODUCT", "ISIN123", self.BEURS, self.transacties)
 
         self.assertIn("ALT1", call_count)
@@ -164,7 +164,7 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
                 return _prijscheck(match=True)
             raise AssertionError(f"'{ticker}' had niet meer gecheckt mogen worden")
 
-        with patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             verifieer_ticker_met_prijs("PRODUCT", "ISIN123", self.BEURS, self.transacties)
 
         # 2 transacties in de steekproef, maar ALT1's eerste check faalt al
@@ -204,7 +204,7 @@ class TestPrijscheckCache(unittest.TestCase):
         self._cleanup()
 
     def test_tweede_aanroep_gebruikt_cache_geen_nieuwe_yahoo_call(self):
-        from analysis import vergelijk_prijs_op_datum
+        from ticker_zekerheid import vergelijk_prijs_op_datum
 
         call_count = {"n": 0}
 
@@ -375,7 +375,7 @@ class TestValutaConversie(unittest.TestCase):
         """vergelijk_prijs_op_datum vergelijkt altijd tegen een HISTORISCHE
         transactiedatum -- een verse FX-koers van 'vandaag' is daarvoor
         nooit relevant, dus geeft dit onvoorwaardelijk verversen=False door
-        aan _fx_koers_op_datum() (zie analysis.py, opdracht 'FX-koers in
+        aan _fx_koers_op_datum() (zie ticker_zekerheid.py, opdracht 'FX-koers in
         prijscheck-stap niet onnodig verversen')."""
         with self._mock_omgeving(yahoo_koers=82.23, valuta="USD", fx_koers=0.8311):
             with patch.object(ticker_prijscheck, "_fx_koers_op_datum", return_value=0.8311) as mock_fx:
@@ -388,7 +388,7 @@ class TestValutaConversie(unittest.TestCase):
 
 class TestDrieNiveausIndicator(unittest.TestCase):
     """Bugfix: elke afwijking >0% kreeg hetzelfde ⚠️-icoon. Nu drie niveaus
-    (zie PRIJSCHECK_DREMPEL_OK/_WAARSCHUWING in analysis.py)."""
+    (zie PRIJSCHECK_DREMPEL_OK/_WAARSCHUWING in ticker_zekerheid.py)."""
 
     def _niveau_voor_afwijking(self, afwijking_pct):
         # bekende_koers=100 -> yahoo_koers = 100 - afwijking_pct geeft
@@ -436,19 +436,19 @@ class TestZekerheidOordeelMetMildeAfwijking(unittest.TestCase):
             {"datum": date(2023, 6, 10), "koers": 100.0},
         ]
         patcher = patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AKZA.AS", "zekerheid": "zeker", "alternatieven": []},
         )
         patcher.start()
         self.addCleanup(patcher.stop)
-        details_patch = patch.object(analysis, "_ticker_details_met_cache", return_value={})
+        details_patch = patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={})
         details_patch.start()
         self.addCleanup(details_patch.stop)
-        land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
+        land_sector_patch = patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None))
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
         # AKZA.AS (AKZO NOBEL) is een gewoon aandeel, geen ETF.
-        classify_patch = patch.object(analysis, "classify_ticker", return_value=False)
+        classify_patch = patch.object(ticker_zekerheid, "classify_ticker", return_value=False)
         classify_patch.start()
         self.addCleanup(classify_patch.stop)
 
@@ -457,7 +457,7 @@ class TestZekerheidOordeelMetMildeAfwijking(unittest.TestCase):
         # dict terug -- verifieer_ticker_met_prijs muteert het teruggegeven
         # dict (voegt "datum" toe), een gedeeld dict zou dus de datum van de
         # vorige aanroep overschrijven.
-        with patch.object(analysis, "vergelijk_prijs_op_datum",
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum",
                            side_effect=lambda *a, **kw: _prijscheck(match=True, afwijking_pct=4.7, niveau="mild")):
             resultaat = verifieer_ticker_met_prijs("AKZO NOBEL NV", "NL0013267909", "EAM", self.transacties)
 
@@ -470,7 +470,7 @@ class TestZekerheidOordeelMetMildeAfwijking(unittest.TestCase):
                 return _prijscheck(match=False, afwijking_pct=71.3, niveau="waarschuwing")
             return _prijscheck(match=True, afwijking_pct=3.7, niveau="ok")
 
-        with patch.object(analysis, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             resultaat = verifieer_ticker_met_prijs("AKZO NOBEL NV", "NL0013267909", "EAM", self.transacties)
 
         self.assertEqual(resultaat["zekerheid"], "onzeker")
@@ -493,24 +493,24 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
             {"datum": date(2023, 1, 10), "koers": 100.0},
             {"datum": date(2023, 6, 10), "koers": 100.0},
         ]
-        details_patch = patch.object(analysis, "_ticker_details_met_cache", return_value={})
+        details_patch = patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={})
         details_patch.start()
         self.addCleanup(details_patch.stop)
-        land_sector_patch = patch.object(analysis, "_land_sector_voor_weergave", return_value=(None, None, None))
+        land_sector_patch = patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None))
         land_sector_patch.start()
         self.addCleanup(land_sector_patch.stop)
 
     def test_geen_koersdata_op_alle_steekproefdatums_wordt_onzeker_en_zoekt_alternatieven(self):
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "G2X.MU", "zekerheid": "zeker", "alternatieven": [{"symbol": "ALT", "exchange": "LSE"}]},
         ), patch.object(
-            analysis, "vergelijk_prijs_op_datum",
+            ticker_zekerheid, "vergelijk_prijs_op_datum",
             side_effect=lambda *a, **kw: _prijscheck(match=None, afwijking_pct=None, yahoo_koers=None),
         ) as mock_vergelijk, patch.object(
             # VanEck Gold Miners is een ETF -- G2X.MU/ALT zijn beide
             # kandidaat-tickers voor datzelfde fonds.
-            analysis, "classify_ticker", return_value=True,
+            ticker_zekerheid, "classify_ticker", return_value=True,
         ):
             resultaat = verifieer_ticker_met_prijs("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", self.transacties)
 
@@ -522,7 +522,7 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
 
     def test_reproductie_vaneck_gold_miners_vindt_gdx_l_als_aanbevolen_alternatief(self):
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={
                 "ticker": "G2X.MU",
                 "zekerheid": "zeker",
@@ -530,9 +530,9 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
                     {"symbol": "GDX.L", "exchange": "LSE"},
                 ],
             },
-        ), patch.object(analysis, "vergelijk_prijs_op_datum") as mock_vergelijk, patch.object(
+        ), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum") as mock_vergelijk, patch.object(
             # VanEck Gold Miners / GDX.L zijn beide ETF's.
-            analysis, "classify_ticker", return_value=True,
+            ticker_zekerheid, "classify_ticker", return_value=True,
         ):
             def fake_vergelijk(ticker, datum, bekende_koers):
                 if ticker == "G2X.MU":
@@ -549,12 +549,12 @@ class TestGeenKoersdataEscaleertNaarOnzeker(unittest.TestCase):
         # Regressie: bestaande gevallen met een bevestigde prijs-match
         # (wél koersdata, klopt) mogen niet geraakt worden door deze fix.
         with patch.object(
-            analysis, "find_ticker_detailed",
+            ticker_zekerheid, "find_ticker_detailed",
             return_value={"ticker": "AAPL", "zekerheid": "zeker", "alternatieven": []},
         ), patch.object(
-            analysis, "vergelijk_prijs_op_datum",
+            ticker_zekerheid, "vergelijk_prijs_op_datum",
             side_effect=lambda *a, **kw: _prijscheck(match=True, afwijking_pct=1.0, yahoo_koers=100.0),
-        ), patch.object(analysis, "classify_ticker", return_value=False):  # AAPL is een aandeel
+        ), patch.object(ticker_zekerheid, "classify_ticker", return_value=False):  # AAPL is een aandeel
             resultaat = verifieer_ticker_met_prijs("APPLE INC", "US0378331005", "NASDAQ", self.transacties)
 
         self.assertEqual(resultaat["zekerheid"], "zeker")

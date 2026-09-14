@@ -1,40 +1,25 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from db import get_db_connection
+"""
+Ticker-zekerheid: de hoog-niveau orchestratie die bepaalt hoe zeker we zijn
+dat een geresolveerde ticker de juiste is, op basis van prijsvergelijking
+(ticker_prijscheck.py) en aanvullende OpenFIGI-/classificatiesignalen
+(ticker_matching.py/ticker_classificatie.py). Voedt zowel de upload-flow
+(lichte, standaard check) als de Ticker-zekerheid-pagina (volledige,
+lui geladen check).
+
+Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+"""
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# dprint/meet_tijd/DEBUG staan sinds de module-splitsing (zie CLAUDE.md,
-# herstructurering-opdracht) in debug_utils.py — hier opnieuw geïmporteerd
-# zodat de rest van dit bestand ongewijzigd kan blijven verwijzen naar
-# dprint/meet_tijd.
-from debug_utils import DEBUG, dprint, meet_tijd
-
-# _is_corporate_action_row/_sorteer_chronologisch staan in transactie_utils.py
-# (afhankelijkheidsloze, kleine helpers, gedeeld door o.a. statistieken.py) —
-# hier opnieuw geïmporteerd voor de nog niet verplaatste functies verderop
-# in dit bestand.
-from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
-
-# Yahoo-call-telling en de rate-limit-/retry-infra staan sinds de module-
-# splitsing in yahoo_client.py — hier opnieuw geïmporteerd zodat de nog niet
-# verplaatste functies verderop in dit bestand (get_prices, _fetch_yf_info,
-# _haal_slotkoers_op, ...) ongewijzigd kunnen blijven werken. Ook
-# patch("analysis.download_met_retry")-achtige mocks in de testsuite blijven
-# zo werken zolang de aanroepers van deze functies (nog) in analysis.py
-# staan.
-from yahoo_client import (
-    reset_yahoo_call_teller, _tel_yahoo_call, log_yahoo_call_samenvatting,
-    RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _is_rate_limit_fout, _met_rate_limit_retry,
-    BULK_DOWNLOAD_POGINGEN, BULK_DOWNLOAD_WACHTTIJD, download_met_retry,
+from db import get_db_connection
+from debug_utils import dprint
+from transactie_utils import _is_corporate_action_row
+from ticker_matching import (
+    find_ticker_detailed, BEURS_MAP, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
-
-
-# get_prices/_fx_prijzen_serie/FX_PAAR_PER_VALUTA/FX_ANKER_DATUM/
-# DREMPEL_HERGEBRUIK_KOERS staan sinds de module-splitsing in prijzen.py --
-# hier opnieuw geïmporteerd zodat get_prices() bruikbaar blijft voor app.py
-# (via analysis) en _fx_koers_op_datum() hieronder ongewijzigd kan blijven
-# werken.
-from prijzen import (
-    get_prices, _fx_prijzen_serie, FX_PAAR_PER_VALUTA, FX_ANKER_DATUM, DREMPEL_HERGEBRUIK_KOERS,
+from ticker_prijscheck import vergelijk_prijs_op_datum, _prijscheck_is_probleem
+from ticker_classificatie import (
+    classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
 )
 
 # Drempel voor de standaard, LICHTE prijscontrole (find_ticker_met_snelle_
@@ -56,53 +41,6 @@ MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE = 2
 # dit aantal steekproefdatums gecontroleerd is, anders is 1 toevalstreffer
 # al genoeg voor een "volledige" match.
 MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH = 2
-
-# _yahoo_search/_kies_beurs_match/_onzeker_fallback/_woorden_varianten/
-# _zoek_product_progressief/find_ticker(_detailed)/haal_openfigi_resultaten/
-# _openfigi_root_matches(_bekend) (en BEURS_MAP/MANUAL_TICKER_OVERRIDES*/
-# OPENFIGI_API_KEY) staan sinds de module-splitsing in ticker_matching.py --
-# hier opnieuw geïmporteerd voor de ticker-zekerheid-functies verderop in
-# dit bestand die dat nog gebruiken (_verzamel_extra_kandidaten,
-# verifieer_ticker_met_prijs, find_ticker_met_snelle_prijscheck,
-# prijswaarschuwing_voor_ticker).
-from ticker_matching import find_ticker_detailed, BEURS_MAP, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches
-
-
-# Benchmarks voor de rendement-vergelijking (zie bereken_benchmark_
-# vergelijking hieronder) -- allemaal accumulerende (Acc.) UCITS-ETF's in
-# EUR, zodat get_prices() ze zonder extra dividend-boekhouding kan gebruiken.
-# S&P 500/Nasdaq 100 waren al bekend uit ETF_HOLDINGS_BRON; AEX is apart
-# opgezocht en getest (yf.Ticker("IAEA.AS").info -> "iShares AEX UCITS ETF
-# EUR (Acc)", koersdata vanaf 2020-07-29) -- er bestaat geen accumulerende
-# AEX-ETF met een langere koershistorie op Yahoo.
-BENCHMARK_TICKERS = {
-    "S&P 500": "VUSA.AS",
-    "Nasdaq 100": "CNDX.AS",
-    "AEX": "IAEA.AS",
-}
-
-
-# De volledige ETF-holdings-provider-parsing (iShares/Vanguard/VanEck CSV/
-# XLSX, ETF_HOLDINGS_BRON) staat sinds de module-splitsing in
-# etf_holdings_provider.py -- hier opnieuw geimporteerd zodat get_etf_holdings()
-# verderop in dit bestand ongewijzigd kan blijven werken.
-from etf_holdings_provider import (
-    ETF_HOLDINGS_BRON, _PROVIDER_PARSERS, fetch_provider_holdings,
-)
-
-# compute_split_adjusted_shares/compute_value_over_time/compute_per_ticker/
-# compute_per_ticker_koers_en_aankopen/debug_position staan sinds de module-
-# splitsing in portfolio_calc.py -- hier opnieuw geïmporteerd (o.a. voor
-# app.py's bestaande "from analysis import ...").
-from portfolio_calc import (
-    compute_split_adjusted_shares, compute_value_over_time, compute_per_ticker,
-    compute_per_ticker_koers_en_aankopen, debug_position,
-)
-
-# CODE_LENGTH/is_geldige_code/generate_code/get_order_id_sets/find_matching_code
-# staan sinds de module-splitsing in portfolio_admin.py -- geen terug-import
-# hier, niets in de rest van dit bestand gebruikt ze nog (alleen app.py, dat
-# rechtstreeks uit portfolio_admin importeert).
 
 
 def _naar_basis_vorm(beurs, resultaat):

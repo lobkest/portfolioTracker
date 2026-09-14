@@ -2,7 +2,7 @@
 Tests voor Opdracht 1: een verbeterde ticker-resolutielogica (bv. de
 G2X.MU-fix: 'geen koersdata' telt nu als een prijsprobleem) corrigeert
 alleen NIEUW ingevoegde rijen -- de hoofdpagina gebruikt de al opgeslagen
-transacties.ticker-waarde, geen verse herberekening. analysis.
+transacties.ticker-waarde, geen verse herberekening. ticker_zekerheid.
 backfill_verouderde_tickers() herbeoordeelt daarom bij elke upload naar een
 BESTAANDE portfolio-code ook de al opgeslagen tickers, en overschrijft
 alleen als de oude ticker een prijsprobleem heeft EN de nieuwe kandidaat
@@ -26,8 +26,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 load_dotenv()
 
-import analysis
-from analysis import _ticker_heeft_prijsprobleem, backfill_verouderde_tickers
+import ticker_zekerheid
+from ticker_zekerheid import _ticker_heeft_prijsprobleem, backfill_verouderde_tickers
 
 
 def _prijscheck(afwijking_pct):
@@ -43,15 +43,15 @@ class TestTickerHeeftPrijsprobleem(unittest.TestCase):
         self.assertTrue(_ticker_heeft_prijsprobleem(None, [{"datum": date(2023, 6, 10), "koers": 100.0}]))
 
     def test_geen_koersdata_is_een_probleem(self):
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=None)):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=None)):
             self.assertTrue(_ticker_heeft_prijsprobleem("G2X.MU", [{"datum": date(2023, 6, 10), "koers": 100.0}]))
 
     def test_grote_afwijking_is_een_probleem(self):
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=15.0)):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=15.0)):
             self.assertTrue(_ticker_heeft_prijsprobleem("FOUT.TICKER", [{"datum": date(2023, 6, 10), "koers": 100.0}]))
 
     def test_kloppende_prijs_is_geen_probleem(self):
-        with patch.object(analysis, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
+        with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=_prijscheck(afwijking_pct=1.0)):
             self.assertFalse(_ticker_heeft_prijsprobleem("GDX.L", [{"datum": date(2023, 6, 10), "koers": 100.0}]))
 
     def test_geen_transacties_is_geen_probleem_geen_crash(self):
@@ -126,8 +126,8 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         def fake_probleem(ticker, transacties):
             return ticker == "G2X.MU"  # G2X.MU heeft een probleem, GDX.L niet
 
-        with patch.object(analysis, "_ticker_heeft_prijsprobleem", side_effect=fake_probleem), \
-             patch.object(analysis, "find_ticker_met_snelle_prijscheck",
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", side_effect=fake_probleem), \
+             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
                            return_value={"ticker": "GDX.L", "zekerheid": "zeker"}) as mock_find:
             gecorrigeerd = backfill_verouderde_tickers(self.CODE)
 
@@ -138,8 +138,8 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
     def test_nieuwe_kandidaat_met_eigen_probleem_wordt_niet_overgenomen(self):
         self._voeg_positie_toe("IE00BQQP9F84", "TDG", "G2X.MU")
 
-        with patch.object(analysis, "_ticker_heeft_prijsprobleem", return_value=True), \
-             patch.object(analysis, "find_ticker_met_snelle_prijscheck",
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=True), \
+             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
                            return_value={"ticker": "OOK.FOUT", "zekerheid": "onzeker"}) as mock_find:
             gecorrigeerd = backfill_verouderde_tickers(self.CODE)
 
@@ -150,8 +150,8 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
     def test_werkende_oude_ticker_wordt_niet_aangeraakt_geen_zoekopdracht(self):
         self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL", product="APPLE INC")
 
-        with patch.object(analysis, "_ticker_heeft_prijsprobleem", return_value=False), \
-             patch.object(analysis, "find_ticker_met_snelle_prijscheck") as mock_find:
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False), \
+             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck") as mock_find:
             gecorrigeerd = backfill_verouderde_tickers(self.CODE)
 
         mock_find.assert_not_called()
@@ -212,8 +212,8 @@ class TestBackfillMetForceerVlag(unittest.TestCase):
     def test_forceer_true_herzoekt_ook_zonder_prijsprobleem(self):
         self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL")
 
-        with patch.object(analysis, "_ticker_heeft_prijsprobleem", return_value=False), \
-             patch.object(analysis, "find_ticker_met_snelle_prijscheck",
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False), \
+             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
                            return_value={"ticker": "AAPL", "zekerheid": "zeker"}) as mock_find:
             backfill_verouderde_tickers(self.CODE, forceer=True)
 
@@ -226,8 +226,8 @@ class TestBackfillMetForceerVlag(unittest.TestCase):
         # vinkje-uit-pad niets aan het bestaande gedrag verandert.
         self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL")
 
-        with patch.object(analysis, "_ticker_heeft_prijsprobleem", return_value=False), \
-             patch.object(analysis, "find_ticker_met_snelle_prijscheck") as mock_find:
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False), \
+             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck") as mock_find:
             gecorrigeerd = backfill_verouderde_tickers(self.CODE, forceer=False)
 
         mock_find.assert_not_called()

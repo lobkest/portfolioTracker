@@ -15,6 +15,19 @@ from pyxirr import xirr
 
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
 
+# Benchmarks voor de rendement-vergelijking (zie bereken_benchmark_
+# vergelijking hieronder) -- allemaal accumulerende (Acc.) UCITS-ETF's in
+# EUR, zodat get_prices() ze zonder extra dividend-boekhouding kan gebruiken.
+# S&P 500/Nasdaq 100 waren al bekend uit ETF_HOLDINGS_BRON; AEX is apart
+# opgezocht en getest (yf.Ticker("IAEA.AS").info -> "iShares AEX UCITS ETF
+# EUR (Acc)", koersdata vanaf 2020-07-29) -- er bestaat geen accumulerende
+# AEX-ETF met een langere koershistorie op Yahoo.
+BENCHMARK_TICKERS = {
+    "S&P 500": "VUSA.AS",
+    "Nasdaq 100": "CNDX.AS",
+    "AEX": "IAEA.AS",
+}
+
 
 # ---------------------------------------------------------------------------
 # Statistieken-tabblad
