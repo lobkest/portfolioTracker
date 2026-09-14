@@ -4,14 +4,10 @@ alle holdings heen, voor de Verdeling-, Land-, Sector-, Top-20-bedrijven- en
 ETF-overlap-tabbladen.
 
 Losgetrokken uit analysis.py; ongewijzigd overgenomen.
-
-get_etf_holdings/get_etf_sector_verdeling/get_land_sector staan (nog) in
-analysis.py (ticker-classificatie is een latere stap van de module-
-splitsing) -- vandaar de forward-import hieronder.
 """
 import re
 
-from analysis import get_etf_holdings, get_etf_sector_verdeling, get_land_sector
+from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector
 
 # Landen met een aandeel onder deze drempel (fractie van de totale
 # portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
