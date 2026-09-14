@@ -15,6 +15,7 @@ import yfinance as yf
 from db import (
     get_cached_classifications, save_classification, get_cached_land_sector, save_land_sector,
     get_cached_etf_sector_verdeling, save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
+    get_ticker_details,
 )
 from debug_utils import dprint
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
@@ -339,3 +340,36 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         list(executor.map(_warm, tickers))
+
+
+def _ticker_details_met_cache(ticker):
+    """
+    Land/sector/valuta/fondsfamilie/category/quote_type voor een ticker, via
+    de ticker_info-cache (gevuld door classify_ticker/classify_tickers) als
+    eerste stop. Voorkomt een extra yfinance-.info-call voor een ticker die
+    al eerder in dit request (of een vorige upload) geclassificeerd is —
+    zoals bij een positie in de portfolio zelf, die al via classify_tickers()
+    in analyze_transacties gecached is vóórdat de Ticker-zekerheid-pagina
+    wordt opgebouwd.
+
+    Let op: ticker_info had oorspronkelijk alleen een is_etf-kolom; deze
+    extra velden kwamen er later bij (ALTER TABLE ADD COLUMN, geen backfill
+    voor bestaande rijen). Een rij die van vóór die uitbreiding dateert heeft
+    dus is_etf gezet maar alle nieuwe velden NULL — dat is niet hetzelfde
+    als "succesvol gecontroleerd en er is gewoon geen data" (bv. land/sector
+    zijn voor een ETF legitiem None). valuta en quote_type zijn vrijwel
+    altijd aanwezig bij een geslaagde .info-call (elke ticker heeft een
+    beurs en een valuta), dus als BEIDE None zijn behandelen we de rij als
+    "nog nooit met de huidige velden gevuld" en halen we 'm opnieuw op.
+    """
+    bestaand = get_ticker_details([ticker])
+    details = bestaand.get(ticker)
+    if details and (details.get("valuta") or details.get("quote_type")):
+        dprint(f"[prijscheck] '{ticker}': ticker_info-cache bruikbaar -> {details}")
+        return details
+
+    nieuw = _classify_ticker_uncached(ticker)
+    if nieuw is None:
+        return details or {}
+    save_classification(ticker, nieuw["is_etf"], nieuw)
+    return nieuw

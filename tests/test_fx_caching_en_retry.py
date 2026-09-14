@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import analysis
 import prijzen
 import ticker_classificatie
+import ticker_prijscheck
 
 
 def _mock_conn_voor_twee_aanroepen(
@@ -85,8 +86,8 @@ class TestFxKoersCaching(unittest.TestCase):
         )
         mock_download.return_value = pd.Series({gevraagde_datum: 0.9}, name="USDEUR=X")
 
-        eerste = analysis._fx_koers_op_datum("USD", gevraagde_datum)
-        tweede = analysis._fx_koers_op_datum("USD", gevraagde_datum)
+        eerste = ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum)
+        tweede = ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum)
 
         self.assertEqual(mock_download.call_count, 1)
         self.assertEqual(eerste, 0.9)
@@ -94,7 +95,7 @@ class TestFxKoersCaching(unittest.TestCase):
 
     def test_onbekende_valuta_geeft_none_zonder_download(self):
         with patch("prijzen.download_met_retry") as mock_download:
-            resultaat = analysis._fx_koers_op_datum("JPY", pd.Timestamp("2024-03-01"))
+            resultaat = ticker_prijscheck._fx_koers_op_datum("JPY", pd.Timestamp("2024-03-01"))
 
         self.assertIsNone(resultaat)
         mock_download.assert_not_called()
@@ -130,7 +131,7 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
         conn.cursor.return_value = cur
         mock_get_conn.return_value = conn
 
-        resultaat = analysis._fx_koers_op_datum("USD", gevraagde_datum, verversen=False)
+        resultaat = ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum, verversen=False)
 
         mock_download.assert_not_called()
         mock_upsert.assert_not_called()
@@ -164,7 +165,7 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
         mock_get_conn.return_value = conn
         mock_download.return_value = pd.Series({vandaag: 0.93}, name="USDEUR=X")
 
-        analysis._fx_koers_op_datum("USD", gevraagde_datum, verversen=True)
+        ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum, verversen=True)
 
         mock_download.assert_called_once()
 
