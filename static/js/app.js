@@ -928,6 +928,8 @@ const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";
 // euro's of al-percentages zijn -- opts.totaal (som waarmee gedeeld wordt
 // om tot % te komen) bepaalt dat; zonder opts.totaal wordt de ruwe waarde
 // getoond zoals-ie is (voor bedrijven-data die al in % van de portfolio zit).
+// opts.maxCategorieen (optioneel) beperkt het aantal staven tot de top N
+// (aflopend op totaal) plus een "Overig"-balk met de som van de rest.
 function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     opts = opts || {};
     if (chart) chart.destroy();
@@ -942,11 +944,30 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     // eerst. Voor bedrijven (al aflopend gesorteerd door
     // bereken_bedrijven_verdeling) verandert dit niets; voor Land/Sector
     // kwamen categorieën anders in willekeurige object-volgorde binnen.
-    const categorieen = Object.keys(categorieData).sort((a, b) => {
+    let categorieen = Object.keys(categorieData).sort((a, b) => {
         const totaalA = Object.values(categorieData[a]).reduce((som, w) => som + w, 0);
         const totaalB = Object.values(categorieData[b]).reduce((som, w) => som + w, 0);
         return totaalB - totaalA;
     });
+
+    // Bij veel categorieën (bv. alle landen op het Land-tabblad) wordt de
+    // staafgrafiek onleesbaar -- beperk dan tot de top N (al aflopend
+    // gesorteerd hierboven) plus één "Overig"-balk met de som van de rest,
+    // per bron opgeteld. Alleen actief als de caller opts.maxCategorieen
+    // meegeeft (Land); Sector/Bedrijven hebben van nature al weinig
+    // categorieën en blijven ongewijzigd.
+    if (opts.maxCategorieen && categorieen.length > opts.maxCategorieen) {
+        const top = categorieen.slice(0, opts.maxCategorieen);
+        const rest = categorieen.slice(opts.maxCategorieen);
+        const overigPerBron = {};
+        rest.forEach(cat => {
+            Object.entries(categorieData[cat]).forEach(([bron, waarde]) => {
+                overigPerBron[bron] = (overigPerBron[bron] || 0) + waarde;
+            });
+        });
+        categorieData = Object.assign({}, categorieData, { "Overig": overigPerBron });
+        categorieen = top.concat(["Overig"]);
+    }
 
     const bronTotalen = {};
     categorieen.forEach(cat => {
@@ -1055,7 +1076,15 @@ function toonLand() {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values((lsv && lsv.land) || {}).reduce((s, w) => s + w, 0);
-        renderGestapeldeStaafgrafiek(lsv && lsv.land_per_bron, tickerNamen, { totaal });
+        // land_per_bron_europa is server-side voorberekend, zelfde patroon als
+        // land/land_europa hieronder — geen her-berekening nodig bij het
+        // aan/uit-zetten van de toggle.
+        const perBron = europaCheckbox.checked ? (lsv && lsv.land_per_bron_europa) : (lsv && lsv.land_per_bron);
+        // maxCategorieen: bij alle landen tegelijk wordt de staafgrafiek
+        // onleesbaar -- toon alleen de top 10 (aflopend), rest in "Overig".
+        // De taart/platte weergave (toonPlatteVerdeling) toont bewust wel
+        // alle landen, blijft hier ongewijzigd.
+        renderGestapeldeStaafgrafiek(perBron, tickerNamen, { totaal, maxCategorieen: 10 });
     } else {
         // land_europa is server-side voorberekend (zelfde als "land" maar met
         // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie
@@ -2617,10 +2646,51 @@ function toonBedrijven() {
 // analysis.bereken_etf_overlap. Minder dan 2 aangehouden ETF's -> lege
 // matrix van de backend, toon dan een duidelijke melding i.p.v. een tabel
 // met 0 of 1 kolom.
+// Korte uitklapbare uitleg over de overlap-berekening (zie
+// analysis.bereken_etf_overlap) -- als <details>/<summary> i.p.v. een
+// altijd-zichtbare box zoals maakUitlegSectie() bij Statistieken, omdat de
+// matrix hier de hoofdaandacht moet krijgen en de uitleg niet iedereen
+// elke keer opnieuw hoeft te zien.
+function maakEtfOverlapUitlegSectie() {
+    const details = document.createElement("details");
+    details.style.fontSize = "0.85em";
+    details.style.color = "#666";
+    details.style.background = "#f4f4f4";
+    details.style.borderRadius = "4px";
+    details.style.padding = "10px 14px";
+    details.style.marginBottom = "12px";
+
+    const summary = document.createElement("summary");
+    summary.textContent = "Wat betekent dit?";
+    summary.style.cursor = "pointer";
+    summary.style.fontWeight = "bold";
+    summary.style.color = "#333";
+    details.appendChild(summary);
+
+    const p1 = document.createElement("p");
+    p1.style.margin = "8px 0 6px 0";
+    p1.innerHTML = "Het <strong>overlap-percentage</strong> tussen twee ETF's is het deel van je portefeuille dat \"dubbel\" belegd is: dezelfde onderliggende bedrijven die in beide fondsen voorkomen.";
+    details.appendChild(p1);
+
+    const p2 = document.createElement("p");
+    p2.style.margin = "0 0 6px 0";
+    p2.innerHTML = "Berekening: voor elk bedrijf dat in beide ETF's zit, telt het laagste van de twee gewichten mee (bv. Apple 7% in ETF A en 4% in ETF B telt voor 4%). Deze minima worden opgeteld tot het overlap-percentage. Bedrijven die maar in één van de twee ETF's zitten, tellen niet mee.";
+    details.appendChild(p2);
+
+    const p3 = document.createElement("p");
+    p3.style.margin = "0";
+    p3.innerHTML = "Een hoog percentage betekent dat de twee ETF's veel dezelfde bedrijven bevatten en dus minder spreiding opleveren dan je van twee losse fondsen zou verwachten. Bij minder dan 2 aangehouden ETF's wordt er geen matrix getoond.";
+    details.appendChild(p3);
+
+    return details;
+}
+
 function renderEtfOverlapTabel() {
     const sectie = document.getElementById("etfOverlapSectie");
     sectie.innerHTML = "";
     if (toonVerrijkingWachtstatusIndienNodig()) return;
+
+    sectie.appendChild(maakEtfOverlapUitlegSectie());
 
     const matrix = huidigeData.etf_overlap || {};
     const etfs = Object.keys(matrix);
