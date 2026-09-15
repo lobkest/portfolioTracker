@@ -3115,6 +3115,12 @@ async function toonEtfOverlapDetail(tickerA, naamA, tickerB, naamB) {
 
 function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
     const formatGewicht = w => (w === null || w === undefined) ? "" : `${(w * 100).toFixed(2)}%`;
+    // Holding zit in beide ETF's -> highlighten met dezelfde groentint als de
+    // overlap-matrix (rgb(44, 122, 75), zie renderEtfOverlapTabel), maar
+    // licht genoeg om de tekst leesbaar te houden over de hele rijbreedte.
+    const isOverlapRij = r => r.gewicht_a !== null && r.gewicht_a !== undefined
+        && r.gewicht_b !== null && r.gewicht_b !== undefined;
+    const rijAchtergrond = r => isOverlapRij(r) ? "rgba(44, 122, 75, 0.15)" : "";
 
     const kolommen = [
         {
@@ -3123,6 +3129,7 @@ function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
                 const td = document.createElement("td");
                 td.textContent = r.holding_naam;
                 td.style.padding = "4px 16px 4px 0";
+                td.style.backgroundColor = rijAchtergrond(r);
                 return td;
             },
         },
@@ -3133,6 +3140,7 @@ function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
                 const td = document.createElement("td");
                 td.textContent = formatGewicht(r.gewicht_a);
                 td.style.padding = "4px 16px 4px 0";
+                td.style.backgroundColor = rijAchtergrond(r);
                 return td;
             },
         },
@@ -3143,6 +3151,7 @@ function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
                 const td = document.createElement("td");
                 td.textContent = formatGewicht(r.gewicht_b);
                 td.style.padding = "4px 16px 4px 0";
+                td.style.backgroundColor = rijAchtergrond(r);
                 return td;
             },
         },
