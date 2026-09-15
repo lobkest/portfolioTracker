@@ -46,6 +46,26 @@ test("sorteerTransacties: koers=null (bv. corporate-action-rij) blijft onderaan 
     assert.equal(resultaat[resultaat.length - 1].koers, null);
 });
 
+test("sorteerTransacties: tijd oplopend, null (nog niet herbepaald) eerst", () => {
+    const metTijd = [
+        { datum: "2024-01-01", product: "A BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "13:39" },
+        { datum: "2024-01-01", product: "B BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "09:05" },
+        { datum: "2024-01-01", product: "C BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: null },
+    ];
+    const resultaat = sorteerTransacties(metTijd, "tijd", "asc");
+    assert.deepEqual(resultaat.map(r => r.tijd), [null, "09:05", "13:39"]);
+});
+
+test("sorteerTransacties: transactiekosten=null blijft onderaan bij aflopend", () => {
+    const metKosten = [
+        { datum: "2024-01-01", product: "A BV", aantal: 1, koers: 1, totaal_eur: 1, transactiekosten: -2 },
+        { datum: "2024-01-01", product: "B BV", aantal: 1, koers: 1, totaal_eur: 1, transactiekosten: null },
+        { datum: "2024-01-01", product: "C BV", aantal: 1, koers: 1, totaal_eur: 1, transactiekosten: -0.5 },
+    ];
+    const resultaat = sorteerTransacties(metKosten, "transactiekosten", "desc");
+    assert.equal(resultaat[resultaat.length - 1].transactiekosten, null);
+});
+
 test("totaalPaginas: rond af naar boven", () => {
     assert.equal(totaalPaginas(25, 25), 1);
     assert.equal(totaalPaginas(26, 25), 2);

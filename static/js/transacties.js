@@ -18,10 +18,12 @@
     // hier al chronologische volgorde, geen Date-parsing nodig.
     const VERGELIJKERS = {
         datum: (a, b) => (a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0),
+        tijd: (a, b) => (a.tijd ?? "").localeCompare(b.tijd ?? ""),
         product: (a, b) => String(a.product).localeCompare(String(b.product), "nl"),
         aantal: (a, b) => a.aantal - b.aantal,
         koers: (a, b) => (a.koers ?? -Infinity) - (b.koers ?? -Infinity),
         totaal_eur: (a, b) => a.totaal_eur - b.totaal_eur,
+        transactiekosten: (a, b) => (a.transactiekosten ?? -Infinity) - (b.transactiekosten ?? -Infinity),
     };
 
     // Sorteert een KOPIE van de rijenlijst (nooit de meegegeven array zelf

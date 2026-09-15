@@ -100,7 +100,7 @@ def _sorteer_verdeling_groot_naar_klein(verdeling):
     return sorted(verdeling, key=lambda x: x["waarde"], reverse=True)
 
 
-def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=20):
+def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=10):
     """
     Top-N onderliggende bedrijven van de hele portfolio (via ETF's + losse
     aandelen), met per bedrijf een uitsplitsing van via welke posities
@@ -110,7 +110,7 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=20
     compute_land_sector_verdeling() hierboven: huidige holdings
     (aantal x laatste koers, de "aantal"-kolom, niet "adj_aantal") zodat
     de totalen op elkaar aansluiten. Voor de gestapelde-staafgrafiek-
-    weergave op het "Top 20 bedrijven"-tabblad (zie static/js/app.js,
+    weergave op het "Top 10 bedrijven"-tabblad (zie static/js/app.js,
     renderGestapeldeStaafgrafiek): "totaal_pct" en "per_bron" zijn beide al
     percentages van totaal_waarde, dus per_bron-waarden per bedrijf tellen
     op tot totaal_pct van dat bedrijf -- direct bruikbaar als stack.

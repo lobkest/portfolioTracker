@@ -99,10 +99,10 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         self.assertAlmostEqual(resultaat["overig"], 40.0)
         self.assertAlmostEqual(resultaat["top"][0]["waarde"], 60.0)
 
-    def test_top20_precies_20_bedrijven_rest_naar_overig(self):
+    def test_top10_precies_10_bedrijven_rest_naar_overig(self):
         # 25 losse aandelen, elk 10 EUR waard, aflopend genummerd zodat de
-        # sortering voorspelbaar is -- moet precies 20 top-rijen geven, geen
-        # 21e losse rij, en de resterende 5 (50 EUR) in "overig".
+        # sortering voorspelbaar is -- moet precies 10 top-rijen geven, geen
+        # 11e losse rij, en de resterende 15 (120 EUR) in "overig".
         n = 25
         tickers = [f"AND{i:02d}" for i in range(n)]
         transacties_df = pd.DataFrame({
@@ -114,10 +114,10 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
 
         resultaat = bereken_bedrijven_verdeling(transacties_df, price_data, {t: False for t in tickers})
 
-        self.assertEqual(len(resultaat["top"]), 20)
-        # som van aantal 1..25 = 325 EUR totaal; top-20 = som van 25..6 = 310
-        self.assertAlmostEqual(sum(e["waarde"] for e in resultaat["top"]), 310.0)
-        self.assertAlmostEqual(resultaat["overig"], 15.0)  # som van 5..1
+        self.assertEqual(len(resultaat["top"]), 10)
+        # som van aantal 1..25 = 325 EUR totaal; top-10 = som van 25..16 = 205
+        self.assertAlmostEqual(sum(e["waarde"] for e in resultaat["top"]), 205.0)
+        self.assertAlmostEqual(resultaat["overig"], 120.0)  # som van 15..1
 
     def test_meegegeven_is_etf_map_is_leidend_geen_eigen_classify_tickers(self):
         # ETF_A ZOU een ETF kunnen zijn, maar de meegegeven is_etf_map zegt
