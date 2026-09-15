@@ -218,6 +218,26 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=20
     }
 
 
+def _holdings_gewicht_en_naam_per_bedrijf(ticker):
+    """
+    Holdings van één ETF, samengevoegd per genormaliseerde bedrijfsnaam
+    (_normaliseer_bedrijfsnaam) tot ({key: gewicht}, {key: weergavenaam}).
+    Gedeeld door bereken_etf_overlap() (percentage-matrix) en
+    bereken_etf_overlap_detail() (holdings-lijst voor één ETF-paar, zie
+    opdracht "klikbaar overlap-percentage") zodat beide precies dezelfde
+    "gedeeld bedrijf"-definitie gebruiken.
+    """
+    gewichten = {}
+    namen = {}
+    for h in get_etf_holdings(ticker):
+        key = _normaliseer_bedrijfsnaam(h["holding_naam"])
+        if not key:
+            continue
+        gewichten[key] = gewichten.get(key, 0.0) + h["gewicht"]
+        namen.setdefault(key, h["holding_naam"])
+    return gewichten, namen
+
+
 def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
     """
     Overlap-matrix tussen alle aangehouden ETF's: per paar het percentage
@@ -241,13 +261,7 @@ def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
 
     gewichten_per_etf = {}
     for ticker in etf_tickers:
-        gewichten = {}
-        for h in get_etf_holdings(ticker):
-            key = _normaliseer_bedrijfsnaam(h["holding_naam"])
-            if not key:
-                continue
-            gewichten[key] = gewichten.get(key, 0.0) + h["gewicht"]
-        gewichten_per_etf[ticker] = gewichten
+        gewichten_per_etf[ticker], _ = _holdings_gewicht_en_naam_per_bedrijf(ticker)
 
     matrix = {t: {} for t in etf_tickers}
     for i, etf_a in enumerate(etf_tickers):
@@ -260,6 +274,35 @@ def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
             matrix[etf_b][etf_a] = overlap
 
     return matrix
+
+
+def bereken_etf_overlap_detail(etf_a, etf_b):
+    """
+    Samengevoegde holdings-lijst voor één specifiek ETF-paar -- de
+    detailtabel die verschijnt bij een klik op een percentage-cel in de
+    overlap-matrix (zie opdracht "klikbaar overlap-percentage"). Per
+    bedrijf dat in etf_a en/of etf_b zit: gewicht in elk van de twee
+    (None als het bedrijf niet in dat fonds zit). Hergebruikt dezelfde
+    _holdings_gewicht_en_naam_per_bedrijf()-opbouw als bereken_etf_overlap(),
+    zodat een bedrijf hier als "gedeeld" telt precies wanneer het ook in de
+    percentage-berekening meetelt.
+
+    Gesorteerd aflopend op max(gewicht_a, gewicht_b) -- een ontbrekende kant
+    telt daarbij als 0, niet als groter dan alles.
+    """
+    gew_a, namen_a = _holdings_gewicht_en_naam_per_bedrijf(etf_a)
+    gew_b, namen_b = _holdings_gewicht_en_naam_per_bedrijf(etf_b)
+
+    rijen = []
+    for key in set(gew_a) | set(gew_b):
+        rijen.append({
+            "holding_naam": namen_a.get(key, namen_b.get(key)),
+            "gewicht_a": gew_a.get(key),
+            "gewicht_b": gew_b.get(key),
+        })
+
+    rijen.sort(key=lambda r: max(r["gewicht_a"] or 0.0, r["gewicht_b"] or 0.0), reverse=True)
+    return rijen
 
 
 def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL, uitgezonderd=frozenset()):

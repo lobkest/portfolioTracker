@@ -687,6 +687,33 @@ def get_dividenden(code):
     return resultaat
 
 
+def get_transacties_overzicht(code):
+    """Geeft alle transactierijen (datum, product, aantal, koers, totaal_eur)
+    voor deze code terug, voor het Transacties-overzichtstabblad. Standaard
+    gesorteerd op datum aflopend (meest recent eerst) -- verdere sortering/
+    paginering gebeurt client-side."""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT datum, product, aantal, koers, totaal_eur FROM transacties "
+        "WHERE code = %s ORDER BY datum DESC, tijd DESC",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [
+        {
+            "datum": datum.strftime("%Y-%m-%d"),
+            "product": product,
+            "aantal": float(aantal),
+            "koers": float(koers) if koers is not None else None,
+            "totaal_eur": float(totaal_eur),
+        }
+        for datum, product, aantal, koers, totaal_eur in rows
+    ]
+
+
 def save_prices(rows):
     """rows: lijst van (ticker, datum, koers_eur) tuples."""
     if not rows:

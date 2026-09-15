@@ -49,7 +49,7 @@
 
         <form id="codeForm">
             <label for="codeInput">Heb je al een code?</label>
-            <input type="text" id="codeInput" placeholder="Bijv. ABC">
+            <input type="text" id="codeInput" placeholder="Bijv. ABC" style="text-transform: uppercase;">
 
             <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickersCode" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
             <p class="hint">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan het ophalen een stuk langzamer maken.</p>
@@ -69,13 +69,14 @@
             <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
             <button class="menuBtn" data-view="rendement">Rendement</button>
             <button class="menuBtn" data-view="peraandeel">Per aandeel</button>
-            <button class="menuBtn" data-view="peraandeelaankoop">Per aandeel aankoop</button>
+            <button class="menuBtn subMenuBtn" data-view="peraandeelaankoop">Per aandeel aankoop</button>
             <button class="menuBtn" data-view="verdeling">Verdeling</button>
-            <button class="menuBtn" data-view="land">Land</button>
-            <button class="menuBtn" data-view="sector">Sector</button>
-            <button class="menuBtn" data-view="bedrijven">Top 10 bedrijven</button>
+            <button class="menuBtn subMenuBtn" data-view="land">Land</button>
+            <button class="menuBtn subMenuBtn" data-view="sector">Sector</button>
+            <button class="menuBtn subMenuBtn" data-view="bedrijven">Top 10 bedrijven</button>
             <button class="menuBtn" data-view="etfoverlap">ETF-overlap</button>
             <button class="menuBtn" data-view="statistieken">Statistieken</button>
+            <button class="menuBtn" data-view="transacties">Transacties</button>
             <button class="menuBtn" data-view="xirr-rendement">XIRR &amp; rendement</button>
             <button class="menuBtn" data-view="prognose">Prognose</button>
             <button class="menuBtn" data-view="dividend">Dividend</button>
@@ -147,6 +148,8 @@
 
             <div id="statistiekenSectie" style="display: none;"></div>
 
+            <div id="transactiesSectie" style="display: none;"></div>
+
             <div id="etfOverlapSectie" style="display: none;"></div>
 
             <div id="prognoseSectie" style="display: none;"></div>
@@ -177,6 +180,7 @@
     </div>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
