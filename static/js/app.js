@@ -2746,10 +2746,12 @@ async function toonTransacties() {
 
 const TRANSACTIES_KOLOMMEN = [
     { key: "datum", label: "Datum" },
+    { key: "tijd", label: "Tijd" },
     { key: "product", label: "Product" },
     { key: "aantal", label: "Aantal" },
     { key: "koers", label: "Koers" },
     { key: "totaal_eur", label: "Totaal (EUR)" },
+    { key: "transactiekosten", label: "Transactiekosten (EUR)" },
 ];
 
 function renderTransactiesTabel() {
@@ -2824,10 +2826,12 @@ function renderTransactiesTabel() {
     paginaRijen.forEach(rij => {
         const tr = document.createElement("tr");
         tr.appendChild(maakTransactiesTd(formatDatum(rij.datum)));
+        tr.appendChild(maakTransactiesTd(rij.tijd === null ? "—" : rij.tijd));
         tr.appendChild(maakTransactiesTd(rij.product));
         tr.appendChild(maakTransactiesTd(rij.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 })));
         tr.appendChild(maakTransactiesTd(rij.koers === null ? "onbekend" : formatteerEuro(rij.koers)));
         tr.appendChild(maakTransactiesTd(formatteerEuro(rij.totaal_eur)));
+        tr.appendChild(maakTransactiesTd(rij.transactiekosten === null ? "—" : formatteerEuro(rij.transactiekosten)));
         tbody.appendChild(tr);
     });
     tabel.appendChild(tbody);
@@ -2894,10 +2898,10 @@ function maakTransactiesPaginaNavigatie(totPag) {
     return nav;
 }
 
-// Top 20 bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
+// Top 10 bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
 // onderverdeeld naar welke ETF/los aandeel eraan bijdraagt (zelfde
 // renderGestapeldeStaafgrafiek als Land/Sector-staaf hieronder). "Overig"
-// bundelt zowel bedrijven buiten de top-20 als het niet-gedekte restant van
+// bundelt zowel bedrijven buiten de top-10 als het niet-gedekte restant van
 // ETF-holdings, dus die twee zijn hier niet los te onderscheiden --
 // dekkingTekst hierboven de grafiek maakt wel duidelijk hoe compleet het
 // totaal is. per_bron/totaal_pct komen al als percentage van de
@@ -2923,7 +2927,7 @@ function toonBedrijven() {
     dekkingTekst.style.fontSize = "0.85em";
     dekkingTekst.style.color = "#888";
     const overigPct = data.totaal_waarde ? (data.overig / data.totaal_waarde * 100) : 0;
-    dekkingTekst.textContent = `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top 20 + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
+    dekkingTekst.textContent = `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top 10 + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
     sectie.appendChild(dekkingTekst);
 
     const bronNamen = {};

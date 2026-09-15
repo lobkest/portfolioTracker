@@ -1,7 +1,8 @@
 """
 Route-level tests voor /api/portfolio/<code>/transacties -- het Transacties-
-overzichtstabblad (datum, product, aantal, koers, totaal_eur per rij, geen
-sortering/paginering server-side, dat gebeurt client-side).
+overzichtstabblad (datum, tijd, product, aantal, koers, totaal_eur,
+transactiekosten per rij, geen sortering/paginering server-side, dat gebeurt
+client-side).
 
 Raakt de echte database aan (net als tests/test_ticker_koers_bereik_route.py),
 want app.py roept init_db() op moduleniveau aan.
@@ -41,10 +42,13 @@ class TestTransactiesOverzichtRoute(unittest.TestCase):
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (self.TEST_CODE, date(2024, 1, 1), "OUDE BV", "NL0000000001", "AEB", "OUD.AS", 10, 5.0, 50.0, "ord-1", time(9, 0)),
         )
+        # NIEUWE BV heeft ook transactiekosten gevuld, om te verifiëren dat de
+        # route dat veld meestuurt naast tijd; OUDE BV laat transactiekosten
+        # bewust NULL (simuleert een oudere, niet opnieuw geüploade transactie).
         cur.execute(
-            "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, tijd) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (self.TEST_CODE, date(2024, 6, 1), "NIEUWE BV", "NL0000000002", "AEB", "NIEUW.AS", 3, 100.0, 300.0, "ord-2", time(10, 30)),
+            "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, tijd, transactiekosten) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (self.TEST_CODE, date(2024, 6, 1), "NIEUWE BV", "NL0000000002", "AEB", "NIEUW.AS", 3, 100.0, 300.0, "ord-2", time(10, 30), -2.5),
         )
         conn.commit()
         cur.close()
@@ -80,6 +84,15 @@ class TestTransactiesOverzichtRoute(unittest.TestCase):
         self.assertEqual(rij["aantal"], 3.0)
         self.assertEqual(rij["koers"], 100.0)
         self.assertEqual(rij["totaal_eur"], 300.0)
+        self.assertEqual(rij["tijd"], "10:30")
+        self.assertEqual(rij["transactiekosten"], -2.5)
+
+    def test_ontbrekende_transactiekosten_geeft_none_niet_nul(self):
+        res = self.client.get(f"/api/portfolio/{self.TEST_CODE}/transacties")
+        data = res.get_json()
+        rij = next(r for r in data["lijst"] if r["product"] == "OUDE BV")
+        self.assertIsNone(rij["transactiekosten"])
+        self.assertEqual(rij["tijd"], "09:00")
 
     def test_onbekende_code_geeft_404(self):
         res = self.client.get("/api/portfolio/ZZZNIETBESTAAND/transacties")

@@ -688,14 +688,18 @@ def get_dividenden(code):
 
 
 def get_transacties_overzicht(code):
-    """Geeft alle transactierijen (datum, product, aantal, koers, totaal_eur)
-    voor deze code terug, voor het Transacties-overzichtstabblad. Standaard
-    gesorteerd op datum aflopend (meest recent eerst) -- verdere sortering/
-    paginering gebeurt client-side."""
+    """Geeft alle transactierijen (datum, tijd, product, aantal, koers,
+    totaal_eur, transactiekosten) voor deze code terug, voor het Transacties-
+    overzichtstabblad. Standaard gesorteerd op datum aflopend (meest recent
+    eerst) -- verdere sortering/paginering gebeurt client-side.
+
+    tijd/transactiekosten kwamen via een latere migratie bij (zie init_db())
+    en kunnen dus None zijn voor transacties die sindsdien niet opnieuw
+    geüpload zijn -- de UI toont dan "—" i.p.v. een verzonnen waarde."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
-        "SELECT datum, product, aantal, koers, totaal_eur FROM transacties "
+        "SELECT datum, tijd, product, aantal, koers, totaal_eur, transactiekosten FROM transacties "
         "WHERE code = %s ORDER BY datum DESC, tijd DESC",
         (code,),
     )
@@ -705,12 +709,14 @@ def get_transacties_overzicht(code):
     return [
         {
             "datum": datum.strftime("%Y-%m-%d"),
+            "tijd": tijd.strftime("%H:%M") if tijd is not None else None,
             "product": product,
             "aantal": float(aantal),
             "koers": float(koers) if koers is not None else None,
             "totaal_eur": float(totaal_eur),
+            "transactiekosten": float(transactiekosten) if transactiekosten is not None else None,
         }
-        for datum, product, aantal, koers, totaal_eur in rows
+        for datum, tijd, product, aantal, koers, totaal_eur, transactiekosten in rows
     ]
 
 
