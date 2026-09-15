@@ -46,6 +46,18 @@ let benchmarkVergelijkingData = null;
 // tonen. Null als er geen eigen aandeel gekozen is.
 let eigenAandeelVergelijkingData = null;
 
+// Transacties-tabblad: ruwe lijst (datum/product/aantal/koers/totaal_eur)
+// van /api/portfolio/<code>/transacties, null zolang nog niet opgehaald voor
+// de huidige portfolio (zie toonDashboard() voor de reset bij een nieuwe
+// portfolio). Sortering/paginering gebeurt hier client-side (sorteerTransacties/
+// totaalPaginas/pagineer, static/js/transacties.js) -- blijft bewaard bij het
+// wisselen naar een ander tabblad en terug, net als prognoseInvoer hierboven.
+let transactiesRuweLijst = null;
+let transactiesSorteerKolom = "datum";
+let transactiesSorteerRichting = "desc";
+let transactiesPaginaGrootte = 25;
+let transactiesHuidigePagina = 1;
+
 // Land/Sector-tabblad: welke weergave staat aan, gedeeld tussen beide
 // tabbladen (de knop "Wissel weergave" toggled dit, zie weergaveToggleBtn
 // hieronder) -- "taart" is de bestaande toonPlatteVerdeling(), "staaf" de
@@ -2681,6 +2693,207 @@ function toonStatistieken() {
     sectie.appendChild(maakUitlegSectie());
 }
 
+// Transacties-tabblad: overzicht van alle transacties van de huidige
+// portfolio-code (datum, product, aantal, koers, totaal_eur), sorteerbaar
+// per kolom en gepagineerd (25/50 per pagina). DB-backed (net als Dividend),
+// dus niet beschikbaar bij een 'niet opslaan'-analyse.
+//
+// Bewust GEEN maakSorteerbareTabel()-hergebruik: die helper sorteert en
+// tekent zelf de volledige meegegeven rijenlijst bij een kolomklik, wat
+// botst met paginering (sorteren moet over de VOLLEDIGE dataset gebeuren,
+// pas daarna wordt er een pagina uit gesneden) -- vandaar de eigen,
+// vergelijkbaar ogende tabel hieronder + de pure sorteer/pagineer-kern in
+// static/js/transacties.js (los getest, zie tests/test_transacties.js).
+async function toonTransacties() {
+    const sectie = document.getElementById("transactiesSectie");
+
+    if (!huidigeData.code) {
+        sectie.innerHTML = "";
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Transacties-overzicht is alleen beschikbaar voor een opgeslagen portfolio (met een code).";
+        sectie.appendChild(p);
+        return;
+    }
+
+    if (transactiesRuweLijst === null) {
+        sectie.innerHTML = "<p>Bezig met laden...</p>";
+        let res, data;
+        try {
+            res = await fetch(`/api/portfolio/${huidigeData.code}/transacties`);
+            data = await res.json();
+        } catch (e) {
+            sectie.innerHTML = "";
+            const p = document.createElement("p");
+            p.style.color = "#9C0006";
+            p.textContent = "Kon transacties niet ophalen.";
+            sectie.appendChild(p);
+            return;
+        }
+        if (!res.ok) {
+            sectie.innerHTML = "";
+            const p = document.createElement("p");
+            p.style.color = "#9C0006";
+            p.textContent = "Kon transacties niet ophalen.";
+            sectie.appendChild(p);
+            return;
+        }
+        transactiesRuweLijst = data.lijst;
+    }
+
+    renderTransactiesTabel();
+}
+
+const TRANSACTIES_KOLOMMEN = [
+    { key: "datum", label: "Datum" },
+    { key: "product", label: "Product" },
+    { key: "aantal", label: "Aantal" },
+    { key: "koers", label: "Koers" },
+    { key: "totaal_eur", label: "Totaal (EUR)" },
+];
+
+function renderTransactiesTabel() {
+    const sectie = document.getElementById("transactiesSectie");
+    sectie.innerHTML = "";
+
+    if (!transactiesRuweLijst || transactiesRuweLijst.length === 0) {
+        const p = document.createElement("p");
+        p.style.color = "#888";
+        p.textContent = "Geen transacties beschikbaar.";
+        sectie.appendChild(p);
+        return;
+    }
+
+    const gesorteerd = sorteerTransacties(transactiesRuweLijst, transactiesSorteerKolom, transactiesSorteerRichting);
+    const totPag = totaalPaginas(gesorteerd.length, transactiesPaginaGrootte);
+    if (transactiesHuidigePagina > totPag) transactiesHuidigePagina = totPag;
+    const paginaRijen = pagineer(gesorteerd, transactiesPaginaGrootte, transactiesHuidigePagina);
+
+    const paginaGrootteLabel = document.createElement("label");
+    paginaGrootteLabel.style.display = "inline-block";
+    paginaGrootteLabel.style.marginTop = "0";
+    paginaGrootteLabel.style.marginBottom = "10px";
+    paginaGrootteLabel.style.fontWeight = "normal";
+    paginaGrootteLabel.textContent = "Rijen per pagina: ";
+    const paginaGrootteSelect = document.createElement("select");
+    [25, 50].forEach(n => {
+        const opt = document.createElement("option");
+        opt.value = String(n);
+        opt.textContent = String(n);
+        if (n === transactiesPaginaGrootte) opt.selected = true;
+        paginaGrootteSelect.appendChild(opt);
+    });
+    paginaGrootteSelect.addEventListener("change", () => {
+        transactiesPaginaGrootte = parseInt(paginaGrootteSelect.value, 10);
+        transactiesHuidigePagina = 1;
+        renderTransactiesTabel();
+    });
+    paginaGrootteLabel.appendChild(paginaGrootteSelect);
+    sectie.appendChild(paginaGrootteLabel);
+
+    const tabel = document.createElement("table");
+    tabel.style.fontSize = "0.9em";
+    tabel.style.borderCollapse = "collapse";
+    tabel.style.width = "100%";
+
+    const kopRij = document.createElement("tr");
+    TRANSACTIES_KOLOMMEN.forEach(kol => {
+        const th = document.createElement("th");
+        const indicator = transactiesSorteerKolom === kol.key ? (transactiesSorteerRichting === "asc" ? " ▲" : " ▼") : "";
+        th.textContent = kol.label + indicator;
+        th.style.textAlign = "left";
+        th.style.padding = "4px 16px 4px 0";
+        th.style.borderBottom = "1px solid #ddd";
+        th.style.cursor = "pointer";
+        th.style.userSelect = "none";
+        th.addEventListener("click", () => {
+            if (transactiesSorteerKolom === kol.key) {
+                transactiesSorteerRichting = transactiesSorteerRichting === "asc" ? "desc" : "asc";
+            } else {
+                transactiesSorteerKolom = kol.key;
+                transactiesSorteerRichting = "desc";
+            }
+            transactiesHuidigePagina = 1;
+            renderTransactiesTabel();
+        });
+        kopRij.appendChild(th);
+    });
+    tabel.appendChild(kopRij);
+
+    const tbody = document.createElement("tbody");
+    paginaRijen.forEach(rij => {
+        const tr = document.createElement("tr");
+        tr.appendChild(maakTransactiesTd(formatDatum(rij.datum)));
+        tr.appendChild(maakTransactiesTd(rij.product));
+        tr.appendChild(maakTransactiesTd(rij.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 })));
+        tr.appendChild(maakTransactiesTd(rij.koers === null ? "onbekend" : formatteerEuro(rij.koers)));
+        tr.appendChild(maakTransactiesTd(formatteerEuro(rij.totaal_eur)));
+        tbody.appendChild(tr);
+    });
+    tabel.appendChild(tbody);
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper";
+    wrapper.appendChild(tabel);
+    sectie.appendChild(wrapper);
+
+    sectie.appendChild(maakTransactiesPaginaNavigatie(totPag));
+}
+
+function maakTransactiesTd(tekst) {
+    const td = document.createElement("td");
+    td.textContent = tekst;
+    td.style.padding = "4px 16px 4px 0";
+    return td;
+}
+
+function maakTransactiesPaginaNavigatie(totPag) {
+    const nav = document.createElement("div");
+    nav.style.display = "flex";
+    nav.style.gap = "6px";
+    nav.style.alignItems = "center";
+    nav.style.marginTop = "10px";
+    nav.style.flexWrap = "wrap";
+
+    const gaNaarPagina = (pagina) => {
+        transactiesHuidigePagina = pagina;
+        renderTransactiesTabel();
+    };
+
+    const maakKnop = (tekst, pagina) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = tekst;
+        if (pagina === transactiesHuidigePagina) {
+            btn.style.fontWeight = "bold";
+            btn.disabled = true;
+        } else {
+            btn.addEventListener("click", () => gaNaarPagina(pagina));
+        }
+        return btn;
+    };
+
+    const vorigeBtn = document.createElement("button");
+    vorigeBtn.type = "button";
+    vorigeBtn.textContent = "Vorige";
+    vorigeBtn.disabled = transactiesHuidigePagina === 1;
+    vorigeBtn.addEventListener("click", () => gaNaarPagina(transactiesHuidigePagina - 1));
+    nav.appendChild(vorigeBtn);
+
+    for (let p = 1; p <= totPag; p++) {
+        nav.appendChild(maakKnop(String(p), p));
+    }
+
+    const volgendeBtn = document.createElement("button");
+    volgendeBtn.type = "button";
+    volgendeBtn.textContent = "Volgende";
+    volgendeBtn.disabled = transactiesHuidigePagina === totPag;
+    volgendeBtn.addEventListener("click", () => gaNaarPagina(transactiesHuidigePagina + 1));
+    nav.appendChild(volgendeBtn);
+
+    return nav;
+}
+
 // Top 20 bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
 // onderverdeeld naar welke ETF/los aandeel eraan bijdraagt (zelfde
 // renderGestapeldeStaafgrafiek als Land/Sector-staaf hieronder). "Overig"
@@ -2833,6 +3046,13 @@ function renderEtfOverlapTabel() {
                 td.textContent = `${pct.toFixed(0)}%`;
                 td.style.backgroundColor = `rgba(44, 122, 75, ${Math.min(pct / 100, 1) * 0.7 + (pct > 0 ? 0.1 : 0)})`;
                 td.style.color = pct > 50 ? "#fff" : "#333";
+                td.style.cursor = "pointer";
+                td.addEventListener("click", () => {
+                    toonEtfOverlapDetail(
+                        rijTicker, tickerNamen[rijTicker] || rijTicker,
+                        kolTicker, tickerNamen[kolTicker] || kolTicker,
+                    );
+                });
             }
             tr.appendChild(td);
         });
@@ -2843,6 +3063,96 @@ function renderEtfOverlapTabel() {
     wrapper.className = "tabelWrapper";
     wrapper.appendChild(tabel);
     sectie.appendChild(wrapper);
+
+    const detailContainer = document.createElement("div");
+    detailContainer.id = "etfOverlapDetailContainer";
+    detailContainer.style.marginTop = "16px";
+    sectie.appendChild(detailContainer);
+}
+
+// Detailtabel onder de overlap-matrix bij een klik op een percentage-cel:
+// de onderliggende holdings van dat ETF-paar (naam + gewicht in elk van de
+// twee), zie opdracht "klikbaar overlap-percentage". Holdings+gewichten
+// zitten niet al in huidigeData (alleen de al-berekende percentage-matrix),
+// dus dit is een eigen fetch per klik i.p.v. client-side uit bestaande data
+// op te bouwen.
+async function toonEtfOverlapDetail(tickerA, naamA, tickerB, naamB) {
+    const container = document.getElementById("etfOverlapDetailContainer");
+    if (!container) return;
+    container.innerHTML = "";
+
+    const kop = document.createElement("h3");
+    kop.textContent = `${naamA} vs. ${naamB}`;
+    container.appendChild(kop);
+
+    const laadTekst = document.createElement("p");
+    laadTekst.style.color = "#888";
+    laadTekst.textContent = "Holdings ophalen...";
+    container.appendChild(laadTekst);
+
+    try {
+        const res = await fetch(`/api/etf-overlap-detail?a=${encodeURIComponent(tickerA)}&b=${encodeURIComponent(tickerB)}`);
+        const data = await res.json();
+        container.innerHTML = "";
+        container.appendChild(kop);
+        if (!res.ok) {
+            const foutP = document.createElement("p");
+            foutP.style.color = "#9C0006";
+            foutP.textContent = data.error || "Holdings ophalen is mislukt.";
+            container.appendChild(foutP);
+            return;
+        }
+        container.appendChild(maakEtfOverlapDetailTabel(data.holdings || [], naamA, naamB));
+    } catch (e) {
+        container.innerHTML = "";
+        container.appendChild(kop);
+        const foutP = document.createElement("p");
+        foutP.style.color = "#9C0006";
+        foutP.textContent = "Holdings ophalen is mislukt.";
+        container.appendChild(foutP);
+    }
+}
+
+function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
+    const formatGewicht = w => (w === null || w === undefined) ? "" : `${(w * 100).toFixed(2)}%`;
+
+    const kolommen = [
+        {
+            label: "Holding",
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = r.holding_naam;
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: naamA,
+            waarde: r => r.gewicht_a,
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = formatGewicht(r.gewicht_a);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+        {
+            label: naamB,
+            waarde: r => r.gewicht_b,
+            renderTd: r => {
+                const td = document.createElement("td");
+                td.textContent = formatGewicht(r.gewicht_b);
+                td.style.padding = "4px 16px 4px 0";
+                return td;
+            },
+        },
+    ];
+
+    const wrapper = maakSorteerbareTabel(kolommen, holdings, { legeTekst: "Geen holdings gevonden." });
+    if (holdings && holdings.length > 0) {
+        wrapper.classList.add("scrollbareTabel");
+    }
+    return wrapper;
 }
 
 function maakPrognoseInputVeld(id, labelTekst, waarde, opts) {
@@ -3086,14 +3396,15 @@ function pasViewToe(view) {
     document.getElementById("eigenAandeelSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
-    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
-    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "etfoverlap") ? "none" : "block";
+    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || view === "transacties" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
+    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "etfoverlap" || view === "transacties") ? "none" : "block";
     document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("dividendUitkeringenSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
+    document.getElementById("transactiesSectie").style.display = view === "transacties" ? "block" : "none";
     document.getElementById("bedrijvenSectie").style.display = view === "bedrijven" ? "block" : "none";
     document.getElementById("etfOverlapSectie").style.display = view === "etfoverlap" ? "block" : "none";
     document.getElementById("prognoseSectie").style.display = view === "prognose" ? "block" : "none";
@@ -3150,6 +3461,7 @@ function pasViewToe(view) {
     else if (view === "instellingen-ticker") toonInstellingenTicker();
     else if (view === "dividend") toonDividend();
     else if (view === "statistieken") toonStatistieken();
+    else if (view === "transacties") toonTransacties();
     else if (view === "bedrijven") toonBedrijven();
     else if (view === "etfoverlap") renderEtfOverlapTabel();
     else if (view === "xirr-rendement") toonRendementOverTijd();
@@ -3185,6 +3497,13 @@ function toonDashboard(data) {
     // Zelfde reden: uitgegrijsde "meer historie laden"-knoppen van een
     // vorige portfolio slaan nergens meer op.
     meerHistorieUitgeput = {};
+    // Zelfde reden: de transactielijst van een vorige portfolio slaat nergens
+    // meer op -- forceer een verse fetch bij het volgende bezoek aan het
+    // Transacties-tabblad, en begin weer bij pagina 1/de standaardsortering.
+    transactiesRuweLijst = null;
+    transactiesSorteerKolom = "datum";
+    transactiesSorteerRichting = "desc";
+    transactiesHuidigePagina = 1;
     document.getElementById("benchmarkSelect").value = "";
     document.getElementById("eigenAandeelSelect").innerHTML = '<option value="">Geen</option>';
     document.getElementById("uploadSection").style.display = "none";
@@ -3194,6 +3513,7 @@ function toonDashboard(data) {
     const instellingenBtn = document.querySelector('.menuBtn[data-view="instellingen"]');
     const bijnamenBtn = document.querySelector('.menuBtn[data-view="instellingen-bijnamen"]');
     const dividendBtn = document.querySelector('.menuBtn[data-view="dividend"]');
+    const transactiesBtn = document.querySelector('.menuBtn[data-view="transacties"]');
     instellingenBtn.style.display = data.code ? "" : "none";
     bijnamenBtn.style.display = data.code ? "" : "none";
     // Dividend is DB-backed (bereken_dividend_samenvatting leest de
@@ -3201,6 +3521,9 @@ function toonDashboard(data) {
     // code en dus nooit dividenddata, dus verberg de knop net als bij
     // Instellingen/Bijnamen.
     dividendBtn.style.display = data.code ? "" : "none";
+    // Zelfde reden: het Transacties-overzicht leest /api/portfolio/<code>/
+    // transacties, wat zonder opgeslagen code niet bestaat.
+    transactiesBtn.style.display = data.code ? "" : "none";
 
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
 

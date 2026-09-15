@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
-from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code
+from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code, get_transacties_overzicht
 from prijzen import get_prices
 from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
@@ -20,6 +20,7 @@ from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
     _ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
 )
+from portfolio_verdeling import bereken_etf_overlap_detail
 import math
 import time
 
@@ -237,6 +238,23 @@ def portfolio_verrijking(code):
             "error": "Verdeling/land/sector/bedrijven ophalen duurde te lang of is mislukt. Probeer het "
                      "opnieuw door de pagina te verversen."
         }), 500
+
+
+@app.route("/api/etf-overlap-detail")
+def etf_overlap_detail():
+    """
+    Holdings-detail voor één ETF-paar uit de overlap-matrix (klik op een
+    percentage-cel op het ETF-overlap-tabblad, zie opdracht "klikbaar
+    overlap-percentage"). Los van een portfolio-code: get_etf_holdings()
+    is een globale, per-ticker gecachete lookup, dus dit werkt zowel voor
+    een opgeslagen portfolio als de 'niet opslaan'-analyse (die geen code
+    heeft).
+    """
+    etf_a = request.args.get("a", "").strip()
+    etf_b = request.args.get("b", "").strip()
+    if not etf_a or not etf_b:
+        return jsonify({"error": "Query-parameters 'a' en 'b' (ETF-tickers) zijn verplicht."}), 400
+    return jsonify({"holdings": bereken_etf_overlap_detail(etf_a, etf_b)})
 
 
 @app.route("/api/portfolio/<code>/benchmark-vergelijking")
@@ -534,6 +552,22 @@ def dividend(code):
 
     samenvatting["beschikbaar"] = True
     return jsonify(samenvatting)
+
+
+@app.route("/api/portfolio/<code>/transacties")
+def transacties_overzicht(code):
+    code = code.strip().upper()
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+    if cur.fetchone() is None:
+        cur.close()
+        conn.close()
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    cur.close()
+    conn.close()
+
+    return jsonify({"lijst": get_transacties_overzicht(code)})
 
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])
