@@ -29,18 +29,24 @@
             <label for="naam">Naam (optioneel)</label>
             <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
 
-            <label for="bestand1">Transacties-export (verplicht)</label>
-            <p class="hint">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</p>
+            <div class="labelRij">
+                <label for="bestand1">Transacties-export (verplicht)</label>
+                <span class="infoTip" data-label="Transacties-export">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</span>
+            </div>
             <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
 
-            <label for="bestand2">Rekeningoverzicht (optioneel)</label>
-            <p class="hint">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</p>
+            <div class="labelRij">
+                <label for="bestand2">Rekeningoverzicht (optioneel)</label>
+                <span class="infoTip" data-label="Rekeningoverzicht">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</span>
+            </div>
             <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
 
             <label class="checkboxLabel"><input type="checkbox" id="nietOpslaan" name="niet_opslaan"> Niet opslaan (eenmalige analyse, er wordt niets bewaard)</label>
 
-            <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickers" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
-            <p class="hint">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan de upload een stuk langzamer maken.</p>
+            <div class="labelRij">
+                <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickers" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
+                <span class="infoTip" data-label="Ticker-informatie opnieuw bepalen">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan de upload een stuk langzamer maken.</span>
+            </div>
 
             <button type="submit">Uploaden</button>
         </form>
@@ -51,8 +57,10 @@
             <label for="codeInput">Heb je al een code?</label>
             <input type="text" id="codeInput" placeholder="Bijv. ABC" style="text-transform: uppercase;">
 
-            <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickersCode" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
-            <p class="hint">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan het ophalen een stuk langzamer maken.</p>
+            <div class="labelRij">
+                <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickersCode" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
+                <span class="infoTip" data-label="Ticker-informatie opnieuw bepalen">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan het ophalen een stuk langzamer maken.</span>
+            </div>
 
             <button type="submit">Ophalen</button>
         </form>
@@ -119,16 +127,11 @@
             <p id="verdelingTekst" style="display: none;"></p>
             <p id="landDekkingTekst" style="display: none; font-size: 0.85em; color: #888;"></p>
             <div id="landWeergaveOpties" style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-                <label id="europaCheckboxWrapper" class="checkboxLabel" style="display: none;">
-                    <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
-                </label>
                 <button id="weergaveToggleBtn" style="display: none; margin-top: 0;">Wissel weergave (taart/staaf)</button>
             </div>
 
             <div id="dividendStatsSectie" style="display: none; margin-bottom: 20px;"></div>
             <div id="bedrijvenSectie" style="display: none; margin-bottom: 10px;"></div>
-
-            <button id="xirrStapToggleBtn" style="display: none; margin-bottom: 10px;">Bereken per dag (kan lang duren)</button>
 
             <p id="peraandeelAankoopTitel" style="display: none; font-weight: bold; margin-bottom: 10px;"></p>
 
@@ -143,6 +146,10 @@
             <div id="chartWrapper" class="chart-wrapper">
                 <canvas id="rendementChart"></canvas>
             </div>
+
+            <label id="europaCheckboxWrapper" class="checkboxLabel" style="display: none; margin-top: 10px;">
+                <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
+            </label>
 
             <div id="dividendUitkeringenSectie" style="display: none; margin-top: 20px;"></div>
 
@@ -180,6 +187,7 @@
     </div>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/infotip.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>

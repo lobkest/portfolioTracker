@@ -14,11 +14,18 @@
     "use strict";
 
     // Kolomsleutels in vaste volgorde, met een vergelijkingsfunctie per kolom.
-    // "datum" is een ISO-string (YYYY-MM-DD) -- lexicografisch sorteren geeft
-    // hier al chronologische volgorde, geen Date-parsing nodig.
+    // "datum_tijd" sorteert op de volledige timestamp: datum is een ISO-string
+    // (YYYY-MM-DD) en tijd "HH:MM" -- samengevoegd als "YYYY-MM-DDTHH:MM"
+    // geeft lexicografisch sorteren al chronologische volgorde, geen
+    // Date-parsing nodig. Een ontbrekende tijd (null) telt als 00:00, dus
+    // zo'n rij komt binnen zijn dag als eerste.
+    const timestampSleutel = r => `${r.datum}T${r.tijd ?? "00:00"}`;
     const VERGELIJKERS = {
-        datum: (a, b) => (a.datum < b.datum ? -1 : a.datum > b.datum ? 1 : 0),
-        tijd: (a, b) => (a.tijd ?? "").localeCompare(b.tijd ?? ""),
+        datum_tijd: (a, b) => {
+            const sa = timestampSleutel(a);
+            const sb = timestampSleutel(b);
+            return sa < sb ? -1 : sa > sb ? 1 : 0;
+        },
         product: (a, b) => String(a.product).localeCompare(String(b.product), "nl"),
         aantal: (a, b) => a.aantal - b.aantal,
         koers: (a, b) => (a.koers ?? -Infinity) - (b.koers ?? -Infinity),

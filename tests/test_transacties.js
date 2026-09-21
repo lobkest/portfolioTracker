@@ -13,13 +13,13 @@ const RIJEN = [
     { datum: "2024-02-01", product: "C BV", aantal: 1, koers: 300, totaal_eur: 300 },
 ];
 
-test("sorteerTransacties: datum oplopend", () => {
-    const resultaat = sorteerTransacties(RIJEN, "datum", "asc");
+test("sorteerTransacties: datum_tijd oplopend", () => {
+    const resultaat = sorteerTransacties(RIJEN, "datum_tijd", "asc");
     assert.deepEqual(resultaat.map(r => r.datum), ["2024-01-01", "2024-02-01", "2024-03-01"]);
 });
 
-test("sorteerTransacties: datum aflopend (meest recent eerst)", () => {
-    const resultaat = sorteerTransacties(RIJEN, "datum", "desc");
+test("sorteerTransacties: datum_tijd aflopend (meest recent eerst)", () => {
+    const resultaat = sorteerTransacties(RIJEN, "datum_tijd", "desc");
     assert.deepEqual(resultaat.map(r => r.datum), ["2024-03-01", "2024-02-01", "2024-01-01"]);
 });
 
@@ -36,7 +36,7 @@ test("sorteerTransacties: numerieke kolommen (aantal/koers/totaal_eur)", () => {
 
 test("sorteerTransacties: muteert de meegegeven array niet", () => {
     const kopie = RIJEN.map(r => ({ ...r }));
-    sorteerTransacties(RIJEN, "datum", "asc");
+    sorteerTransacties(RIJEN, "datum_tijd", "asc");
     assert.deepEqual(RIJEN, kopie);
 });
 
@@ -46,14 +46,26 @@ test("sorteerTransacties: koers=null (bv. corporate-action-rij) blijft onderaan 
     assert.equal(resultaat[resultaat.length - 1].koers, null);
 });
 
-test("sorteerTransacties: tijd oplopend, null (nog niet herbepaald) eerst", () => {
+test("sorteerTransacties: datum_tijd op dezelfde dag sorteert op tijd, null (onbekend) eerst", () => {
     const metTijd = [
         { datum: "2024-01-01", product: "A BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "13:39" },
         { datum: "2024-01-01", product: "B BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "09:05" },
         { datum: "2024-01-01", product: "C BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: null },
     ];
-    const resultaat = sorteerTransacties(metTijd, "tijd", "asc");
+    const resultaat = sorteerTransacties(metTijd, "datum_tijd", "asc");
     assert.deepEqual(resultaat.map(r => r.tijd), [null, "09:05", "13:39"]);
+});
+
+test("sorteerTransacties: datum_tijd weegt datum zwaarder dan tijd", () => {
+    const rijen = [
+        { datum: "2024-01-02", product: "A BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "09:00" },
+        { datum: "2024-01-01", product: "B BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "17:30" },
+        { datum: "2024-01-02", product: "C BV", aantal: 1, koers: 1, totaal_eur: 1, tijd: "08:15" },
+    ];
+    // Nieuwste eerst: 2 jan 09:00, 2 jan 08:15, dan pas 1 jan 17:30 (hoge tijd
+    // van een oudere dag mag niet vóór een nieuwere dag komen).
+    const resultaat = sorteerTransacties(rijen, "datum_tijd", "desc");
+    assert.deepEqual(resultaat.map(r => r.product), ["A BV", "C BV", "B BV"]);
 });
 
 test("sorteerTransacties: transactiekosten=null blijft onderaan bij aflopend", () => {

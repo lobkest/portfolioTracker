@@ -436,25 +436,19 @@ def bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_koersen)
     }
 
 
-def bereken_rendement_over_tijd(transacties_df, resultaat, stap="maand"):
+def bereken_rendement_over_tijd(transacties_df, resultaat):
     """Bouwt de drie lijnen voor het "XIRR & rendement"-tabblad: gewoon
     rendement% (bereken_totaal_rendement), XIRR% (bereken_xirr) en TWR%
     (bereken_twr), allemaal op meerdere momenten in de tijd i.p.v. alleen
     het eindcijfer zoals op Statistieken.
 
-    Stapgrootte via `stap`:
-      - "maand" (standaard): laatste dag van elke kalendermaand, van de
-        eerste tot de laatste datum in `resultaat` — resultaat.index.max()
-        is in de praktijk "vandaag" (de laatste beschikbare koersdatum),
-        gebruikt i.p.v. een aparte pd.Timestamp.now()-aanroep zodat deze
-        functie puur/deterministisch blijft. De laatste (huidige) datum
-        wordt altijd als extra stap toegevoegd, ook als die zelf geen
-        maand-einde is, zodat de lijn nooit een stuk van de recentste
-        periode mist. Licht genoeg om steeds automatisch te herberekenen.
-      - "dag": elke datum in `resultaat.index` — preciezer maar
-        herberekent bereken_xirr() per dag i.p.v. per maand, wat bij een
-        lange historie merkbaar traag kan zijn. Daarom alleen op expliciet
-        verzoek van de gebruiker (knop in de UI), niet als standaard.
+    Stappen: de laatste dag van elke kalendermaand, van de eerste tot de
+    laatste datum in `resultaat` — resultaat.index.max() is in de praktijk
+    "vandaag" (de laatste beschikbare koersdatum), gebruikt i.p.v. een
+    aparte pd.Timestamp.now()-aanroep zodat deze functie puur/
+    deterministisch blijft. De laatste (huidige) datum wordt altijd als
+    extra stap toegevoegd, ook als die zelf geen maand-einde is, zodat de
+    lijn nooit een stuk van de recentste periode mist.
 
     Per stapdatum d:
       - waarde/geinvesteerd = de bekende stand op of vóór d (zelfde
@@ -471,10 +465,7 @@ def bereken_rendement_over_tijd(transacties_df, resultaat, stap="maand"):
       - twr_pct: bereken_twr() op `resultaat` afgekapt t/m d (resultaat.loc[
         :d]) — TWR is per definitie een gelinkte reeks van sub-periodes
         vanaf het begin, dus herberekent bij elke stap opnieuw vanaf de
-        eerste datum (zelfde performance-kanttekening als xirr_pct
-        hierboven: prima bij stap="maand", kan bij stap="dag" over een
-        lange historie merkbaar trager worden, nog niet geoptimaliseerd).
-        Reageert NIET extreem vlak na een storting zoals xirr_pct dat wel
+        eerste datum. Reageert NIET extreem vlak na een storting zoals xirr_pct dat wel
         doet — dat is de reden om 'm ernaast te tonen, geen bug als de
         lijnen dus duidelijk verschillend lopen vlak na een storting.
 
@@ -489,14 +480,11 @@ def bereken_rendement_over_tijd(transacties_df, resultaat, stap="maand"):
         subset = resultaat.loc[:datum, kolom]
         return float(subset.iloc[-1]) if len(subset) else 0.0
 
-    if stap == "dag":
-        stap_datums = list(resultaat.index)
-    else:
-        eerste_datum = resultaat.index.min()
-        laatste_datum = resultaat.index.max()
-        stap_datums = list(pd.date_range(eerste_datum, laatste_datum, freq="ME"))
-        if not stap_datums or stap_datums[-1] < laatste_datum:
-            stap_datums.append(laatste_datum)
+    eerste_datum = resultaat.index.min()
+    laatste_datum = resultaat.index.max()
+    stap_datums = list(pd.date_range(eerste_datum, laatste_datum, freq="ME"))
+    if not stap_datums or stap_datums[-1] < laatste_datum:
+        stap_datums.append(laatste_datum)
 
     alle_cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
     # laatste entry is de fictieve 'verkoop op laatste_datum' uit

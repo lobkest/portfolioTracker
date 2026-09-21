@@ -53,7 +53,7 @@ let eigenAandeelVergelijkingData = null;
 // totaalPaginas/pagineer, static/js/transacties.js) -- blijft bewaard bij het
 // wisselen naar een ander tabblad en terug, net als prognoseInvoer hierboven.
 let transactiesRuweLijst = null;
-let transactiesSorteerKolom = "datum";
+let transactiesSorteerKolom = "datum_tijd";
 let transactiesSorteerRichting = "desc";
 let transactiesPaginaGrootte = 25;
 let transactiesHuidigePagina = 1;
@@ -324,12 +324,6 @@ async function wisselEigenAandeel(ticker) {
     }
 }
 
-// Standaard "maand" (licht, herberekent automatisch bij elk bezoek van dit
-// tabblad) -- "dag" is preciezer maar herberekent XIRR per dag i.p.v. per
-// maand, dus alleen op expliciet verzoek via xirrStapToggleBtn. Reset naar
-// "maand" bij elke nieuwe portfolio, zie toonDashboard().
-let xirrRendementStap = "maand";
-
 // Per ticker: onthoudt of een "meer historie laden"-terugknop resp. de
 // "Tot nu"-knop al niets meer opleverde (zie werkMeerHistorieKnoppenBij),
 // zodat het uitgegrijsd blijven ook na het wisselen van tabblad/ticker en
@@ -341,35 +335,26 @@ let meerHistorieUitgeput = {};
 // resultaat in app.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
 // bij een 'niet opslaan'-analyse. Geen cache: elke keer dat dit tabblad
 // geopend wordt, wordt opnieuw opgehaald (zelfde patroon als
-// toonInstellingenTicker()) — de berekening zelf is licht bij stap="maand"
-// (pure functie, geen Yahoo-calls), dus dat is geen probleem. Bij
-// stap="dag" (na een klik op xirrStapToggleBtn) kan dit merkbaar langer
-// duren -- vandaar het aparte laadbericht hieronder.
+// toonInstellingenTicker()) — de berekening zelf is licht (pure functie,
+// geen Yahoo-calls), dus dat is geen probleem.
 async function toonRendementOverTijd() {
     const msg = document.getElementById("xirrRendementMsg");
-    const toggleBtn = document.getElementById("xirrStapToggleBtn");
     msg.style.display = "none";
     msg.style.color = "";
 
     if (!huidigeData.code) {
         if (chart) { chart.destroy(); chart = null; }
         document.getElementById("chartWrapper").style.display = "none";
-        toggleBtn.style.display = "none";
         msg.textContent = "Dit tabblad is alleen beschikbaar voor een opgeslagen portfolio (niet bij een eenmalige, niet-opgeslagen analyse).";
         msg.style.display = "block";
         return;
     }
 
-    toggleBtn.style.display = "block";
-    toggleBtn.disabled = true;
-    toggleBtn.textContent = xirrRendementStap === "dag" ? "Bezig met dagelijks berekenen..." : "Bereken per dag (kan lang duren)";
-
     document.getElementById("chartWrapper").style.display = "block";
-    toonLaadOverlay(xirrRendementStap === "dag" ? "Rendement per dag berekenen (kan langer duren)..." : "Rendement over tijd berekenen...");
+    toonLaadOverlay("Rendement over tijd berekenen...");
     let res, data;
     try {
-        const url = `/api/portfolio/${huidigeData.code}/rendement-over-tijd` + (xirrRendementStap === "dag" ? "?stap=dag" : "");
-        res = await fetch(url);
+        res = await fetch(`/api/portfolio/${huidigeData.code}/rendement-over-tijd`);
         data = await res.json();
     } catch (e) {
         msg.style.color = "#9C0006";
@@ -378,8 +363,6 @@ async function toonRendementOverTijd() {
         return;
     } finally {
         verbergLaadOverlay();
-        toggleBtn.disabled = false;
-        toggleBtn.textContent = xirrRendementStap === "dag" ? "Terug naar per maand" : "Bereken per dag (kan lang duren)";
     }
 
     if (!res.ok) {
@@ -2745,8 +2728,7 @@ async function toonTransacties() {
 }
 
 const TRANSACTIES_KOLOMMEN = [
-    { key: "datum", label: "Datum" },
-    { key: "tijd", label: "Tijd" },
+    { key: "datum_tijd", label: "Datum & tijd" },
     { key: "product", label: "Product" },
     { key: "aantal", label: "Aantal" },
     { key: "koers", label: "Koers" },
@@ -2825,8 +2807,7 @@ function renderTransactiesTabel() {
     const tbody = document.createElement("tbody");
     paginaRijen.forEach(rij => {
         const tr = document.createElement("tr");
-        tr.appendChild(maakTransactiesTd(formatDatum(rij.datum)));
-        tr.appendChild(maakTransactiesTd(rij.tijd === null ? "—" : rij.tijd));
+        tr.appendChild(maakTransactiesTd(rij.tijd === null ? formatDatum(rij.datum) : `${formatDatum(rij.datum)} ${rij.tijd}`));
         tr.appendChild(maakTransactiesTd(rij.product));
         tr.appendChild(maakTransactiesTd(rij.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 })));
         tr.appendChild(maakTransactiesTd(rij.koers === null ? "onbekend" : formatteerEuro(rij.koers)));
@@ -3067,6 +3048,13 @@ function renderEtfOverlapTabel() {
     wrapper.className = "tabelWrapper";
     wrapper.appendChild(tabel);
     sectie.appendChild(wrapper);
+
+    const klikHint = document.createElement("p");
+    klikHint.style.fontSize = "0.85em";
+    klikHint.style.color = "#888";
+    klikHint.style.marginTop = "8px";
+    klikHint.textContent = "Klik op een vakje om de vergelijking te zien.";
+    sectie.appendChild(klikHint);
 
     const detailContainer = document.createElement("div");
     detailContainer.id = "etfOverlapDetailContainer";
@@ -3448,7 +3436,6 @@ function pasViewToe(view) {
     }
     if (view !== "xirr-rendement") {
         document.getElementById("xirrRendementMsg").style.display = "none";
-        document.getElementById("xirrStapToggleBtn").style.display = "none";
     }
     // toonVerdeling()/toonPlatteVerdeling() zetten dit bericht aan als er
     // voor Verdeling/Land/Sector/Bedrijven geen data is — zonder reset
@@ -3504,9 +3491,6 @@ function toonDashboard(data) {
     // Zelfde reden: een eigen-aandeel-vergelijking van een vorige portfolio
     // slaat nergens meer op zodra de data wisselt.
     eigenAandeelVergelijkingData = null;
-    // Zelfde reden: stap="dag" van een vorige portfolio moet niet blijven
-    // hangen -- elke nieuwe portfolio start weer bij het lichte "maand".
-    xirrRendementStap = "maand";
     // Zelfde reden: uitgegrijsde "meer historie laden"-knoppen van een
     // vorige portfolio slaan nergens meer op.
     meerHistorieUitgeput = {};
@@ -3514,7 +3498,7 @@ function toonDashboard(data) {
     // meer op -- forceer een verse fetch bij het volgende bezoek aan het
     // Transacties-tabblad, en begin weer bij pagina 1/de standaardsortering.
     transactiesRuweLijst = null;
-    transactiesSorteerKolom = "datum";
+    transactiesSorteerKolom = "datum_tijd";
     transactiesSorteerRichting = "desc";
     transactiesHuidigePagina = 1;
     document.getElementById("benchmarkSelect").value = "";
@@ -3689,14 +3673,6 @@ document.getElementById("eigenAandeelSelect").addEventListener("change", (e) => 
 
 document.getElementById("resetZoomBtn").addEventListener("click", () => {
     if (chart) chart.resetZoom();
-});
-
-// Toggle tussen stap="maand" (standaard, licht) en stap="dag" (preciezer
-// maar herberekent XIRR per dag i.p.v. per maand, dus trager) op het
-// "XIRR & rendement"-tabblad -- zie xirrRendementStap/toonRendementOverTijd().
-document.getElementById("xirrStapToggleBtn").addEventListener("click", () => {
-    xirrRendementStap = xirrRendementStap === "dag" ? "maand" : "dag";
-    toonRendementOverTijd();
 });
 
 document.getElementById("europaCheckbox").addEventListener("change", () => {
