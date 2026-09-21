@@ -35,6 +35,7 @@ from statistieken import bereken_statistieken
 from portfolio_verdeling import (
     compute_land_sector_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
+    BEDRIJVEN_TOP_N_MAX,
 )
 from ticker_classificatie import classify_tickers, _verwarm_land_sector_cache_parallel
 
@@ -387,7 +388,10 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
             land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data, is_etf_map)
 
         with meet_tijd("verrijking_bedrijven"):
-            bedrijven_verdeling = bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map)
+            # Tot het maximum meeleveren; de frontend kiest zelf hoeveel te tonen.
+            bedrijven_verdeling = bereken_bedrijven_verdeling(
+                transacties_df, price_data, is_etf_map, top_n=BEDRIJVEN_TOP_N_MAX,
+            )
 
         with meet_tijd("verrijking_etf_overlap"):
             etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)

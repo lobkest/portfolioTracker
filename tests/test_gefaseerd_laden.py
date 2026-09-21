@@ -87,6 +87,17 @@ class TestGefaseerdLaden(unittest.TestCase):
 
         self.assertEqual(set(resultaat.keys()), VERRIJKINGSVELDEN)
 
+    def test_verrijking_vraagt_bedrijven_tot_het_maximum_op(self):
+        # De frontend kiest zelf N (10/20/50/eigen aantal) en knipt in; de
+        # backend moet daarvoor tot BEDRIJVEN_TOP_N_MAX meeleveren.
+        from portfolio_verdeling import BEDRIJVEN_TOP_N_MAX
+        with patch.object(
+            self.portfolio_orchestratie, "bereken_bedrijven_verdeling", return_value={"top": []}
+        ) as mock_bedrijven:
+            self.portfolio_orchestratie.analyze_transacties_verrijking(_transacties_df(), code=None)
+
+        self.assertEqual(mock_bedrijven.call_args.kwargs["top_n"], BEDRIJVEN_TOP_N_MAX)
+
     def test_analyze_transacties_wrapper_is_gelijk_aan_kern_plus_verrijking(self):
         kern = self.portfolio_orchestratie.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
         verrijking = self.portfolio_orchestratie.analyze_transacties_verrijking(_transacties_df(), code=None)

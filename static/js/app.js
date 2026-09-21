@@ -925,6 +925,12 @@ const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";
 // getoond zoals-ie is (voor bedrijven-data die al in % van de portfolio zit).
 // opts.maxCategorieen (optioneel) beperkt het aantal staven tot de top N
 // (aflopend op totaal) plus een "Overig"-balk met de som van de rest.
+// Alleen door Top-bedrijven gebruikt (Land/Sector laten deze weg en blijven
+// dus ongewijzigd): opts.horizontaal tekent liggende staven (indexAxis "y")
+// met de legenda onderaan; opts.labelVoorCategorie(cat) geeft het (mogelijk
+// meerregelige) as-label i.p.v. kortNaam(); opts.tooltipTitel(cat) en
+// opts.tooltipFooter(cat) vullen de tooltip. De categorie-sleutels blijven
+// de ruwe namen -- alleen het getoonde label verschilt.
 function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     opts = opts || {};
     if (chart) chart.destroy();
@@ -1010,6 +1016,7 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     // Totaal-%-label boven elke staaf -- zelfde effect als de
     // ax.text(...)-regel in het oude script, hier als klein Chart.js-plugin
     // dat na het tekenen van de stacks de som per x-index erboven zet.
+    const horizontaal = Boolean(opts.horizontaal);
     const totalenPlugin = {
         id: "totalenBovenStaaf",
         afterDatasetsDraw(c) {
@@ -1019,38 +1026,61 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
             ctx.save();
             ctx.font = "bold 11px sans-serif";
             ctx.fillStyle = "#333";
-            ctx.textAlign = "center";
+            ctx.textAlign = horizontaal ? "left" : "center";
+            ctx.textBaseline = horizontaal ? "middle" : "alphabetic";
             categorieen.forEach((_, i) => {
                 const som = datasets.reduce((s, ds) => s + ds.data[i], 0);
                 const bar = eersteMeta.data[i];
                 if (!bar) return;
-                const y = scales.y.getPixelForValue(som);
-                ctx.fillText(`${som.toFixed(1)}%`, bar.x, y - 6);
+                if (horizontaal) {
+                    ctx.fillText(`${som.toFixed(1)}%`, scales.x.getPixelForValue(som) + 6, bar.y);
+                } else {
+                    ctx.fillText(`${som.toFixed(1)}%`, bar.x, scales.y.getPixelForValue(som) - 6);
+                }
             });
             ctx.restore();
         }
     };
 
+    const procentAs = { stacked: true, ticks: { callback: v => `${v}%` } };
+    const tooltipCallbacks = {
+        label: (ctx) => `${ctx.dataset.label}: ${(horizontaal ? ctx.parsed.x : ctx.parsed.y).toFixed(1)}%`
+    };
+    if (opts.tooltipTitel) {
+        tooltipCallbacks.title = (items) => opts.tooltipTitel(categorieen[items[0].dataIndex]);
+    }
+    if (opts.tooltipFooter) {
+        tooltipCallbacks.footer = (items) => opts.tooltipFooter(categorieen[items[0].dataIndex]);
+    }
+
+    const chartOpties = {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: { x: { stacked: true }, y: procentAs },
+        plugins: {
+            legend: { position: "right" },
+            tooltip: { callbacks: tooltipCallbacks },
+            datalabels: { display: false }
+        }
+    };
+    if (horizontaal) {
+        chartOpties.indexAxis = "y";
+        // autoSkip uit: elk bedrijf houdt zijn label. Extra ruimte rechts voor
+        // het totaal-%-label achter de staaf.
+        chartOpties.scales = { x: procentAs, y: { stacked: true, ticks: { autoSkip: false } } };
+        chartOpties.layout = { padding: { right: 44 } };
+        chartOpties.plugins.legend.position = "bottom";
+    } else if (opts.labelVoorCategorie) {
+        chartOpties.scales.x.ticks = { autoSkip: false };
+    }
+
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "bar",
-        data: { labels: categorieen.map(c => kortNaam(c, 20)), datasets },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            scales: {
-                x: { stacked: true },
-                y: { stacked: true, ticks: { callback: v => `${v}%` } }
-            },
-            plugins: {
-                legend: { position: "right" },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(1)}%`
-                    }
-                },
-                datalabels: { display: false }
-            }
+        data: {
+            labels: categorieen.map(c => opts.labelVoorCategorie ? opts.labelVoorCategorie(c) : kortNaam(c, 20)),
+            datasets
         },
+        options: chartOpties,
         plugins: [totalenPlugin]
     });
 }
@@ -2879,15 +2909,23 @@ function maakTransactiesPaginaNavigatie(totPag) {
     return nav;
 }
 
-// Top 10 bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
+// Top N bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
 // onderverdeeld naar welke ETF/los aandeel eraan bijdraagt (zelfde
-// renderGestapeldeStaafgrafiek als Land/Sector-staaf hieronder). "Overig"
-// bundelt zowel bedrijven buiten de top-10 als het niet-gedekte restant van
+// renderGestapeldeStaafgrafiek als Land/Sector-staaf hieronder). De backend
+// levert tot BEDRIJVEN_TOP_N_MAX bedrijven mee (portfolio_verdeling.py); hier
+// wordt ingekort tot de gekozen N, zonder nieuwe request. "Overig" bundelt
+// zowel bedrijven buiten de top-N als het niet-gedekte restant van
 // ETF-holdings, dus die twee zijn hier niet los te onderscheiden --
 // dekkingTekst hierboven de grafiek maakt wel duidelijk hoe compleet het
 // totaal is. per_bron/totaal_pct komen al als percentage van de
-// portfoliowaarde uit analysis.bereken_bedrijven_verdeling, dus geen
-// aparte 'totaal'-deler nodig.
+// portfoliowaarde uit portfolio_verdeling.bereken_bedrijven_verdeling, dus
+// geen aparte 'totaal'-deler nodig. Namen worden pas hier (bij weergave)
+// opgemaakt; de ruwe naam blijft de sleutel (static/js/bedrijven.js).
+//
+// null = nog niet gekozen; wordt bij de eerste weergave de standaard van de
+// backend (top_n_standaard).
+let bedrijvenTopN = null;
+
 function toonBedrijven() {
     const sectie = document.getElementById("bedrijvenSectie");
     sectie.innerHTML = "";
@@ -2905,19 +2943,111 @@ function toonBedrijven() {
     }
 
     const dekkingTekst = document.createElement("p");
+    dekkingTekst.id = "bedrijvenDekkingTekst";
     dekkingTekst.style.fontSize = "0.85em";
     dekkingTekst.style.color = "#888";
-    const overigPct = data.totaal_waarde ? (data.overig / data.totaal_waarde * 100) : 0;
-    dekkingTekst.textContent = `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top 10 + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
     sectie.appendChild(dekkingTekst);
+    sectie.appendChild(maakBedrijvenTopNKeuze(data.top.length));
+
+    tekenBedrijven();
+}
+
+function maakBedrijvenTopNKeuze(beschikbaar) {
+    const rij = document.createElement("div");
+    rij.className = "topNRij";
+
+    const label = document.createElement("span");
+    label.textContent = "Aantal bedrijven:";
+    rij.appendChild(label);
+
+    BEDRIJVEN_TOP_N_KNOPPEN.forEach(n => {
+        const knop = document.createElement("button");
+        knop.type = "button";
+        knop.className = "keuzeKnop";
+        knop.dataset.n = String(n);
+        knop.textContent = String(n);
+        knop.addEventListener("click", () => zetBedrijvenTopN(n));
+        rij.appendChild(knop);
+    });
+
+    const input = document.createElement("input");
+    input.type = "number";
+    input.id = "bedrijvenTopNInput";
+    input.min = "1";
+    input.max = String(beschikbaar);
+    input.step = "1";
+    input.setAttribute("aria-label", "Zelfgekozen aantal bedrijven");
+    const verwerkInvoer = () => zetBedrijvenTopN(kiesTopN(input.value, beschikbaar, bedrijvenTopN));
+    input.addEventListener("change", verwerkInvoer);
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault();
+            verwerkInvoer();
+        }
+    });
+    rij.appendChild(input);
+
+    return rij;
+}
+
+function zetBedrijvenTopN(n) {
+    bedrijvenTopN = n;
+    tekenBedrijven();
+}
+
+// Tekent tekst, knoppen, menutitel en grafiek opnieuw voor de huidige
+// bedrijvenTopN -- zonder de sectie (en dus het invulveld) te vervangen.
+function tekenBedrijven() {
+    const data = huidigeData.bedrijven_verdeling;
+    const beschikbaar = data.top.length;
+    if (bedrijvenTopN === null) bedrijvenTopN = data.top_n_standaard || BEDRIJVEN_TOP_N_KNOPPEN[0];
+    bedrijvenTopN = effectieveTopN(bedrijvenTopN, beschikbaar);
+    const n = bedrijvenTopN;
+    const { getoond, overigPct } = snijTopBedrijven(data, n);
+
+    document.getElementById("bedrijvenMenuBtn").textContent = bedrijvenTitel(n);
+    document.getElementById("bedrijvenDekkingTekst").textContent =
+        `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top ${n} + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
+
+    document.querySelectorAll("#bedrijvenSectie .keuzeKnop").forEach(knop => {
+        const knopN = Number(knop.dataset.n);
+        knop.classList.toggle("actief", knopN === n);
+        knop.setAttribute("aria-pressed", String(knopN === n));
+        knop.disabled = knopN > beschikbaar;
+        knop.title = knop.disabled ? `Er zijn maar ${beschikbaar} bedrijven beschikbaar.` : "";
+    });
+    document.getElementById("bedrijvenTopNInput").value = String(n);
+
+    const ruweNamen = getoond.map(e => e.bedrijf);
+    const weergaveNamen = maakUniekeWeergaveNamen(ruweNamen);
+    const weergaveNaamPerRuw = {};
+    ruweNamen.forEach((ruw, i) => { weergaveNaamPerRuw[ruw] = weergaveNamen[i]; });
+
+    const smalScherm = window.innerWidth <= 768;
+    const horizontaal = gebruikHorizontaleStaven(n, window.innerWidth);
+    const maxTekensPerRegel = horizontaal ? (smalScherm ? 20 : 28) : 14;
+    // Liggende staven: ~36px per bedrijf (labels van max. 2 regels) + ruimte voor
+    // as en legenda, zodat elke naam leesbaar blijft. Staand: de vaste CSS-hoogte.
+    document.getElementById("chartWrapper").style.height = horizontaal
+        ? `${Math.max(400, getoond.length * 36 + 140)}px`
+        : "";
+    // Geen zoom/pan op dit tabblad: laat verticaal vegen over de (hoge) grafiek
+    // de pagina scrollen i.p.v. door #rendementChart (touch-action: none) te
+    // worden opgeslokt. pasViewToe zet dit weer terug voor andere tabbladen.
+    document.getElementById("rendementChart").style.touchAction = "pan-y";
 
     const bronNamen = {};
     (data.bronnen || []).forEach(b => { bronNamen[b.ticker] = b.naam; });
 
     const categorieData = {};
-    data.top.forEach(entry => { categorieData[entry.bedrijf] = entry.per_bron; });
+    getoond.forEach(entry => { categorieData[entry.bedrijf] = entry.per_bron; });
 
-    renderGestapeldeStaafgrafiek(categorieData, bronNamen);
+    renderGestapeldeStaafgrafiek(categorieData, bronNamen, {
+        horizontaal,
+        labelVoorCategorie: cat => breekLabelAf(weergaveNaamPerRuw[cat], maxTekensPerRegel),
+        tooltipTitel: cat => weergaveNaamPerRuw[cat],
+        tooltipFooter: cat => weergaveNaamPerRuw[cat] === cat ? [] : [`Origineel: ${cat}`],
+    });
 }
 
 // ETF-overlap-tabblad: eenvoudige HTML-matrix (geen Chart.js) met
@@ -3114,12 +3244,19 @@ function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
         && r.gewicht_b !== null && r.gewicht_b !== undefined;
     const rijAchtergrond = r => isOverlapRij(r) ? "rgba(44, 122, 75, 0.15)" : "";
 
+    // Alleen weergave: de backend matchte/sorteerde al op de ruwe naam, de
+    // volledige originele naam blijft als tooltip (title) beschikbaar.
+    const weergaveNamen = maakUniekeWeergaveNamen(holdings.map(h => h.holding_naam));
+    const weergaveNaamPerRuw = {};
+    holdings.forEach((h, i) => { weergaveNaamPerRuw[h.holding_naam] = weergaveNamen[i]; });
+
     const kolommen = [
         {
             label: "Holding",
             renderTd: r => {
                 const td = document.createElement("td");
-                td.textContent = r.holding_naam;
+                td.textContent = weergaveNaamPerRuw[r.holding_naam];
+                td.title = r.holding_naam;
                 td.style.padding = "4px 16px 4px 0";
                 td.style.backgroundColor = rijAchtergrond(r);
                 return td;
@@ -3383,6 +3520,11 @@ function wisselView(view) {
 
 function pasViewToe(view) {
     const content = document.querySelector(".content");
+    // Alleen het Top-bedrijven-tabblad past de hoogte/touch-action van de
+    // grafiek aan (toonBedrijven); alle andere tabbladen krijgen de CSS-
+    // standaard terug.
+    document.getElementById("chartWrapper").style.height = "";
+    document.getElementById("rendementChart").style.touchAction = "";
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker";
 
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
@@ -3639,6 +3781,7 @@ function pasMenuStatusToe(open) {
     menuOverlay.classList.toggle("open", open);
     hamburgerBtn.setAttribute("aria-expanded", String(open));
     hamburgerBtn.innerHTML = open ? "&times;" : "&#9776;";
+    document.body.classList.toggle("menuOpen", open);
 }
 
 hamburgerBtn.addEventListener("click", () => pasMenuStatusToe(volgendeMenuOpenStatus(menuOpen)));
@@ -3677,6 +3820,17 @@ document.getElementById("resetZoomBtn").addEventListener("click", () => {
 
 document.getElementById("europaCheckbox").addEventListener("change", () => {
     toonLand();
+});
+
+// Top-bedrijven kiest staand/liggend op basis van de schermbreedte (zie
+// gebruikHorizontaleStaven): bij kantelen of venster-formaat over het
+// mobiele breakpoint opnieuw tekenen, alleen als dat tabblad open staat.
+window.matchMedia("(max-width: 768px)").addEventListener("change", () => {
+    const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
+    const data = huidigeData && huidigeData.bedrijven_verdeling;
+    if (actieveKnop && actieveKnop.dataset.view === "bedrijven" && data && data.top && data.top.length) {
+        tekenBedrijven();
+    }
 });
 
 // Toggle tussen taart (toonPlatteVerdeling) en gestapelde staaf per bron
@@ -3759,6 +3913,8 @@ document.getElementById("codeForm").addEventListener("submit", async (e) => {
 });
 
 function gaTerugNaarUpload() {
+    // Anders blijft de scroll-lock (body.menuOpen) hangen op de uploadpagina.
+    pasMenuStatusToe(menuOpenStatusNaViewKeuze());
     document.getElementById("dashboardSection").style.display = "none";
     document.getElementById("uploadSection").style.display = "block";
 }
@@ -3775,6 +3931,7 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
         const res = await fetch(`/api/portfolio/${huidigeData.code}`, { method: "DELETE" });
         if (res.ok) {
             huidigeData = null;
+            pasMenuStatusToe(menuOpenStatusNaViewKeuze());
             document.getElementById("dashboardSection").style.display = "none";
             document.getElementById("uploadSection").style.display = "block";
             alert("Portfolio verwijderd.");

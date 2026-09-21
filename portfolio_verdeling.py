@@ -54,6 +54,15 @@ BEDRIJF_NAAM_OVERRIDES = {
     "asml": "asml holding nv",
 }
 
+# Top-bedrijven-tabblad: standaard aantal getoonde bedrijven, en het maximum
+# dat de backend meelevert. De frontend (static/js/bedrijven.js,
+# toonBedrijven in app.js) kiest zelf een N <= BEDRIJVEN_TOP_N_MAX en knipt de
+# meegeleverde lijst in, zodat wisselen tussen 10/20/50 geen nieuwe request
+# of koersopvraag kost. Houd BEDRIJVEN_TOP_N_KNOPPEN in bedrijven.js gelijk
+# aan een waarde <= dit maximum.
+BEDRIJVEN_TOP_N_STANDAARD = 10
+BEDRIJVEN_TOP_N_MAX = 50
+
 
 def _normaliseer_bedrijfsnaam(naam):
     """
@@ -100,7 +109,7 @@ def _sorteer_verdeling_groot_naar_klein(verdeling):
     return sorted(verdeling, key=lambda x: x["waarde"], reverse=True)
 
 
-def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=10):
+def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BEDRIJVEN_TOP_N_STANDAARD):
     """
     Top-N onderliggende bedrijven van de hele portfolio (via ETF's + losse
     aandelen), met per bedrijf een uitsplitsing van via welke posities
@@ -110,7 +119,7 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=10
     compute_land_sector_verdeling() hierboven: huidige holdings
     (aantal x laatste koers, de "aantal"-kolom, niet "adj_aantal") zodat
     de totalen op elkaar aansluiten. Voor de gestapelde-staafgrafiek-
-    weergave op het "Top 10 bedrijven"-tabblad (zie static/js/app.js,
+    weergave op het "Top N bedrijven"-tabblad (zie static/js/app.js,
     renderGestapeldeStaafgrafiek): "totaal_pct" en "per_bron" zijn beide al
     percentages van totaal_waarde, dus per_bron-waarden per bedrijf tellen
     op tot totaal_pct van dat bedrijf -- direct bruikbaar als stack.
@@ -132,6 +141,8 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=10
                                     # daadwerkelijk aan een bekend bedrijf
                                     # is toegewezen (dus 1 - onbekend-restant)
             "totaal_waarde": 5000.0,
+            "top_n_standaard": 10, # BEDRIJVEN_TOP_N_STANDAARD, voor de frontend
+                                    # (de initiele keuze op het tabblad)
             "bronnen": [{"ticker": "CSPX.AS", "naam": "ISHARES CORE MSCI WORLD..."}, ...],
                 # alle bronnen die ergens in de top-N voorkomen, aflopend op
                 # totale bijdrage -- voor een consistente legenda-volgorde in
@@ -214,6 +225,7 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=10
         "overig": round(overig, 2),
         "dekking_pct": (gedekte_waarde / totaal_waarde) if totaal_waarde > 0 else 0.0,
         "totaal_waarde": round(totaal_waarde, 2),
+        "top_n_standaard": BEDRIJVEN_TOP_N_STANDAARD,
         "bronnen": [{"ticker": t, "naam": bron_namen.get(t, t)} for t in bronnen_gesorteerd],
     }
 

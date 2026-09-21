@@ -190,6 +190,47 @@ button:hover {
     display: block;
 }
 
+/* Keuzeknoppen (Top-bedrijven: 10 / 20 / 50): zelfde groentint en radius als
+   de gewone knoppen; de actieve is gevuld, de rest omlijnd. */
+.topNRij {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 0.9em;
+}
+
+.topNRij input[type="number"] {
+    width: 90px;
+    margin-top: 0;
+}
+
+.keuzeKnop {
+    margin-top: 0;
+    padding: 6px 14px;
+    background-color: white;
+    color: #2c7a4b;
+    border: 1px solid #2c7a4b;
+}
+
+.keuzeKnop:hover:not(:disabled) {
+    background-color: #eaf4ee;
+}
+
+.keuzeKnop.actief,
+.keuzeKnop.actief:hover {
+    background-color: #2c7a4b;
+    color: white;
+}
+
+.keuzeKnop:disabled,
+.keuzeKnop:disabled:hover {
+    background-color: white;
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .menuBtn {
     display: block;
     width: 100%;
@@ -315,7 +356,10 @@ button:hover {
         position: fixed;
         top: 0;
         left: 0;
-        bottom: 0;
+        /* Begrensde hoogte via dvh (volgt de zichtbare viewport, dus niet
+           onder de adresbalk); 100vh is de fallback voor oudere browsers. */
+        height: 100vh;
+        height: 100dvh;
         width: 240px;
         max-width: 80vw;
         background: white;
@@ -324,7 +368,10 @@ button:hover {
         transition: transform 0.25s ease;
         z-index: 40;
         overflow-y: auto;
-        padding: calc(56px + env(safe-area-inset-top)) 8px 16px 8px;
+        /* Scrollen aan de rand van het menu lekt niet door naar de pagina
+           erachter (en triggert geen pull-to-refresh/rubber-banding). */
+        overscroll-behavior: contain;
+        padding: calc(56px + env(safe-area-inset-top)) 8px calc(16px + env(safe-area-inset-bottom)) 8px;
     }
 
     .sidebar.open {
@@ -345,6 +392,19 @@ button:hover {
     .menuOverlay.open {
         opacity: 1;
         pointer-events: auto;
+        /* Slepen op de donkere achtergrond scrolt de pagina niet mee; een
+           tik (om het menu te sluiten) blijft gewoon werken. */
+        touch-action: none;
+    }
+
+    /* Zolang het menu open is (app.js: pasMenuStatusToe zet deze class op
+       body) kan de pagina erachter niet scrollen. .content is op mobiel de
+       eigenlijke scroller (zie hieronder), dus die wordt ook vastgezet --
+       de scrollpositie blijft behouden, ook een lopende momentum-scroll
+       stopt. */
+    body.menuOpen,
+    body.menuOpen .content {
+        overflow: hidden;
     }
 
     /* Op mobiel heeft .dashboard wél een vaste hoogte (100dvh, zie hierboven)
@@ -366,6 +426,16 @@ button:hover {
     input,
     button {
         min-height: 44px;
+    }
+
+    /* iOS Safari zoomt automatisch in op een veld met font-size < 16px
+       zodra het focus krijgt, en zoomt niet vanzelf terug (zeker niet als
+       het veld daarna verdwijnt, zoals het code-veld na het ophalen). Alleen
+       op mobiel, zodat het desktop-uiterlijk gelijk blijft. */
+    input,
+    select,
+    textarea {
+        font-size: 16px;
     }
 }
 

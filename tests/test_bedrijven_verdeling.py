@@ -17,7 +17,10 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import portfolio_verdeling
-from portfolio_verdeling import _normaliseer_bedrijfsnaam, bereken_bedrijven_verdeling
+from portfolio_verdeling import (
+    BEDRIJVEN_TOP_N_MAX, BEDRIJVEN_TOP_N_STANDAARD,
+    _normaliseer_bedrijfsnaam, bereken_bedrijven_verdeling,
+)
 
 
 class TestNormaliseerBedrijfsnaam(unittest.TestCase):
@@ -118,6 +121,48 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
         # som van aantal 1..25 = 325 EUR totaal; top-10 = som van 25..16 = 205
         self.assertAlmostEqual(sum(e["waarde"] for e in resultaat["top"]), 205.0)
         self.assertAlmostEqual(resultaat["overig"], 120.0)  # som van 15..1
+
+    def test_standaard_top_n_is_de_constante_en_staat_in_de_respons(self):
+        transacties_df = pd.DataFrame({
+            "ticker": ["AAA"], "aantal": [1.0], "echte_naam": ["Bedrijf A"],
+        })
+        resultaat = bereken_bedrijven_verdeling(transacties_df, _price_data(["AAA"]), {"AAA": False})
+
+        self.assertEqual(BEDRIJVEN_TOP_N_STANDAARD, 10)
+        self.assertEqual(BEDRIJVEN_TOP_N_MAX, 50)
+        self.assertEqual(resultaat["top_n_standaard"], BEDRIJVEN_TOP_N_STANDAARD)
+
+    def test_top_n_max_levert_tot_50_bedrijven_en_overig_sluit_aan_bij_inkorten(self):
+        # De frontend knipt de meegeleverde lijst in tot een kleinere N en
+        # rekent "overig" opnieuw uit als overig(max) + som(top[N:]). Dat moet
+        # exact gelijk zijn aan wat de backend zelf voor die N zou geven --
+        # anders klopt de dekkingstekst na wisselen van N niet.
+        n = 60
+        tickers = [f"AND{i:02d}" for i in range(n)]
+        transacties_df = pd.DataFrame({
+            "ticker": tickers,
+            "aantal": [float(n - i) for i in range(n)],  # 60, 59, ..., 1
+            "echte_naam": [f"Bedrijf {i}" for i in range(n)],
+        })
+        price_data = _price_data(tickers, waarde=1.0)
+        is_etf = {t: False for t in tickers}
+
+        max_resultaat = bereken_bedrijven_verdeling(
+            transacties_df, price_data, is_etf, top_n=BEDRIJVEN_TOP_N_MAX
+        )
+        tien_resultaat = bereken_bedrijven_verdeling(transacties_df, price_data, is_etf, top_n=10)
+
+        self.assertEqual(len(max_resultaat["top"]), 50)
+        # Bedrijven 51..60 (aantal 10..1) = 55 EUR buiten de meegeleverde lijst.
+        self.assertAlmostEqual(max_resultaat["overig"], 55.0)
+
+        overig_via_inkorten = max_resultaat["overig"] + sum(e["waarde"] for e in max_resultaat["top"][10:])
+        self.assertAlmostEqual(overig_via_inkorten, tien_resultaat["overig"])
+        # De eerste 10 zijn in beide gevallen dezelfde bedrijven in dezelfde volgorde.
+        self.assertEqual(
+            [e["bedrijf"] for e in max_resultaat["top"][:10]],
+            [e["bedrijf"] for e in tien_resultaat["top"]],
+        )
 
     def test_meegegeven_is_etf_map_is_leidend_geen_eigen_classify_tickers(self):
         # ETF_A ZOU een ETF kunnen zijn, maar de meegegeven is_etf_map zegt
