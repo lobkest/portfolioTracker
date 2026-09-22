@@ -46,7 +46,8 @@ def init_db():
     cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS transactiekosten NUMERIC;")
     # Zelfde migratiepatroon: 'tijd' kwam later bij, nodig om transacties op
     # dezelfde kalenderdag chronologisch te kunnen sorteren (zie
-    # bereken_holdings_en_gesloten/compute_value_over_time in analysis.py —
+    # bereken_holdings_en_gesloten (statistieken.py)/compute_value_over_time
+    # (portfolio_calc.py) —
     # zonder tijdstip kon een verkoop vóór de bijbehorende koop van diezelfde
     # dag verwerkt worden, afhankelijk van de (willekeurige) SELECT-volgorde).
     cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS tijd TIME;")
@@ -282,7 +283,7 @@ def save_etf_sector_verdeling(etf_ticker, sector_dict):
     """Vervangt de volledige sectorverdeling van deze ETF (delete + bulk insert, zodat alle
     rijen dezelfde bijgewerkt_op krijgen en de cache-leeftijdscheck consistent blijft).
     Roep dit alleen aan met een niet-lege sector_dict — een mislukte/lege ophaal moet NIET
-    gecached worden (zie get_etf_sector_verdeling in analysis.py)."""
+    gecached worden (zie get_etf_sector_verdeling in ticker_classificatie.py)."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM etf_sector_verdeling WHERE etf_ticker = %s", (etf_ticker,))
@@ -350,8 +351,9 @@ def get_cached_prijscheck(ticker, datum):
     is precies wat de aanroeper nodig heeft om te weten of het zin heeft om
     het opnieuw te proberen. high/low kunnen ook None zijn terwijl
     yahoo_slotkoers wél bekend is — een rij van vóór de dagrange-uitbreiding,
-    of een dagrange-fetch die destijds mislukte; de aanroeper (analysis.
-    vergelijk_prijs_op_datum) beslist of dat een nieuwe poging waard is.
+    of een dagrange-fetch die destijds mislukte; de aanroeper
+    (ticker_prijscheck.vergelijk_prijs_op_datum) beslist of dat een nieuwe
+    poging waard is.
 
     Historische slotkoersen veranderen nooit met terugwerkende kracht, dus
     deze cache heeft — anders dan de andere caches in dit bestand — geen
@@ -615,7 +617,7 @@ def backfill_tijd(code, order_id_tijd):
 
 
 def save_dividenden(code, records):
-    """records: lijst van dicts zoals analysis.verwerk_rekeningoverzicht() teruggeeft.
+    """records: lijst van dicts zoals dividend.verwerk_rekeningoverzicht() teruggeeft.
 
     ON CONFLICT (code, dividend_id) DO UPDATE — bewust een upsert, GEEN DO
     NOTHING. dividend_id is afgeleid van de RUWE (niet-EUR-geconverteerde)
@@ -745,7 +747,7 @@ def upsert_prices(rows):
     te kunnen verversen: zonder DO UPDATE zou een eerder op dezelfde dag
     gecachete (mogelijk tussentijdse, niet-definitieve) koers nooit
     plaatsmaken voor een nieuwere/slotkoers. Gebruik dit UITSLUITEND voor
-    de verse-koers-refresh in get_prices() (analysis.py) — save_prices()
+    de verse-koers-refresh in get_prices() (prijzen.py) — save_prices()
     blijft de standaard voor de eerste/volledige historische download."""
     if not rows:
         return

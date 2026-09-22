@@ -194,7 +194,7 @@ def _ticker_zekerheid_groepen(code):
     bijnaam zijn, en die is onbruikbaar als zoekterm.
     Corporate-action-/NON TRADEABLE-rijen (splits e.d.) horen niet als eigen
     "positie" in deze lijst -- zelfde check als elders in het project
-    (analysis._is_corporate_action_row), hier vóór het groeperen toegepast
+    (transactie_utils._is_corporate_action_row), hier vóór het groeperen toegepast
     zodat zo'n rij nooit een kansloze eigen (ISIN, Beurs)-groep vormt.
     """
     naam_portfolio, transacties_df, _price_data = _haal_portfolio_basis(code)

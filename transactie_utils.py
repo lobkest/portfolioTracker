@@ -1,11 +1,10 @@
 """
 Kleine, gedeelde taakfuncties op ruwe transactie-rijen/DataFrames, zonder
 DB/netwerk-afhankelijkheid — gebruikt door meerdere domeinmodules
-(statistieken.py, portfolio_calc.py, ticker_matching.py, en nog steeds
-analysis.py zelf) en daarom als eigen, afhankelijkheidsloze module
-losgetrokken i.p.v. in een van die domeinmodules te laten zitten (dat zou
-een circulaire import opleveren zodra twee van die modules elkaars
-functies nodig hebben).
+(statistieken.py, portfolio_calc.py, ticker_matching.py, portfolio_orchestratie.py)
+en daarom als eigen, afhankelijkheidsloze module losgetrokken i.p.v. in
+een van die domeinmodules te laten zitten (dat zou een circulaire import
+opleveren zodra twee van die modules elkaars functies nodig hebben).
 """
 import pandas as pd
 

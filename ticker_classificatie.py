@@ -273,7 +273,7 @@ def get_etf_holdings(ticker):
 # portfolio_verdeling importeert). Een terug-import zou hier bovendien een
 # fragiele circulaire import opleveren (portfolio_verdeling.py importeert op
 # zijn beurt get_etf_holdings/get_etf_sector_verdeling/get_land_sector UIT
-# analysis.py, zie daar).
+# dit bestand).
 
 
 def classify_ticker(ticker):

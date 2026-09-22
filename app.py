@@ -377,8 +377,8 @@ def ticker_zekerheid(code):
     Losse, lui opgevraagde endpoint voor de Ticker-zekerheid-pagina — bewust
     NIET onderdeel van het hoofd-dashboard-antwoord, want dit doet per
     positie tot een paar extra yfinance-prijscontroles (zie
-    analysis.verifieer_ticker_met_prijs), wat de hoofdpagina onnodig zou
-    vertragen voor een tabblad dat maar zelden bezocht wordt.
+    ticker_zekerheid.verifieer_ticker_met_prijs), wat de hoofdpagina
+    onnodig zou vertragen voor een tabblad dat maar zelden bezocht wordt.
 
     LET OP: bij een groter portfolio kan deze route in z'n geheel mislukken
     omdat verifieer_tickers_met_prijs_parallel() moet wachten tot ALLE

@@ -1,14 +1,9 @@
 # Code-overzicht — Portfolio Dashboard (portfolioTracker)
 
-> Geschreven op 2026-09-21 op basis van de code in de werkmap (laatste commit `584e224`, "small fixes").
+> Geschreven op 2026-09-21, bijgewerkt op 2026-09-22, op basis van de code in de werkmap (laatste commit `9b12c52`, "fixes").
 > Alles hieronder is uit de bronbestanden gelezen, niet uit CLAUDE.md overgenomen. Waar ik iets niet zeker
 > kon vaststellen staat het woord **onzeker**. Waar CLAUDE.md en de code verschillen, staat dat onderaan
 > bij [Afwijkingen](#afwijkingen-claudemd-versus-de-code).
->
-> **Let op — niet-gecommitte wijzigingen.** Terwijl ik dit schreef, kwamen er in de werkmap wijzigingen bij
-> die nog niet gecommit zijn (Top-N-bedrijven met een nieuw `static/js/bedrijven.js`, plus mobiele CSS-verfijningen). Ik beschrijf
-> de werkmap zoals hij nu is en markeer die onderdelen met "niet gecommit"; zie [5.6](#56-wijzigingen-in-de-werkmap-die-nog-niet-gecommit-zijn).
-> Als je die wijzigingen nog aanpast, kloppen de details van die onderdelen mogelijk niet meer.
 
 ## Inhoud
 
@@ -607,7 +602,7 @@ Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
 | `compute_land_sector_verdeling()` | land en sector portfoliobreed (in €), plus per ETF en per bron | `transacties_df, price_data, is_etf_map` → dict met `land`, `land_europa`, `sector`, `per_etf`, `land_per_bron`, `land_per_bron_europa`, `sector_per_bron` | `analyze_transacties_verrijking()` |
-| `bereken_bedrijven_verdeling()` | top-N onderliggende bedrijven (via ETF-holdings en losse aandelen) met uitsplitsing per bron | idem (+ `top_n`, standaard `BEDRIJVEN_TOP_N_STANDAARD` = 10) → dict met `top`, `overig`, `dekking_pct`, `totaal_waarde`, `top_n_standaard` *(niet gecommit)*, `bronnen` | `analyze_transacties_verrijking()` |
+| `bereken_bedrijven_verdeling()` | top-N onderliggende bedrijven (via ETF-holdings en losse aandelen) met uitsplitsing per bron | idem (+ `top_n`, standaard `BEDRIJVEN_TOP_N_STANDAARD` = 10) → dict met `top`, `overig`, `dekking_pct`, `totaal_waarde`, `top_n_standaard`, `bronnen` | `analyze_transacties_verrijking()` |
 | `bereken_etf_overlap()` | overlapmatrix tussen aangehouden ETF's: Σ min(gewicht) over gedeelde bedrijven; `{}` bij < 2 ETF's | idem → dict `{a: {b: fractie}}` | `analyze_transacties_verrijking()` |
 | `bereken_etf_overlap_detail()` | gewichten per bedrijf voor één ETF-paar | `etf_a, etf_b` → lijst | `etf_overlap_detail()` |
 | `_holdings_gewicht_en_naam_per_bedrijf()` | holdings van 1 ETF, samengevoegd per genormaliseerde bedrijfsnaam | ticker → `(gewichten, namen)` | `bereken_etf_overlap()`, `bereken_etf_overlap_detail()` |
@@ -618,8 +613,8 @@ Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
 | `_groepeer_europa_samen()` | alle `EUROPESE_LANDEN` → "Europe" | dict → dict | `compute_land_sector_verdeling()` |
 | `_groepeer_europa_samen_per_bron()` | idem op de per-bron-structuur | dict → dict | `compute_land_sector_verdeling()` |
 
-Constanten: `LAND_OVERIG_DREMPEL`, `EUROPESE_LANDEN` (frozenset; Rusland en Turkije zijn bewust **niet** opgenomen), `BEDRIJF_NAAM_OVERRIDES`, en *(niet gecommit)* `BEDRIJVEN_TOP_N_STANDAARD = 10` en
-`BEDRIJVEN_TOP_N_MAX = 50`. `analyze_transacties_verrijking()` vraagt in de werkmap `top_n=BEDRIJVEN_TOP_N_MAX` op; de frontend knipt de lijst zelf in tot de gekozen N (geen nieuw request bij wisselen tussen 10/20/50).
+Constanten: `LAND_OVERIG_DREMPEL`, `EUROPESE_LANDEN` (frozenset; Rusland en Turkije zijn bewust **niet** opgenomen), `BEDRIJF_NAAM_OVERRIDES`, en `BEDRIJVEN_TOP_N_STANDAARD = 10` en
+`BEDRIJVEN_TOP_N_MAX = 50`. `analyze_transacties_verrijking()` vraagt `top_n=BEDRIJVEN_TOP_N_MAX` op; de frontend knipt de lijst zelf in tot de gekozen N (geen nieuw request bij wisselen tussen 10/20/50).
 
 **Bijzonderheden en valkuilen**
 
@@ -787,7 +782,9 @@ Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMAT
 | `_verrijk_met_openfigi_kandidaten()` | voegt kandidaten toe via de OpenFIGI-ticker-roots | `verifieer_ticker_met_prijs()` |
 | `_voeg_openfigi_check_toe()` | zet `openfigi_root_bekend`/`openfigi_root_matches`; bij "root niet gevonden" een extra waarschuwing en "zeker" → "onzeker" | `find_ticker_met_snelle_prijscheck()`, `verifieer_ticker_met_prijs()` |
 | `_kies_steekproef_transacties()` | eerste, middelste en laatste transactie met koers > 0 | `find_ticker_met_snelle_prijscheck()`, `verifieer_ticker_met_prijs()` |
-| `_land_sector_voor_weergave()`, `_sector_samenvatting()`, `_top_holding_land()` | land/sector-weergave voor de kaart (voor ETF: top-3 sectoren en "land grootste holding") | `verifieer_ticker_met_prijs()`, `_zoek_betere_alternatieven()` |
+| `_land_sector_voor_weergave()` | land/sector-weergave voor de kaart; voor een ETF geen los land, maar top-3 sectoren en "land grootste holding" | `verifieer_ticker_met_prijs()`, `_zoek_betere_alternatieven()` |
+| `_sector_samenvatting()` | top-N sectoren van een ETF als tekst (sectoren op 0% tellen niet mee) | `_land_sector_voor_weergave()` |
+| `_top_holding_land()` | land van de zwaarste holding van een ETF | `_land_sector_voor_weergave()` |
 | `backfill_verouderde_tickers()` | herbeoordeelt opgeslagen tickers van een code en corrigeert de database | `_upload_impl()`, `api_portfolio()` |
 | `_ticker_heeft_prijsprobleem()` | heeft een gevonden ticker een prijsprobleem op de laatste transactiedatum (of geen koersdata)? | `backfill_verouderde_tickers()` |
 | `prijswaarschuwing_voor_ticker()` | leest alleen de gecachete prijscheck + OpenFIGI, geeft een waarschuwingstekst of `None`; doet **geen** live zoekopdracht | `ticker_waarschuwingen_voor_transacties()` |
@@ -829,7 +826,8 @@ Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMAT
 | `_parse_percentage_waarde()` | `"10,74%"` / `7.68` → float, afhankelijk van `locale` | de `_parse_*`-functies |
 | `_holding_rij()` | normaliseert één rij (`naam`, `gewicht`, `land`, `sector`); land wordt `"Unknown"` als leeg | de `_parse_*`-functies |
 | `_vertaal_land_nl()` + `NL_LAND_VERTALING` | Nederlandse landnaam → Engelse (zodat één land niet twee taartpunten wordt) | `_parse_ishares_holdings()` |
-| `_land_via_isin()`, `_regio_naar_land()` | land uit ISIN-prefix resp. regiocode via `pycountry` | `_parse_vaneck_holdings()` resp. `_parse_vanguard_holdings()` |
+| `_land_via_isin()` | land uit de eerste 2 tekens van een ISIN, via `pycountry` | `_parse_vaneck_holdings()` |
+| `_regio_naar_land()` | Vanguard-regiocode → landnaam, via `pycountry` | `_parse_vanguard_holdings()` |
 | `_dedupliceer_holdings()` | holdings met dezelfde naam samenvoegen (som van gewicht) | `fetch_provider_holdings()` |
 | `test_holdings_url()` | testhulp om een nieuwe URL te controleren vóór je hem toevoegt; **geen** unittest ondanks de naam | — (handmatig aanroepen) |
 
@@ -979,11 +977,11 @@ Naast de database bestaan er drie **in-process** caches: `_basis_cache` (20 s, `
 |---|---|
 | `templates/index.html` | De **enige pagina**. Twee grote blokken: `#uploadSection` (upload- en code-formulier) en `#dashboardSection` (zijmenu + `.content`). Alle tabblad-secties staan er al in als verborgen `<div>`'s (`#statistiekenSectie`, `#transactiesSectie`, `#etfOverlapSectie`, `#prognoseSectie`, ...). Eén gedeelde `<canvas id="rendementChart">` in `#chartWrapper` dient voor **alle** grafiek-tabbladen. |
 | `static/js/app.js` | Vrijwel alle logica (~4000 regels): globale toestand, `fetch()`-aanroepen, tekenen van grafieken en tabellen, navigatie, event-handlers. |
-| `static/js/prognose.js` | Rekenkern van het Prognose-tabblad: `berekenPrognose()`, `valideerPrognoseInvoer()`, `bouwPrognoseGrafiekData()`, ... Puur JS, geen DOM. |
+| `static/js/prognose.js` | Rekenkern van het Prognose-tabblad: `berekenPrognose()` (gebruikt `berekenPrognosePad()`, `berekenGeinvesteerdPad()` en `maandRenteVanJaarPct()`), `valideerPrognoseInvoer()`, `genereerToekomstDatums()` en `bouwPrognoseGrafiekData()`. Puur JS, geen DOM. Maandrente = `(1 + jaarrendement)^(1/12) − 1`; inleg komt na de groei van die maand erbij. |
 | `static/js/menu.js` | Twee kleine pure functies voor het hamburgermenu: `volgendeMenuOpenStatus()`, `menuOpenStatusNaViewKeuze()`. |
 | `static/js/transacties.js` | Sorteren en pagineren voor het Transacties-tabblad: `sorteerTransacties()`, `totaalPaginas()`, `pagineer()`. |
-| `static/js/bedrijven.js` *(nieuw, niet gecommit)* | Pure logica voor het Top-N-bedrijven-tabblad: nettere bedrijfsnamen voor weergave, keuze van N, inkorten van de lijst. |
-| `static/js/infotip.js` | Bouwt van `<span class="infoTip">` een (i)-knop met tooltip. Raakt de DOM, heeft geen exports en (nog) geen test. |
+| `static/js/bedrijven.js` | Pure logica voor het Top-N-bedrijven-tabblad: `maakBedrijfsnaamLeesbaar()` en `maakUniekeWeergaveNamen()` (nettere namen, **alleen voor weergave**; de ruwe naam blijft de sleutel), `breekLabelAf()`, `effectieveTopN()`, `kiesTopN()`, `snijTopBedrijven()` (lijst inkorten tot N en het restant herberekenen), `gebruikHorizontaleStaven()`, `bedrijvenTitel()` en de constante `BEDRIJVEN_TOP_N_KNOPPEN`. |
+| `static/js/infotip.js` | Bouwt van `<span class="infoTip">` een (i)-knop met tooltip (`initInfoTips()`, start vanzelf bij `DOMContentLoaded`). Raakt de DOM, heeft geen exports en (nog) geen test. |
 | `static/css/style.css` | Opmaak; onder `@media (max-width: 768px)` (en liggend tot 900 px) wordt het zijmenu een uitschuifbaar paneel met hamburgerknop. |
 
 **Laadvolgorde in `index.html`:** eerst de externe bibliotheken van cdnjs (Chart.js 4.4.0, hammer.js 2.0.8, chartjs-plugin-zoom 2.0.1, chartjs-plugin-datalabels 2.2.0,
@@ -1003,7 +1001,7 @@ Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) 
   bijnaam/reset/wijzig-code — zo verdwijnen de al opgehaalde verrijkingsvelden niet.
 - Er wordt **niets** in `localStorage`/`sessionStorage` bewaard (geen enkel gebruik in de JS-bestanden gevonden). Pagina verversen betekent dus terug naar het uploadscherm; met je code haal je alles weer op.
 - Overige toestand in `app.js`: `chart`, `verrijkingStatus` (`null`/`"laden"`/`"fout"`/`"klaar"`), `prognoseInvoer` en `prognoseResultaat`, `benchmarkVergelijkingData` en `eigenAandeelVergelijkingData`,
-  `transactiesRuweLijst` met sorteer- en paginatoestand, `landSectorWeergave` (`"taart"`/`"staaf"`), `meerHistorieUitgeput`, `menuOpen`, en (niet gecommit) `bedrijvenTopN`.
+  `transactiesRuweLijst` met sorteer- en paginatoestand, `landSectorWeergave` (`"taart"`/`"staaf"`), `meerHistorieUitgeput`, `menuOpen` en `bedrijvenTopN`.
 - `toonDashboard()` **reset** de toestand die bij één portfolio hoort (prognose, benchmarkkeuzes, meer-historie-knoppen, transactielijst), zodat niets van een vorige portfolio blijft hangen.
 
 ### 5.3 Navigatie en menu
@@ -1012,7 +1010,7 @@ Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) 
 2. Klik → `wisselView(view)` → korte fade (class `tabWisselt`, 90 ms) → **`pasViewToe(view)`**.
 3. `pasViewToe()` doet twee dingen: (a) een lange reeks `style.display`-regels om precies de elementen van dat tabblad te tonen (zoomknop, dropdowns, secties, canvas-wrapper, ...) en (b) de bijbehorende
    `toon...()`-functie aanroepen (zie de tabel hieronder). **Wie een tabblad toevoegt, moet beide aanpassen.**
-4. Hamburgermenu (mobiel): `pasMenuStatusToe(open)` toggelt de classes `open` op `#sidebarMenu` en `#menuOverlay`; de nieuwe stand komt uit `volgendeMenuOpenStatus()` en na een tabkeuze uit `menuOpenStatusNaViewKeuze()` (altijd `false`).
+4. Hamburgermenu (mobiel): `pasMenuStatusToe(open)` toggelt de classes `open` op `#sidebarMenu` en `#menuOverlay`, plus `menuOpen` op `document.body` (CSS-scroll-lock op de achtergrond zolang het menu open staat, zie `style.css`); de nieuwe stand komt uit `volgendeMenuOpenStatus()` en na een tabkeuze uit `menuOpenStatusNaViewKeuze()` (altijd `false`). Een `matchMedia("(max-width: 768px)")`-listener herbergt het Top-N-bedrijven-tabblad (staand/liggend, zie `tekenBedrijven()`) bij het kantelen van het scherm of een venster-formaatwijziging over dat breakpoint heen, als dat tabblad open staat.
 5. Bij een "niet opslaan"-analyse (`data.code` is leeg) verbergt `toonDashboard()` de menuknoppen Instellingen, Bijnamen, Dividend en Transacties.
 6. "Terug naar upload": `gaTerugNaarUpload()` verbergt `#dashboardSection` en toont `#uploadSection`.
 
@@ -1027,7 +1025,7 @@ Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) 
 | Verdeling (`verdeling`) | `toonVerdeling()` | `huidigeData.verdeling` (verrijking) | cirkeldiagram; ETF-vlakken met diagonaal streeppatroon (`maakStrepenPatroon()`), labels via de datalabels-plugin |
 | Land (`land`) | `toonLand()` | `land_sector_verdeling` (`land`, `land_europa`, `land_per_bron`, `land_per_bron_europa`) | cirkel (`toonPlatteVerdeling()`) of gestapelde staaf per bron (`renderGestapeldeStaafgrafiek()`), wisselbaar met `weergaveToggleBtn`; vinkje "Europese landen samenvoegen" (`#europaCheckbox`) |
 | Sector (`sector`) | `toonSector()` | `land_sector_verdeling.sector` / `sector_per_bron` | idem |
-| Top N bedrijven (`bedrijven`) | `toonBedrijven()` (en `tekenBedrijven()`) | `bedrijven_verdeling` (verrijking) | gestapelde staaf (`renderGestapeldeStaafgrafiek()`), in de werkmap met keuzeknoppen 10/20/50 en een invulveld |
+| Top N bedrijven (`bedrijven`) | `toonBedrijven()` (en `tekenBedrijven()`) | `bedrijven_verdeling` (verrijking) | gestapelde staaf (`renderGestapeldeStaafgrafiek()`), met keuzeknoppen 10/20/50 en een invulveld |
 | ETF-overlap (`etfoverlap`) | `renderEtfOverlapTabel()`; klik op een vakje → `toonEtfOverlapDetail()` | `etf_overlap`; detail via `GET /api/etf-overlap-detail?a=&b=` | **HTML-tabel**, geen Chart.js: matrix met achtergrondintensiteit; detailtabel `maakEtfOverlapDetailTabel()` |
 | Statistieken (`statistieken`) | `toonStatistieken()` | `huidigeData.statistieken` | tabellen (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`, `maakJarenTabel()`, `maakGeavanceerdSectie()`) via `maakSorteerbareTabel()`; geen grafiek |
 | Transacties (`transacties`) | `toonTransacties()`, `renderTransactiesTabel()` | `GET .../transacties` (één keer, dan onthouden in `transactiesRuweLijst`) | eigen tabel met sorteren over de **volledige** lijst en paginering (25 of 50 per pagina) via `transacties.js` |
@@ -1046,16 +1044,6 @@ Bij Verdeling/Land/Sector/Bedrijven/ETF-overlap begint elke `toon...()` met `too
 - `toonLaadOverlay(tekst)` / `verbergLaadOverlay()`: een volledig scherm-overlay bij acties die merkbaar duren (upload, code ophalen, bijnaam opslaan, benchmark ophalen, verwijderen). Niet gebruikt bij de Prognose (puur client-side).
 - `fetchMetTimeout(url, opties, timeoutMs = 55000)` breekt zelf af en gooit `Error("TIMEOUT")`; de upload gebruikt 60 000 ms. De Ticker-zekerheid-positie-aanroepen gebruiken een eigen `AbortController` van 30 s.
 - De banner `#tickerWaarschuwingBanner` (`toonTickerWaarschuwingBanner()`) toont `ticker_waarschuwingen` bij elk tabblad, met een knop die naar Ticker-zekerheid springt.
-
-### 5.6 Wijzigingen in de werkmap die (nog) niet gecommit zijn
-
-Terwijl ik dit overzicht schreef, verschenen er in de werkmap niet-gecommitte wijzigingen die niet van mij komen (ik schreef alleen `docs/CODE_OVERZICHT.md`). Ze zijn hierboven en in hoofdstuk 3 en 7 verwerkt en zo aangeduid:
-
-- **Top-N-bedrijven:** `static/js/bedrijven.js` (nieuw) en `tests/test_bedrijven.js` (nieuw); `portfolio_verdeling.py` (constanten `BEDRIJVEN_TOP_N_STANDAARD = 10`, `BEDRIJVEN_TOP_N_MAX = 50`, extra sleutel `top_n_standaard`);
-  `portfolio_orchestratie.py` vraagt nu tot `BEDRIJVEN_TOP_N_MAX` bedrijven op; `app.js` (`toonBedrijven()` + `maakBedrijvenTopNKeuze()`, `zetBedrijvenTopN()`, `tekenBedrijven()`, liggende staven bij > 15 bedrijven of een smal scherm,
-  netter opgemaakte namen alleen voor weergave, ook in de ETF-overlap-detailtabel); `index.html` (id `bedrijvenMenuBtn`, script-tag); `style.css` (`.topNRij`, `.keuzeKnop`). De menutitel wordt dynamisch ("Top N bedrijven").
-- **Mobiele verfijningen:** `style.css` (dvh-hoogte, `overscroll-behavior`, 16px-invoervelden), `app.js` (`document.body.classList.toggle("menuOpen", open)` in `pasMenuStatusToe()`, een `matchMedia`-listener), `tests/test_menu.js` (leest nu ook `style.css` en `index.html` als tekst).
-- `.github/workflows/tests.yml`: de JS-teststap draait nu ook `tests/test_bedrijven.js`.
 
 ## 6. Externe bronnen
 
@@ -1093,11 +1081,11 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 51 bestanden `tests/test_*.py` met samen 406 `def test_...`-methodes (geteld op 2026-09-21, inclusief de niet-gecommitte wijzigingen). Geen `tests/__init__.py`; elk bestand zet zelf
+- **Python:** `unittest` (geen pytest), 51 bestanden `tests/test_*.py` met samen 406 `def test_...`-methodes (geteld op 2026-09-21). Geen `tests/__init__.py`; elk bestand zet zelf
   `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt.
-- **JavaScript:** 4 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-21 slaagden alle 73 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30);
-  `test_bedrijven.js` is niet gecommit. Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`).
-  `test_menu.js` leest daarnaast `style.css` en `index.html` als tekst om mobiele CSS-regels te bewaken (niet gecommit).
+- **JavaScript:** 4 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-21 slaagden alle 73 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30).
+  Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`).
+  `test_menu.js` leest daarnaast `style.css` en `index.html` als tekst om mobiele CSS-regels te bewaken.
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
 - **Wat ik zelf gedaan heb:** de JS-tests uitgevoerd. De Python-tests heb ik **niet** uitgevoerd, omdat een deel ervan de echte database aanraakt (zie hieronder).
 
@@ -1119,7 +1107,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonde
 | `portfolio_admin.py` | `test_code_validatie.py` (5) |
 | `db.py` (echte database) | `test_tijd_backfill_db.py` (4), `test_transactiekosten_db.py` (4), `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_laatste_prijs_update.py` (3) — allemaal **[DB]** |
 | Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | `test_upload_route_foutafhandeling.py` (5), `test_basis_cache.py` (3), `test_gefaseerd_laden.py` (4), `test_herbepaal_tickers_ophalen_route.py` (4), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (4), `test_ticker_zekerheid_positie_route.py` (4), `test_corporate_action_filtering.py` (7) — allemaal **[DB]** |
-| JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js` (niet gecommit) |
+| JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js` |
 
 **Niet (direct) getest, voor zover ik zag:** `debug_utils.py`, `infotip.js`, `app.js` als geheel, en `compute_split_adjusted_shares()` met een echt getal.
 
@@ -1134,7 +1122,7 @@ python -m unittest discover -s tests -v
 :: alleen één testbestand
 python -m unittest discover -s tests -p "test_rendement.py" -v
 
-:: alle JavaScript-tests (zelfde commando als de CI, incl. het niet-gecommitte test_bedrijven.js)
+:: alle JavaScript-tests (zelfde commando als de CI, inclusief test_bedrijven.js)
 node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js
 ```
 
@@ -1156,7 +1144,7 @@ Uitgangspunt: een tabblad is een knop in het menu + een sectie in de HTML + een 
    (of hergebruik `#chartWrapper` als je een grafiek wilt).
 2. **`static/js/app.js`, `pasViewToe(view)`:** neem je view op in de `display`-regels die bepalen wat zichtbaar is — minimaal de `display` van je eigen sectie, en controleer de regels voor `resetZoomBtn` en `chartWrapper` (die hebben expliciete lijsten van
    views) en de reset-blokken onderaan (`if (view !== "...")`) als je eigen hulpelementen hebt. Voeg dan `else if (view === "mijnview") toonMijnView();` toe aan de aanroepketen.
-3. **Schrijf `toonMijnView()`** in `app.js`. Patroon: data uit `huidigeData` lezen, of een lazy `fetch()` (zie `toonDividend()` of `toonTransacties()`); voor verrijkingsdata begin je met `toonVerrijkingWachtstatusIndienNodig()`.
+3. **Schrijf een `toon...()`-functie** in `app.js` (hieronder `toonMijnView()` genoemd: een verzonnen voorbeeldnaam, die bestaat dus niet). Patroon: data uit `huidigeData` lezen, of een lazy `fetch()` (zie `toonDividend()` of `toonTransacties()`); voor verrijkingsdata begin je met `toonVerrijkingWachtstatusIndienNodig()`.
    Voor een grafiek: `updateChart(labels, datasets)` (lijn) of een eigen `new Chart(...)` op `#rendementChart` na `if (chart) chart.destroy()`.
 4. **Alleen voor opgeslagen portfolio's?** Voeg dan in `toonDashboard()` een regel toe die de menuknop verbergt als `data.code` leeg is (zoals bij Dividend en Transacties), en vang `!huidigeData.code` af in je `toon`-functie.
 5. **Backend nodig?** Nieuwe route in `app.py` (dun houden), rekenwerk in een domeinmodule, eventueel `_laad_transacties_en_resultaat()` of `_haal_portfolio_basis()` hergebruiken.
@@ -1311,45 +1299,29 @@ Tip: gebruik bij het lezen de tabellen in hoofdstuk 3 als kaart en zoek in de co
 
 ## Afwijkingen: CLAUDE.md versus de code
 
-Vergeleken met de CLAUDE.md zoals die nu in de werkmap staat. Ik heb CLAUDE.md niet aangepast.
+CLAUDE.md is op 2026-09-22 gesynchroniseerd met deze analyse (zie CLAUDE.md's eigen Wijzigingslog): de ETF-tellers, database-
+kolommen, ticker-zekerheid-route-beschrijving, bestandsstructuur, legacy-verwijzing, `instance/`-notitie, all-time-high-omschrijving,
+de opmerking over routes met eigen SQL, en de eerder ontbrekende tabbladen/features (Rendement-vergelijkingen, XIRR & rendement/TWR,
+Per aandeel aankoop, Top-N bedrijven, ETF-overlap-detail, Transacties, Prognose, Instellingen "Code wijzigen", Statistieken
+"Verkochte posities", ticker-zekerheid-escalatietrapje, hamburgermenu, infotips, `fetchMetTimeout()`) zijn er nu in verwerkt.
+Ook zijn de meest verwarrende `analysis.py`-verwijzingen in de code zelf (die naar niet-bestaande functies/modules wezen)
+rechtgezet — zie hieronder. Geen bekende afwijkingen meer op de punten die in de vorige versie van dit document stonden.
 
-**Feitelijk anders dan CLAUDE.md**
+**Nog niet in scope van deze sync (bewust niet aangepakt)**
 
-| Onderwerp | CLAUDE.md zegt | De code laat zien |
-|---|---|---|
-| `ETF_HOLDINGS_BRON` | 9 fondsen (CSPX.AS, IWDA.AS, IMAE.AS, EMIM.AS, CNDX.AS, EUEA.AS; GDX.L, TDT.AS, VE6I.DE) | **11** fondsen: ook `IS3N.DE` (zelfde bron als EMIM.AS) en `G2X.DE` (zelfde bron als GDX.L) |
-| Tabel `transacties` | geen kolom `waarde_eur` | `waarde_eur NUMERIC` bestaat (basis voor de GAK) en `koers` is altijd de EUR-koers (`_koers_eur`, gedeeld door `Wisselkoers`) |
-| Tabel `dividenden` | "(code FK, dividend_id, ...)" | geen foreign key op `code`; wel een `id SERIAL` primary key en `UNIQUE (code, dividend_id)` |
-| Tabel `prijzen` | `(ticker, datum, koers_eur)` | plus `bijgewerkt_op` (nodig voor het verversen bij elke opening) |
-| Tabel `ticker_info` | zonder `yahoo_beurs` | `yahoo_beurs` bestaat |
-| Tabel `ticker_prijscheck` | `(ticker, datum, yahoo_slotkoers, valuta, opgehaald_op)` | plus `high` en `low` (dagrange) |
-| Ticker-zekerheid laadt via | "een eigen endpoint (`/api/portfolio/<code>/ticker-zekerheid`)" | de frontend gebruikt `.../ticker-zekerheid/lijst` + per positie `.../ticker-zekerheid/positie` (max. 4 tegelijk); de volledige route bestaat nog maar wordt niet meer aangeroepen |
-| Bestandsstructuur, frontend | `static/js/app.js → alle frontend-logica` | er zijn ook `menu.js`, `prognose.js`, `transacties.js`, `infotip.js` en (niet gecommit) `bedrijven.js` |
-| Legacy-scripts | `class_degiro.py`/`trading_degiro.py` staan in de bestandsstructuur als referentie | die bestanden bestaan niet (niet in de repo en niet in de werkmap); code-commentaren verwijzen er nog naar (`portfolio_calc.py`, `statistieken.py`, `ticker_matching.py`, `app.js`) |
-| `instance/` | "ongebruikt, mag weg" | bestaat niet in de werkmap (staat wel in `.gitignore`) |
-| Tests | GitHub Actions draait de tests | correct, maar er zijn **twee** jobs: Python én JS (`node --test`); README zegt "~300+" Python-tests, het zijn er 406 (+ 73 JS) |
-| `app.py` | "alleen Flask-routes: dunne functies" | `_upload_impl()` is een lange orkestratiefunctie in `app.py` (dat vermeldt CLAUDE.md zelf ook), en enkele routes bevatten eigen SQL of logica |
-| All-time high (Statistieken) | "berekend uit de bestaande dagelijkse waarde-reeks" | het is de hoogste waarde van `rendement` (waarde − geïnvesteerd), niet van de portefeuillewaarde |
-| Git | — | `.gitignore` bevat `CLAUDE.md`; het bestand staat niet in `git ls-files` |
+- **`README.md`** toont nog `analysis.py`, `class_degiro.py` en `trading_degiro.py` in zijn eigen bestandsstructuur, en "~300+"
+  Python-tests (er zijn er 406, plus 73 JS). Dit document beschrijft alleen CLAUDE.md versus de code; `README.md` viel buiten deze
+  sync-opdracht en is dus nog niet bijgewerkt.
+- **`.gitignore` bevat nog `CLAUDE.md`** — geen inhoudelijke afwijking, maar wel een curiositeit: het bestand staat niet in
+  `git ls-files` terwijl het wel in de werkmap bestaat en hier als bron is gebruikt.
 
-**Aanwezig in de code, niet (of nauwelijks) beschreven in CLAUDE.md**
+**Verouderde verwijzingen in de code zelf — grotendeels opgeruimd**
 
-- Tabbladen: Rendement met benchmark- en eigen-aandeel-vergelijking, XIRR & rendement (met TWR), Per aandeel aankoop (met "meer historie laden"), Top-N bedrijven, ETF-overlap (met detailtabel), Transacties (sorteren/pagineren), Prognose.
-- Instellingen: "Code wijzigen" (`wijzig_code()`, `wijzig_portfolio_code()`), naast het verwijderen van data.
-- Statistieken: tabel "Verkochte posities" en deels verkochte posities, TWR, totale transactiekosten.
-- Ticker-zekerheid: het escalatietrapje met automatische correctie (tier 1/2), het `MANUAL_TICKER_OVERRIDES_ISIN`-voorbeeld voor `VWRL.AS`, en de OpenFIGI-kandidaten.
-- Frontend: hamburgermenu op mobiel (`menu.js`), (i)-hulpicoontjes (`infotip.js`), `fetchMetTimeout()`.
-
-**Verouderde verwijzingen in de code zelf**
-
-- Commentaar en docstrings verwijzen op 22 regels in de Python-bestanden en 10 regels in `app.js` nog naar `analysis.py`. Een deel daarvan zijn bewuste historische notities ("Losgetrokken uit analysis.py"), maar
-  een aantal wijst naar functies die nu elders staan (bv. `db.py`, `statistieken.py` en `app.py` noemen `analysis.`-functies of `KOSTEN_KOLOM in app.py`). Wie op die naam zoekt, vindt het bestand niet meer.
-- `README.md` toont nog `analysis.py`, `class_degiro.py` en `trading_degiro.py` in de bestandsstructuur.
-
-**Klopt nog (bewust bevestigd)**
-
-- De open aandachtspunten "geen `herinvesteerd`-badge in de UI" (geen enkel gebruik van `herinvesteerd` in `app.js`) en "emoji in `dprint()` kan lokaal op Windows crashen" (`DEBUG = True`, emoji's in `dprint`-regels).
-- `analysis.py` bestaat niet meer en de modulestructuur uit CLAUDE.md komt overeen met de 18 modules.
+Bij het bijwerken zijn de verwarrende `analysis.py`-verwijzingen (die naar niet-bestaande functies/modules wezen, niet naar de
+huidige module) rechtgezet: 9 regels in `app.py`/`db.py`/`portfolio_orchestratie.py`/`ticker_classificatie.py`/
+`transactie_utils.py` en alle 9 in `static/js/app.js`. Wat overblijft (13 regels, in vrijwel elke domeinmodule) zijn bewuste
+historische notities in de vorm "Losgetrokken uit `analysis.py`; ongewijzigd overgenomen" — die kloppen nog en zijn niet
+verwarrend (ze verwijzen niet naar een functienaam die je ergens anders zou zoeken).
 
 ## Onzekerheden en open vragen
 
@@ -1365,5 +1337,4 @@ Dingen die ik niet met zekerheid uit de code kon vaststellen, of waar mijn besch
 7. **Diepte van mijn lezing:** de Python-modules heb ik volledig gelezen. `app.js` (circa 4000 regels) heb ik gelezen via de datastroom en de belangrijkste functies; enkele opmaakfuncties (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`,
    `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De 51 Python-testbestanden heb ik niet allemaal doorgelezen; de koppeling test ↔ module is gebaseerd op imports, bestandsnamen en docstrings.
 8. **Niet uitgevoerd:** de Python-tests (ze raken deels de echte database) en de app zelf. Alleen de JS-tests draaiden (73 geslaagd).
-9. **Wijzigingen in beweging:** de Top-N-bedrijven en mobiele CSS-wijzigingen in de werkmap waren op het moment van schrijven nog niet gecommit; details kunnen sindsdien veranderd zijn.
-10. **Mermaid-diagram:** ik heb het niet kunnen renderen; de syntax is met zorg geschreven maar niet visueel gecontroleerd.
+9. **Mermaid-diagram:** ik heb het niet kunnen renderen; de syntax is met zorg geschreven maar niet visueel gecontroleerd.

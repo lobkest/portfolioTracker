@@ -401,7 +401,7 @@ const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als errorMsg/verwijderPortfolioB
 // Koers per aandeel + aankoop-/verkoopmomenten (groene/rode stippellijnen)
 // + aantal aangehouden aandelen (blauwe trapvormige lijn, rechter y-as) --
 // ander soort grafiek dan toonPerAandeel() hierboven (waarde/geïnvesteerd),
-// zie analysis.compute_per_ticker_koers_en_aankopen(). Gebruikt EIGEN
+// zie portfolio_calc.compute_per_ticker_koers_en_aankopen(). Gebruikt EIGEN
 // Chart-opbouw i.p.v. updateChart(), want dat ondersteunt geen twee
 // y-assen of de annotation-plugin (verticale lijnen).
 function toonPerAandeelAankoop(ticker) {
@@ -729,7 +729,7 @@ function maakVerdelingLijst(titel, verdelingObj) {
 }
 
 // Alleen aandelen die getagd zijn als ETF hebben een per_etf-entry (zie
-// analysis.compute_land_sector_verdeling) — dat gebruiken we hier als
+// portfolio_verdeling.compute_land_sector_verdeling) — dat gebruiken we hier als
 // signaal of dit een ETF is, in plaats van een los "is_etf"-veld door te
 // geven: als er geen entry is, is het gewoon een los aandeel/n.v.t.
 function toonEtfDrilldown(ticker) {
@@ -851,7 +851,7 @@ function toonPlatteVerdeling(verdelingObj) {
     }
     document.getElementById("geenData").style.display = "none";
 
-    // "Overig" (kleine landen samengevoegd, zie analysis._voeg_kleine_landen_samen)
+    // "Overig" (kleine landen samengevoegd, zie portfolio_verdeling._voeg_kleine_landen_samen)
     // en "Unknown" krijgen altijd de laatste plekken in de legenda — Overig
     // vlak vóór Unknown, de rest aflopend op bedrag. Dezelfde volgorde-/
     // kleurbehandeling voor allebei, voor visuele consistentie.
@@ -908,7 +908,7 @@ function toonPlatteVerdeling(verdelingObj) {
 // Bronnen (ETF-tickers/losse aandelen) met een verwaarloosbare totale
 // bijdrage over alle categorieën heen worden samengevoegd tot "Overige
 // bronnen" -- voorkomt een onleesbaar volle legenda bij veel posities.
-// Zelfde soort drempel-principe als analysis.LAND_OVERIG_DREMPEL, hier
+// Zelfde soort drempel-principe als portfolio_verdeling.LAND_OVERIG_DREMPEL, hier
 // client-side toegepast omdat de drempel op de RENDER-eenheid (bronnen in
 // de legenda) werkt, niet op de data zelf.
 const BRON_OVERIG_DREMPEL = 0.005;
@@ -1113,7 +1113,7 @@ function toonLand() {
     } else {
         // land_europa is server-side voorberekend (zelfde als "land" maar met
         // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie
-        // analysis.compute_land_sector_verdeling) — geen her-berekening of
+        // portfolio_verdeling.compute_land_sector_verdeling) — geen her-berekening of
         // extra API-call nodig bij het aan/uit-zetten van de toggle.
         const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
         toonPlatteVerdeling(bron);
@@ -1526,7 +1526,7 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
 
 // Eén samenvattingsregel voor de OpenFIGI-root-check (server-side al
 // berekend, zie _openfigi_root_bekend()/_voeg_openfigi_check_toe() in
-// analysis.py) -- i.p.v. de volledige ruwe resultatentabel uit de vorige
+// ticker_matching.py/ticker_zekerheid.py) -- i.p.v. de volledige ruwe resultatentabel uit de vorige
 // opdracht, die vooral ruis bleek (soms 100+ rijen per positie). Geen regel
 // bij p.openfigi_root_bekend === null/undefined (geen ticker of geen
 // OpenFIGI-resultaten om tegen te vergelijken -- geen oordeel mogelijk).
@@ -1631,7 +1631,7 @@ function maakTickerZekerheidKaart(p) {
         const banner = document.createElement("div");
         // p.waarschuwing kan meerdere \n-gescheiden boodschappen bevatten
         // (bv. de prijscontrole + een aanvullende OpenFIGI-bevinding, zie
-        // _voeg_openfigi_check_toe in analysis.py) -- pre-line houdt die
+        // _voeg_openfigi_check_toe in ticker_zekerheid.py) -- pre-line houdt die
         // op aparte regels i.p.v. ze aaneen te laten lopen.
         banner.textContent = `⚠️ ${p.waarschuwing}`;
         banner.style.whiteSpace = "pre-line";
@@ -3052,11 +3052,11 @@ function tekenBedrijven() {
 
 // ETF-overlap-tabblad: eenvoudige HTML-matrix (geen Chart.js) met
 // achtergrondkleur-intensiteit naar overlap% -- zie
-// analysis.bereken_etf_overlap. Minder dan 2 aangehouden ETF's -> lege
+// portfolio_verdeling.bereken_etf_overlap. Minder dan 2 aangehouden ETF's -> lege
 // matrix van de backend, toon dan een duidelijke melding i.p.v. een tabel
 // met 0 of 1 kolom.
 // Korte uitklapbare uitleg over de overlap-berekening (zie
-// analysis.bereken_etf_overlap) -- als <details>/<summary> i.p.v. een
+// portfolio_verdeling.bereken_etf_overlap) -- als <details>/<summary> i.p.v. een
 // altijd-zichtbare box zoals maakUitlegSectie() bij Statistieken, omdat de
 // matrix hier de hoofdaandacht moet krijgen en de uitleg niet iedereen
 // elke keer opnieuw hoeft te zien.
