@@ -352,12 +352,9 @@ def _ticker_details_met_cache(ticker):
     in analyze_transacties gecached is vóórdat de Ticker-zekerheid-pagina
     wordt opgebouwd.
 
-    Let op: ticker_info had oorspronkelijk alleen een is_etf-kolom; deze
-    extra velden kwamen er later bij (ALTER TABLE ADD COLUMN, geen backfill
-    voor bestaande rijen). Een rij die van vóór die uitbreiding dateert heeft
-    dus is_etf gezet maar alle nieuwe velden NULL — dat is niet hetzelfde
-    als "succesvol gecontroleerd en er is gewoon geen data" (bv. land/sector
-    zijn voor een ETF legitiem None). valuta en quote_type zijn vrijwel
+    Let op: een rij met is_etf gezet maar alle overige velden NULL is niet
+    hetzelfde als "succesvol gecontroleerd en er is gewoon geen data" (bv.
+    land/sector zijn voor een ETF legitiem None). valuta en quote_type zijn vrijwel
     altijd aanwezig bij een geslaagde .info-call (elke ticker heeft een
     beurs en een valuta), dus als BEIDE None zijn behandelen we de rij als
     "nog nooit met de huidige velden gevuld" en halen we 'm opnieuw op.

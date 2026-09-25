@@ -3,12 +3,10 @@ opzet als tests/test_dividend_db.py en tests/test_wijzig_code_db.py: een
 aparte, opgeruimde test-code in dezelfde database als DATABASE_URL aangeeft,
 overgeslagen als DATABASE_URL niet is ingesteld (bv. GitHub Actions-CI).
 
-Dekt de backfill-bugfix: transactiekosten kwam pas via een latere migratie
-bij, en de insert-query in app.py's /upload-route gebruikt ON CONFLICT
-(code, order_id) DO NOTHING -- alle vóór-migratie-rijen (elke order_id die al
-eens eerder is opgeslagen) bleven daardoor voor altijd transactiekosten=NULL,
-ook bij een herhaalde upload van hetzelfde Excel-bestand. Zie
-db.backfill_transactiekosten voor de fix."""
+Dekt de backfill: de insert-query bij een upload gebruikt ON CONFLICT
+(code, order_id) DO NOTHING, dus een al opgeslagen rij met
+transactiekosten=NULL wordt bij een herhaalde upload niet bijgewerkt. Zie
+db.backfill_transactiekosten."""
 import os
 import sys
 import unittest
@@ -32,7 +30,7 @@ class TestBackfillTransactiekosten(unittest.TestCase):
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
-        # rij zonder transactiekosten (zoals een vóór-migratie-rij)
+        # rij zonder transactiekosten
         cur.execute(
             "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, "
             "order_id, transactiekosten) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",

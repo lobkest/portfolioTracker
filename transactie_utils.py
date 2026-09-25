@@ -17,17 +17,17 @@ def _is_corporate_action_row(row):
 
 def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
     """Sorteert transactierijen chronologisch op datum+tijd samen, niet
-    alleen op datum. Nodig voor same-day transacties: de 'transacties'-tabel
-    slaat alleen een DATE op, geen tijdstip (zie ALTER TABLE ... ADD COLUMN
-    tijd in db.py) — zonder tijd kon een verkoop op dezelfde dag als de
+    alleen op datum. Nodig voor same-day transacties: 'datum' in de
+    'transacties'-tabel is alleen een DATE, het tijdstip staat in de aparte
+    kolom 'tijd' — zonder tijd kon een verkoop op dezelfde dag als de
     bijbehorende koop in de verkeerde volgorde verwerkt worden (afhankelijk
     van de willekeurige SELECT-volgorde uit de database, niet van de
     werkelijke uitvoeringstijd). Dit gaf bv. een 'onbekende' verkoopkoers
     op het Statistieken-tabblad wanneer bereken_holdings_en_gesloten() de
     verkoop verwerkte vóórdat de koop van diezelfde dag geregistreerd was.
 
-    Rijen zonder tijd (tijd_kolom ontbreekt, of tijd IS NULL — bv. data van
-    vóór de tijd-migratie die nog niet is teruggehaald via een herüpload)
+    Rijen zonder tijd (tijd_kolom ontbreekt, of tijd IS NULL — bv. een
+    ontbrekende tijd in het Excel-bestand)
     krijgen bewust 00:00:00 als fallback: dat is geen garantie voor de
     juiste volgorde, maar wel een stabiele, voorspelbare sortering die niet
     slechter is dan de oude datum-only sortering (mergesort is stable, dus

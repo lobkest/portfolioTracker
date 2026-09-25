@@ -5,11 +5,9 @@ aangeeft, overgeslagen als DATABASE_URL niet is ingesteld (bv. GitHub
 Actions-CI).
 
 Dekt de backfill-helft van de 'verkoopkoers onbekend bij same-day
-transacties'-fix: 'tijd' kwam pas via een latere migratie bij, en de
-insert-query in app.py's /upload-route gebruikt ON CONFLICT (code, order_id)
-DO NOTHING -- alle vóór-migratie-rijen (elke order_id die al eens eerder is
-opgeslagen) bleven daardoor voor altijd tijd=NULL, ook bij een herhaalde
-upload van hetzelfde Excel-bestand. Zie db.backfill_tijd voor de fix, en
+transacties'-fix: de insert-query bij een upload gebruikt ON CONFLICT
+(code, order_id) DO NOTHING, dus een al opgeslagen rij met tijd=NULL wordt
+bij een herhaalde upload niet bijgewerkt. Zie db.backfill_tijd, en
 tests/test_chronologische_sortering.py voor de kern van de bug zelf
 (same-day sortering zonder tijd)."""
 import os
@@ -35,7 +33,7 @@ class TestBackfillTijd(unittest.TestCase):
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
-        # rij zonder tijd (zoals een vóór-migratie-rij)
+        # rij zonder tijd
         cur.execute(
             "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, "
             "order_id, tijd) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
