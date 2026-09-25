@@ -1,24 +1,10 @@
-// Rekenkern voor het Transacties-tabblad (sortering + paginering). Puur JS,
-// geen DOM-afhankelijkheden, zodat dit zowel in de browser (index.html) als
-// onder Node (tests/test_transacties.js) draait -- zelfde opzet als
-// prognose.js/menu.js.
-//
-// Los van maakSorteerbareTabel() (app.js) gehouden: die helper sorteert en
-// tekent zelf de VOLLEDIGE meegegeven rijenlijst opnieuw bij een kolomklik,
-// wat prima is voor een tabel zonder paginering (Statistieken), maar hier
-// moet gesorteerd worden over de VOLLEDIGE dataset en pas DAARNA gepagineerd
-// -- vandaar een eigen, kleine sorteer+pagineer-kern i.p.v. die helper aan
-// te passen (die wordt ook door het Statistieken-tabblad gebruikt).
+// Sorteren en pagineren voor Transacties (zonder DOM, getest onder Node).
+// Eigen kern i.p.v. maakSorteerbareTabel(): sorteren moet over alle pagina's heen.
 
 (function (root) {
     "use strict";
 
-    // Kolomsleutels in vaste volgorde, met een vergelijkingsfunctie per kolom.
-    // "datum_tijd" sorteert op de volledige timestamp: datum is een ISO-string
-    // (YYYY-MM-DD) en tijd "HH:MM" -- samengevoegd als "YYYY-MM-DDTHH:MM"
-    // geeft lexicografisch sorteren al chronologische volgorde, geen
-    // Date-parsing nodig. Een ontbrekende tijd (null) telt als 00:00, dus
-    // zo'n rij komt binnen zijn dag als eerste.
+    // "YYYY-MM-DDTHH:MM" sorteert als string chronologisch; een ontbrekende tijd telt als 00:00.
     const timestampSleutel = r => `${r.datum}T${r.tijd ?? "00:00"}`;
     const VERGELIJKERS = {
         datum_tijd: (a, b) => {
@@ -33,8 +19,7 @@
         transactiekosten: (a, b) => (a.transactiekosten ?? -Infinity) - (b.transactiekosten ?? -Infinity),
     };
 
-    // Sorteert een KOPIE van de rijenlijst (nooit de meegegeven array zelf
-    // muteren) op kolomKey, in richting "asc" of "desc".
+    // Sorteert een kopie; de invoer blijft ongewijzigd.
     function sorteerTransacties(rijen, kolomKey, richting) {
         const vergelijk = VERGELIJKERS[kolomKey];
         if (!vergelijk) return rijen.slice();
@@ -43,16 +28,12 @@
         return gesorteerd;
     }
 
-    // Aantal pagina's voor `totaalRijen` rijen bij `paginaGrootte` per pagina
-    // -- minimaal 1, ook als totaalRijen 0 is (dan gewoon 1 lege pagina).
+    // Minimaal 1, ook zonder rijen.
     function totaalPaginas(totaalRijen, paginaGrootte) {
         return Math.max(1, Math.ceil(totaalRijen / paginaGrootte));
     }
 
-    // Geeft de rijen terug voor `paginaNummer` (1-based). paginaNummer wordt
-    // geklemd tussen 1 en het werkelijke aantal pagina's, zodat een verouderd
-    // paginanummer (bv. na een filtersnede of kleinere paginaGrootte) nooit
-    // een lege pagina teruggeeft zolang er rijen zijn.
+    // paginaNummer (1-based) wordt geklemd, zodat een verouderd nummer nooit een lege pagina geeft.
     function pagineer(rijen, paginaGrootte, paginaNummer) {
         const maxPagina = totaalPaginas(rijen.length, paginaGrootte);
         const pagina = Math.min(Math.max(1, paginaNummer), maxPagina);

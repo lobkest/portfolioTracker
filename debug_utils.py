@@ -1,8 +1,10 @@
-"""Kleine, gedeelde diagnostiek-helpers zonder eigen afhankelijkheden op
-andere projectmodules — gebruikt door vrijwel elke andere module
-(dprint/meet_tijd waren voorheen bovenaan analysis.py gedefinieerd)."""
+"""Logging-helpers voor het hele project (dprint, meet_tijd)."""
 import time
 from contextlib import contextmanager
+
+# diagnostiek.py importeert zelf geen projectmodules (alleen Flask), dus
+# geen circulaire import.
+from diagnostiek import meld_laadtijd
 
 # Zet op True om overal in het project debug-prints aan te zetten.
 DEBUG = True
@@ -15,14 +17,11 @@ def dprint(*args, **kwargs):
 
 @contextmanager
 def meet_tijd(label):
-    """Herbruikbare timing-helper voor de performance-meting van de upload/
-    analyse-flow: logt de verstreken tijd van het omsloten codeblok met een
-    [timing]-prefix, in lijn met de bestaande [upload]/[koersen]/[split]-
-    prefix-conventie. Eén centrale plek i.p.v. losse
-    `t0 = time.time(); ...; time.time() - t0`-boilerplate in elke functie
-    die een fase wil timen."""
+    """Logt de duur van het omsloten codeblok als [timing] en meldt hem aan de Diagnostiek."""
     start = time.time()
     try:
         yield
     finally:
-        print(f"[timing] {label}: {time.time() - start:.2f}s")
+        duur = time.time() - start
+        print(f"[timing] {label}: {duur:.2f}s")
+        meld_laadtijd(label, duur)

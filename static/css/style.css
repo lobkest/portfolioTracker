@@ -110,9 +110,15 @@ body {
     font-weight: bold;
 }
 
+.diagnostiekBlok {
+    margin-top: 14px;
+}
+
 .diagnostiekCategorie {
-    margin: 18px 0 6px;
+    margin: 0 0 6px;
     font-size: 1em;
+    font-weight: bold;
+    cursor: pointer;
 }
 
 .diagnostiekLijst {

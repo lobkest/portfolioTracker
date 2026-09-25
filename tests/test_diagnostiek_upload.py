@@ -322,7 +322,8 @@ class TestDividendMeldingen(_MetRequest):
         mock_verwerk.return_value = records
         meldingen = self._met_bestand2(uv._verwerk_dividend_bestand_indien_aanwezig, "ABC")
         mock_save.assert_called_once_with("ABC", records)
-        self.assertEqual([m["sleutel"] for m in meldingen], [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
+        dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
+        self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 
     def test_niet_opslaan_met_bestand2_info(self):
         meldingen = self._met_bestand2(uv._meld_dividend_bestand_genegeerd)

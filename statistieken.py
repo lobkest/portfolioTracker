@@ -1,27 +1,10 @@
-"""
-Statistieken-tabblad: rendement-, XIRR-, TWR- en jaaroverzicht-berekeningen.
-
-De `bereken_*`-functies hier zijn bewust pure functies (getallen/DataFrames
-in, getallen uit, geen DB/netwerk-toegang) -- dat maakt ze met de hand na te
-rekenen en apart te unittesten (zie tests/test_rendement.py e.a.) zonder een
-databaseverbinding of live yfinance-data nodig te hebben.
-bereken_statistieken() is de orkestratie die er transacties_df/price_data/
-resultaat (al berekend door portfolio_calc-functies) voor voedt.
-
-Losgetrokken uit analysis.py (was daar het laatste blok functies).
-"""
+"""Rendement, XIRR, TWR, GAK en jaaroverzicht. Pure functies: geen DB of netwerk."""
 import pandas as pd
 from pyxirr import xirr
 
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
 
-# Benchmarks voor de rendement-vergelijking (zie bereken_benchmark_
-# vergelijking hieronder) -- allemaal accumulerende (Acc.) UCITS-ETF's in
-# EUR, zodat get_prices() ze zonder extra dividend-boekhouding kan gebruiken.
-# S&P 500/Nasdaq 100 waren al bekend uit ETF_HOLDINGS_BRON; AEX is apart
-# opgezocht en getest (yf.Ticker("IAEA.AS").info -> "iShares AEX UCITS ETF
-# EUR (Acc)", koersdata vanaf 2020-07-29) -- er bestaat geen accumulerende
-# AEX-ETF met een langere koershistorie op Yahoo.
+# Accumulerende UCITS-ETF's in EUR: geen dividend-boekhouding nodig. IAEA.AS heeft pas koersen vanaf 2020-07-29.
 BENCHMARK_TICKERS = {
     "S&P 500": "VUSA.AS",
     "Nasdaq 100": "CNDX.AS",
@@ -30,11 +13,7 @@ BENCHMARK_TICKERS = {
 
 
 def bereken_positie_rendement(gak, aantal, huidige_koers):
-    """Rendement van 1 positie op basis van GAK (gemiddelde aankoopkoers).
-    geinvesteerd = kostenbasis van de nu aangehouden stukken (GAK x aantal),
-    NIET het historische netto-ingelegde bedrag (dat kan door eerdere
-    verkopen anders zijn) — voor 'wat heb ik betaald voor wat ik nu heb' is
-    de kostenbasis van de huidige positie de juiste noemer."""
+    """Noemer is de kostenbasis van de huidige stukken (GAK x aantal), niet de historische inleg."""
     geinvesteerd = gak * aantal
     waarde = aantal * huidige_koers
     rendement_pct = ((waarde - geinvesteerd) / geinvesteerd * 100) if geinvesteerd else None
@@ -42,19 +21,14 @@ def bereken_positie_rendement(gak, aantal, huidige_koers):
 
 
 def bereken_totaal_rendement(geinvesteerd, waarde):
-    """Rendement% als simpele ratio winst/geïnvesteerd — houdt GEEN rekening
-    met WANNEER er is ingelegd (dat is XIRR, zie bereken_xirr)."""
+    """Simpele ratio, zonder rekening te houden met wanneer er is ingelegd."""
     rendement_eur = waarde - geinvesteerd
     rendement_pct = (rendement_eur / geinvesteerd * 100) if geinvesteerd else None
     return {"rendement_eur": rendement_eur, "rendement_pct": rendement_pct}
 
 
 def bereken_jaar_rendement(startwaarde, ingelegd, eindwaarde):
-    """Winst van 1 kalenderjaar. winst_pct deelt door (startwaarde + ingelegd)
-    — het bedrag dat aan het eind van het jaar 'ingezet' is, niet het
-    gemiddelde over het hele jaar — zelfde ratio-methode als
-    bereken_totaal_rendement, nu toegepast op dit ene jaar i.p.v. de hele
-    portefeuille."""
+    """winst_pct deelt door startwaarde + ingelegd, niet door een gemiddelde over het jaar."""
     winst_eur = eindwaarde - startwaarde - ingelegd
     noemer = startwaarde + ingelegd
     winst_pct = (winst_eur / noemer * 100) if noemer else None
@@ -62,12 +36,7 @@ def bereken_jaar_rendement(startwaarde, ingelegd, eindwaarde):
 
 
 def bereken_xirr(cashflows):
-    """cashflows: lijst van (datum, bedrag)-tuples vanuit het perspectief van
-    de belegger — aankopen negatief, verkopen positief, plus een laatste
-    fictieve 'verkoop' van de huidige waarde op vandaag. Geeft de
-    geannualiseerde, tijdgewogen rentevoet terug (als fractie, dus 0.10 =
-    10%), of None als pyxirr geen oplossing kan vinden (bv. te weinig of
-    tegenstrijdige cashflows)."""
+    """cashflows: (datum, bedrag), aankopen negatief. Fractie (0.10 = 10%) of None."""
     if len(cashflows) < 2:
         return None
     datums = [c[0] for c in cashflows]
@@ -79,30 +48,8 @@ def bereken_xirr(cashflows):
 
 
 def bereken_twr(transacties_df, resultaat):
-    """Time-Weighted Return (TWR): rendementsmaat die, anders dan XIRR, niet
-    vertekend wordt door de TIMING van stortingen/onttrekkingen — elke
-    sub-periode (tussen twee opeenvolgende datums in `resultaat`) krijgt een
-    eigen rendement op basis van de portfoliowaarde, onafhankelijk van
-    hoeveel geld er die dag bij kwam. Poort van compute_twr_from_values() uit
-    het oude class_degiro.py.
-
-    cf_lookup: per datum de som van externe cashflows (-totaal_eur, positief
-    bij een aankoop/storting, net als delta_cash in bereken_holdings_en_
-    gesloten) — DEGIRO's corporate-action-boekingsrijen (zie
-    _is_corporate_action_row) tellen niet mee, dat is geen geld dat de
-    belegger zelf inlegt/onttrekt.
-
-    Sub-periode-rendement r = waarde_eind / (waarde_start + cf) - 1, waarbij
-    cf de cashflow van de EIND-datum van de sub-periode is (cash komt binnen
-    vóór de koersbeweging van die dag telt, dus telt mee in de noemer).
-    Sub-periodes met een noemer van (ongeveer) 0 — bv. vóór de eerste
-    aankoop, of een volledige verkoop die de waarde naar 0 brengt — worden
-    overgeslagen, geen zinnig rendement te berekenen. De losse sub-periode-
-    rendementen worden samen vermenigvuldigd (linking) en aan het eind -1
-    gedaan.
-
-    Geeft TWR als fractie terug (0.10 = 10%), of None als er geen enkele
-    geldige sub-periode is (zelfde edge case als bereken_xirr)."""
+    """Time-weighted return als fractie, of None. cf telt mee op de einddatum van een sub-periode;
+    corporate-action-rijen tellen niet als cashflow."""
     if resultaat.empty or len(resultaat) < 2:
         return None
 
@@ -124,7 +71,7 @@ def bereken_twr(transacties_df, resultaat):
         cf = cf_lookup.get(pd.Timestamp(resultaat.index[i]).normalize(), 0.0)
         noemer = waarde_start + cf
         if abs(noemer) < 1e-9:
-            continue
+            continue  # bv. vóór de eerste aankoop
         product *= waarde_eind / noemer
         geldige_periode = True
 
@@ -134,46 +81,14 @@ def bereken_twr(transacties_df, resultaat):
 
 
 def bereken_holdings_en_gesloten(transacties_df):
-    """Per ticker: aantal + GAK (gemiddelde aankoopkoers) via de
-    lopende-gemiddelde-kostprijs-methode (zelfde methode als DEGIRO zelf
-    hanteert), en in dezelfde doorloop ook de posities die volledig
-    verkocht zijn (één pas door de data, zodat de boekhoud-logica —
-    split-correctie, GAK-methode — niet op twee plekken hoeft te kloppen).
-
-    ALLE rijen tellen mee voor het aantal — ook DEGIRO's
-    corporate-action-boekingsrijen (zie _is_corporate_action_row): die
-    overslaan zou bij een split het aandelenaantal dubbel tellen (oude +
-    nieuwe stukken blijven dan allebei meetellen). Of een negatieve rij de
-    kostenbasis evenredig verlaagt, hangt af van of er een ECHTE cashflow
-    bij zit (totaal_eur != 0): bij een verkoop realiseer je een deel van de
-    kostenbasis (dat deel gaat eraf), maar bij een split-boekingsrij (aantal
-    negatief, totaal_eur=0, geen geld dat van eigenaar wisselt) blijft de
-    kostenbasis intact — alleen het aantal daalt tijdelijk, om vervolgens via
-    de bijbehorende conversie-rij weer (met meer stukken) aangevuld te
-    worden. Zo verdunt een split de GAK per aandeel vanzelf correct, zonder
-    de kostenbasis aan te tasten.
-
-    Geeft (open_posities, gesloten_posities) terug:
-    - open_posities: {ticker: {"aantal", "gak"}} — posities met aantal > 0.
-    - gesloten_posities: {ticker: {"aantal", "gemiddelde_aankoopkoers",
-      "gemiddelde_verkoopkoers", "gerealiseerd_eur"}} voor tickers die ooit
-      een positie hadden (totaal_gekocht_aantal > 0) en nu op (ongeveer)
-      nul staan.
-
-    Net als bij de kostenbasis geldt: alleen rijen met een ECHTE cashflow
-    (totaal_eur != 0) tellen mee voor de gemiddelde aankoop-/verkoopkoers —
-    DEGIRO's split-conversierijen (aantal negatief/positief, totaal_eur=0)
-    zijn geen echte koop/verkoop en zouden de gemiddelde prijs vertekenen."""
+    """GAK-methode, zie CLAUDE.md: Data en rekenen. Alle rijen tellen voor het aantal, alleen rijen
+    met totaal_eur != 0 voor kostenbasis en gemiddelde koersen.
+    Geeft (open_posities {ticker: {aantal, gak, deels_verkocht?}},
+           gesloten_posities {ticker: {aantal, gemiddelde_aankoopkoers, gemiddelde_verkoopkoers, gerealiseerd_eur}})."""
     open_posities = {}
     gesloten_posities = {}
     df = transacties_df.dropna(subset=["ticker"])
     for ticker, groep in df.groupby("ticker"):
-        # Chronologisch (datum+tijd), niet alleen datum: bij een koop en
-        # verkoop op dezelfde dag (bv. een beurswissel) kon de verkoop vóór
-        # de koop verwerkt worden — de aantal_lopend > 0-check hieronder
-        # faalt dan en de verkoopopbrengst wordt stilzwijgend niet meegeteld
-        # (zichtbaar als een 'onbekende' verkoopkoers op Statistieken). Zie
-        # _sorteer_chronologisch().
         groep = _sorteer_chronologisch(groep)
         aantal_lopend = 0.0
         kostprijs_lopend = 0.0
@@ -185,13 +100,9 @@ def bereken_holdings_en_gesloten(transacties_df):
 
         for _, row in groep.iterrows():
             delta_aantal = float(row["aantal"])
-            # totaal_eur incl. AutoFX/transactiekosten; alleen gebruikt voor
-            # de cashflow-check (corporate-action-rijen hebben totaal_eur=0)
-            # en de verkoopkant, die bewust op totaal_eur blijft.
+            # totaal_eur alleen voor de cashflow-check (splitrijen = 0) en de verkoopkant.
             delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
             if delta_aantal > 0:
-                # Kostenbasis o.b.v. de kale Waarde EUR, niet totaal_eur —
-                # zie compute_per_ticker() (portfolio_calc.py) voor dezelfde reden.
                 waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
                 delta_cash_aankoop = -float(waarde_bron)
                 aantal_lopend += delta_aantal
@@ -213,12 +124,7 @@ def bereken_holdings_en_gesloten(transacties_df):
         if aantal_lopend > 1e-9:
             positie = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
             if totaal_verkocht_aantal > 1e-9:
-                # Positie staat nog (deels) open, maar er is onderweg wél
-                # verkocht — die gerealiseerde winst/verlies mag niet
-                # verloren gaan (zie instructiedocument "gedeeltelijke
-                # verkopen"). Zelfde velden als een volledig gesloten
-                # positie hieronder, zodat bereken_statistieken() ze
-                # uniform kan verwerken.
+                # Gerealiseerd resultaat van een gedeeltelijke verkoop; zelfde velden als gesloten.
                 positie["deels_verkocht"] = {
                     "aantal": totaal_verkocht_aantal,
                     "gemiddelde_aankoopkoers": (
@@ -244,15 +150,7 @@ def bereken_holdings_en_gesloten(transacties_df):
 
 
 def bereken_jaren_overzicht(resultaat, eerste_datum=None):
-    """resultaat: DataFrame zoals compute_value_over_time() teruggeeft
-    (index=datum, kolommen 'waarde'/'geinvesteerd'). Geeft per kalenderjaar
-    waarin belegd is een overzicht terug (zie bereken_jaar_rendement).
-
-    eerste_datum: de echte eerste transactiedatum (kan iets vóór
-    resultaat.index.min() liggen door weekend/feestdag-afronding in
-    price_data) — begrenst het eerste jaar zodat dagen_verstreken/
-    pct_van_jaar niet ten onrechte een vol jaar tonen. Valt terug op
-    resultaat.index.min() als niet meegegeven."""
+    """eerste_datum: de echte eerste transactiedatum, zodat het eerste jaar niet als vol jaar telt."""
     if resultaat.empty:
         return []
 
@@ -297,20 +195,7 @@ def bereken_jaren_overzicht(resultaat, eerste_datum=None):
 
 
 def _bouw_xirr_cashflows(transacties_df, resultaat):
-    """Bouwt de cashflow-lijst voor bereken_xirr(): elke echte transactie
-    (geen corporate-action-boekingsrij, geen €0-splitconversie) plus een
-    laatste fictieve cashflow op de laatste bekende datum ter grootte van de
-    huidige portfoliowaarde (alsof alles vandaag verkocht wordt — nodig om
-    XIRR een eindpunt te geven).
-
-    Nagelopen tegen dezelfde same-day-sorteerbug als
-    bereken_holdings_en_gesloten() (zie _sorteer_chronologisch): hier is
-    geen fix nodig. XIRR is een NPV-berekening puur op basis van (datum,
-    bedrag)-paren — de volgorde van de cashflows-lijst zelf beïnvloedt de
-    uitkomst niet (in tegenstelling tot de GAK-boekhouding hierboven, die
-    per rij een lopend saldo bijhoudt en dus wél afhankelijk is van de
-    verwerkingsvolgorde). Alleen de einddatum sortering (hieronder) is voor
-    de leesbaarheid, niet voor de correctheid."""
+    """Echte transacties plus als laatste een fictieve 'verkoop vandaag' van de huidige waarde."""
     if resultaat.empty:
         return []
     df = transacties_df.dropna(subset=["ticker"])
@@ -329,38 +214,9 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
 
 
 def bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_koersen):
-    """Simuleert wat de portfolio waard zou zijn geweest als exact dezelfde
-    cashflows (zelfde bedrag, zelfde datum) in een benchmark waren gestoken
-    i.p.v. in de echte posities — voor de "Vergelijk met..."-optie op het
-    Rendement-tabblad (zie BENCHMARK_TICKERS hierboven).
-
-    `benchmark_koersen`: pd.Series, datum-index -> koers in EUR (al
-    opgehaald door de aanroeper via de bestaande get_prices()-cache, zie
-    app.py) — deze functie blijft bewust DB/netwerk-vrij, zelfde patroon als
-    compute_value_over_time()/compute_per_ticker() die ook al opgehaalde
-    price_data als parameter krijgen i.p.v. zelf te fetchen.
-
-    Hergebruikt _bouw_xirr_cashflows() (zelfde cashflows als XIRR): bedrag is
-    daar negatief bij een investering (geld uit) en positief bij een
-    onttrekking (geld terug) — dus een benchmark-"aankoop" ter grootte van
-    het bedrag is `aantal += -bedrag / koers` (bij een onttrekking is bedrag
-    positief en -bedrag/koers dus negatief, wat de hypothetische positie
-    evenredig verkleint). De laatste entry in die lijst is een FICTIEVE
-    'verkoop vandaag'-cashflow (nodig voor XIRR, geen echte transactie) en
-    wordt hier expliciet weggelaten.
-
-    Als de benchmark pas later koersdata heeft dan de eerste cashflow (bv.
-    AEX/IAEA.AS, pas vanaf 2020-07-29), begint de teruggegeven reeks pas
-    vanaf de eerst beschikbare koersdatum -- "onvolledige_dekking"
-    signaleert dat aan de aanroeper i.p.v. stilzwijgend een te lage
-    hypothetische waarde te tonen (cashflows van vóór die datum tellen dan
-    simpelweg niet mee in de simulatie).
-
-    Geeft {"labels", "waarde", "rendement", "vanaf_datum",
-    "onvolledige_dekking"} terug ("rendement" = "waarde" - het bijbehorende
-    "geinvesteerd" uit `resultaat`, zelfde definitie als de bestaande
-    Rendement-lijn), of None als er geen bruikbare cashflows of koersdata
-    zijn."""
+    """Dezelfde cashflows (datum, bedrag) in de benchmark gestoken.
+    Geeft {labels, waarde, rendement, vanaf_datum, onvolledige_dekking} of None;
+    onvolledige_dekking = de benchmark heeft pas koersen na de eerste cashflow."""
     if resultaat.empty:
         return None
     cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
@@ -411,42 +267,8 @@ def bereken_benchmark_vergelijking(transacties_df, resultaat, benchmark_koersen)
 
 
 def bereken_rendement_over_tijd(transacties_df, resultaat):
-    """Bouwt de drie lijnen voor het "XIRR & rendement"-tabblad: gewoon
-    rendement% (bereken_totaal_rendement), XIRR% (bereken_xirr) en TWR%
-    (bereken_twr), allemaal op meerdere momenten in de tijd i.p.v. alleen
-    het eindcijfer zoals op Statistieken.
-
-    Stappen: de laatste dag van elke kalendermaand, van de eerste tot de
-    laatste datum in `resultaat` — resultaat.index.max() is in de praktijk
-    "vandaag" (de laatste beschikbare koersdatum), gebruikt i.p.v. een
-    aparte pd.Timestamp.now()-aanroep zodat deze functie puur/
-    deterministisch blijft. De laatste (huidige) datum wordt altijd als
-    extra stap toegevoegd, ook als die zelf geen maand-einde is, zodat de
-    lijn nooit een stuk van de recentste periode mist.
-
-    Per stapdatum d:
-      - waarde/geinvesteerd = de bekende stand op of vóór d (zelfde
-        waarde_op_of_voor-patroon als bereken_jaren_overzicht hierboven).
-      - rendement_pct via bereken_totaal_rendement — None bij geinvesteerd=0
-        (bv. vóór de eerste aankoop), geen verzonnen 0%.
-      - xirr_pct: cashflows uit _bouw_xirr_cashflows, MINUS de fictieve
-        eind-cashflow van díe functie (die hoort bij de laatste datum in
-        resultaat, niet bij d), afgekapt tot en met d, plus een eigen
-        fictieve eind-cashflow (waarde op d). bereken_xirr geeft zelf al
-        None terug bij te weinig/tegenstrijdige cashflows (bv. de eerste
-        maand) — wordt hier gewoon doorgegeven, geen aparte afhandeling
-        nodig.
-      - twr_pct: bereken_twr() op `resultaat` afgekapt t/m d (resultaat.loc[
-        :d]) — TWR is per definitie een gelinkte reeks van sub-periodes
-        vanaf het begin, dus herberekent bij elke stap opnieuw vanaf de
-        eerste datum. Reageert NIET extreem vlak na een storting zoals xirr_pct dat wel
-        doet — dat is de reden om 'm ernaast te tonen, geen bug als de
-        lijnen dus duidelijk verschillend lopen vlak na een storting.
-
-    Geeft {"labels": [...als YYYY-MM-DD...], "rendement_pct": [...],
-    "xirr_pct": [...], "twr_pct": [...]} terug (xirr_pct/twr_pct als
-    percentage, dus 10.0 = 10%, niet de fractie 0.10 die bereken_xirr/
-    bereken_twr zelf teruggeven). Lege lijsten bij een leeg resultaat."""
+    """Rendement%, XIRR% en TWR% per maandeinde plus de laatste datum (percentages, niet fracties).
+    Dat XIRR en TWR vlak na een storting uiteenlopen, is verwacht."""
     if resultaat.empty:
         return {"labels": [], "rendement_pct": [], "xirr_pct": [], "twr_pct": []}
 
@@ -461,10 +283,7 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
         stap_datums.append(laatste_datum)
 
     alle_cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
-    # laatste entry is de fictieve 'verkoop op laatste_datum' uit
-    # _bouw_xirr_cashflows -- die hoort niet bij tussentijdse stappen, elke
-    # stap krijgt hieronder zijn EIGEN fictieve eind-cashflow (op d, niet op
-    # laatste_datum).
+    # Zonder de fictieve eind-cashflow: elke stap krijgt hieronder een eigen (op d).
     echte_cashflows = alle_cashflows[:-1] if alle_cashflows else []
 
     labels, rendement_pct_lijst, xirr_pct_lijst, twr_pct_lijst = [], [], [], []
@@ -497,13 +316,7 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
 
 
 def bereken_totale_transactiekosten(transacties_df):
-    """
-    Somt de 'transactiekosten'-kolom op (negatieve waarden in de brondata,
-    zie KOSTEN_KOLOM in upload_verwerking.py) tot een positief totaalbedrag. Geeft
-    beschikbaar=False terug als de kolom ontbreekt of enkel NaN bevat — bv.
-    een ouder DeGiro-exportformaat zonder aparte kostenkolom — zodat de UI
-    dan een eerlijke 'data ontbreekt'-melding kan tonen i.p.v. een verzonnen
-    €0,00."""
+    """Positief totaal; beschikbaar=False als de kolom ontbreekt of leeg is (nooit een verzonnen €0,00)."""
     if "transactiekosten" not in transacties_df.columns:
         return {"totaal": None, "beschikbaar": False}
     kosten = pd.to_numeric(transacties_df["transactiekosten"], errors="coerce").dropna()
@@ -513,30 +326,8 @@ def bereken_totale_transactiekosten(transacties_df):
 
 
 def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None):
-    """
-    Bouwt alle data voor het Statistieken-tabblad. Gebruikt uitsluitend data
-    die analyze_transacties_kern() (portfolio_orchestratie.py) al berekend
-    heeft (transacties_df ná compute_split_adjusted_shares, price_data van
-    get_prices(), resultaat van compute_value_over_time()) — geen extra
-    yfinance-calls, dus dit hoeft (anders dan Ticker-zekerheid) niet
-    lui/lazy geladen te worden.
-
-    dividend_per_ticker (optioneel): {ticker: totaal_netto} uit
-    bereken_dividend_samenvatting() (analyze_transacties_kern haalt dit
-    apart op, want dat raakt de database aan — deze functie blijft bewust
-    DB-vrij). Leeg/None bij een 'niet opslaan'-analyse (geen
-    dividendhistorie mogelijk zonder opgeslagen code) — dan krijgt elke
-    positie gewoon 0.0.
-
-    ticker_namen (optioneel): {ticker: naam} voor de "naam"-kolom bij
-    gesloten posities (zelfde bron als de rest van analyze_transacties_kern).
-
-    Let op: voor 'huidig aantal per positie' wordt (net als bij de
-    Verdeling-taart, zie compute_land_sector_verdeling) de ruwe 'aantal'-
-    kolom gebruikt, niet 'adj_aantal' — DEGIRO's splitconversierijen zijn
-    al ECHTE transactierijen die het aandelenaantal optellen, adj_aantal is
-    alleen nodig om HISTORISCHE (vóór-split) waardepunten te corrigeren.
-    """
+    """Alles voor het Statistieken-tabblad, zonder extra Yahoo-calls.
+    Huidige aantallen uit de ruwe 'aantal'-kolom (zie CLAUDE.md: Data en rekenen)."""
     dividend_per_ticker = dividend_per_ticker or {}
     ticker_namen = ticker_namen or {}
     laatste_prijzen = price_data.iloc[-1] if not price_data.empty else pd.Series(dtype=float)
@@ -574,8 +365,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
                 round(info["gemiddelde_verkoopkoers"], 4)
                 if info["gemiddelde_verkoopkoers"] is not None else None
             ),
-            # Puur koersrendement, exclusief dividend — dividend staat als
-            # apart veld ernaast, bewust niet samengevoegd tot één percentage.
+            # Exclusief dividend; dat staat bewust als apart veld ernaast.
             "rendement_eur": round(info["gerealiseerd_eur"], 2),
             "rendement_pct": (
                 round(info["gerealiseerd_eur"] / (info["gemiddelde_aankoopkoers"] * info["aantal"]) * 100, 2)
@@ -613,9 +403,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
     totaal_waarde = float(resultaat["waarde"].iloc[-1]) if not resultaat.empty else 0.0
     totaal = bereken_totaal_rendement(totaal_geinvesteerd, totaal_waarde)
 
-    # All-time high is de hoogste behaalde rendement (waarde - geinvesteerd),
-    # niet de hoogste portefeuillewaarde — een hoge waarde vlak na een grote
-    # storting hoeft geen hoog rendement te zijn.
+    # Hoogste rendement, niet hoogste waarde (zie CLAUDE.md: Data en rekenen).
     all_time_high = {"waarde": None, "datum": None}
     if not resultaat.empty:
         ath_idx = resultaat["rendement"].idxmax()

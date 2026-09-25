@@ -7,7 +7,10 @@ from ticker_zekerheid import (
 )
 from debug_utils import meet_tijd
 from diagnostiek import voeg_diagnostiek_toe
-from yahoo_client import reset_yahoo_call_teller, log_yahoo_call_samenvatting
+from yahoo_client import (
+    reset_yahoo_call_teller, log_yahoo_call_samenvatting, yahoo_teller_stand, meld_yahoo_samenvatting,
+    DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING,
+)
 from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
 from dividend import bereken_dividend_samenvatting
 from portfolio_admin import is_geldige_code, CODE_LENGTH
@@ -35,15 +38,7 @@ def home():
 
 @app.route("/upload", methods=["POST"])
 def upload():
-    """
-    Dunne wrapper om _upload_impl() die ELKE onverwachte fout (bv. een
-    trage/falende Yahoo-call die uiteindelijk toch een exception geeft, of
-    iets onvoorziens in de Excel-parsing) omzet in een nette JSON-
-    foutrespons i.p.v. een kale 500 zonder body of een hangende request die
-    de frontend nooit als 'klaar' ziet. Zie CLAUDE.md, Statistieken-incident
-    2026-08-31: een 'niet opslaan'-analyse van een grotere portfolio bleef
-    zo stil hangen dat er zelfs geen foutmelding verscheen.
-    """
+    """Zet elke onverwachte fout om in een JSON-foutrespons; anders blijft de frontend hangen."""
     try:
         return _upload_impl()
     except Exception as e:
@@ -72,32 +67,8 @@ def _upload_impl():
     herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
     
     if niet_opslaan:
-        # Per (ISIN, Beurs) resolven, niet per ISIN alleen: dezelfde ISIN kan
-        # op meerdere beurzen genoteerd staan (bv. een fonds met een
-        # Amsterdam- én een Londen-notering) en dat zijn dan ECHT
-        # verschillende tickers — één ticker per ISIN voor de hele groep zou
-        # de tweede notering stilzwijgend de ticker van de eerste geven.
-        #
-        # Bewust de GOEDKOPE find_ticker_detailed()-match + lichte, standaard
-        # prijscontrole (via basis_ticker_zekerheid_parallel ->
-        # find_ticker_met_snelle_prijscheck: 1 gecachete call per positie in
-        # het gangbare geval, escaleert alleen bij een echte afwijking),
-        # niet de volledige, dure verifieer_tickers_met_prijs_parallel() —
-        # die liep bij een grotere portfolio met een koude cache ruim over
-        # de gunicorn-timeout heen doordat hij hier ALTIJD synchroon voor de
-        # volle portfolio draaide (zie CLAUDE.md, Statistieken-incident
-        # 2026-08-31). PARALLEL over de posities (niet sequentieel): ook al
-        # kost de lichte check meestal maar 1 call per positie, bij een
-        # portfolio met veel unieke, nog nooit gecontroleerde tickers (koude
-        # ticker_prijscheck-cache) kan die ene call per positie sequentieel
-        # opgeteld alsnog richting de timeout lopen (zie CLAUDE.md, vervolg
-        # op hetzelfde incident). De normale (opslaande) upload koppelt de
-        # VOLLEDIGE check nog steeds lui aan de Ticker-zekerheid-pagina (zie
-        # de /ticker-zekerheid/positie-route hieronder) — dat kan hier niet op
-        # dezelfde manier (geen opgeslagen code om later transacties bij op
-        # te halen), dus krijgt de eenmalige analyse in plaats daarvan een
-        # losse /api/ticker-zekerheid-check-aanroep vanuit de frontend, met
-        # de transactiedata die hieronder als 'ticker_posities_ruw' meegaat.
+        # Alleen de lichte ticker-check: de volledige liep hier over de
+        # gunicorn-timeout (zie CLAUDE.md: Yahoo en tickers).
         ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = _ticker_resolutie_niet_opslaan_pad(df)
         transacties_df = _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs)
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
@@ -105,6 +76,7 @@ def _upload_impl():
         result["ticker_posities_ruw"] = ticker_posities_ruw
         _meld_dividend_bestand_genegeerd()
         log_yahoo_call_samenvatting()
+        meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
         return jsonify(voeg_diagnostiek_toe(result))
 
     with meet_tijd("excel_inlezen_orderid_openpyxl"):
@@ -117,17 +89,6 @@ def _upload_impl():
     _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
 
     if not rows_to_insert.empty:
-        # Per (ISIN, Beurs) resolven, niet per ISIN alleen — zie de
-        # 'niet_opslaan'-tak hierboven voor de reden (een ISIN kan op
-        # meerdere beurzen genoteerd staan, met een écht andere ticker).
-        # find_ticker_met_snelle_prijscheck (i.p.v. de kale
-        # find_ticker_detailed) doet er een lichte, standaard prijscontrole
-        # bovenop — in het gangbare geval maar 1 extra, gecachete Yahoo-call
-        # per groep, warmt meteen de ticker_prijscheck-cache die
-        # prijswaarschuwing_voor_ticker() (via analyze_transacties_kern in
-        # portfolio_orchestratie.py) bij elk bezoek hergebruikt. PARALLEL over de groepen — zie de
-        # 'niet_opslaan'-tak hierboven voor de reden (koude-cache-
-        # timeoutrisico bij veel unieke tickers).
         with meet_tijd("ticker_resolutie"):
             ticker_by_isin_beurs = _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)
 
@@ -139,22 +100,17 @@ def _upload_impl():
     conn.close()
 
     if match_code:
-        # Alleen zinvol bij een upload naar een BESTAANDE portfolio: een
-        # verbeterde ticker-resolutielogica (bv. de G2X.MU-fix) corrigeert
-        # anders alleen nieuw ingevoegde rijen, nooit wat al in de database
-        # stond. Overschrijft alleen tickers die nu een prijsprobleem
-        # hebben met een kandidaat die dat niet heeft (zie
-        # ticker_zekerheid.backfill_verouderde_tickers).
+        # Anders profiteren al opgeslagen rijen nooit van betere ticker-logica.
         with meet_tijd("db_backfill_verouderde_tickers"):
             backfill_verouderde_tickers(code, forceer=herbepaal_alle_tickers)
 
     _verwerk_dividend_bestand_indien_aanwezig(code)
 
-    # Cache wissen ná ALLE mutaties hierboven (insert, ticker-backfill,
-    # dividenden) -- een upload moet altijd verse data opleveren, nooit
-    # de _basis_cache van vóór deze upload (zie opdracht dubbele-fetches).
+    # Pas ná alle mutaties hierboven wissen.
     _wis_portfolio_basis_cache(code)
-    response = jsonify(voeg_diagnostiek_toe(build_portfolio_response(code)))
+    result = build_portfolio_response(code)
+    meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
+    response = jsonify(voeg_diagnostiek_toe(result))
     log_yahoo_call_samenvatting()
     return response
 
@@ -162,55 +118,35 @@ def _upload_impl():
 @app.route("/api/portfolio/<code>")
 def api_portfolio(code):
     code = code.strip().upper()
-    # Eigen, schone Yahoo-call-telling voor dit bezoek -- zonder deze reset
-    # draagt de teller het cumulatieve aantal calls mee sinds de laatste
-    # upload, wat de [timing]-samenvatting hieronder misleidend zou maken
-    # (zie opdracht performance-meting).
     reset_yahoo_call_teller()
-    # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje bij het
-    # ophalen via code (zie templates/index.html) -- zelfde forceer-vlag/
-    # functie als bij de upload-flow (zie CLAUDE.md/opdracht "vinkje ticker-
-    # informatie opnieuw bepalen"). Standaard (parameter afwezig/leeg/iets
-    # anders dan "true") blijft het ophalen ONGEWIJZIGD: backfill_
-    # verouderde_tickers() werd hier vóór deze wijziging nooit aangeroepen,
-    # alleen bij /upload -- dat blijft zo zonder het vinkje.
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
         with meet_tijd("db_backfill_verouderde_tickers_ophalen"):
             backfill_verouderde_tickers(code, forceer=True)
-        # Anders krijgt build_portfolio_response() hieronder de oude tickers
-        # terug uit de _basis_cache i.p.v. de net herberekende.
+        # Anders levert de _basis_cache de oude tickers.
         _wis_portfolio_basis_cache(code)
     result = build_portfolio_response(code)
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     log_yahoo_call_samenvatting()
+    meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "ophalen")
     return jsonify(voeg_diagnostiek_toe(result))
 
 
 @app.route("/api/portfolio/<code>/verrijking")
 def portfolio_verrijking(code):
-    """
-    Lui opgevraagde 'rest' van het dashboard (Verdeling, Land, Sector,
-    Bedrijven, ETF-overlap) — bewust NIET in het hoofd-/upload-antwoord,
-    want dit is het netwerk-zware deel (classificatie + holdings/sector-
-    ophalen bij nog-niet-gecachete ETF's/aandelen). De frontend roept dit
-    meteen na het tonen van de Home-pagina aan en vult de betreffende
-    tabbladen zodra dit antwoord binnenkomt.
-    """
     code = code.strip().upper()
+    # Stand van de (niet-gereset) Yahoo-teller bij de start: de Diagnostiek
+    # meldt alleen het verschil, dus de calls van déze request.
+    yahoo_voor = yahoo_teller_stand()
     naam, transacties_df, price_data = _haal_portfolio_basis(code)
     if naam is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
     try:
-        response = jsonify(voeg_diagnostiek_toe(
-            analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data)
-        ))
-        # Geen reset_yahoo_call_teller() hier: /verrijking wordt door de
-        # frontend los van /upload aangeroepen, dus deze samenvatting toont
-        # het CUMULATIEVE aantal calls sinds de laatste reset in
-        # _upload_impl() (dus inclusief de kern-fase van /upload) -- zie
-        # opdracht performance-meting.
+        result = analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data)
+        meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING, "verrijking", vanaf=yahoo_voor)
+        response = jsonify(voeg_diagnostiek_toe(result))
+        # Bewust geen reset: de log toont het totaal inclusief de kern-fase.
         log_yahoo_call_samenvatting()
         return response
     except Exception:
@@ -222,14 +158,7 @@ def portfolio_verrijking(code):
 
 @app.route("/api/etf-overlap-detail")
 def etf_overlap_detail():
-    """
-    Holdings-detail voor één ETF-paar uit de overlap-matrix (klik op een
-    percentage-cel op het ETF-overlap-tabblad, zie opdracht "klikbaar
-    overlap-percentage"). Los van een portfolio-code: get_etf_holdings()
-    is een globale, per-ticker gecachete lookup, dus dit werkt zowel voor
-    een opgeslagen portfolio als de 'niet opslaan'-analyse (die geen code
-    heeft).
-    """
+    """Zonder portfolio-code, zodat het ook bij 'niet opslaan' werkt."""
     etf_a = request.args.get("a", "").strip()
     etf_b = request.args.get("b", "").strip()
     if not etf_a or not etf_b:
@@ -239,19 +168,7 @@ def etf_overlap_detail():
 
 @app.route("/api/portfolio/<code>/benchmark-vergelijking")
 def benchmark_vergelijking(code):
-    """
-    Losse, lui opgevraagde endpoint voor de "Vergelijk met..."-optie op het
-    Rendement-tabblad — bewust niet standaard in het hoofd-dashboard-
-    antwoord, want dit haalt (en cachet) koersdata op voor een extra ticker
-    die niets met de eigen portfolio te maken heeft, wat de hoofdpagina
-    onnodig zou vertragen voor een optie die de meeste bezoeken niet
-    gebruiken. Query-param 'benchmark' is een sleutel uit BENCHMARK_TICKERS
-    (bv. "S%26P%20500" voor "S&P 500"). Query-param 'eigen_ticker' is een
-    alternatief: een ticker die al in de eigen portfolio zit, voor de
-    "vergelijk ook met eigen aandeel"-optie — zelfde berekening
-    (bereken_benchmark_vergelijking is generiek genoeg), alleen een andere
-    koersbron.
-    """
+    """Query-param 'benchmark' (sleutel uit BENCHMARK_TICKERS) of 'eigen_ticker' (ticker uit de portfolio)."""
     code = code.strip().upper()
     benchmark_naam = request.args.get("benchmark", "")
     eigen_ticker = request.args.get("eigen_ticker", "")
@@ -287,13 +204,6 @@ def benchmark_vergelijking(code):
 
 @app.route("/api/portfolio/<code>/rendement-over-tijd")
 def rendement_over_tijd(code):
-    """
-    Losse, lui opgevraagde endpoint voor het "XIRR & rendement"-tabblad —
-    zelfde reden als benchmark_vergelijking() hierboven: niet standaard in
-    het hoofd-dashboard-antwoord, want dit herberekent XIRR voor elke
-    maandelijkse stap (zie bereken_rendement_over_tijd), wat de hoofdpagina
-    onnodig zou vertragen voor een tabblad dat niet elk bezoek bekeken wordt.
-    """
     code = code.strip().upper()
     transacties_df, resultaat = _laad_transacties_en_resultaat(code)
     if transacties_df is None:
@@ -306,19 +216,9 @@ def rendement_over_tijd(code):
 
 @app.route("/api/portfolio/<code>/ticker-koers-bereik")
 def ticker_koers_bereik(code):
-    """
-    Extra koersdata voor 1 ticker buiten de standaard-crop, t.b.v. de
-    "meer historie laden"-knoppen op het 'Per aandeel aankoop'-tabblad
-    (per_ticker_aankoop in de hoofd-payload is gecropt tot de aanhoud-
-    periode). Query-params: ticker (verplicht), vanaf (YYYY-MM-DD,
-    verplicht), tot (YYYY-MM-DD, optioneel, default vandaag). Bewust een
-    los, lui endpoint i.p.v. de crop-range in analyze_transacties() op te
-    rekken -- zelfde reden als bij ticker-zekerheid: dit raakt alleen deze
-    ene knop, niet elke portfolio-load.
-    """
+    """Koersen van 1 ticker buiten de standaard-crop. Query-params: ticker, vanaf, tot (optioneel)."""
     code = code.strip().upper()
-    # Bewust niet _haal_portfolio_basis(): die haalt bij een cache-miss de
-    # koersen van ALLE tickers op, terwijl hier alleen deze ene nodig is.
+    # Niet _haal_portfolio_basis(): die haalt koersen van alle tickers op.
     transacties_df = _laad_split_gecorrigeerde_transacties(code)
     if transacties_df is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
@@ -341,24 +241,14 @@ def ticker_koers_bereik(code):
         "labels": [d.strftime("%Y-%m-%d") for d in serie.index],
         "koers": [round(float(k), 4) for k in serie.values],
         "holdings": holdings_op_datums(transacties_df[transacties_df["ticker"] == ticker], serie.index),
-        # Laat de frontend weten of de gevraagde 'vanaf' daadwerkelijk
-        # gehaald is, of dat de historie eerder al ophield (bv. bij een
-        # positie die pas een paar maanden genoteerd staat) -- t.b.v. het
-        # uitgrijzen van een knop die niks meer oplevert.
+        # Laat de frontend zien of de historie eerder ophield dan 'vanaf'.
         "vroegste_beschikbare_datum": serie.index.min().strftime("%Y-%m-%d") if len(serie) else None,
     })
 
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/lijst")
 def ticker_zekerheid_lijst(code):
-    """
-    Geeft alleen de posities terug (isin/beurs/naam), zonder de dure
-    prijscontrole — vrijwel instant. De
-    Ticker-zekerheid-pagina haalt hiermee meteen alle rijen op om als
-    "bezig..." te tonen, en start daarna per positie een losse aanroep naar
-    /ticker-zekerheid/positie hieronder (zie static/js/app.js). Zo blokkeert
-    één trage/mislukte positie niet meer de andere resultaten.
-    """
+    """Alleen de posities, zonder prijscontrole; die volgt per positie via /positie."""
     code = code.strip().upper()
     groepen = _ticker_zekerheid_groepen(code)
     if groepen is None:
@@ -373,16 +263,7 @@ def ticker_zekerheid_lijst(code):
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/positie")
 def ticker_zekerheid_positie(code):
-    """
-    Verifieert precies 1 positie (isin+beurs via de querystring) — de
-    Ticker-zekerheid-pagina roept dit per positie apart aan (met een
-    concurrency-limiet, zie static/js/app.js) i.p.v. te wachten tot ALLE
-    posities klaar zijn. Hergebruikt verifieer_ticker_met_prijs(), voor 1
-    (isin, beurs)-groep i.p.v. de hele portfolio — geen nieuwe backend-logica, alleen een kleinere
-    aanroep-eenheid zodat één trage/rate-limited positie niet meer de hele
-    opvraag laat mislukken en elke aparte aanroep ruim binnen een gunicorn-
-    timeout blijft.
-    """
+    """Eén positie per aanroep, zodat elke aanroep ruim binnen de gunicorn-timeout blijft."""
     code = code.strip().upper()
     isin = request.args.get("isin", "")
     beurs = request.args.get("beurs", "")
@@ -410,18 +291,7 @@ def ticker_zekerheid_positie(code):
 
 @app.route("/api/ticker-zekerheid-check", methods=["POST"])
 def ticker_zekerheid_check():
-    """
-    Uitgebreide, prijs-geverifieerde ticker-zekerheid voor een 'niet
-    opslaan'-analyse. Die heeft geen opgeslagen code om de routes hierboven
-    mee aan te roepen (die lezen transacties uit de database) — maar
-    verifieer_ticker_met_prijs() is een pure functie op aangeleverde
-    transacties, dus laat de frontend die data hier los meesturen
-    (huidigeData.ticker_posities_ruw, meegegeven door de niet_opslaan-tak
-    van /upload). Losse, expliciet door de gebruiker aangevraagde actie
-    i.p.v. synchroon in de hoofd-/upload-flow — zie de niet_opslaan-tak in
-    _upload_impl() voor de reden (gunicorn-timeout-risico bij grotere/
-    koude-cache-portfolio's, CLAUDE.md Statistieken-incident 2026-08-31).
-    """
+    """Volledige ticker-check voor 'niet opslaan': de frontend stuurt de transacties zelf mee."""
     data = request.get_json(silent=True) or {}
     posities = data.get("posities") or []
     if not posities:
@@ -555,10 +425,6 @@ def wijzig_code(code):
     if not success:
         return jsonify({"error": foutmelding}), 400
 
-    # Oude code bestaat na de rename niet meer, en de nieuwe code is nog
-    # nooit via _haal_portfolio_basis() opgehaald onder die naam -- beide
-    # cache-entries wissen voorkomt dat een eventuele stale entry (bv. de
-    # oude code kort hiervoor bezocht) blijft rondhangen.
     _wis_portfolio_basis_cache(code)
     _wis_portfolio_basis_cache(nieuwe_code)
     return jsonify(build_portfolio_response(nieuwe_code, verversen=False))

@@ -1,39 +1,18 @@
-"""
-Verdeling/Land/Sector/Bedrijven/ETF-overlap: portfoliobrede aggregaties over
-alle holdings heen, voor de Verdeling-, Land-, Sector-, Top-N-bedrijven- en
-ETF-overlap-tabbladen.
-
-Losgetrokken uit analysis.py.
-"""
+"""Portfoliobrede aggregaties: verdeling, land, sector, top-N bedrijven en ETF-overlap."""
 import re
 
 import pandas as pd
 
 from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector
 
-# Landen met een aandeel onder deze drempel (fractie van de totale
-# portfoliowaarde, dus 0.005 = 0.5%) worden op het Land-tabblad samengevoegd
-# tot één "Overig"-taartpunt — anders eindig je met tientallen verwaarloosbare
-# taartpunten in de legenda. Zie _voeg_kleine_landen_samen().
+# Fractie van het totaal (0.005 = 0,5%); alleen voor de taart.
 LAND_OVERIG_DREMPEL = 0.005
 
-# De gestapelde staaf op het Land-tabblad gebruikt bewust een ANDERE
-# "Overig" dan de taart: top N landen + de rest samen. Een staaf per land
-# vanaf 0.5% wordt bij veel landen onleesbaar; de taart houdt die landen
-# juist wel apart. Zie _beperk_tot_top_n_per_bron().
+# De staaf gebruikt bewust een andere "Overig" dan de taart (zie CLAUDE.md: Data en rekenen).
 LAND_STAAF_TOP_N = 10
 
-# Landen die meetellen als "Europa" voor de Europa-samenvoeg-toggle op het
-# Land-tabblad (zie _groepeer_europa_samen). EU-landen plus de gebruikelijke
-# niet-EU-Europese landen (UK, Zwitserland, Noorse/Balkan-landen, micro-
-# staten). Namen zoals ze typisch terugkomen uit Yahoo's .info["country"]
-# en pycountry se .name — bewust een paar synoniemen (bv. "Czechia" én
-# "Czech Republic") omdat beide bronnen niet altijd dezelfde naam geven.
-#
-# Bewuste keuzes (geen omissie): Rusland en Turkije zijn NIET meegenomen —
-# beide worden in investeringscontext (MSCI e.d.) als Emerging Markets
-# geclassificeerd, niet als (Westers) Europa, en dat is hier de relevante
-# maatstaf, niet pure aardrijkskunde.
+# Synoniemen ("Czechia"/"Czech Republic") omdat Yahoo en pycountry verschillen.
+# Rusland en Turkije bewust niet: Emerging Markets.
 EUROPESE_LANDEN = frozenset({
     # EU-landen
     "Austria", "Belgium", "Bulgaria", "Croatia", "Cyprus", "Czech Republic",
@@ -48,44 +27,20 @@ EUROPESE_LANDEN = frozenset({
     "Montenegro", "North Macedonia", "Albania", "Kosovo", "Moldova",
 })
 
-# Handmatige overrides voor bedrijfsnamen die _normaliseer_bedrijfsnaam()
-# (lowercase + leestekens weg) niet tot dezelfde sleutel herleidt, omdat
-# providers niet alleen qua casing/leestekens verschillen maar ook qua
-# woordkeuze zelf (bv. de rechtspersoonsvorm "NV" wel/niet meegeschreven).
-# Zelfde stijl als MANUAL_TICKER_OVERRIDES (ticker_matching.py) -- aanvullen
-# zodra een dubbele rij in Top N bedrijven / ETF-overlap in de praktijk
-# opvalt. Sleutel en waarde zijn allebei al door de leesteken-normalisatie
-# heen (dus lowercase, geen leestekens); de waarde is de canonieke sleutel
-# waar de linkerkant naartoe gemapt wordt.
+# Voor namen die de normalisatie niet samenbrengt; sleutel en waarde al genormaliseerd.
+# Aanvullen bij een dubbele rij in Top-N bedrijven of ETF-overlap.
 BEDRIJF_NAAM_OVERRIDES = {
     "asml holding": "asml holding nv",
     "asml": "asml holding nv",
 }
 
-# Top-bedrijven-tabblad: standaard aantal getoonde bedrijven, en het maximum
-# dat de backend meelevert. De frontend (static/js/bedrijven.js,
-# toonBedrijven in app.js) kiest zelf een N <= BEDRIJVEN_TOP_N_MAX en knipt de
-# meegeleverde lijst in, zodat wisselen tussen 10/20/50 geen nieuwe request
-# of koersopvraag kost. Houd BEDRIJVEN_TOP_N_KNOPPEN in bedrijven.js gelijk
-# aan een waarde <= dit maximum.
+# De frontend knipt zelf in; BEDRIJVEN_TOP_N_KNOPPEN (bedrijven.js) moet <= het maximum blijven.
 BEDRIJVEN_TOP_N_STANDAARD = 10
 BEDRIJVEN_TOP_N_MAX = 50
 
 
 def _normaliseer_bedrijfsnaam(naam):
-    """
-    Normaliseert een bedrijfsnaam tot een matchbare sleutel: lowercase,
-    leestekens weg (zonder spatie toe te voegen, dus "N.V." -> "nv", niet
-    "n v"), whitespace samengevoegd. Vangt het gros van de casing-/
-    leesteken-verschillen tussen ETF-providers ("Apple Inc" vs "APPLE
-    INC"). Voor hardnekkige uitzonderingen die dit niet oplost (een
-    providernaam mist een heel woord, bv. "ASML Holding NV" vs "ASML
-    HOLDING") is er BEDRIJF_NAAM_OVERRIDES, zelfde patroon als
-    MANUAL_TICKER_OVERRIDES.
-
-    Geeft "" terug voor een lege/None naam -- aanroepers slaan zo'n
-    holding dan over i.p.v.'m onder een valse gedeelde sleutel te tellen.
-    """
+    """Lowercase, leestekens weg ("N.V." -> "nv"). "" voor een lege naam: aanroepers slaan die over."""
     if not naam:
         return ""
     schoon = re.sub(r"[^a-z0-9\s]", "", naam.lower())
@@ -94,12 +49,7 @@ def _normaliseer_bedrijfsnaam(naam):
 
 
 def _sorteer_tickers_voor_dropdown(per_ticker):
-    """
-    Sorteert tickers voor de dropdown op 'Per aandeel' en 'Per aandeel
-    aankoop': eerst posities die nog in bezit zijn (groot naar klein op
-    huidige waarde), daarna verkochte posities (groot naar klein op de
-    hoogste waarde die de positie ooit heeft gehad).
-    """
+    """Eerst posities in bezit (op huidige waarde), dan verkochte (op piekwaarde)."""
     def sleutel(ticker):
         reeks = per_ticker[ticker]["waarde"]
         huidige_waarde = reeks[-1] if reeks else 0.0
@@ -112,22 +62,16 @@ def _sorteer_tickers_voor_dropdown(per_ticker):
 
 
 def _sorteer_verdeling_groot_naar_klein(verdeling):
-    """Sorteert een verdelingslijst (dicts met 'waarde') van grootste naar
-    kleinste waarde, zodat het taartdiagram op Verdeling aflopend oogt."""
     return sorted(verdeling, key=lambda x: x["waarde"], reverse=True)
 
 
 def bereken_verdeling_samenvatting(verdeling):
-    """ETF-vs-aandeel-verhouding van een verdelingslijst (dicts met 'waarde'
-    en 'is_etf'), voor de regel boven de taart op het Verdeling-tabblad.
-    Percentages in 0-100; bij een leeg/nul totaal 0.0 i.p.v. een deling
-    door nul."""
+    """ETF- en aandeelpercentage (0-100); 0.0 bij een leeg totaal."""
     etf_waarde = 0.0
     aandeel_waarde = 0.0
     for item in verdeling:
         waarde = item.get("waarde")
-        # NaN/None overslaan: één NaN maakt anders het hele totaal NaN, en
-        # NaN in JSON breekt res.json() in de frontend.
+        # NaN overslaan: vergiftigt anders de som, en breekt res.json().
         if waarde is None or not pd.notna(waarde):
             continue
         waarde = float(waarde)
@@ -151,44 +95,13 @@ def bereken_verdeling_samenvatting(verdeling):
 
 
 def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BEDRIJVEN_TOP_N_STANDAARD):
-    """
-    Top-N onderliggende bedrijven van de hele portfolio (via ETF's + losse
-    aandelen), met per bedrijf een uitsplitsing van via welke posities
-    (ETF-ticker of los aandeel) die blootstelling ontstaat -- zo blijft
-    "dubbele blootstelling" zichtbaar als hetzelfde bedrijf zowel via een
-    of meer ETF's als los wordt aangehouden. Zelfde basis als
-    compute_land_sector_verdeling() hieronder: huidige holdings
-    (aantal x laatste koers, de "aantal"-kolom, niet "adj_aantal") zodat
-    de totalen op elkaar aansluiten. Voor de gestapelde-staafgrafiek-
-    weergave op het "Top N bedrijven"-tabblad (zie static/js/app.js,
-    renderGestapeldeStaafgrafiek): "per_bron" zijn al percentages van
-    totaal_waarde -- direct bruikbaar als stack-hoogtes.
-
-    Geeft terug:
-        {
-            "top": [
-                {"bedrijf": "Apple Inc", "waarde": 1234.56,
-                 "per_bron": {"CSPX.AS": 16.0, "AAPL": 8.69}},
-                ...
-            ],  # aflopend gesorteerd op waarde, max top_n items
-            "overig": 321.00,      # bedrijven buiten de top-N + het
-                                    # niet-gedekte restant van ETF-holdings
-                                    # (bv. bij een fonds met alleen
-                                    # yfinance-top10-dekking) samen -- zelfde
-                                    # eerlijkheidsprincipe als bij Land: dit
-                                    # deel NIET verdoezelen als "compleet".
-            "dekking_pct": 0.92,   # fractie van totaal_waarde die
-                                    # daadwerkelijk aan een bekend bedrijf
-                                    # is toegewezen (dus 1 - onbekend-restant)
-            "totaal_waarde": 5000.0,
-            "top_n_standaard": 10, # BEDRIJVEN_TOP_N_STANDAARD, voor de frontend
-                                    # (de initiele keuze op het tabblad)
-            "bronnen": [{"ticker": "CSPX.AS", "naam": "ISHARES CORE MSCI WORLD..."}, ...],
-                # alle bronnen die ergens in de top-N voorkomen, aflopend op
-                # totale bijdrage -- voor een consistente legenda-volgorde in
-                # de frontend. "naam" komt uit de bestaande product-/
-                # bijnaam-kolom in transacties_df, geen extra yfinance-call.
-        }
+    """Top-N onderliggende bedrijven (via ETF's en losse aandelen), per bron uitgesplitst.
+    Sleutels:
+      top: [{bedrijf, waarde, per_bron: {ticker: % van totaal_waarde}}], aflopend
+      overig: bedrijven buiten de top-N + niet-gedekt ETF-restant (in €)
+      dekking_pct: fractie 0-1 die aan een bekend bedrijf is toegewezen
+      totaal_waarde, top_n_standaard
+      bronnen: [{ticker, naam}], aflopend op bijdrage (legenda-volgorde)
     """
     transacties_df = transacties_df.dropna(subset=["ticker"])
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
@@ -270,14 +183,7 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
 
 
 def _holdings_gewicht_en_naam_per_bedrijf(ticker):
-    """
-    Holdings van één ETF, samengevoegd per genormaliseerde bedrijfsnaam
-    (_normaliseer_bedrijfsnaam) tot ({key: gewicht}, {key: weergavenaam}).
-    Gedeeld door bereken_etf_overlap() (percentage-matrix) en
-    bereken_etf_overlap_detail() (holdings-lijst voor één ETF-paar, zie
-    opdracht "klikbaar overlap-percentage") zodat beide precies dezelfde
-    "gedeeld bedrijf"-definitie gebruiken.
-    """
+    """({key: gewicht}, {key: weergavenaam}); de gedeelde 'zelfde bedrijf'-definitie voor de overlap."""
     gewichten = {}
     namen = {}
     for h in get_etf_holdings(ticker):
@@ -290,17 +196,7 @@ def _holdings_gewicht_en_naam_per_bedrijf(ticker):
 
 
 def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
-    """
-    Overlap-matrix tussen alle aangehouden ETF's: per paar het percentage
-    gedeelde onderliggende bedrijven, gewogen op holdings-gewicht (de
-    gangbare "portfolio overlap %"-maat: som over gedeelde bedrijven van
-    min(gewicht_i, gewicht_j)). Volledig symmetrisch ({a:{b:...}, b:{a:...}}
-    met dezelfde waarde) zodat de frontend niet zelf hoeft te spiegelen;
-    geen entry voor een fonds tegen zichzelf.
-
-    Minder dan 2 aangehouden ETF's -> lege dict (de frontend toont dan een
-    duidelijke melding i.p.v. een lege/kapotte matrix).
-    """
+    """Symmetrische matrix {a: {b: overlap}}; {} bij minder dan 2 ETF's."""
     transacties_df = transacties_df.dropna(subset=["ticker"])
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
 
@@ -328,19 +224,7 @@ def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
 
 
 def bereken_etf_overlap_detail(etf_a, etf_b):
-    """
-    Samengevoegde holdings-lijst voor één specifiek ETF-paar -- de
-    detailtabel die verschijnt bij een klik op een percentage-cel in de
-    overlap-matrix (zie opdracht "klikbaar overlap-percentage"). Per
-    bedrijf dat in etf_a en/of etf_b zit: gewicht in elk van de twee
-    (None als het bedrijf niet in dat fonds zit). Hergebruikt dezelfde
-    _holdings_gewicht_en_naam_per_bedrijf()-opbouw als bereken_etf_overlap(),
-    zodat een bedrijf hier als "gedeeld" telt precies wanneer het ook in de
-    percentage-berekening meetelt.
-
-    Gesorteerd aflopend op max(gewicht_a, gewicht_b) -- een ontbrekende kant
-    telt daarbij als 0, niet als groter dan alles.
-    """
+    """[{holding_naam, gewicht_a, gewicht_b}], None als het bedrijf niet in dat fonds zit."""
     gew_a, namen_a = _holdings_gewicht_en_naam_per_bedrijf(etf_a)
     gew_b, namen_b = _holdings_gewicht_en_naam_per_bedrijf(etf_b)
 
@@ -357,25 +241,7 @@ def bereken_etf_overlap_detail(etf_a, etf_b):
 
 
 def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL, uitgezonderd=frozenset()):
-    """Voegt landen met een aandeel onder 'drempel' (fractie van het totaal,
-    dus 0.005 = 0.5%) samen tot één 'Overig'-post — voorkomt een taart met
-    tientallen verwaarloosbare taartpunten in de legenda.
-
-    'Unknown' is GEEN uitzondering: valt die zelf ook onder de drempel, dan
-    telt 'ie gewoon mee in de Overig-som net als elk ander klein land; is
-    Unknown >= drempel, dan blijft die als eigen categorie bestaan naast
-    Overig (frontend geeft beide dezelfde neutrale grijze stijl + plek
-    onderaan de legenda, zie ONBEKEND_GRIJS in app.js).
-
-    'uitgezonderd' zijn sleutels die NOOIT in Overig terechtkomen, ongeacht
-    hun aandeel — gebruikt door compute_land_sector_verdeling() om de
-    (bewust door de gebruiker aangezette) "Europe"-post altijd als eigen
-    taartpunt te tonen, ook als die toevallig <0.5% is: dat is dan een
-    expliciete keuze van de gebruiker, geen toevallig verwaarloosbaar land.
-
-    Geeft GEEN 'Overig'-sleutel terug als niets onder de drempel valt (dus
-    nooit een lege/0%-Overig-punt). Bij een leeg/nul-totaal wordt de dict
-    ongewijzigd teruggegeven (kan niet zinnig een percentage berekenen)."""
+    """'Unknown' valt gewoon mee onder de drempel; 'uitgezonderd' (bv. een aangezette 'Europe') nooit."""
     totaal = sum(land_dict.values())
     if totaal <= 0:
         return dict(land_dict)
@@ -394,12 +260,7 @@ def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL, uitgezonde
 
 
 def _beperk_tot_top_n_per_bron(per_bron_dict, top_n=LAND_STAAF_TOP_N):
-    """Houdt van een {categorie: {bron: bedrag}}-structuur de top_n
-    categorieën (aflopend op hun totaal over alle bronnen) en telt de rest
-    per bron op in één 'Overig'-categorie. Bij niet meer dan top_n
-    categorieën: ongewijzigd (kopie), dus nooit een lege Overig.
-
-    Bij gelijk totaal blijft de invoervolgorde leidend (stabiele sort)."""
+    """Top_n categorieën op totaal, de rest per bron in 'Overig'; nooit een lege Overig."""
     def schoon(bedrag):
         # NaN overslaan: vergiftigt anders de som, en breekt res.json().
         return float(bedrag) if bedrag is not None and pd.notna(bedrag) else None
@@ -422,11 +283,6 @@ def _beperk_tot_top_n_per_bron(per_bron_dict, top_n=LAND_STAAF_TOP_N):
 
 
 def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
-    """Voegt alle landen uit 'europese_landen' samen tot één 'Europe'-post;
-    niet-Europese landen (en 'Unknown') blijven ongewijzigd los staan.
-
-    Geeft GEEN 'Europe'-sleutel terug als geen enkel land in land_dict
-    Europees is (dus nooit een lege/0%-Europe-punt)."""
     resultaat = {}
     europa_totaal = 0.0
     for land, bedrag in land_dict.items():
@@ -441,12 +297,6 @@ def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
 
 
 def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE_LANDEN):
-    """Zelfde idee als _groepeer_europa_samen(), maar dan op de per-bron-
-    uitgesplitste land-per-bron-structuur ({land: {bron: bedrag}}) --
-    basis van land_per_bron_europa_top, dat de Europa-samenvoeg-toggle op
-    de staafgrafiek-weergave van het Land-tabblad toont. De
-    per-bron-bedragen van elk Europees land worden per bron opgeteld onder
-    een gezamenlijke "Europe"-rij; niet-Europese landen blijven ongewijzigd."""
     resultaat = {}
     europa_per_bron = {}
     for land, per_bron in land_per_bron_dict.items():
@@ -462,40 +312,12 @@ def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE
 
 
 def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
-    """
-    Land- en sectorverdeling van de hele portfolio (huidige holdings x
-    laatste koers — zelfde basis als de ETF/aandeel-verdeling in
-    analyze_transacties_verrijking(), dus met dezelfde "aantal"-kolom,
-    niet "adj_aantal", zodat de totalen
-    van beide verdelingen op elkaar aansluiten), plus dezelfde verdeling
-    per ETF afzonderlijk (voor de per-ETF-drill-down).
-
-    Geeft terug:
-        {
-            "land":   {"United States": 1234.56, ..., "Unknown": 88.00},
-            "land_europa": {"United States": 1234.56, ..., "Europe": 456.00},
-                # zelfde als "land", maar met alle EUROPESE_LANDEN samengevoegd
-                # tot één "Europe"-post — voor de Europa-samenvoeg-toggle op
-                # het Land-tabblad (frontend kiest tussen de twee, geen
-                # her-berekening nodig bij het aan/uit-zetten van de toggle)
-            "sector": {"Technology": 999.00, ..., "Unknown": 45.00},
-            "per_etf": {
-                "CSPX.AS": {"land": {...}, "sector": {...}, "land_bron": "provider_csv"},
-                ...
-            },  # land/sector als fracties 0-1 (dit fonds z'n eigen verdeling);
-                # land_bron = "provider_csv" of "yfinance_top10"
-            "land_per_bron_top": {
-                "United States": {"CSPX.AS": 800.0, "AAPL": 200.0}, ...
-            },  # zelfde totalen als "land", maar per categorie uitgesplitst
-                # naar welke positie (ETF-ticker of los aandeel) 'm inbrengt,
-                # beperkt tot LAND_STAAF_TOP_N landen + "Overig" -- wat de
-                # staaf op het Land-tabblad toont (bewust andere Overig dan
-                # de taart).
-            "land_per_bron_europa_top": {...},  # idem, maar met alle
-                # EUROPESE_LANDEN eerst samengevoegd tot één "Europe"-rij
-                # (per bron opgeteld).
-            "sector_per_bron": {...},  # zelfde idee, voor sector
-        }
+    """Bedragen in €. Sleutels:
+      land, land_europa (Europa samengevoegd): {land: €}, kleine landen in 'Overig' (taart)
+      sector: {sector: €}
+      per_etf: {ticker: {land, sector (fracties 0-1), land_bron}}
+      land_per_bron_top, land_per_bron_europa_top: {land: {bron: €}}, top 10 + 'Overig' (staaf)
+      sector_per_bron: {sector: {bron: €}}
     """
     def optellen(dct, key, bedrag):
         key = key or "Unknown"
@@ -524,20 +346,13 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
             continue
 
         if is_etf_map.get(ticker, False):
-            # Sectorverdeling van het fonds zelf, als fracties 0-1 die samen
-            # ~1.0 optellen; het niet-gedekte restant (mislukte/lege call,
-            # of gewoon een sector die Yahoo niet meegeeft) gaat naar Unknown.
+            # Niet-gedekt restant naar Unknown, zodat de totalen kloppen.
             sector_verdeling = get_etf_sector_verdeling(ticker)
             etf_sector_pct = dict(sector_verdeling)
             restant_sector = max(0.0, 1.0 - sum(sector_verdeling.values()))
             if restant_sector > 1e-9:
                 etf_sector_pct["Unknown"] = etf_sector_pct.get("Unknown", 0.0) + restant_sector
 
-            # Landverdeling via de holdings-lijst; alles wat niet gedekt is
-            # (bij yfinance: alles buiten de top 10; bij een provider-CSV
-            # normaal maar een klein restje "cash"/niet-herkende posities)
-            # gaat naar Unknown. "bron" laat zien welke van de twee het was
-            # — bepalend voor hoe compleet deze landverdeling is.
             holdings = get_etf_holdings(ticker)
             land_bron = holdings[0]["bron"] if holdings else "yfinance_top10"
             etf_land_pct = {}

@@ -1,8 +1,4 @@
-"""
-Koersen ophalen + cachen (via de 'prijzen'-tabel) + FX-conversie naar EUR.
-
-Losgetrokken uit analysis.py.
-"""
+"""Koersen ophalen en cachen (tabel prijzen) en omrekenen naar EUR."""
 import threading
 
 import pandas as pd
@@ -11,51 +7,61 @@ from flask import g, has_app_context
 
 from db import get_db_connection, save_prices, upsert_prices
 from debug_utils import dprint, meet_tijd
-from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, GOED, LET_OP, FOUT
+from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
 from yahoo_client import download_met_retry, _tel_yahoo_call
 
-# FX-paar per valuta, gebruikt door zowel _converteer_naar_eur() (via
-# get_prices()) als _fx_koers_op_datum() (via vergelijk_prijs_op_datum) --
-# één plek voor de mapping i.p.v. 'fx_pair = "USDEUR=X" if ... else
-# "GBPEUR=X"' op twee plekken herhaald.
 FX_PAAR_PER_VALUTA = {"USD": "USDEUR=X", "GBP": "GBPEUR=X", "GBp": "GBPEUR=X"}
 
-# Vaste ankerdatum voor de FX-reeks-cache (zie _fx_prijzen_serie). Bewust
-# een VASTE datum i.p.v. per aanroep de eigen 'vanaf'/'datum' van de
-# aanroeper doorgeven: get_prices() beschouwt een cache die tot 5 dagen na
-# de gevraagde startdatum begint al als "goed genoeg" (onschuldig voor een
-# doorlopende koersreeks, die dan een paar dagen later begint) -- voor een
-# PUNT-in-tijd FX-opzoeking zou dat net de verkeerde handelsdag kunnen
-# opleveren als twee aanroepen met een net iets andere datum na elkaar
-# komen. Met een vaste ankerdatum is de cache na de eerste keer altijd
-# voor alle aanroepen ver genoeg terug.
-#
-# LET OP: deze datum moet op/na de ECHTE eerste Yahoo-datum van elk
-# FX-paar liggen (leeg getest: USDEUR=X vanaf 2003-12-01, GBPEUR=X vanaf
-# 2003-09-17) -- eerder dan dat zou get_prices() z'n eigen cache altijd
-# als "niet ver genoeg terug" blijven zien (eerste > start_date + 5 dagen
-# gaat dan NOOIT weg) en dus bij ELKE aanroep opnieuw laten downloaden,
-# precies het duplicate-call-probleem dat deze fix moest oplossen.
-# 2005-01-01 zit ruim ná die echte Yahoo-startdatums, en ruim VÓÓR elke
-# denkbare DeGiro-transactiedatum (DeGiro bestaat pas sinds 2008).
+# Vast i.p.v. per aanroep, zodat een punt-in-tijd-FX-lookup altijd dezelfde cache gebruikt.
+# Moet ná Yahoo's eerste FX-datum liggen (zie CLAUDE.md: Yahoo en tickers).
 FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
 
-# get_prices() ververst de cache-rij van "vandaag" voortaan bij ELKE
-# aanroep (i.p.v. pas als de cache >4 dagen achterloopt) — deze drempel voorkomt
-# dat de meerdere endpoints van ÉÉN portfolio-opening (home, verrijking,
-# ticker-zekerheid) Yahoo binnen dezelfde paar seconden meermaals voor
-# dezelfde ticker bevragen.
+# Voorkomt dat de endpoints van één portfolio-opening Yahoo meermaals bevragen.
 DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
 
-# Herkomst van een FX-reeks binnen deze request, voor de Diagnostiek-melding
-# in _fx_prijzen_serie(). get_prices() noteert per FX-paar welke van de drie
-# het was (zijn bestaande missing/stale-onderscheid); _fx_prijzen_serie()
-# leest het terug via _fx_bron(). Alleen binnen een app-context (op `g`).
+# Herkomst van koersen per request (op `g`), alleen voor de Diagnostiek.
 FX_PAREN = set(FX_PAAR_PER_VALUTA.values())
 FX_BRON_CACHE = "uit cache"
 FX_BRON_GEDOWNLOAD = "gedownload"
 FX_BRON_VERVERST = "ververst"
 _G_ATTR_FX_BRON = "_fx_bron"
+
+
+# Per ticker telt de "sterkste" herkomst: een latere cache-hit overschrijft geen eerdere download.
+_G_ATTR_KOERS_BRON = "_koers_bron"
+_KOERS_BRON_RANG = {FX_BRON_CACHE: 1, FX_BRON_VERVERST: 2, FX_BRON_GEDOWNLOAD: 3}
+DIAGNOSTIEK_SLEUTEL_KOERSEN = "koersen_samenvatting"
+
+
+def _noteer_koers_bron(ticker, bron):
+    if ticker in FX_PAREN or not has_app_context():
+        return
+    bronnen = getattr(g, _G_ATTR_KOERS_BRON, None)
+    if bronnen is None:
+        bronnen = {}
+        setattr(g, _G_ATTR_KOERS_BRON, bronnen)
+    if _KOERS_BRON_RANG[bron] > _KOERS_BRON_RANG.get(bronnen.get(ticker), 0):
+        bronnen[ticker] = bron
+
+
+def _meld_koersen(tickers, tickers_met_koers):
+    """Meldt tickers zonder koersdata plus een samenvatting over deze request."""
+    if not has_app_context():
+        return
+    for t in tickers:
+        if t not in FX_PAREN and t not in tickers_met_koers:
+            meld(CATEGORIE_KOERSEN, LET_OP,
+                 f"Geen koersdata van Yahoo voor '{t}': deze positie telt niet mee in de portefeuillewaarde, "
+                 f"de inleg wel.",
+                 sleutel=f"geen_koers:{t}")
+    bronnen = getattr(g, _G_ATTR_KOERS_BRON, None) or {}
+    if not bronnen:
+        return
+    aantal = {bron: sum(1 for b in bronnen.values() if b == bron) for bron in _KOERS_BRON_RANG}
+    meld(CATEGORIE_KOERSEN, GOED,
+         f"{len(bronnen)} tickers: {aantal[FX_BRON_CACHE]} uit cache, {aantal[FX_BRON_GEDOWNLOAD]} nieuw "
+         f"gedownload, {aantal[FX_BRON_VERVERST]} ververst.",
+         sleutel=DIAGNOSTIEK_SLEUTEL_KOERSEN)
 
 
 def _noteer_fx_bron(fx_pair, bron):
@@ -75,11 +81,7 @@ def _fx_bron(fx_pair):
 
 
 def _haal_valuta_op(t):
-    """Vraagt de noteringsvaluta van ticker t op bij Yahoo. Lukt dat niet, of
-    geeft Yahoo geen valuta, dan wordt "EUR" aangenomen (koers blijft
-    ongewijzigd) -- met een WARN-print, zodat een mogelijk verkeerde koers
-    in de terminal terug te vinden is. Ook een valuta zonder FX-paar in
-    FX_PAAR_PER_VALUTA (bv. CHF) krijgt een WARN: die wordt niet omgerekend."""
+    """Bij een fout of geen valuta: "EUR" met een WARN. Een valuta zonder FX-paar krijgt ook een WARN."""
     try:
         _tel_yahoo_call("yf.Ticker.info(currency)")
         currency = yf.Ticker(t).info.get("currency")
@@ -104,16 +106,7 @@ def _haal_valuta_op(t):
 
 
 def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
-    """Past USD/GBP/GBp -> EUR-conversie toe op raw[t] voor elke t in
-    tickers_kolommen, in-place. FX-reeks komt uit _fx_prijzen_serie()
-    (persistent gecached via prijzen/get_prices(), zie daar) i.p.v. bij
-    elke aanroep een eigen download te doen -- vóór deze fix werd dezelfde
-    FX-koers soms meermaals per upload opnieuw gedownload.
-
-    `verversen` wordt ongewijzigd doorgegeven aan _fx_prijzen_serie(): dit
-    pad hoort het gedrag van zijn aanroeper (get_prices(), voor het
-    converteren van actuele aandelenkoersen) te volgen, niet een eigen vaste
-    keuze te maken zoals vergelijk_prijs_op_datum() dat wel doet."""
+    """In-place; `verversen` volgt de aanroeper (get_prices())."""
     for t in tickers_kolommen:
         if t not in raw.columns:
             continue
@@ -126,14 +119,8 @@ def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
 
 
 def get_prices(tickers, start_date, verversen=True):
-    """Haalt koersen (in EUR) op voor een lijst tickers, met caching via de database.
-
-    verversen=False slaat de incrementele "stale"-verversing over (behandelt
-    zulke tickers als cache-hit) — gebruikt door bijnaam/code wijzigen, wat
-    geen koersdata raakt en dus niets aan Yahoo hoeft te vragen. Tickers die
-    nog helemaal niet gecached zijn ('missing') worden altijd gedownload,
-    ongeacht deze parameter.
-    """
+    """Koersen in EUR, index = datum, kolommen = tickers.
+    verversen=False slaat alleen de incrementele verversing over; nieuwe tickers worden altijd gedownload."""
     tickers = [t for t in tickers if t]
     if not tickers:
         return pd.DataFrame()
@@ -144,28 +131,13 @@ def get_prices(tickers, start_date, verversen=True):
     conn = get_db_connection()
     cur = conn.cursor()
 
-    # Vroegste én laatste gecachte datum per ticker (ongefilterd op
-    # start_date!) — de vroegste om te kunnen zien of de cache al ver
-    # genoeg teruggaat, de laatste om te zien of de cache nog ACTUEEL is.
-    # Zonder de eerste check bleef een ticker met een eerdere, onvolledige
-    # download (bv. door rate limiting) voor altijd "incompleet" gecachet,
-    # met waarde=0 voor alle datums vóór de eerst gecachte datum als gevolg.
-    # Zonder de tweede check werd een ticker die eenmaal ver genoeg terugging
-    # nooit meer ververst, waardoor nieuwe transacties na de laatst gecachte
-    # datum stilzwijgend buiten price_data.index vielen (zie compute_value_
-    # over_time/compute_per_ticker, die simpelweg over price_data.index
-    # itereren).
+    # Vroegste datum: gaat de cache ver genoeg terug? Laatste: is hij nog actueel?
     cur.execute(
         "SELECT ticker, MIN(datum), MAX(datum) FROM prijzen WHERE ticker = ANY(%s) GROUP BY ticker",
         (tickers,),
     )
     datums_cache = {row[0]: (pd.Timestamp(row[1]), pd.Timestamp(row[2])) for row in cur.fetchall()}
 
-    # Wanneer is de rij van "vandaag" (indien aanwezig) voor het laatst
-    # ververst — t.b.v. de hergebruik-drempel hieronder, die voorkomt dat
-    # meerdere endpoints van één portfolio-opening (home, verrijking,
-    # ticker-zekerheid) Yahoo binnen dezelfde paar seconden meermaals voor
-    # dezelfde ticker bevragen.
     cur.execute(
         "SELECT ticker, bijgewerkt_op FROM prijzen WHERE ticker = ANY(%s) AND datum = %s",
         (tickers, vandaag.date()),
@@ -193,13 +165,7 @@ def get_prices(tickers, start_date, verversen=True):
         if eerste > start_date + pd.Timedelta(days=5):
             missing.append(t)
             continue
-        # Was: alleen verversen als de cache >4 dagen achterloopt. Nu: bij
-        # ELKE portfolio-opening verversen — een rij voor "vandaag" die
-        # tijdens handelstijd is opgehaald (tussentijdse, niet-definitieve
-        # koers) bleef anders de rest van de dag ongewijzigd staan, ook na
-        # sluiting. DREMPEL_HERGEBRUIK_KOERS voorkomt dat de meerdere
-        # endpoints van ÉÉN opening (home, verrijking, ticker-zekerheid)
-        # Yahoo binnen dezelfde paar seconden meermaals bevragen.
+        # Elke opening verversen: een koers van vandaag kan tussentijds zijn.
         laatste_fetch_vandaag = laatst_ververst_vandaag.get(t)
         net_ververst = (
             laatste_fetch_vandaag is not None
@@ -212,6 +178,7 @@ def get_prices(tickers, start_date, verversen=True):
 
     for t in tickers:
         _noteer_fx_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
+        _noteer_koers_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
 
     if missing:
         with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
@@ -238,18 +205,12 @@ def get_prices(tickers, start_date, verversen=True):
             save_prices(fresh_rows)
 
             fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
-            # fresh_df kan datums bevatten die al in 'cached' zaten (opnieuw
-            # gedownload voor tickers die deels al gecachet waren) — bij overlap
-            # de verse waarde houden, en concat kan anders duplicate
-            # (ticker, datum) combinaties opleveren waar pivot() straks op stukloopt.
+            # Bij overlap de verse waarde houden; duplicaten breken pivot().
             cached = pd.concat([cached, fresh_df], ignore_index=True)
             cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
     if stale and verversen:
-        # Per ticker apart gedownload (i.p.v. één bulk-call zoals bij
-        # 'missing') omdat elke stale ticker een eigen 'vanaf'-datum heeft
-        # (zijn eigen laatst gecachte datum + 1 dag) — een bulk-download
-        # met yfinance ondersteunt geen per-ticker startdatum.
+        # Per ticker: yfinance kent geen eigen startdatum per ticker in één bulk-call.
         with meet_tijd(f"koersen_download_incrementeel ({len(stale)} ticker(s))"):
             stale_rows = []
             for t, vanaf in stale.items():
@@ -263,6 +224,7 @@ def get_prices(tickers, start_date, verversen=True):
                     continue
                 _converteer_naar_eur(raw_t, [t], verversen=verversen)
                 _noteer_fx_bron(t, FX_BRON_VERVERST)
+                _noteer_koers_bron(t, FX_BRON_VERVERST)
                 for datum, koers in raw_t[t].dropna().items():
                     stale_rows.append((t, datum.date(), float(koers)))
 
@@ -273,6 +235,7 @@ def get_prices(tickers, start_date, verversen=True):
                 cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
     if cached.empty:
+        _meld_koersen(tickers, set())
         return pd.DataFrame()
 
     cached["datum"] = pd.to_datetime(cached["datum"])
@@ -285,61 +248,18 @@ def get_prices(tickers, start_date, verversen=True):
         eerste_geldige = pivot[t].first_valid_index()
         dprint(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
 
+    _meld_koersen(tickers, set(pivot.columns))
     return pivot
 
 
-# Eén lock per FX-paar (niet één globale lock): ticker-resolutie/
-# prijscontrole draait deels parallel via ThreadPoolExecutor, en zonder
-# deze locks kunnen meerdere threads TEGELIJK zien dat bv. 'USDEUR=X' nog
-# niet gecached is en dus allemaal hun eigen download starten -- precies
-# het duplicate-call-probleem dat _fx_prijzen_serie moest oplossen (de
-# database-cache alleen is niet genoeg: de race zit tussen het lezen en
-# het schrijven, niet in de cache zelf). Met de lock wacht een tweede
-# thread voor hetzelfde paar tot de eerste klaar is en pakt daarna gewoon
-# de inmiddels gevulde cache. Vooraf aangemaakt (i.p.v. lazy) omdat de set
-# FX-paren vast en klein is (zie FX_PAAR_PER_VALUTA).
+# Eén lock per FX-paar: anders downloaden parallelle threads hetzelfde paar tegelijk.
 _fx_serie_locks = {fx_pair: threading.Lock() for fx_pair in set(FX_PAAR_PER_VALUTA.values())}
 
 
 def _fx_prijzen_serie(valuta, verversen=True):
-    """
-    Ruwe FX-koersreeks (valuta -> EUR) vanaf FX_ANKER_DATUM, persistent
-    gecached via de prijzen-tabel/get_prices() -- een FX-paar zoals
-    'USDEUR=X' is voor yfinance gewoon een ticker, dus hergebruikt dit
-    dezelfde cache-/download-infrastructuur als aandelenkoersen, i.p.v.
-    een eigen parallelle cache te bouwen. Gedeeld door _converteer_naar_eur
-    (via get_prices()) en _fx_koers_op_datum (via vergelijk_prijs_op_datum)
-    -- vóór deze fix downloadde elke aanroeper z'n eigen FX-koers apart,
-    ook binnen dezelfde upload voor exact dezelfde (valuta, datum).
-
-    `verversen` wordt doorgegeven aan get_prices(): vergelijk_prijs_op_datum()
-    vergelijkt altijd tegen een HISTORISCHE datum en geeft hier bewust
-    verversen=False door (een verse FX-koers van vandaag is voor die
-    vergelijking nooit relevant), terwijl _converteer_naar_eur() (actuele
-    aandelenkoersen omrekenen) het gedrag van zijn eigen aanroeper volgt.
-
-    Geeft een lege Series terug bij een onbekende valuta of ontbrekende
-    koersdata (aanroepers behandelen dat hetzelfde als voorheen: "geen
-    conversie mogelijk").
-
-    Binnen één Flask-requestcontext wordt het resultaat per fx_pair
-    gememoized op `g` -- ticker_waarschuwingen_voor_transacties() roept dit
-    per unieke ticker aan, en zonder deze memo herhaalt elke aanroep dezelfde
-    DB-query + pivot/ffill voor exact dezelfde (fx_pair, FX_ANKER_DATUM).
-    De memo onthoudt ook MET welke verversen-waarde hij gevuld is: een
-    eerdere aanroep met verversen=False heeft nooit geprobeerd te
-    verversen, dus een latere aanroep binnen hetzelfde request die wél wil
-    verversen (verversen=True) mag daar niet blindelings op vertrouwen --
-    zonder dit onderscheid zou bv. tijdens /upload de (verversen=False)
-    prijscontrole van een net-opgeloste ticker de FX-verversing voor de
-    (verversen=True) aandelenkoers-conversie verderop in diezelfde request
-    stilzwijgend blokkeren. Andersom (cache al met verversen=True gevuld)
-    is een latere verversen=False-aanroep altijd veilig te hergebruiken.
-    Geen module-level cache: dat zou tussen requests/workers heen de
-    2-minuten-staleness-check van get_prices() omzeilen. Buiten een
-    requestcontext (unittests, losse scripts) valt dit terug op het oude
-    gedrag -- gewoon elke keer get_prices() aanroepen.
-    """
+    """FX-reeks valuta -> EUR via dezelfde prijzen-cache als aandelen; lege Series als onbekend.
+    Per request gememoized op `g`, samen met de verversen-waarde: een memo met
+    verversen=False mag een latere aanroep met verversen=True niet blokkeren."""
     fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
     if fx_pair is None:
         return pd.Series(dtype=float)
@@ -367,8 +287,6 @@ def _fx_prijzen_serie(valuta, verversen=True):
 
 
 def _meld_fx_reeks(valuta, fx_pair, reeks):
-    """Diagnostiek-melding (categorie Wisselkoersen) over een net opgehaalde
-    FX-reeks, sleutel = FX-paar. Alleen melden, verandert niets aan de reeks."""
     geldig = reeks.dropna()
     if geldig.empty:
         meld(CATEGORIE_WISSELKOERSEN, FOUT,

@@ -1,24 +1,15 @@
-// Rekenkern voor het Prognose-tabblad. Puur JS, geen DOM/Chart.js-afhankelijkheden,
-// zodat dit zowel in de browser (index.html) als onder Node (tests/test_prognose.js)
-// draait — vandaar de module.exports-omweg onderaan i.p.v. een <script type=module>.
-//
-// Aanname (bevestigd door gebruiker): rendement wordt MAANDELIJKS samengesteld.
-// De maandrente wordt geometrisch afgeleid uit het jaarrendement
-// ((1+jaarrendement)^(1/12) - 1) i.p.v. lineair gedeeld door 12 — dat geeft bij
-// samenstelling over exact 12 maanden weer precies het opgegeven jaarrendement
-// terug (bij lineair delen door 12 zou het effectieve jaarrendement door het
-// samengesteld-effect net iets hoger uitvallen dan ingevuld). Inleg (jaarlijks
-// en maandelijks) wordt telkens NA de groei van die periode toegevoegd.
+// Pure logica voor de Prognose (zonder DOM, getest onder Node).
+// Maandelijks samengesteld; inleg komt ná de groei van die periode.
 
 (function (root) {
     "use strict";
 
+    // Geometrisch, niet /12: over 12 maanden komt dan precies het jaarrendement uit.
     function maandRenteVanJaarPct(rendementPct) {
         return Math.pow(1 + rendementPct / 100, 1 / 12) - 1;
     }
 
-    // Waarde-pad met samengestelde groei + inleg, per maand, inclusief startpunt
-    // (index 0 = startWaarde, index i = waarde na i maanden).
+    // Index 0 = startWaarde, index i = waarde na i maanden.
     function berekenPrognosePad(startWaarde, rendementPct, jaren, jaarlijkseInleg, maandelijkseInleg) {
         const maandRente = maandRenteVanJaarPct(rendementPct);
         const totaalMaanden = Math.round(jaren * 12);
@@ -34,7 +25,6 @@
         return punten;
     }
 
-    // Cumulatief geïnvesteerd bedrag, lineair (geen rendement), zelfde inleg-ritme.
     function berekenGeinvesteerdPad(startGeinvesteerd, jaren, jaarlijkseInleg, maandelijkseInleg) {
         const totaalMaanden = Math.round(jaren * 12);
         const punten = [startGeinvesteerd];
@@ -64,9 +54,7 @@
         };
     }
 
-    // Maandelijkse toekomst-datums ná vanafIso ("YYYY-MM-DD"), dus zonder vanafIso
-    // zelf — index 0 van het resultaat is vanafIso + 1 maand. UTC om te voorkomen
-    // dat de tijdzone van de browser een dag laat verschuiven.
+    // Begint bij vanafIso + 1 maand. UTC, anders kan de tijdzone een dag verschuiven.
     function genereerToekomstDatums(vanafIso, aantalMaanden) {
         const basis = new Date(vanafIso + "T00:00:00Z");
         const datums = [];
@@ -118,17 +106,8 @@
         return { geldig: fouten.length === 0, fouten, waarschuwing };
     }
 
-    // Bouwt uit historische data (chartData, = de chart_data van de op dat
-    // moment actieve portfolio) + berekenPrognose() de labels/datasets voor de
-    // gedeelde rendementChart-canvas. Neemt chartData expliciet als parameter
-    // i.p.v. een globale variabele te lezen, zodat dit voor twee verschillende
-    // portfolio's aantoonbaar verschillende resultaten geeft (zie
-    // tests/test_prognose.js) en nooit per ongeluk data van een eerder geladen
-    // portfolio kan hergebruiken.
-    // Verleden- en toekomst-reeksen delen het laatste historische punt
-    // (index H-1) zodat de lijnen zonder gat op elkaar aansluiten.
-    // Datasets als {x, y}-punten (x = ISO-datumstring) i.p.v. een gedeelde
-    // labels-array — nodig voor de echte tijd-as in de browser.
+    // chartData als parameter (niet globaal), zodat nooit data van een vorige portfolio meekomt.
+    // {x, y}-punten voor de tijd-as; historie en prognose delen het laatste punt.
     function bouwPrognoseGrafiekData(chartData, invoer) {
         const d = chartData;
         const H = d.labels.length;
@@ -150,8 +129,7 @@
         const toekomstDatums = genereerToekomstDatums(laatsteDatum, totaalMaanden);
 
         const historischPad = (reeks) => d.labels.map((iso, i) => ({ x: iso, y: reeks[i] }));
-        // pad[0] is het startpunt (== laatsteDatum), dus die slaan we hier over en
-        // beginnen bij het boundary-punt zelf om aan te sluiten op historischPad.
+        // pad[0] hoort bij laatsteDatum, zodat de lijn aansluit op historischPad.
         const toekomstPad = (pad) =>
             [{ x: laatsteDatum, y: pad[0] }].concat(toekomstDatums.map((iso, i) => ({ x: iso, y: pad[i + 1] })));
 

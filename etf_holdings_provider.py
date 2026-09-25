@@ -1,9 +1,4 @@
-"""
-Ophalen en parsen van de VOLLEDIGE holdings-lijst van een ETF bij de
-fondsprovider zelf (iShares/VanEck), i.p.v. yfinance's top-10 —
-zie ETF_HOLDINGS_BRON hieronder voor de achtergrond. Losgetrokken uit
-analysis.py (was daar het eerste, volledig zelfstandige blok functies).
-"""
+"""Volledige ETF-holdings bij de fondsprovider (iShares/VanEck) i.p.v. yfinance's top 10."""
 import io
 
 import pandas as pd
@@ -11,40 +6,10 @@ import requests
 
 from debug_utils import dprint
 
-# Handmatig opgezochte directe download-links naar de volledige
-# holdings-CSV/XLSX van de ETF-provider (voor landverdeling — sector blijft
-# via yfinance sector_weightings, dat dekt al ~100%). yfinance's
-# funds_data.top_holdings geeft maar de top 10, wat voor een breed gespreid
-# fonds (bv. CSPX.AS, 500+ posities) maar ~35-40% dekking geeft; de
-# provider zelf publiceert de volledige lijst.
-#
-# Zoek dit op via de fondspagina van de provider (iShares/Vanguard/VanEck
-# etc.) -> knop "Holdings downloaden" / "Full holdings" -> rechtermuisklik
-# op de downloadknop -> "Kopieer linkadres". Controleer een gevonden link
-# eerst door het bestand los door de parser uit _PROVIDER_PARSERS te halen
-# (aantal holdings, som van de gewichten moet dicht bij 100 liggen) voordat
-# je 'm hier toevoegt. Vul
-# stap voor stap aan naarmate je meer ETF's tegenkomt; een ticker die hier
-# niet in staat valt automatisch terug op de yfinance-top-10-aanpak.
+# Nieuwe URL toevoegen: zie docs/CODE_OVERZICHT.md, 8.5. Zonder entry valt een ticker terug op yfinance.
 ETF_HOLDINGS_BRON = {
-    # LET OP: geen asOfDate-parameter in de blackrock.com-URL's — die moet
-    # exact de huidige datum zijn (getest: een andere/oude datum geeft een
-    # lege CSV terug, geen fout), dus een hardcoded datum zou na vandaag
-    # stil stuk gaan. Zonder asOfDate geeft BlackRock automatisch de meest
-    # recente holdings terug.
-    #
-    # "locale" (optioneel, default "en" — zie fetch_provider_holdings()):
-    # bepaalt zowel het GETALFORMAAT (Nederlands: punt=duizendtal,
-    # komma=decimaal; Engels: komma=duizendtal, punt=decimaal) als de TAAL
-    # van landnamen in de brondata. Is een eigenschap van de bron-URL/site,
-    # niet van het fonds — de blackrock.com/varnish-api-bron (CSPX.AS,
-    # CNDX.AS, expliciet locale=en_GB in de URL) is Engels; de
-    # ishares.com/nl/-site (IWDA.AS, IMAE.AS, EMIM.AS) en VanEck se
-    # Nederlandse site (GDX.L) zijn Nederlands. Dit ontdekten we pas aan de
-    # gewichtensom van een testdownload: zonder locale="nl" werd bv. "5,25%"
-    # stilzwijgend als 525 gelezen (komma weggehaald als duizendtal-
-    # scheidingsteken) — een gewichten-som van ~10000% i.p.v. ~100%. Zie
-    # _parse_ishares_holdings()/_parse_vaneck_holdings() voor de details.
+    # Geen asOfDate in blackrock.com-URL's; "locale" hoort bij de bron-URL
+    # (zie CLAUDE.md: Yahoo en tickers).
     "CSPX.AS": {
         "provider": "ishares",
         "url": "https://www.blackrock.com/varnish-api/uk-retail01-product-data/product-data/api/v1/"
@@ -66,8 +31,7 @@ ETF_HOLDINGS_BRON = {
         "locale": "nl",
         "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/264659/ishares-msci-emerging-markets-imi-ucits-etf/1497735778849.ajax?fileType=csv&fileName=EMIM_holdings&dataType=fund",
     },
-    # IS3N.DE = zelfde ISIN (IE00BKM4GZ66) als EMIM.AS, alleen een andere
-    # notering (Xetra i.p.v. Amsterdam) van hetzelfde fonds — zelfde bron-URL.
+    # Zelfde fonds als EMIM.AS, andere notering.
     "IS3N.DE": {
         "provider": "ishares",
         "locale": "nl",
@@ -82,8 +46,7 @@ ETF_HOLDINGS_BRON = {
         "locale": "nl",
         "url": "https://www.vaneck.com/nl/nl/investments/gold-miners-etf/downloads/holdings/",
     },
-    # G2X.DE = zelfde ISIN (IE00BQQP9F84) als GDX.L, alleen een andere
-    # notering (Xetra i.p.v. Londen) van hetzelfde fonds — zelfde bron-URL.
+    # Zelfde fonds als GDX.L, andere notering.
     "G2X.DE": {
         "provider": "vaneck",
         "locale": "nl",
@@ -94,10 +57,7 @@ ETF_HOLDINGS_BRON = {
         "locale": "nl",
         "url": "https://www.ishares.com/nl/particuliere-belegger/nl/producten/251781/ishares-euro-stoxx-50-ucits-etf-inc-fund/1497735778849.ajax?fileType=csv&fileName=EUEA_holdings&dataType=fund",
     },
-    # TDT.AS' bron is de Engelstalige VanEck NL-site (url-pad /nl/en/), dus
-    # locale="en" — i.t.t. GDX.L/VE6I.DE die via de Nederlandstalige site
-    # (/nl/nl/) gaan. Kolomkop is hier ook net anders ("Holding Name" i.p.v.
-    # "Naam positie"/"Naam"), zie _parse_vaneck_holdings().
+    # Engelstalige VanEck-site (/nl/en/), dus locale "en".
     "TDT.AS": {
         "provider": "vaneck",
         "locale": "en",
@@ -110,13 +70,7 @@ ETF_HOLDINGS_BRON = {
     },
 }
 
-# Bewust NIET toegevoegd: VWCE.AS en VUSA.AS (Vanguard). Vanguard's site
-# haalt de holdings-download op via een GraphQL-API met een complexe query
-# in de request-body, niet via een simpele GET-URL zoals bij iShares/VanEck
-# — te fragiel (kan breken bij elke Vanguard-site-update) en te complex
-# voor de meerwaarde. Deze twee draaien bewust op de yfinance-top-10-
-# fallback voor land (~30-40% dekking); dit is een geaccepteerde beperking,
-# geen openstaande bug.
+# Vanguard (VWCE.AS, VUSA.AS) bewust niet: hun download loopt via een fragiele GraphQL-API.
 
 _PROVIDER_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -125,11 +79,7 @@ _PROVIDER_USER_AGENT = (
 
 
 def _holding_rij(naam, gewicht, land, sector):
-    """Eén genormaliseerde holdings-rij. Rijen zonder geldig gewicht worden
-    door de aanroeper overgeslagen; land/sector worden expliciet 'Unknown'
-    i.p.v. leeg/None, zodat een 'Cash'- of 'Futures'-rij in de landverdeling
-    zichtbaar in een eigen bucket terechtkomt in plaats van de optelsom
-    stilzwijgend te verstoren."""
+    """Leeg land wordt 'Unknown', zodat bv. een Cash-rij zichtbaar blijft in de landverdeling."""
     return {
         "naam": str(naam).strip(),
         "gewicht": float(gewicht),
@@ -139,16 +89,7 @@ def _holding_rij(naam, gewicht, land, sector):
 
 
 def _parse_percentage_waarde(waarde, locale="en"):
-    """Zet een gewicht-celwaarde om naar een float-percentage (bv. 5.25
-    voor 5,25%). Twee vormen komen voor: een kant-en-klaar getal (Engelse
-    bronnen, bv. iShares' blackrock.com-CSV geeft al '7.68'), of een string
-    met een %-teken en Nederlandse komma-decimaal (bv. VanEck se
-    Nederlandse XLSX geeft '10,74%') — die laatste wordt eerst opgeschoond
-    (%-teken eraf, duizendtal-punten eraf, komma -> punt) voordat
-    pd.to_numeric() 'm kan parsen. Zonder deze opschoning leest
-    pd.to_numeric zo'n string simpelweg niet (geeft NaN, geen fout) —
-    precies zo werd de eerdere iShares-locale-bug pas zichtbaar via de
-    gewichtensom van een testdownload (~10000% i.p.v. ~100%)."""
+    """'10,74%' of 7.68 -> float; zonder opschoning geeft pd.to_numeric stil NaN."""
     if isinstance(waarde, str):
         waarde = waarde.strip().rstrip("%").strip()
         if locale == "nl":
@@ -157,21 +98,7 @@ def _parse_percentage_waarde(waarde, locale="en"):
 
 
 def _parse_ishares_holdings(content, locale="en"):
-    """iShares full-holdings CSV. Header staat meestal vanaf regel 3
-    (skiprows=2). Kolommen: Name, Weight (%), Sector, Location (of
-    Country) — afhankelijk van het fonds.
-
-    'locale' is een eigenschap van de BRON-URL (zie ETF_HOLDINGS_BRON), niet
-    van het fonds: dezelfde iShares-CSV-structuur komt terug in twee
-    varianten. De blackrock.com/varnish-api-bron (expliciet locale=en_GB in
-    de URL) geeft Engels getalformaat (komma=duizendtal, punt=decimaal) en
-    Engelse landnamen ('United States'). De ishares.com/nl/-site geeft
-    Nederlands getalformaat (punt=duizendtal, komma=decimaal) én
-    Nederlandse landnamen ('Verenigde Staten') — die laatste worden via
-    _vertaal_land_nl() vertaald, anders zou hetzelfde land in de
-    portfoliobrede landverdeling (compute_land_sector_verdeling, die alle
-    ETF's optelt op landnaam) als twee aparte taartpunten verschijnen
-    afhankelijk van welk fonds het aanlevert."""
+    """Bij locale 'nl' ook Nederlands getalformaat en landnamen (die worden vertaald)."""
     if locale == "nl":
         df = pd.read_csv(io.BytesIO(content), skiprows=2, thousands=".", decimal=",")
     else:
@@ -198,18 +125,7 @@ def _parse_ishares_holdings(content, locale="en"):
     return holdings
 
 
-# Vertaaltabel Nederlandse -> Engelse landnamen, voor iShares-bronnen met
-# locale="nl" (zie _parse_ishares_holdings) — Engelse namen omdat de rest
-# van het project (yfinance's land-veld, de blackrock.com/varnish-api-
-# Engelse CSV's) al die conventie gebruikt, en dezelfde-land-twee-buckets-
-# bug (zie hierboven) alleen voorkomen wordt als ALLE bronnen naar één
-# gemeenschappelijke taal vertalen. Bewust de informele/gangbare Engelse
-# namen (bv. "South Korea", niet ISO's officiële "Korea, Republic of") om
-# aan te sluiten bij yfinance's conventie, niet bij pycountry's ISO-namen.
-# Samengesteld uit de daadwerkelijke landnamen in de IWDA/IMAE/EMIM-CSV's
-# (opgehaald en gecontroleerd tijdens het toevoegen van deze bronnen) —
-# vul aan als een nieuw fonds een landnaam gebruikt die hier nog niet in
-# staat (_vertaal_land_nl hieronder waarschuwt dan expliciet).
+# Gangbare Engelse namen zoals yfinance ze geeft ("South Korea"), niet de ISO-namen van pycountry.
 NL_LAND_VERTALING = {
     "-": "Unknown",
     "Australië": "Australia",
@@ -265,27 +181,14 @@ NL_LAND_VERTALING = {
 
 
 def _vertaal_land_nl(land):
-    """Vertaalt een Nederlandse landnaam (uit een ishares.com/nl/- of
-    VanEck-NL-bron) naar de Engelse naam die de rest van het project
-    gebruikt (zie NL_LAND_VERTALING hierboven). Een onbekende naam blijft
-    bewust ONVERTAALD i.p.v. stilzwijgend 'Unknown' te worden — zo blijft
-    hij als aparte, herkenbare bucket zichtbaar in de UI i.p.v. op te gaan
-    in een verkeerde categorie."""
+    """Een onbekende naam blijft onvertaald (zichtbaar) i.p.v. 'Unknown'."""
     if land in NL_LAND_VERTALING:
         return NL_LAND_VERTALING[land]
     return land
 
 
 def _land_via_isin(isin):
-    """Land afgeleid van de eerste 2 tekens van een ISIN — het land van
-    registratie van de uitgevende instelling, een wereldwijd
-    gestandaardiseerde conventie (ISO 6166). Gebruikt als een holdings-
-    bron geen aparte land/country-kolom heeft (bv. VanEck's GDX-bestand,
-    dat alleen Ticker/ISIN geeft, geen Land) — een redelijke proxy, geen
-    garantie dat het land van registratie exact overeenkomt met waar een
-    bedrijf economisch actief is (bv. een Britse ISIN voor een
-    Zuid-Afrikaans mijnbouwbedrijf, zie AngloGold Ashanti), maar veel beter
-    dan alles op 'Unknown' laten staan."""
+    """Land van registratie uit de ISIN-prefix: een benadering, niet waar het bedrijf actief is."""
     if not isin or not isinstance(isin, str) or len(isin) < 2:
         return "Unknown"
     code = isin[:2].upper()
@@ -300,16 +203,7 @@ def _land_via_isin(isin):
 
 
 def _parse_vaneck_holdings(content, locale="en"):
-    """VanEck full-holdings XLSX. Header staat vanaf regel 3 (skiprows=2).
-    Kolomnamen EN getalformaat variëren per fonds/site-locale — probeer
-    bekende varianten i.p.v. er blind 1 aan te nemen (zie
-    _parse_percentage_waarde() voor het getalformaat).
-
-    Sommige VanEck-exports (bv. GDX via de Nederlandse site) hebben GEEN
-    aparte land/country-kolom, alleen Ticker/ISIN — land wordt dan
-    afgeleid uit de ISIN via _land_via_isin() (zie die functie voor de
-    kanttekening). Is er wél een expliciete land-kolom, dan heeft die
-    voorrang (preciezer dan een ISIN-afleiding)."""
+    """Kolomnamen verschillen per fonds/site; zonder landkolom komt het land uit de ISIN."""
     df = pd.read_excel(io.BytesIO(content), skiprows=2)
     df.columns = df.columns.str.strip()
 
@@ -351,17 +245,7 @@ _PROVIDER_PARSERS = {
 
 
 def _dedupliceer_holdings(holdings):
-    """Voegt holdings met dezelfde naam samen (som van hun gewicht) — sommige
-    providers geven meerdere posities onder exact dezelfde (vaak afgekapte)
-    naam terug: bv. verschillende aandelenklassen van hetzelfde bedrijf, of
-    meerdere FX-hedge-contracten met verschillende looptijd/tranche onder
-    dezelfde naam (ontdekt bij EMIM.AS: 'INDUSTRIAL AND COMMERCIAL BANK OF'
-    2x, 'INR/USD' zelfs 29x). etf_holdings' primary key is (etf_ticker,
-    holding_naam) — zonder deze samenvoeging crasht het opslaan met een
-    UniqueViolation zodra een fonds dit patroon heeft. Voor de landverdeling
-    (waar dit uiteindelijk voor gebruikt wordt) maakt het niet uit of zulke
-    duplicaten apart blijven of samengevoegd worden — het gewicht per land
-    telt sowieso bij elkaar op."""
+    """Telt gewichten van gelijke namen op; anders UniqueViolation op de PK van etf_holdings."""
     per_naam = {}
     for h in holdings:
         bestaand = per_naam.get(h["naam"])
@@ -373,18 +257,7 @@ def _dedupliceer_holdings(holdings):
 
 
 def fetch_provider_holdings(etf_ticker):
-    """
-    Haalt de VOLLEDIGE holdings-lijst van een ETF op bij de fondsprovider
-    zelf (i.p.v. yfinance's top-10), als er een URL voor bekend is in
-    ETF_HOLDINGS_BRON. Dekking: bijna 100%, tegenover de ~35-40% die
-    yfinance's top_holdings geeft voor een breed gespreid fonds.
-
-    Geeft None terug als er geen URL bekend is voor deze ticker, of als het
-    ophalen/parsen om wat voor reden dan ook mislukt — de aanroeper
-    (get_etf_holdings) valt dan terug op de yfinance-top-10-aanpak. Deze
-    functie mag daarom nooit crashen: een provider die zijn bestandsformaat
-    wijzigt mag niet de rest van de pagina meenemen.
-    """
+    """None bij geen URL of elke fout; mag nooit crashen (de aanroeper valt terug op yfinance)."""
     bron = ETF_HOLDINGS_BRON.get(etf_ticker)
     if bron is None:
         return None

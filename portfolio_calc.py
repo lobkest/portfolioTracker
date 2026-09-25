@@ -1,23 +1,13 @@
-"""
-Kern-tijdreeks-/holdings-berekeningen op transacties_df + price_data:
-split-correctie en de per-dag/per-ticker waarde-/geïnvesteerd-tijdreeksen
-achter Home, Per aandeel en Per aandeel aankoop (incl. het aantal
-aangehouden stuks voor /ticker-koers-bereik, holdings_op_datums).
-
-Losgetrokken uit analysis.py.
-"""
+"""Split-correctie en de per-dag- en per-ticker-tijdreeksen (Home, Per aandeel, Per aandeel aankoop)."""
 import pandas as pd
 
 from debug_utils import dprint
+from diagnostiek import meld, CATEGORIE_SPLITS, INFO, LET_OP
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
 
 
 def compute_split_adjusted_shares(transacties_df):
-    """
-    Corrigeert aandelenaantallen voor stock splits, gedetecteerd via DEGIRO's
-    NON TRADEABLE/DEG-rijen. Voegt een 'adj_aantal' kolom toe die gebruikt moet
-    worden i.p.v. 'aantal' bij alle waarde-berekeningen.
-    """
+    """Voegt 'adj_aantal' toe (split-gecorrigeerd); zie CLAUDE.md: Data en rekenen."""
     df = transacties_df.copy()
     df["adj_aantal"] = df["aantal"].astype(float)
     df["koers"] = df["koers"].fillna(0).astype(float)
@@ -29,6 +19,9 @@ def compute_split_adjusted_shares(transacties_df):
             continue
 
         product_naam = groep["product"].iloc[0] if "product" in groep.columns else "?"
+        # Alleen voor de Diagnostiek-melding.
+        factor_bepaald = False
+        reden_geen_factor = "geen conversierij gevonden"
         dprint(f"\n[split-detect] ISIN={isin} ('{product_naam}') heeft {len(ca_rows)} "
                f"corporate-action rij(en), onderzoeken...")
         dprint(f"[split-detect]   alle rijen voor deze ISIN:")
@@ -41,8 +34,7 @@ def compute_split_adjusted_shares(transacties_df):
             (real_trades["koers"] == 0) & (real_trades["adj_aantal"] > 0)
         ].sort_values("datum")
 
-        # Geen conversierij = een STILLE fout in de rendementsberekening:
-        # het aandelenaantal klopt vanaf hier niet meer (wordt niet gelogd).
+        # Geen conversierij: het aantal klopt vanaf hier niet meer.
         for _, conv in conversion_rows.iterrows():
             conv_date = conv["datum"]
             eerdere_trades = real_trades[(real_trades["datum"] < conv_date) & (real_trades["koers"] > 0)]
@@ -50,6 +42,7 @@ def compute_split_adjusted_shares(transacties_df):
             if shares_before <= 0:
                 dprint(f"[split-detect]   conversie op {conv_date}: shares_before={shares_before} "
                        f"(<=0) - overgeslagen, kan geen ratio berekenen")
+                reden_geen_factor = "geen aandelen vóór de conversie"
                 continue
 
             last_real_date = eerdere_trades["datum"].max()
@@ -60,6 +53,7 @@ def compute_split_adjusted_shares(transacties_df):
             if new_shares <= 0:
                 dprint(f"[split-detect]   conversie op {conv_date}: new_shares={new_shares} (<=0) "
                        f"- overgeslagen")
+                reden_geen_factor = "geen nieuwe aandelen in de corporate-action-rijen"
                 continue
 
             ratio = (shares_before + new_shares) / shares_before
@@ -71,12 +65,24 @@ def compute_split_adjusted_shares(transacties_df):
             )
             dprint(f"[split-detect]   pas ratio {ratio:.4f}x toe op {mask.sum()} eerdere rij(en)")
             df.loc[mask, "adj_aantal"] *= ratio
+            factor_bepaald = True
+            conv_datum_tekst = pd.Timestamp(conv_date).strftime("%Y-%m-%d")
+            meld(CATEGORIE_SPLITS, INFO,
+                 f"Split voor {product_naam} ({isin}) op {conv_datum_tekst}: factor {ratio:.4f}.",
+                 sleutel=f"split:{isin}:{conv_datum_tekst}")
+
+        if not factor_bepaald:
+            meld(CATEGORIE_SPLITS, LET_OP,
+                 f"{product_naam} ({isin}) heeft corporate-action-rijen, maar er is geen splitfactor bepaald "
+                 f"({reden_geen_factor}); het aantal aandelen kan vanaf dan afwijken. Bij een corporate action "
+                 f"die geen split is (bv. een ISIN-wissel) kan dit terecht zijn.",
+                 sleutel=f"split_onbekend:{isin}")
 
     return df
 
 
 def compute_value_over_time(transacties_df, price_data):
-    """Berekent per dag: portfoliowaarde, totaal geïnvesteerd en rendement."""
+    """'geinvesteerd' is hier de netto cashflow (incl. kosten), niet de GAK-kostenbasis."""
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
@@ -94,9 +100,7 @@ def compute_value_over_time(transacties_df, price_data):
     rows = []
     trade_i = 0
 
-    # Snelle dict/array-toegang i.p.v. price_data.loc[date, t] per iteratie
-    # (.loc-overhead) -- zelfde loop-structuur en -volgorde, alleen de
-    # koerslookup is nu een goedkope array-index.
+    # Arrays i.p.v. price_data.loc per iteratie (snelheid).
     prijs_per_ticker = {t: price_data[t].to_numpy() for t in tickers}
 
     for i, date in enumerate(price_data.index):
@@ -120,7 +124,7 @@ def compute_value_over_time(transacties_df, price_data):
 
 
 def compute_per_ticker(transacties_df, price_data):
-    """Per ticker: waarde en geïnvesteerd bedrag over tijd."""
+    """'geinvesteerd' is hier de GAK-kostenbasis van de aangehouden stukken."""
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
@@ -135,8 +139,6 @@ def compute_per_ticker(transacties_df, price_data):
         prev_waarde = None
         prev_invested = None
 
-        # Snelle array-toegang i.p.v. price_data.loc[date, ticker] per
-        # iteratie (.loc-overhead), zelfde loop-structuur en -volgorde.
         prijzen_array = price_data[ticker].to_numpy()
 
         for i, date in enumerate(price_data.index):
@@ -145,25 +147,11 @@ def compute_per_ticker(transacties_df, price_data):
                 row = trades.loc[trade_i]
                 holdings += float(row["adj_aantal"])
 
-                # Zelfde lopende-gemiddelde-kostprijs-methode (GAK) als
-                # bereken_holdings_en_gesloten(): bij een verkoop gaat alleen
-                # de kostenbasis van de VERKOCHTE stukken eraf (evenredig aan
-                # het gemiddelde op dat moment), niet de volledige
-                # verkoopopbrengst. Zo daalt "geïnvesteerd" bij een
-                # gedeeltelijke verkoop evenredig mee met het aantal
-                # resterende stukken i.p.v. met de volledige cashflow.
+                # GAK-methode, gelijk houden met bereken_holdings_en_gesloten() (zie CLAUDE.md: Data en rekenen).
                 delta_aantal = float(row["aantal"])
-                # totaal_eur incl. AutoFX/transactiekosten; alleen gebruikt
-                # voor de cashflow-check (corporate-action-rijen hebben
-                # totaal_eur=0) en de verkoopkant, die bewust op totaal_eur
-                # blijft (de aankoopkant gebruikt waarde_eur, zie hieronder).
+                # totaal_eur alleen voor de cashflow-check (splitrijen = 0) en de verkoopkant.
                 delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
                 if delta_aantal > 0:
-                    # Kostenbasis o.b.v. de kale Waarde EUR (aantal x koers,
-                    # zonder kosten), niet totaal_eur — DEGIRO's eigen GAK
-                    # gebruikt ook de kale waarde. Valt terug op totaal_eur (incl.
-                    # AutoFX/kosten, GAK dus iets te hoog) als waarde_eur NULL is: DEGIRO
-                    # leverde geen Waarde EUR of de Excel mist die kolom (wordt niet later aangevuld).
                     waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
                     delta_cash_aankoop = -float(waarde_bron)
                     aantal_lopend += delta_aantal
@@ -181,8 +169,7 @@ def compute_per_ticker(transacties_df, price_data):
             waarde = holdings * prijs if pd.notna(prijs) else 0.0
             invested = max(kostprijs_lopend, 0.0)  # epsilon-afronding kan net onder 0 uitkomen
 
-            # Spike-detector: grote sprong in waarde of geinvesteerd op 1 dag zonder
-            # duidelijke oorzaak (helpt ISIN-migraties / verkeerde splits opsporen)
+            # Grote sprong op 1 dag: helpt ISIN-migraties en verkeerde splits opsporen.
             if prev_waarde is not None and prev_invested not in (None, 0):
                 if abs(invested - prev_invested) > 0.5 * abs(prev_invested) + 50:
                     dprint(f"[per-ticker:{ticker}] grote sprong in geinvesteerd op {date.date()}: "
@@ -201,22 +188,8 @@ def compute_per_ticker(transacties_df, price_data):
 
         df_t = pd.DataFrame(rows).set_index("datum")
 
-        # LET OP: "nog in bezit" moet op het AANDELENAANTAL bepaald worden,
-        # niet op "geinvesteerd" — dat laatste is een cumulatieve netto
-        # cashflow (aankopen min verkopen) die na een volledige verkoop
-        # permanent > 0 blijft staan zodra er ooit winst/verlies is gemaakt
-        # (het gerealiseerde resultaat), ook al is holdings dan allang 0. Met
-        # geinvesteerd als signaal liep de grafiek van een verkochte positie
-        # dus onterecht door tot vandaag (bug: "per-aandeel-grafiek loopt
-        # door na volledige verkoop"). Epsilon i.p.v. exact 0 i.v.m.
-        # float-afrondingen in de cumulatieve holdings-som.
-        #
-        # De crop-range (nonzero_idx) mag NIET uitsluitend op holdings != 0
-        # afgaan: een koop + volledige verkoop binnen dezelfde (dagelijks
-        # bemonsterde) datum eindigt ook op holdings == 0 voor die datum,
-        # terwijl er wel degelijk een echte transactie was — "activiteit"
-        # (er is die datum minstens 1 transactie verwerkt) vangt dat geval
-        # mee, ook al is de holdings-verandering per saldo 0.
+        # "Nog in bezit" op aantal stuks (zie CLAUDE.md: Data en rekenen). "activiteit"
+        # vangt een koop + volledige verkoop op dezelfde dag.
         nonzero_idx = df_t.index[(df_t["holdings"].abs() > 1e-6) | df_t["activiteit"]]
         is_still_held = abs(df_t["holdings"].iloc[-1]) > 1e-6 if len(df_t) else False
         if len(nonzero_idx) > 0:
@@ -227,9 +200,7 @@ def compute_per_ticker(transacties_df, price_data):
             # 1 dag ervoor erbij, zodat de sprong vanaf 0 zichtbaar is
             start_pos = max(0, start_pos - 1)
 
-            # 1 dag erna erbij, maar alleen als de positie niet meer
-            # aangehouden wordt — anders wordt er niets zinnigs toegevoegd,
-            # je bezit het nog gewoon.
+            # 1 dag erna erbij, alleen als de positie verkocht is
             if not is_still_held:
                 end_pos = min(len(all_dates) - 1, end_pos + 1)
 
@@ -247,19 +218,7 @@ def compute_per_ticker(transacties_df, price_data):
 
 
 def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
-    """
-    Per ticker: de kale koers per aandeel over tijd (niet vermenigvuldigd
-    met het aantal, in tegenstelling tot compute_per_ticker()'s 'waarde'),
-    het aantal aangehouden aandelen over tijd, en apart de datums van
-    aankopen (adj_aantal > 0) en verkopen (adj_aantal < 0) -- in
-    tegenstelling tot het oude trading_degiro.py-script dat alle
-    transactiedatums door elkaar als 'Aankoop' labelde. T.b.v. het 'Per
-    aandeel aankoop'-tabblad.
-
-    Gebruikt dezelfde crop-range-logica als compute_per_ticker() (rond de
-    periode dat de positie daadwerkelijk aangehouden werd), zodat beide
-    tabbladen consistente start-/einddatums per positie tonen.
-    """
+    """Kale koers, aantal aangehouden en aparte aankoop-/verkoopdatums per ticker; zelfde crop als compute_per_ticker()."""
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
@@ -270,8 +229,6 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
         trade_i = 0
         rows = []
 
-        # Snelle array-toegang i.p.v. price_data.loc[date, ticker] per
-        # iteratie (.loc-overhead), zelfde loop-structuur en -volgorde.
         prijzen_array = price_data[ticker].to_numpy()
 
         for i, date in enumerate(price_data.index):
@@ -291,10 +248,7 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
 
         df_t = pd.DataFrame(rows).set_index("datum")
 
-        # Zelfde crop-logica als compute_per_ticker() (zie die functie voor
-        # de uitgebreide toelichting) -- hier bewust NIET herschreven als
-        # gedeelde helper, want dat raakt compute_per_ticker() en dat is
-        # buiten scope; wel 1-op-1 hetzelfde gedrag.
+        # Zelfde crop-logica als compute_per_ticker(); samen wijzigen.
         nonzero_idx = df_t.index[(df_t["holdings"].abs() > 1e-6) | df_t["activiteit"]]
         is_still_held = abs(df_t["holdings"].iloc[-1]) > 1e-6 if len(df_t) else False
         if len(nonzero_idx) > 0:
@@ -317,18 +271,9 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
 
         result[ticker] = {
             "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
-            # LET OP: df_t["koers"] is een pandas-kolom -- als die None-
-            # waarden bevat (ontbrekende koers) wordt de kolom float64 en
-            # verandert None stilletjes in NaN (numpy-gedrag bij het
-            # bouwen van de DataFrame uit rows-dicts). "is not None" mist
-            # dat dus altijd; NaN serialiseert vervolgens als het ongeldige
-            # JSON-token "NaN" (json.dumps staat dat standaard toe) en
-            # breekt fetch()'s response.json() in de browser. pd.notna()
-            # herkent zowel None als NaN correct.
+            # pd.notna, niet "is not None": None wordt NaN in een float-kolom (breekt JSON).
             "koers": [round(k, 4) if pd.notna(k) else None for k in df_t["koers"]],
             "holdings": df_t["holdings"].round(6).tolist(),
-            # Meegestuurd zodat de frontend niet een eigen drempel op
-            # holdings[-1] hoeft toe te passen (zie werkMeerHistorieKnoppenBij).
             "nog_in_bezit": bool(is_still_held),
             "aankoop_datums": sorted(
                 d.strftime("%Y-%m-%d")
@@ -343,16 +288,7 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
 
 
 def holdings_op_datums(trades_df, datums):
-    """
-    Aantal aangehouden stuks (cumulatieve adj_aantal van alle trades t/m
-    die datum) op elke datum in `datums`, als lijst in dezelfde volgorde.
-    `trades_df` bevat de split-gecorrigeerde transacties van één ticker.
-
-    Voor /ticker-koers-bereik: geen expliciete crop nodig, want buiten de
-    crop-range van compute_per_ticker_koers_en_aankopen() is de cumulatieve
-    stand per definitie al 0 (vóór de eerste trade, na een volledige
-    verkoop) -- en een tussentijdse nul-periode blijft zo gewoon staan.
-    """
+    """Cumulatieve adj_aantal van één ticker op elke datum in `datums`."""
     if len(datums) == 0:
         return []
     if trades_df.empty:

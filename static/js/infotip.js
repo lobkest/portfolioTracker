@@ -1,11 +1,5 @@
-// Herbruikbare i-icoontjes met uitlegtekst (tooltip). Markup in index.html:
-//   <span class="infoTip" data-label="Korte naam">Uitlegtekst</span>
-// staat binnen een <div class="labelRij"> naast het bijbehorende label.
-// Deze code bouwt daar een focusbare knop (i) omheen; de tekst zelf blijft
-// ongewijzigd en wordt de tooltip. Zonder JS blijft de tekst gewoon leesbaar.
-//
-// Gedrag: muis -> hover; toetsenbord -> focus (Tab); telefoon -> tik toont/
-// verbergt. Tik/klik buiten het icoontje of Escape sluit alles.
+// Maakt van <span class="infoTip" data-label="...">tekst</span> een (i)-knop met tooltip;
+// zonder JS blijft de tekst leesbaar. Muis: hover; toetsenbord: focus; telefoon: tik.
 (function () {
     "use strict";
 

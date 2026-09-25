@@ -7,6 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
+    hoogsteNiveau, categorieStandaardOpen,
 } = require("../static/js/diagnostiek.js");
 
 const m = (categorie, niveau, tekst, sleutel = tekst) => ({ categorie, niveau, tekst, sleutel });
@@ -72,4 +73,19 @@ test("groepeerPerCategorie: lege invoer", () => {
 test("diagnostiekTellerTekst: alleen niveaus met meldingen, ernstigste eerst", () => {
     assert.equal(diagnostiekTellerTekst({ FOUT: 1, LET_OP: 2, INFO: 0, GOED: 3 }), "1 fout, 2 let op, 3 goed");
     assert.equal(diagnostiekTellerTekst({ FOUT: 0, LET_OP: 0, INFO: 0, GOED: 0 }), "");
+});
+
+test("hoogsteNiveau: ernstigste niveau, null bij lege invoer", () => {
+    assert.equal(hoogsteNiveau([m("W", "GOED", "a"), m("W", "LET_OP", "b"), m("W", "INFO", "c")]), "LET_OP");
+    assert.equal(hoogsteNiveau([m("W", "GOED", "a"), m("W", "FOUT", "b")]), "FOUT");
+    assert.equal(hoogsteNiveau([m("W", "RAAR", "a"), m("W", "GOED", "b")]), "INFO");
+    assert.equal(hoogsteNiveau([]), null);
+    assert.equal(hoogsteNiveau(undefined), null);
+});
+
+test("categorieStandaardOpen: open bij LET_OP/FOUT, dicht bij alleen GOED/INFO", () => {
+    assert.equal(categorieStandaardOpen([m("W", "GOED", "a"), m("W", "INFO", "b")]), false);
+    assert.equal(categorieStandaardOpen([m("W", "GOED", "a"), m("W", "LET_OP", "b")]), true);
+    assert.equal(categorieStandaardOpen([m("W", "FOUT", "a")]), true);
+    assert.equal(categorieStandaardOpen([]), false);
 });

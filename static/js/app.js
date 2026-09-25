@@ -1,32 +1,21 @@
 let chart = null;
 let huidigeData = null;
 
-// Status van de lui opgehaalde verrijking (Verdeling/Land/Sector/Bedrijven/
-// ETF-overlap, zie analyze_transacties_verrijking in portfolio_orchestratie.py): null zolang er
-// geen aparte /verrijking-aanroep loopt (bv. een 'niet opslaan'-analyse, die
-// deze velden al standaard meestuurt), "laden" tijdens de achtergrond-fetch,
-// "fout" bij een timeout/mislukking (toont een "opnieuw proberen"-knop),
-// "klaar" zodra huidigeData de verrijkingsvelden bevat.
+// null (geen aparte /verrijking, bv. bij 'niet opslaan'), "laden", "fout" of "klaar".
 let verrijkingStatus = null;
 
-// Diagnostiek-meldingen van de huidige portfolio-sessie (Instellingen >
-// Diagnostiek). Gereset in toonDashboard() (nieuwe upload of andere code);
-// aangevuld met de "diagnostiek"-sleutel van elk kern-/verrijkingsantwoord.
-// Bijnaam/code-wijzigen roepen toonDashboard() niet aan en laten dit staan.
+// Gereset in toonDashboard(); bijnaam/code wijzigen laat de meldingen staan.
 let diagnostiekMeldingen = [];
+// Open/dicht-keuze van de gebruiker per categorie (overschrijft de
+// standaard uit categorieStandaardOpen tot een nieuwe upload/code).
+let diagnostiekOpenKeuze = new Map();
 
 function voegDiagnostiekToe(data) {
     diagnostiekMeldingen = voegMeldingenSamen(diagnostiekMeldingen, data && data.diagnostiek);
     if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
 }
 
-// Gedeelde fetch-met-timeout-helper: breekt de aanroep zelf af als de server
-// (of de verbinding) veel te lang stil blijft -- bv. een gunicorn-worker die
-// vastloopt zonder de verbinding netjes te sluiten. Zonder dit blijft de
-// gebruiker naar een oneindige laadanimatie kijken zonder foutmelding (zie
-// CLAUDE.md, Statistieken-incident 2026-08-31). Gooit een Error met
-// message "TIMEOUT" bij een afgebroken aanroep, zodat de aanroeper dat
-// specifieke geval kan onderscheiden van een gewone netwerkfout.
+// Breekt af als de server te lang stil blijft (zie CLAUDE.md: Yahoo en tickers); gooit Error("TIMEOUT").
 async function fetchMetTimeout(url, opties, timeoutMs = 55000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -42,55 +31,32 @@ async function fetchMetTimeout(url, opties, timeoutMs = 55000) {
     }
 }
 
-// Prognose-tabblad: invoer blijft bewaard zolang de pagina open is (ook als je
-// naar een ander tabblad en terug gaat), berekening gebeurt pas na "Bereken".
+// Invoer blijft bewaard zolang de pagina open is; rekenen pas na "Bereken".
 let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 };
 let prognoseResultaat = null;
 
-// Rendement-tabblad: resultaat van de laatst opgehaalde "Vergelijk met..."
-// benchmark (zie benchmarkSelect), of null als er geen benchmark gekozen is.
 let benchmarkVergelijkingData = null;
-
-// Rendement-tabblad: resultaat van de laatst opgehaalde "Vergelijk ook
-// met..."-eigen-aandeel-keuze (zie eigenAandeelSelect), onafhankelijk van
-// benchmarkVergelijkingData hierboven -- beide kunnen tegelijk een lijn
-// tonen. Null als er geen eigen aandeel gekozen is.
+// Los van de benchmark: beide vergelijkingslijnen kunnen tegelijk zichtbaar zijn.
 let eigenAandeelVergelijkingData = null;
 
-// Transacties-tabblad: ruwe lijst (datum/tijd/product/aantal/koers/totaal_eur/
-// transactiekosten) van /api/portfolio/<code>/transacties, null zolang nog niet opgehaald voor
-// de huidige portfolio (zie toonDashboard() voor de reset bij een nieuwe
-// portfolio). Sortering/paginering gebeurt hier client-side (sorteerTransacties/
-// totaalPaginas/pagineer, static/js/transacties.js) -- blijft bewaard bij het
-// wisselen naar een ander tabblad en terug, net als prognoseInvoer hierboven.
+// null tot het eerste bezoek aan het Transacties-tabblad.
 let transactiesRuweLijst = null;
 let transactiesSorteerKolom = "datum_tijd";
 let transactiesSorteerRichting = "desc";
 let transactiesPaginaGrootte = 25;
 let transactiesHuidigePagina = 1;
 
-// Land/Sector-tabblad: welke weergave staat aan, gedeeld tussen beide
-// tabbladen (de knop "Wissel weergave" toggled dit, zie weergaveToggleBtn
-// hieronder) -- "taart" is de bestaande toonPlatteVerdeling(), "staaf" de
-// nieuwe gestapelde-staafgrafiek per bron (renderGestapeldeStaafgrafiek).
+// "taart" of "staaf", gedeeld tussen Land en Sector.
 let landSectorWeergave = "taart";
 
 Chart.register(ChartDataLabels);
 
-// Chart.js herschaalt niet altijd meteen na een rotatie op mobiele Safari;
-// de setTimeout is nodig omdat de nieuwe viewport-afmetingen niet altijd
-// al klaar staan op het exacte moment van het orientationchange-event.
+// setTimeout: bij orientationchange zijn de nieuwe afmetingen nog niet klaar (mobiele Safari).
 window.addEventListener("orientationchange", () => {
     setTimeout(() => { if (chart) chart.resize(); }, 200);
 });
 
-// Herbruikbare full-page laad-overlay, gebruikt voor elke actie die een
-// serververzoek doet dat merkbaar kan duren (upload/analyseren, code
-// ophalen, bijnaam opslaan/resetten, ticker-zekerheid ophalen, data
-// verwijderen) zodat de gebruiker niet dubbel klikt of naar een ander
-// tabblad navigeert terwijl het verzoek nog loopt. Bewust NIET gebruikt
-// voor de Prognose-berekening: die is puur client-side rekenwerk zonder
-// netwerk-call en in de praktijk instant.
+// Voorkomt dubbelklikken of wegnavigeren tijdens een serververzoek.
 function toonLaadOverlay(tekst) {
     verbergLaadOverlay();
     const overlay = document.createElement("div");
@@ -118,10 +84,7 @@ function formatDatum(isoDatum) {
     return `${dag}-${maand}-${jaar}`;
 }
 
-// Vaste categorische volgorde (nooit cyclisch bedoeld te lezen tot 8 items;
-// bij meer holdings dan dat herhalen kleuren, maar elke taart-punt heeft dan
-// nog steeds een eigen naam+percentage-label, dus identiteit blijft niet
-// afhankelijk van kleur alleen).
+// Boven 8 items herhalen de kleuren; elk taartpunt heeft ook een eigen label.
 const CATEGORISCH_PALET = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
 // Vlakken die te licht zijn voor witte tekst erop (donkere inkt leest daar beter).
 const LICHTE_VLAKKEN = new Set(["#eda100", "#e87ba4"]);
@@ -138,9 +101,7 @@ function kortNaam(naam, maxLen = 14) {
     return naam.length > maxLen ? naam.slice(0, maxLen - 1) + "…" : naam;
 }
 
-// ETF-vlakken krijgen lichte diagonale strepen bovenop hun kleur (i.p.v. een
-// rand) als onderscheid t.o.v. aandelen — een herhalend canvas-patroon dat
-// Chart.js als backgroundColor accepteert.
+// Diagonale strepen onderscheiden ETF's van aandelen.
 function maakStrepenPatroon(kleurHex) {
     const c = document.createElement("canvas");
     c.width = 10;
@@ -159,9 +120,7 @@ function maakStrepenPatroon(kleurHex) {
     return pctx.createPattern(c, "repeat");
 }
 
-// waardeFormatter: hoe een datapunt in de tooltip getoond wordt — Euro
-// (standaard, voor de waarde-/rendement-in-€-tabbladen) of bv. een
-// percentage-formatter (zie toonRendementOverTijd).
+// waardeFormatter: opmaak in de tooltip, standaard euro.
 function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
     if (chart) chart.destroy();
     const labelsNL = labels.map(formatDatum);
@@ -202,26 +161,17 @@ function toonPortfolio() {
         { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
     ]);
 
-    // Hergebruikt exact dezelfde totalen-data en -weergave als het
-    // Statistieken-tabblad (huidigeData.statistieken, al standaard
-    // meegestuurd bij het laden van een portfolio) — geen aparte
-    // berekening of API-call.
+    // Zelfde totalen als Statistieken; geen extra API-call.
     const homeSectie = document.getElementById("homeTotalenSectie");
     homeSectie.innerHTML = "";
     if (huidigeData.statistieken) {
         homeSectie.appendChild(maakTotalenSectie(huidigeData.statistieken.totalen));
     }
 
-    // Alleen tonen als er daadwerkelijk koersdata is (zie laatste_koersdatum/
-    // laatst_opgehaald_op in analyze_transacties_kern, portfolio_orchestratie.py) -- anders de
-    // regel gewoon weglaten i.p.v. "Invalid Date" o.i.d. te tonen.
+    // Zonder koersdata de regel weglaten (anders "Invalid Date").
     const bijgewerktEl = document.getElementById("laatstBijgewerktText");
     if (huidigeData.laatste_koersdatum && huidigeData.laatst_opgehaald_op) {
-        // new Date(...) rekent de UTC-ISO-string (zie 'Z'-suffix, portfolio_orchestratie.py) om
-        // naar de lokale tijdzone van de browser -- dus zowel datum als tijd
-        // hieronder via de Date-methoden opbouwen, NIET via een slice() op de
-        // ruwe ISO-string (die blijft UTC en kan een dag verschillen van de
-        // lokale datum, bv. rond middernacht).
+        // Via de Date-methoden, niet slice(): de ISO-string is UTC en kan een dag afwijken.
         const opgehaald = new Date(huidigeData.laatst_opgehaald_op);
         const opgehaaldDatumStr = `${String(opgehaald.getDate()).padStart(2, "0")}-${String(opgehaald.getMonth() + 1).padStart(2, "0")}-${opgehaald.getFullYear()}`;
         const tijd = opgehaald.toLocaleTimeString("nl-NL", { hour: "2-digit", minute: "2-digit", hour12: false });
@@ -241,10 +191,7 @@ function toonRendement() {
 
     if (benchmarkVergelijkingData) {
         const b = benchmarkVergelijkingData;
-        // b.labels is altijd een aaneengesloten SLOTSTUK van d.labels (zelfde
-        // onderliggende datumreeks, de benchmark-reeks kan alleen later
-        // beginnen — zie bereken_benchmark_vergelijking/"vanaf_datum") — dus
-        // links opvullen met null (geen lijn) i.p.v. losse datum-matching.
+        // b.labels is een slotstuk van d.labels: links opvullen met null.
         const offset = d.labels.length - b.labels.length;
         const reeks = offset > 0 ? Array(offset).fill(null).concat(b.rendement) : b.rendement;
         datasets.push({
@@ -306,9 +253,7 @@ async function wisselBenchmark(benchmarkNaam) {
     }
 }
 
-// Zelfde patroon als wisselBenchmark() hierboven, maar voor de "vergelijk
-// ook met eigen aandeel"-dropdown -- onafhankelijke, eigen dataset zodat
-// benchmark- en eigen-aandeel-vergelijking tegelijk getoond kunnen worden.
+// Zoals wisselBenchmark(), met een eigen dataset zodat beide tegelijk zichtbaar zijn.
 async function wisselEigenAandeel(ticker) {
     if (!ticker) {
         eigenAandeelVergelijkingData = null;
@@ -335,19 +280,10 @@ async function wisselEigenAandeel(ticker) {
     }
 }
 
-// Per ticker: onthoudt of een "meer historie laden"-terugknop resp. de
-// "Tot nu"-knop al niets meer opleverde (zie werkMeerHistorieKnoppenBij),
-// zodat het uitgegrijsd blijven ook na het wisselen van tabblad/ticker en
-// terugkomen behouden blijft. Reset bij elke nieuwe portfolio, zie
-// toonDashboard().
+// Per ticker: welke "meer historie"-knoppen niets meer opleveren.
 let meerHistorieUitgeput = {};
 
-// DB-backed (leest transacties via de code, zie _laad_transacties_en_
-// resultaat in portfolio_orchestratie.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
-// bij een 'niet opslaan'-analyse. Geen cache: elke keer dat dit tabblad
-// geopend wordt, wordt opnieuw opgehaald (zelfde patroon als
-// toonInstellingenTicker()) — de berekening zelf is licht (pure functie,
-// geen Yahoo-calls), dus dat is geen probleem.
+// Geen cache: elke opening opnieuw ophalen (licht, geen Yahoo-calls).
 async function toonRendementOverTijd() {
     const msg = document.getElementById("xirrRendementMsg");
     msg.style.display = "none";
@@ -404,17 +340,11 @@ function toonPerAandeel(ticker) {
     toonEtfDrilldown(ticker);
 }
 
-// Kleuren voor de aankoop-/verkoop-annotaties -- ook hergebruikt voor de
-// bijbehorende dummy-legenda-datasets hieronder, dus op 1 plek gedefinieerd.
+// Ook gebruikt voor de dummy-legenda-datasets.
 const AANKOOP_KLEUR = "#2c7a4b";
 const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als errorMsg/verwijderPortfolioBtn elders in de app
 
-// Koers per aandeel + aankoop-/verkoopmomenten (groene/rode stippellijnen)
-// + aantal aangehouden aandelen (blauwe trapvormige lijn, rechter y-as) --
-// ander soort grafiek dan toonPerAandeel() hierboven (waarde/geïnvesteerd),
-// zie portfolio_calc.compute_per_ticker_koers_en_aankopen(). Gebruikt EIGEN
-// Chart-opbouw i.p.v. updateChart(), want dat ondersteunt geen twee
-// y-assen of de annotation-plugin (verticale lijnen).
+// Eigen Chart i.p.v. updateChart(): twee y-assen en de annotation-plugin.
 function toonPerAandeelAankoop(ticker) {
     if (chart) { chart.destroy(); chart = null; }
     const titelEl = document.getElementById("peraandeelAankoopTitel");
@@ -430,9 +360,6 @@ function toonPerAandeelAankoop(ticker) {
     titelEl.textContent = `Koers en aankoopmomenten — ${tickerInfo ? tickerInfo.naam : ticker} (${ticker})`;
     titelEl.style.display = "block";
 
-    // "meer historie laden"-endpoint is DB-backed (leest transacties via de
-    // code) -- niet beschikbaar bij een 'niet opslaan'-analyse, zelfde
-    // beperking als Dividend/Instellingen/Benchmarkvergelijking elders.
     if (huidigeData.code) {
         knoppenContainer.style.display = "flex";
         document.getElementById("meerHistorieMsg").style.display = "none";
@@ -442,10 +369,7 @@ function toonPerAandeelAankoop(ticker) {
     }
 
     const labelsNL = d.labels.map(formatDatum);
-    // aankoop_datums/verkoop_datums (ISO) -> dezelfde dd-mm-jjjj-vorm als
-    // de x-as-labels, zodat de annotation-plugin (die op de category-as
-    // matcht via de labelwaarde zelf, niet via een echte tijdschaal) de
-    // juiste kolom raakt.
+    // Annotaties matchen op de labeltekst, dus dezelfde dd-mm-jjjj-vorm als de x-as.
     function maakVerticaleAnnotaties(datums, prefix, kleur) {
         const labelsSet = new Set(datums.map(formatDatum));
         const annotaties = {};
@@ -488,28 +412,13 @@ function toonPerAandeelAankoop(ticker) {
                     data: d.holdings,
                     borderColor: "#3182bd",
                     yAxisID: "y1",
-                    // 'before' (NIET 'after'!) is het Chart.js-equivalent van
-                    // matplotlib's drawstyle="steps-post": de waarde blijft
-                    // vlak op de OUDE stand staan tot exact het punt waar de
-                    // nieuwe stand hoort, en springt daar pas. Chart.js'
-                    // 'after' doet het omgekeerde (springt al direct na het
-                    // VORIGE punt) -- zie _steppedLineTo in Chart.js' bron
-                    // (helpers.canvas.js): met 'after' wordt eerst
-                    // ctx.lineTo(previous.x, target.y) getekend, d.w.z. de
-                    // sprong naar de NIEUWE waarde gebeurt al op de x van het
-                    // VORIGE punt. Dat gaf precies de gemelde bug: de sprong
-                    // in deze lijn liep een dag/punt vóór op de groene/rode
-                    // aankoop-/verkoop-stippellijn (die wel op de juiste,
-                    // exacte transactiedatum staat).
+                    // 'before' = steps-post (springt op het punt zelf); 'after' springt een punt te vroeg.
                     stepped: "before",
                     pointRadius: 0,
                     pointHoverRadius: 0,
                     borderWidth: 1.5,
                 },
-                // Dummy-datasets (geen datapunten) puur om Aankoop/Verkoop
-                // in de standaard-legenda te krijgen -- de annotation-plugin
-                // voegt de echte verticale lijnen zelf niet aan de legenda
-                // toe, dit is de eenvoudigste robuuste workaround daarvoor.
+                // Dummy-datasets: annotaties komen anders niet in de legenda.
                 {
                     label: "Aankoop",
                     data: [],
@@ -558,12 +467,7 @@ function toonPerAandeelAankoop(ticker) {
     });
 }
 
-// --- "Meer historie laden"-knoppen op Per aandeel aankoop -----------------
-// Vullen huidigeData.per_ticker_aankoop[ticker] client-side aan met extra
-// koersdata buiten de standaard-crop (zie /api/portfolio/<code>/ticker-
-// koers-bereik in app.py). d wordt in-place gemuteerd, dus opnieuw
-// selecteren van dezelfde ticker (zonder portfolio-herlaad) toont de
-// uitgebreide reeks weer -- geen aparte cache nodig.
+// "Meer historie laden" vult huidigeData.per_ticker_aankoop[ticker] in-place aan.
 
 function berekenNieuweVanafDatum(vroegsteIso, periode) {
     const dt = new Date(vroegsteIso + "T00:00:00Z");
@@ -573,10 +477,7 @@ function berekenNieuweVanafDatum(vroegsteIso, periode) {
     return dt.toISOString().slice(0, 10);
 }
 
-// data.labels komt gesorteerd oplopend terug (zie ticker_koers_bereik in
-// app.py, dat de pandas-index-volgorde volgt) -- vergelijken als string
-// werkt voor ISO-datums (YYYY-MM-DD) net zo goed als chronologisch
-// vergelijken, dus geen Date-parsing nodig.
+// data.labels is oplopend; ISO-datums zijn als string te vergelijken.
 function mergePrependHistorie(d, data) {
     if (!data.labels.length) return 0;
     const grens = d.labels[0];
@@ -612,10 +513,7 @@ function meerHistorieStatus(ticker) {
     return meerHistorieUitgeput[ticker];
 }
 
-// Grijst de terugknoppen uit zodra de historie daar al ophield, en "Tot nu"
-// zodra die datum al bereikt is -- ook preventief voor een nog-aangehouden
-// positie (die loopt sowieso al tot de laatst beschikbare handelsdag,
-// klikken zou dus toch niets opleveren).
+// Grijst knoppen uit die niets meer opleveren; "Tot nu" ook preventief bij een aangehouden positie.
 function werkMeerHistorieKnoppenBij(ticker, d) {
     const status = meerHistorieStatus(ticker);
     const nogInBezit = d.nog_in_bezit === true;
@@ -667,10 +565,7 @@ async function laadMeerHistorie(periode) {
         let geenVooruitgang = false;
         if (periode === "totnu") {
             mergeAppendHistorie(d, data);
-            // Niet alleen "geen nieuwe datums toegevoegd" -- ook als DEZE
-            // aanroep net de laatste ontbrekende dagen tot vandaag ophaalde,
-            // is een volgende klik zinloos. Zonder deze check zou de knop
-            // pas na een extra, altijd-lege klik uitgrijzen.
+            // Ook uitgrijzen als deze aanroep net de laatste dagen tot vandaag ophaalde.
             geenVooruitgang = d.labels[d.labels.length - 1] >= vandaagIso;
             if (geenVooruitgang) status.totnu = true;
         } else {
@@ -678,12 +573,7 @@ async function laadMeerHistorie(periode) {
             geenVooruitgang = !data.vroegste_beschikbare_datum || data.vroegste_beschikbare_datum >= oudeVroegste;
             if (geenVooruitgang) status.terug = true;
         }
-        // Chart wordt hier volledig opnieuw opgebouwd (destroy + new Chart) --
-        // dat reset meteen ook de zoom/pan-viewport naar het volledige nieuwe
-        // bereik, dus geen aparte resetZoom()-aanroep nodig. Dit zet ook de
-        // knop-status terug op basis van 'status' hierboven, en verbergt
-        // (nog) de melding hieronder -- dus pas NA deze aanroep de melding
-        // tonen, anders wist toonPerAandeelAankoop() 'm meteen weer.
+        // Melding pas ná het hertekenen tonen: toonPerAandeelAankoop() verbergt hem.
         toonPerAandeelAankoop(ticker);
         if (geenVooruitgang) {
             msgEl.textContent = periode === "totnu"
@@ -736,10 +626,7 @@ function maakVerdelingLijst(titel, verdelingObj) {
     return wrapper;
 }
 
-// Alleen aandelen die getagd zijn als ETF hebben een per_etf-entry (zie
-// portfolio_verdeling.compute_land_sector_verdeling) — dat gebruiken we hier als
-// signaal of dit een ETF is, in plaats van een los "is_etf"-veld door te
-// geven: als er geen entry is, is het gewoon een los aandeel/n.v.t.
+// Een per_etf-entry betekent: dit is een ETF.
 function toonEtfDrilldown(ticker) {
     const container = document.getElementById("etfDrilldown");
     const lsv = huidigeData.land_sector_verdeling;
@@ -793,8 +680,7 @@ function toonVerdeling() {
     }
     document.getElementById("geenData").style.display = "none";
 
-    // Verhouding komt uit de backend (bereken_verdeling_samenvatting); totaal
-    // blijft hier alleen nodig voor de %-labels in de taart zelf.
+    // De verhouding komt uit de backend; het totaal is alleen voor de %-labels.
     const samenvatting = huidigeData.verdeling_samenvatting;
     const totaal = samenvatting.totaal;
 
@@ -843,9 +729,7 @@ function toonVerdeling() {
     });
 }
 
-// Grijs voor de "Unknown"-bucket in Land/Sector — bewust GEEN kleur uit het
-// categorische palet, zodat "we weten dit gewoon niet" nooit opgaat in de
-// rest van de kleuren en altijd als aparte, herkenbare categorie oogt.
+// Eigen grijs, zodat "Unknown" nooit opgaat in de categoriekleuren.
 const ONBEKEND_GRIJS = "#6b6b66";
 
 function toonPlatteVerdeling(verdelingObj) {
@@ -858,10 +742,7 @@ function toonPlatteVerdeling(verdelingObj) {
     }
     document.getElementById("geenData").style.display = "none";
 
-    // "Overig" (kleine landen samengevoegd, zie portfolio_verdeling._voeg_kleine_landen_samen)
-    // en "Unknown" krijgen altijd de laatste plekken in de legenda — Overig
-    // vlak vóór Unknown, de rest aflopend op bedrag. Dezelfde volgorde-/
-    // kleurbehandeling voor allebei, voor visuele consistentie.
+    // "Overig" en daarna "Unknown" altijd onderaan de legenda.
     const NEUTRALE_VOLGORDE = { "Overig": 1, "Unknown": 2 };
     entries.sort((a, b) => {
         const va = NEUTRALE_VOLGORDE[a[0]] || 0;
@@ -912,30 +793,13 @@ function toonPlatteVerdeling(verdelingObj) {
     });
 }
 
-// Bronnen (ETF-tickers/losse aandelen) met een verwaarloosbare totale
-// bijdrage over alle categorieën heen worden samengevoegd tot "Overige
-// bronnen" -- voorkomt een onleesbaar volle legenda bij veel posities.
-// Zelfde soort drempel-principe als portfolio_verdeling.LAND_OVERIG_DREMPEL, hier
-// client-side toegepast omdat de drempel op de RENDER-eenheid (bronnen in
-// de legenda) werkt, niet op de data zelf.
+// Alleen voor een leesbare legenda; de data verandert niet.
 const BRON_OVERIG_DREMPEL = 0.005;
 const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";
 
-// Herbruikbare gestapelde-staafgrafiek: 1 staaf per categorie (bedrijf,
-// land of sector), opgebouwd uit 1 dataset per bron (ETF-ticker of los
-// aandeel) die aan die categorie bijdraagt -- zelfde patroon als het oude
-// class_degiro.py/trading_degiro.py se plot_top_categories() (pivot per
-// categorie x bron, gestapelde staaf, %-label erboven), hier met Chart.js.
-// 'categorieData' is {categorieNaam: {bronTicker: waarde}}; 'waarde' mag
-// euro's of al-percentages zijn -- opts.totaal (som waarmee gedeeld wordt
-// om tot % te komen) bepaalt dat; zonder opts.totaal wordt de ruwe waarde
-// getoond zoals-ie is (voor bedrijven-data die al in % van de portfolio zit).
-// Alleen door Top-bedrijven gebruikt (Land/Sector laten deze weg en blijven
-// dus ongewijzigd): opts.horizontaal tekent liggende staven (indexAxis "y")
-// met de legenda onderaan; opts.labelVoorCategorie(cat) geeft het (mogelijk
-// meerregelige) as-label i.p.v. kortNaam(); opts.tooltipTitel(cat) en
-// opts.tooltipFooter(cat) vullen de tooltip. De categorie-sleutels blijven
-// de ruwe namen -- alleen het getoonde label verschilt.
+// Eén staaf per categorie, één dataset per bron. categorieData: {categorie: {bron: waarde}};
+// zonder opts.totaal zijn de waarden al percentages. opts.horizontaal, labelVoorCategorie,
+// tooltipTitel en tooltipFooter gebruikt alleen Top-bedrijven.
 function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     opts = opts || {};
     if (chart) chart.destroy();
@@ -946,13 +810,7 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     }
     document.getElementById("geenData").style.display = "none";
 
-    // Aflopend op totaal (som van alle bronnen per categorie) -- hoogste %
-    // eerst. Voor bedrijven (al aflopend gesorteerd door
-    // bereken_bedrijven_verdeling) verandert dit niets; voor Land/Sector
-    // kwamen categorieën anders in willekeurige object-volgorde binnen.
-    // "Overig" (Land: top 10 + rest, al samengevoegd door de backend, zie
-    // _beperk_tot_top_n_per_bron) altijd als laatste staaf, ook als die
-    // groter is dan een los land.
+    // Aflopend op totaal; "Overig" altijd als laatste staaf.
     const categorieen = Object.keys(categorieData).sort((a, b) => {
         if (a === "Overig" || b === "Overig") return (a === "Overig") - (b === "Overig");
         const totaalA = Object.values(categorieData[a]).reduce((som, w) => som + w, 0);
@@ -1003,9 +861,7 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
         backgroundColor: kleurenMap[bron],
     }));
 
-    // Totaal-%-label boven elke staaf -- zelfde effect als de
-    // ax.text(...)-regel in het oude script, hier als klein Chart.js-plugin
-    // dat na het tekenen van de stacks de som per x-index erboven zet.
+    // Totaal-%-label boven elke staaf.
     const horizontaal = Boolean(opts.horizontaal);
     const totalenPlugin = {
         id: "totalenBovenStaaf",
@@ -1055,8 +911,7 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     };
     if (horizontaal) {
         chartOpties.indexAxis = "y";
-        // autoSkip uit: elk bedrijf houdt zijn label. Extra ruimte rechts voor
-        // het totaal-%-label achter de staaf.
+        // autoSkip uit: elk bedrijf houdt zijn label; ruimte rechts voor het %-label.
         chartOpties.scales = { x: procentAs, y: { stacked: true, ticks: { autoSkip: false } } };
         chartOpties.layout = { padding: { right: 44 } };
         chartOpties.plugins.legend.position = "bottom";
@@ -1091,23 +946,16 @@ function toonLand() {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values((lsv && lsv.land) || {}).reduce((s, w) => s + w, 0);
-        // Server-side al beperkt tot top 10 + "Overig" (bewust een andere
-        // Overig dan de taart, die landen < 0,5% samenvoegt), ook voor de
-        // Europa-variant -- geen her-berekening bij het wisselen van de toggle.
+        // Top 10 + "Overig" komt al uit de backend (bewust anders dan de taart).
         const perBron = europaCheckbox.checked ? (lsv && lsv.land_per_bron_europa_top) : (lsv && lsv.land_per_bron_top);
         renderGestapeldeStaafgrafiek(perBron, tickerNamen, { totaal });
     } else {
-        // land_europa is server-side voorberekend (zelfde als "land" maar met
-        // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie
-        // portfolio_verdeling.compute_land_sector_verdeling) — geen her-berekening of
-        // extra API-call nodig bij het aan/uit-zetten van de toggle.
+        // land_europa komt al uit de backend; de toggle kost geen request.
         const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
         toonPlatteVerdeling(bron);
     }
 
-    // Welke ETF's hebben nog de beperkte (top-10-only) landdekking? Puur
-    // informatief, zodat duidelijk is welk deel van "Unknown" hier
-    // structureel is (geen bekende provider-bron) i.p.v. een bug.
+    // ETF's met alleen top-10-landdekking: verklaart een deel van "Unknown".
     const dekkingTekst = document.getElementById("landDekkingTekst");
     const perEtf = (lsv && lsv.per_etf) || {};
     const beperkt = Object.entries(perEtf)
@@ -1152,9 +1000,7 @@ function ververAandeelSelect() {
     }
 }
 
-// Vult de "vergelijk ook met eigen aandeel"-dropdown op het Rendement-
-// tabblad -- zelfde bron (huidigeData.tickers) en volgorde als
-// ververAandeelSelect() hierboven, met "Geen" als eerste optie.
+// Zelfde bron en volgorde als ververAandeelSelect(), met "Geen" als eerste optie.
 function ververEigenAandeelSelect() {
     const select = document.getElementById("eigenAandeelSelect");
     const huidigeKeuze = select.value;
@@ -1182,12 +1028,7 @@ async function slaBijnaamOp(ticker, bijnaam) {
         if (!res.ok) {
             throw new Error(data.error || "Opslaan mislukt.");
         }
-        // build_portfolio_response() geeft sinds het gefaseerd-laden-werk
-        // alleen nog de kern terug (zie CLAUDE.md) -- Object.assign i.p.v.
-        // huidigeData = data zodat de al opgehaalde verrijkingsvelden
-        // (Verdeling/Land/Sector/Bedrijven/ETF-overlap) niet verdwijnen.
-        // laadVerrijking ververst ze daarna alsnog op de achtergrond, want
-        // de net gewijzigde bijnaam wijzigt ook namen dáárin.
+        // Object.assign (zie CLAUDE.md: Frontend); daarna de verrijking opnieuw, want daar staan ook namen in.
         Object.assign(huidigeData, data);
         ververAandeelSelect();
         toonInstellingen();
@@ -1219,8 +1060,7 @@ async function resetBijnaam(ticker) {
         if (!res.ok) {
             throw new Error(data.error || "Reset mislukt.");
         }
-        // Zelfde reden als slaBijnaamOp(): Object.assign i.p.v. overschrijven,
-        // plus een verse laadVerrijking() voor de bijgewerkte namen daarin.
+        // Zie slaBijnaamOp().
         Object.assign(huidigeData, data);
         ververAandeelSelect();
         toonInstellingen();
@@ -1429,9 +1269,7 @@ function maakPrijscontroleTabel(prijsChecks) {
     return wrapper;
 }
 
-// Laatste (meest recente) prijscheck met een bekende dagrange -- voor de
-// ETF-weergave hieronder, waar High/Low i.p.v. land/sector het prominente
-// signaal is.
+// Meest recente prijscheck met een bekende dagrange.
 function laatsteDagrangeUitChecks(prijsChecks) {
     if (!prijsChecks) return null;
     for (let i = prijsChecks.length - 1; i >= 0; i--) {
@@ -1441,10 +1279,7 @@ function laatsteDagrangeUitChecks(prijsChecks) {
     return null;
 }
 
-// Alternatieve kandidaten als tabel (i.p.v. een platte bullet-lijst), zelfde
-// opmaak als maakPrijscontroleTabel. isEtf bepaalt de kolomset: Land/Sector
-// voor een aandeel-kandidaat, High/Low voor een ETF-kandidaat -- 'alt' is
-// altijd al vooraf op is_etf gefilterd door de aanroeper.
+// isEtf bepaalt de kolommen: high/low voor ETF's, land/sector voor aandelen.
 function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
     const wrapper = document.createElement("div");
     wrapper.className = "tabelWrapper";
@@ -1510,12 +1345,7 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
     return wrapper;
 }
 
-// Eén samenvattingsregel voor de OpenFIGI-root-check (server-side al
-// berekend, zie _voeg_openfigi_check_toe() in ticker_zekerheid.py) -- i.p.v.
-// een volledige ruwe resultatentabel, die vooral ruis bleek (soms 100+
-// rijen per positie). Geen regel
-// bij p.openfigi_root_bekend === null/undefined (geen ticker of geen
-// OpenFIGI-resultaten om tegen te vergelijken -- geen oordeel mogelijk).
+// Eén regel i.p.v. de ruwe resultaten (soms 100+ rijen); geen regel als er geen oordeel is.
 function maakOpenfigiRegel(p) {
     if (p.openfigi_root_bekend == null) return null;
 
@@ -1536,15 +1366,7 @@ function maakOpenfigiRegel(p) {
     return regel;
 }
 
-// __TIJDELIJK, diagnostisch__: laat zien of _verrijk_met_openfigi_kandidaten()
-// (ticker_zekerheid.py) voor deze positie daadwerkelijk draaide, welke
-// unieke OpenFIGI-roots er voor deze ISIN zijn, welke daarvan als "nieuw"
-// golden (dus een extra Yahoo-zoekopdracht triggerden) en wat die
-// zoekopdracht ruw teruggaf -- zodat op deze pagina te zien is of de
-// verrijking iets doet, zonder in serverlogs te hoeven kijken. Leest alleen
-// het 'openfigi_kandidaten_debug'-veld dat de backend al meestuurt, roept
-// zelf niets aan. Later weer te verwijderen: dit blok + die aanroep
-// hieronder + het 'openfigi_kandidaten_debug'-veld in ticker_zekerheid.py.
+// __TIJDELIJK, diagnostisch__: samen met openfigi_kandidaten_debug (ticker_zekerheid.py) verwijderen.
 function maakOpenfigiKandidatenDebugBlok(p) {
     const debug = p.openfigi_kandidaten_debug;
     if (!debug) return null;
@@ -1614,10 +1436,7 @@ function maakTickerZekerheidKaart(p) {
 
     if (p.waarschuwing) {
         const banner = document.createElement("div");
-        // p.waarschuwing kan meerdere \n-gescheiden boodschappen bevatten
-        // (bv. de prijscontrole + een aanvullende OpenFIGI-bevinding, zie
-        // _voeg_openfigi_check_toe in ticker_zekerheid.py) -- pre-line houdt die
-        // op aparte regels i.p.v. ze aaneen te laten lopen.
+        // pre-line: de waarschuwing kan uit meerdere regels bestaan.
         banner.textContent = `⚠️ ${p.waarschuwing}`;
         banner.style.whiteSpace = "pre-line";
         banner.style.background = "#fdecea";
@@ -1647,11 +1466,7 @@ function maakTickerZekerheidKaart(p) {
     }
 
     if (p.is_etf) {
-        // Land/sector is voor een ETF een zwak signaal ("Land grootste
-        // holding: United States" zegt weinig) -- High/Low is voor een ETF
-        // juist een sterk signaal, dus die krijgt hier de prominente plek
-        // die land/sector bij een aandeel heeft. Voor een aandeel blijft de
-        // bestaande weergave (hieronder, in de else-tak) ongewijzigd.
+        // Voor een ETF is high/low het sterke signaal, niet land/sector.
         voegInfoRegelToe(rij, "Valuta", p.valuta);
         voegInfoRegelToe(rij, "Fondsfamilie", p.fondsfamilie);
         voegInfoRegelToe(rij, "Categorie", p.category);
@@ -1661,11 +1476,7 @@ function maakTickerZekerheidKaart(p) {
             voegInfoRegelToe(rij, "High/Low (laatste controle)", `${dagrange.high.toFixed(3)} / ${dagrange.low.toFixed(3)}`);
         }
     } else {
-        // Een ETF heeft geen eigen "Land" (te weinig precisie voor een
-        // wereldwijd fonds) — dan tonen we in plaats daarvan het land van de
-        // grootste holding, expliciet als apart, anders genoemd veld. Is geen
-        // van beide bekend, dan de regel gewoon weglaten i.p.v. "onbekend" te
-        // tonen voor iets dat sowieso geen zinnig enkelvoudig antwoord heeft.
+        // Een ETF heeft geen eigen land: toon het land van de grootste holding, of niets.
         if (p.land) {
             voegInfoRegelToe(rij, "Land", p.land);
         } else if (p.top_holding_land) {
@@ -1698,9 +1509,7 @@ function maakTickerZekerheidKaart(p) {
         altKop.style.marginTop = "8px";
         rij.appendChild(altKop);
 
-        // Per kandidaat onderscheiden op ETF/aandeel (niet één vaste
-        // kolommenset voor iedereen) -- meestal zijn alle kandidaten van
-        // hetzelfde type als de hoofdpositie, maar dat hoeft niet zo te zijn.
+        // Per kandidaat: een alternatief kan een ander type zijn dan de positie.
         const aandeelAlternatieven = p.alternatieven.filter(alt => !alt.is_etf);
         const etfAlternatieven = p.alternatieven.filter(alt => alt.is_etf);
         if (aandeelAlternatieven.length > 0) {
@@ -1714,11 +1523,7 @@ function maakTickerZekerheidKaart(p) {
     return rij;
 }
 
-// Voert taakFn uit voor elk item in 'items', met maximaal 'limiet' taken
-// tegelijk in de lucht -- niet alles in één keer (rate-limit-risico bij
-// Yahoo/gunicorn-workers) en niet na elkaar (traag bij veel posities). Geen
-// SSE/websockets nodig, gewone fetch()-calls met deze eenvoudige worker-pool
-// zijn genoeg.
+// Maximaal 'limiet' taken tegelijk: niet alles tegelijk (rate limits), niet na elkaar (traag).
 async function voerMetConcurrencyLimietUit(items, limiet, taakFn) {
     let volgendeIndex = 0;
     async function werker() {
@@ -1731,9 +1536,7 @@ async function voerMetConcurrencyLimietUit(items, limiet, taakFn) {
     await Promise.all(workers);
 }
 
-// Placeholder-kaart voor 1 positie terwijl de bijbehorende /positie-aanroep
-// nog loopt -- wordt in-place vervangen door maakTickerZekerheidKaart()'s
-// volledige kaart zodra het resultaat binnen is (zie toonInstellingenTicker).
+// Wordt vervangen door de volledige kaart zodra /positie antwoordt.
 function maakTickerZekerheidPlaceholder(p) {
     const rij = document.createElement("div");
     rij.style.marginBottom = "18px";
@@ -1764,8 +1567,7 @@ function toonTickerZekerheidPositieFout(kaart, tekst) {
     }
 }
 
-// Instellingen > Diagnostiek: teller bovenaan, daaronder per categorie de
-// meldingen (ernstigste eerst) met een tekstlabel per niveau.
+// Teller bovenaan, daaronder per categorie een uitklapblok (standaard open bij LET_OP/FOUT).
 function toonDiagnostiek() {
     const teller = document.getElementById("diagnostiekTeller");
     const lijst = document.getElementById("diagnostiekLijst");
@@ -1778,10 +1580,24 @@ function toonDiagnostiek() {
     teller.textContent = diagnostiekTellerTekst(telPerNiveau(diagnostiekMeldingen));
 
     groepeerPerCategorie(diagnostiekMeldingen).forEach(groep => {
-        const kop = document.createElement("h3");
+        const blok = document.createElement("details");
+        blok.className = "diagnostiekBlok";
+        blok.open = diagnostiekOpenKeuze.has(groep.categorie)
+            ? diagnostiekOpenKeuze.get(groep.categorie)
+            : categorieStandaardOpen(groep.meldingen);
+
+        const kop = document.createElement("summary");
         kop.className = "diagnostiekCategorie";
-        kop.textContent = groep.categorie;
-        lijst.appendChild(kop);
+        // Via de klik (ook Enter/Spatie) i.p.v. het toggle-event: dat gaat
+        // ook af op het programmatisch zetten van blok.open hierboven.
+        kop.addEventListener("click", () => diagnostiekOpenKeuze.set(groep.categorie, !blok.open));
+        const hoogste = hoogsteNiveau(groep.meldingen);
+        kop.textContent = `${groep.categorie} (${groep.meldingen.length})`;
+        const kopBadge = document.createElement("span");
+        kopBadge.className = `badge badge${hoogste}`;
+        kopBadge.textContent = DIAGNOSTIEK_NIVEAU_LABEL[hoogste];
+        kop.appendChild(kopBadge);
+        blok.appendChild(kop);
 
         const ul = document.createElement("ul");
         ul.className = "diagnostiekLijst";
@@ -1797,20 +1613,13 @@ function toonDiagnostiek() {
             li.appendChild(tekst);
             ul.appendChild(li);
         });
-        lijst.appendChild(ul);
+        blok.appendChild(ul);
+        lijst.appendChild(blok);
     });
 }
 
 async function toonInstellingenTicker() {
-    // Een eenmalige ("niet opslaan") analyse heeft geen code om de losse
-    // /ticker-zekerheid-endpoints mee aan te roepen (die lezen transacties
-    // uit de database). De GOEDKOPE ticker-match (zonder Yahoo-
-    // prijsverificatie) heeft /upload toen al meegestuurd onder
-    // huidigeData.ticker_zekerheid — de dure, prijs-geverifieerde variant is
-    // hier een losse, door de gebruiker aangevraagde actie geworden (zie
-    // toonInstellingenTickerBasis), want die liep bij grotere portfolio's
-    // met een koude cache ruim over de gunicorn-timeout heen als hij hier
-    // altijd synchroon voor de volle portfolio draaide.
+    // 'Niet opslaan' heeft geen code: toon de lichte check die /upload al meestuurde.
     if (!huidigeData.code) {
         toonInstellingenTickerBasis();
         return;
@@ -1819,10 +1628,7 @@ async function toonInstellingenTicker() {
     const sectie = document.getElementById("instellingenTickerSectie");
     sectie.innerHTML = "";
 
-    // Alleen de (vrijwel instante) lijst van posities ophalen -- de dure
-    // prijscontrole gebeurt hieronder per positie apart, zodat één trage/
-    // rate-limited positie niet meer de hele pagina laat mislukken (zie
-    // CLAUDE.md, Ticker-zekerheid).
+    // Eerst de lijst, dan per positie een losse aanroep: één trage positie blokkeert de rest niet.
     toonLaadOverlay("Posities ophalen...");
     let data;
     try {
@@ -1865,9 +1671,7 @@ async function toonInstellingenTicker() {
         kaarten[`${p.isin}|${p.beurs}`] = kaart;
     });
 
-    // Concurrency-limiet van 4: elke aparte /positie-aanroep is klein genoeg
-    // om nooit tegen een timeout aan te lopen, en zodra er één terugkomt
-    // wordt precies die rij bijgewerkt -- de rest blijft gewoon "bezig...".
+    // Max. 4 tegelijk; elke rij wordt bijgewerkt zodra zijn antwoord binnen is.
     await voerMetConcurrencyLimietUit(posities, 4, async (p) => {
         const key = `${p.isin}|${p.beurs}`;
         const kaart = kaarten[key];
@@ -1896,12 +1700,7 @@ async function toonInstellingenTicker() {
     });
 }
 
-// Lichte weergave voor een eenmalige ("niet opslaan") analyse: toont eerst
-// de goedkope, niet-prijsgeverifieerde match die /upload al meestuurde, met
-// een knop om alsnog de uitgebreide (prijs-geverifieerde) check op te
-// vragen via /api/ticker-zekerheid-check — een losse request zodat de
-// hoofd-upload niet meer het risico loopt op een gunicorn-timeout bij een
-// grotere portfolio (zie toonInstellingenTicker hierboven).
+// 'Niet opslaan': de lichte check uit /upload, met een knop voor de volledige check.
 function toonInstellingenTickerBasis() {
     const sectie = document.getElementById("instellingenTickerSectie");
     sectie.innerHTML = "";
@@ -1966,9 +1765,7 @@ async function controleerTickerZekerheidUitgebreid(knop, foutEl, lijst) {
     }
 }
 
-// Kleur per ticker consistent met de rest van het dashboard: dezelfde
-// volgorde als huidigeData.tickers (die ook de Verdeling-taart en de
-// aandeel-select vult), zodat eenzelfde positie overal dezelfde kleur heeft.
+// Volgorde van huidigeData.tickers, zodat een positie overal dezelfde kleur heeft.
 function kleurVoorTicker(ticker) {
     const idx = huidigeData.tickers.findIndex(t => t.ticker === ticker);
     return kleurVoorIndex(idx >= 0 ? idx : 0);
@@ -2007,12 +1804,7 @@ function maakDividendTabel(perTicker) {
     return tabel;
 }
 
-// bruto_eur/belasting_eur/netto_eur staan altijd al in EUR (zie CLAUDE.md,
-// "Valutaconversie-quirk") -- 'valuta' is de OORSPRONKELIJKE valuta van de
-// uitkering vóór conversie, dus nooit de eenheid van het getal zelf. Om dat
-// niet te suggereren (bv. "12,34 USD" zou net doen of het bedrag zelf in
-// USD is) tonen we het EUR-bedrag met de oorspronkelijke valuta erbij tussen
-// haakjes, alleen als die afwijkt van EUR.
+// Bedragen zijn altijd EUR; 'valuta' is de oorspronkelijke valuta en staat alleen tussen haakjes.
 function formatteerDividendBedrag(bedragEur, valuta) {
     const basis = formatteerEuro(bedragEur);
     if (basis === "onbekend" || !valuta || valuta === "EUR") return basis;
@@ -2023,9 +1815,7 @@ function maakDividendUitkeringenTabel(lijst) {
     const kolommen = [
         {
             label: "Datum",
-            // maakSorteerbareTabel vergelijkt met wa - wb, dus als getal
-            // (timestamp) i.p.v. de ISO-string zelf -- anders sorteert de
-            // kolom niet chronologisch.
+            // Timestamp: maakSorteerbareTabel rekent wa - wb.
             waarde: r => new Date(r.datum).getTime(),
             renderTd: r => {
                 const td = document.createElement("td");
@@ -2040,9 +1830,7 @@ function maakDividendUitkeringenTabel(lijst) {
                 const td = document.createElement("td");
                 td.textContent = r.bijnaam;
                 td.style.padding = "4px 16px 4px 0";
-                // herinvesteerd komt als bool uit de backend (dividend.py):
-                // DeGiro heeft deze uitkering automatisch herbelegd, wat een
-                // klein/nul/negatief bedrag verklaart.
+                // Herbelegd door DeGiro: verklaart een klein of negatief bedrag.
                 if (r.herinvesteerd === true) {
                     const badge = document.createElement("span");
                     badge.className = "badge badgeHerinvesteerd";
@@ -2088,11 +1876,7 @@ function maakDividendUitkeringenTabel(lijst) {
     return maakSorteerbareTabel(kolommen, lijst, { legeTekst: "Geen uitkeringen beschikbaar." });
 }
 
-// De volledige uitkeringenlijst staat in een EIGEN sectie, direct na de
-// cumulatieve grafiek (#chartWrapper) in de HTML, i.p.v. in
-// #dividendStatsSectie (die daarvóór staat) -- zo verschijnt de lijst
-// visueel onder de grafiek i.p.v. erboven, terwijl de totaal-/per-ticker-
-// samenvatting op zijn eigen (bestaande) plek blijft staan.
+// Eigen sectie na #chartWrapper, zodat de lijst onder de grafiek staat.
 function renderDividendUitkeringenlijst(lijst) {
     const sectie = document.getElementById("dividendUitkeringenSectie");
     sectie.innerHTML = "";
@@ -2177,10 +1961,7 @@ function toonDividendChart(cumulatief) {
     });
 }
 
-// Losstaand van de rest van het dashboard: alleen het Dividend-tabblad
-// heeft een Account-overzicht nodig, dus alleen déze weergave valt terug
-// op deze melding — andere tabbladen (Portfolio-home, Verdeling, ...)
-// blijven gewoon werken zonder Account-bestand.
+// Alleen Dividend heeft het rekeningoverzicht nodig; de rest werkt zonder.
 function maakGeenRekeningoverzichtMelding() {
     const container = document.createElement("div");
 
@@ -2237,9 +2018,7 @@ async function toonDividend() {
     renderDividendUitkeringenlijst(data.lijst);
 }
 
-// Centrale plek voor alle euro-opmaak in de app — Nederlandse notatie
-// (punt als duizendtal-scheiding, komma als decimaalteken), bv. €20.966,43.
-// Minteken vóór het €-teken bij negatieve bedragen (-€1.234,56), niet erna.
+// Nederlandse notatie, minteken vóór het €-teken: -€1.234,56.
 function formatteerEuro(bedrag, decimalen = 2) {
     if (bedrag === null || bedrag === undefined || Number.isNaN(bedrag)) return "onbekend";
     const teken = bedrag < 0 ? "-" : "";
@@ -2316,9 +2095,7 @@ function maakTotalenSectie(totalen) {
     return container;
 }
 
-// Gedeelde cel voor een rendement-kolom in "€ (percentage%)"-notatie
-// (zelfde patroon overal: Huidige posities, Verkochte posities, Rendement
-// per jaar), groen/rood op basis van het €-bedrag.
+// "€ (pct%)", groen/rood op het €-bedrag.
 function maakRendementCel(eurWaarde, pctWaarde) {
     const td = document.createElement("td");
     td.style.padding = "4px 16px 4px 0";
@@ -2328,18 +2105,8 @@ function maakRendementCel(eurWaarde, pctWaarde) {
     return td;
 }
 
-// Herbruikbare sorteerbare-tabel-helper (Statistieken-tabellen, de
-// dividend-uitkeringenlijst en de ETF-overlap-detailtabel).
-// kolommen: array van { label, waarde: fn(rij) => getal|null (optioneel —
-// zonder 'waarde' is de kolom niet klikbaar/sorteerbaar), renderTd:
-// fn(rij) => HTMLTableCellElement }.
-// Initiële weergave = de 'rijen'-array precies zoals meegegeven (de
-// bestaande backend-default-sortering, bv. Huidige posities al aflopend op
-// huidige waarde) — er is dus geen actieve sortering totdat de gebruiker op
-// een kolomkop klikt. Eerste klik op een kolom sorteert aflopend (hoogste/
-// nieuwste eerst is meestal de nuttigste eerste blik), een tweede klik op
-// dezelfde kolom draait de richting om. Rijen waarvan waarde(rij)
-// null/undefined teruggeeft, blijven altijd onderaan, in beide richtingen.
+// kolommen: [{label, waarde?: rij => getal|null (dan sorteerbaar), renderTd: rij => td}].
+// Begint in de aangeleverde volgorde; eerste klik sorteert aflopend; null blijft altijd onderaan.
 function maakSorteerbareTabel(kolommen, rijen, opts) {
     opts = opts || {};
     if (!rijen || rijen.length === 0) {
@@ -2420,9 +2187,7 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
     tabel.appendChild(tbody);
     tekenTbody();
 
-    // Wrapper i.p.v. de tabel direct teruggeven: laat de tabel op smalle
-    // schermen zelf horizontaal scrollen (overflow-x: auto in style.css)
-    // i.p.v. de hele pagina breder te maken.
+    // Wrapper: op smalle schermen scrolt de tabel zelf, niet de hele pagina.
     const wrapper = document.createElement("div");
     wrapper.className = "tabelWrapper";
     wrapper.appendChild(tabel);
@@ -2482,8 +2247,7 @@ function maakPositieTabel(posities, tickerNamen) {
             },
         },
         {
-            // Sorteert op rendement_pct (het getal), niet op de
-            // samengestelde "€... (...%)"-weergavetekst.
+            // Op het getal, niet op de weergavetekst.
             label: "Rendement",
             waarde: p => p.rendement_pct,
             renderTd: p => maakRendementCel(p.rendement_eur, p.rendement_pct),
@@ -2647,8 +2411,7 @@ function maakJarenTabel(jaren) {
         },
     ];
 
-    // Standaard/initiële volgorde: nieuwste jaar eerst (ongewijzigd t.o.v.
-    // de vorige implementatie).
+    // Standaard nieuwste jaar eerst.
     const rijen = [...jaren].reverse();
     return maakSorteerbareTabel(kolommen, rijen, { legeTekst: "Geen jaargegevens beschikbaar." });
 }
@@ -2739,18 +2502,7 @@ function toonStatistieken() {
     sectie.appendChild(maakUitlegSectie());
 }
 
-// Transacties-tabblad: overzicht van alle transacties van de huidige
-// portfolio-code (datum & tijd, product, aantal, koers, totaal_eur,
-// transactiekosten), sorteerbaar
-// per kolom en gepagineerd (25/50 per pagina). DB-backed (net als Dividend),
-// dus niet beschikbaar bij een 'niet opslaan'-analyse.
-//
-// Bewust GEEN maakSorteerbareTabel()-hergebruik: die helper sorteert en
-// tekent zelf de volledige meegegeven rijenlijst bij een kolomklik, wat
-// botst met paginering (sorteren moet over de VOLLEDIGE dataset gebeuren,
-// pas daarna wordt er een pagina uit gesneden) -- vandaar de eigen,
-// vergelijkbaar ogende tabel hieronder + de pure sorteer/pagineer-kern in
-// static/js/transacties.js (los getest, zie tests/test_transacties.js).
+// Niet maakSorteerbareTabel(): sorteren moet over alle pagina's heen (kern in transacties.js).
 async function toonTransacties() {
     const sectie = document.getElementById("transactiesSectie");
 
@@ -2943,21 +2695,8 @@ function maakTransactiesPaginaNavigatie(totPag) {
     return nav;
 }
 
-// Top N bedrijven-tabblad: gestapelde staafgrafiek, 1 staaf per bedrijf,
-// onderverdeeld naar welke ETF/los aandeel eraan bijdraagt (zelfde
-// renderGestapeldeStaafgrafiek als Land/Sector-staaf hieronder). De backend
-// levert tot BEDRIJVEN_TOP_N_MAX bedrijven mee (portfolio_verdeling.py); hier
-// wordt ingekort tot de gekozen N, zonder nieuwe request. "Overig" bundelt
-// zowel bedrijven buiten de top-N als het niet-gedekte restant van
-// ETF-holdings, dus die twee zijn hier niet los te onderscheiden --
-// dekkingTekst hierboven de grafiek maakt wel duidelijk hoe compleet het
-// totaal is. per_bron komt al als percentage van de
-// portfoliowaarde uit portfolio_verdeling.bereken_bedrijven_verdeling, dus
-// geen aparte 'totaal'-deler nodig. Namen worden pas hier (bij weergave)
-// opgemaakt; de ruwe naam blijft de sleutel (static/js/bedrijven.js).
-//
-// null = nog niet gekozen; wordt bij de eerste weergave de standaard van de
-// backend (top_n_standaard).
+// Gekozen N; de backend levert tot BEDRIJVEN_TOP_N_MAX, hier ingekort zonder request.
+// null = nog niet gekozen (dan top_n_standaard).
 let bedrijvenTopN = null;
 
 function toonBedrijven() {
@@ -3029,8 +2768,7 @@ function zetBedrijvenTopN(n) {
     tekenBedrijven();
 }
 
-// Tekent tekst, knoppen, menutitel en grafiek opnieuw voor de huidige
-// bedrijvenTopN -- zonder de sectie (en dus het invulveld) te vervangen.
+// Hertekent zonder de sectie (en het invulveld) te vervangen.
 function tekenBedrijven() {
     const data = huidigeData.bedrijven_verdeling;
     const beschikbaar = data.top.length;
@@ -3060,14 +2798,11 @@ function tekenBedrijven() {
     const smalScherm = window.innerWidth <= 768;
     const horizontaal = gebruikHorizontaleStaven(n, window.innerWidth);
     const maxTekensPerRegel = horizontaal ? (smalScherm ? 20 : 28) : 14;
-    // Liggende staven: ~36px per bedrijf (labels van max. 2 regels) + ruimte voor
-    // as en legenda, zodat elke naam leesbaar blijft. Staand: de vaste CSS-hoogte.
+    // Liggend: ~36px per bedrijf plus ruimte voor as en legenda; staand: de CSS-hoogte.
     document.getElementById("chartWrapper").style.height = horizontaal
         ? `${Math.max(400, getoond.length * 36 + 140)}px`
         : "";
-    // Geen zoom/pan op dit tabblad: laat verticaal vegen over de (hoge) grafiek
-    // de pagina scrollen i.p.v. door #rendementChart (touch-action: none) te
-    // worden opgeslokt. pasViewToe zet dit weer terug voor andere tabbladen.
+    // Geen zoom/pan hier, zodat vegen de pagina scrolt; pasViewToe zet het terug.
     document.getElementById("rendementChart").style.touchAction = "pan-y";
 
     const bronNamen = {};
@@ -3084,16 +2819,7 @@ function tekenBedrijven() {
     });
 }
 
-// ETF-overlap-tabblad: eenvoudige HTML-matrix (geen Chart.js) met
-// achtergrondkleur-intensiteit naar overlap% -- zie
-// portfolio_verdeling.bereken_etf_overlap. Minder dan 2 aangehouden ETF's -> lege
-// matrix van de backend, toon dan een duidelijke melding i.p.v. een tabel
-// met 0 of 1 kolom.
-// Korte uitklapbare uitleg over de overlap-berekening (zie
-// portfolio_verdeling.bereken_etf_overlap) -- als <details>/<summary> i.p.v. een
-// altijd-zichtbare box zoals maakUitlegSectie() bij Statistieken, omdat de
-// matrix hier de hoofdaandacht moet krijgen en de uitleg niet iedereen
-// elke keer opnieuw hoeft te zien.
+// Uitklapbaar i.p.v. altijd zichtbaar: de matrix moet de aandacht krijgen.
 function maakEtfOverlapUitlegSectie() {
     const details = document.createElement("details");
     details.style.fontSize = "0.85em";
@@ -3226,12 +2952,7 @@ function renderEtfOverlapTabel() {
     sectie.appendChild(detailContainer);
 }
 
-// Detailtabel onder de overlap-matrix bij een klik op een percentage-cel:
-// de onderliggende holdings van dat ETF-paar (naam + gewicht in elk van de
-// twee), zie opdracht "klikbaar overlap-percentage". Holdings+gewichten
-// zitten niet al in huidigeData (alleen de al-berekende percentage-matrix),
-// dus dit is een eigen fetch per klik i.p.v. client-side uit bestaande data
-// op te bouwen.
+// De holdings zitten niet in huidigeData: eigen fetch per klik.
 async function toonEtfOverlapDetail(tickerA, naamA, tickerB, naamB) {
     const container = document.getElementById("etfOverlapDetailContainer");
     if (!container) return;
@@ -3271,15 +2992,12 @@ async function toonEtfOverlapDetail(tickerA, naamA, tickerB, naamB) {
 
 function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
     const formatGewicht = w => (w === null || w === undefined) ? "" : `${(w * 100).toFixed(2)}%`;
-    // Holding zit in beide ETF's -> highlighten met dezelfde groentint als de
-    // overlap-matrix (rgb(44, 122, 75), zie renderEtfOverlapTabel), maar
-    // licht genoeg om de tekst leesbaar te houden over de hele rijbreedte.
+    // In beide ETF's: zelfde groen als de matrix, maar lichter voor leesbaarheid.
     const isOverlapRij = r => r.gewicht_a !== null && r.gewicht_a !== undefined
         && r.gewicht_b !== null && r.gewicht_b !== undefined;
     const rijAchtergrond = r => isOverlapRij(r) ? "rgba(44, 122, 75, 0.15)" : "";
 
-    // Alleen weergave: de backend matchte/sorteerde al op de ruwe naam, de
-    // volledige originele naam blijft als tooltip (title) beschikbaar.
+    // Alleen weergave; de ruwe naam staat in de tooltip.
     const weergaveNamen = maakUniekeWeergaveNamen(holdings.map(h => h.holding_naam));
     const weergaveNaamPerRuw = {};
     holdings.forEach((h, i) => { weergaveNaamPerRuw[h.holding_naam] = weergaveNamen[i]; });
@@ -3426,19 +3144,8 @@ function renderPrognoseFormulier() {
     sectie.appendChild(legenda);
 }
 
-// bouwPrognoseGrafiekData zelf staat in static/js/prognose.js (puur, met
-// chart_data als expliciete parameter i.p.v. de globale huidigeData) zodat
-// hij via tests/test_prognose.js onder Node getest kan worden en nooit meer
-// per ongeluk data van een eerder geladen portfolio kan hergebruiken — zie
-// prognoseResultaat = null in toonDashboard() voor de andere helft van die fix.
 
-// Los van updateChart() (die de category-as gebruikt voor de andere
-// tabbladen, waar dat prima werkt omdat die series allemaal dezelfde
-// (dagelijkse) puntdichtheid hebben): de Prognose-grafiek combineert
-// dagelijkse historische punten met maandelijkse prognosepunten in één
-// grafiek, en dat vereist een echte tijd-as (type: 'time') zodat elk punt
-// op de plek staat die met zijn werkelijke datum overeenkomt i.p.v. een
-// vaste breedte per punt te krijgen.
+// Echte tijd-as (niet updateChart()): dagelijkse historie en maandelijkse prognose in één grafiek.
 function tekenPrognoseChart(datasets) {
     if (chart) chart.destroy();
     datasets = datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, ...ds }));
@@ -3531,18 +3238,8 @@ function toonPrognose() {
 }
 
 function wisselView(view) {
-    // Korte fade i.p.v. een abrupte wissel: content eerst naar opacity 0
-    // laten faden (CSS transition, .tabWisselt in style.css), pas ná die
-    // 90ms de content daadwerkelijk wisselen en weer laten infaden. Een
-    // ECHTE setTimeout-pauze (i.p.v. bv. dubbele requestAnimationFrame of
-    // een geforceerde reflow via offsetHeight) bleek in de praktijk de
-    // enige betrouwbare manier: browsers kunnen een class die binnen
-    // hetzelfde renderframe wordt toegevoegd én weer verwijderd (zoals bij
-    // de eerdere, snellere pogingen) samenvoegen tot "geen wijziging",
-    // waardoor er nooit een zichtbare transitie start. Bij snel
-    // achter-elkaar wisselen (nieuwe klik terwijl de fade-out van de
-    // vorige nog loopt) slaan we die wachttijd over, anders voelt
-    // navigeren traag aan.
+    // Echte setTimeout nodig: een class die in één frame komt en gaat, geeft geen transitie.
+    // Bij snel doorklikken de wachttijd overslaan.
     const content = document.querySelector(".content");
     if (content.classList.contains("tabWisselt")) {
         pasViewToe(view);
@@ -3554,9 +3251,7 @@ function wisselView(view) {
 
 function pasViewToe(view) {
     const content = document.querySelector(".content");
-    // Alleen het Top-bedrijven-tabblad past de hoogte/touch-action van de
-    // grafiek aan (toonBedrijven); alle andere tabbladen krijgen de CSS-
-    // standaard terug.
+    // Alleen Top-bedrijven past hoogte/touch-action aan; hier terug naar de CSS-standaard.
     document.getElementById("chartWrapper").style.height = "";
     document.getElementById("rendementChart").style.touchAction = "";
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker" || view === "instellingen-diagnostiek";
@@ -3565,11 +3260,8 @@ function pasViewToe(view) {
         btn.classList.toggle("actief", btn.dataset.view === view);
     });
     document.getElementById("aandeelSelect").style.display = (view === "peraandeel" || view === "peraandeelaankoop") ? "block" : "none";
-    // Benchmarkvergelijking is DB-backed (leest transacties via de code) --
-    // niet beschikbaar bij een 'niet opslaan'-analyse, zelfde beperking als
-    // Instellingen/Bijnamen/Dividend (zie toonDashboard()).
+    // Alleen met een opgeslagen code (zie CLAUDE.md: Frontend).
     document.getElementById("benchmarkSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
-    // Zelfde beperking als benchmarkSelectWrapper hierboven (DB-backed).
     document.getElementById("eigenAandeelSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
@@ -3614,16 +3306,11 @@ function pasViewToe(view) {
     if (view !== "xirr-rendement") {
         document.getElementById("xirrRendementMsg").style.display = "none";
     }
-    // toonVerdeling()/toonPlatteVerdeling() zetten dit bericht aan als er
-    // voor Verdeling/Land/Sector/Bedrijven geen data is — zonder reset
-    // bleef het staan bij het wisselen naar een compleet ander tabblad.
+    // Anders blijft het geen-data-bericht staan op een ander tabblad.
     if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven") {
         document.getElementById("geenData").style.display = "none";
     }
-    // Zelfde reden, voor de laad-/foutindicator van de lui opgehaalde
-    // verrijking (zie laadVerrijking/toonVerrijkingWachtstatusIndienNodig)
-    // -- nu ook voor etfoverlap, dat als enige van de 5 geen geenData
-    // gebruikt (eigen "minimaal 2 ETF's"-melding in de sectie zelf).
+    // Idem voor de laad-/foutindicator van de verrijking.
     if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven" && view !== "etfoverlap") {
         document.getElementById("verrijkingLaadt").style.display = "none";
         document.getElementById("verrijkingFout").style.display = "none";
@@ -3660,24 +3347,13 @@ function toonDashboard(data) {
     huidigeData = data;
     // Nieuwe upload of andere code: meldingen van de vorige laadbeurt wissen.
     diagnostiekMeldingen = [];
+    diagnostiekOpenKeuze = new Map();
     voegDiagnostiekToe(data);
-    // Zonder reset bleef een eerder berekende prognose (van een andere
-    // portfolio, of van vóór "Terug naar upload" + een nieuwe code) gewoon
-    // staan: toonPrognose() hergebruikt prognoseResultaat zolang die niet
-    // null is, en dat werd nooit bijgewerkt bij het wisselen van portfolio.
+    // State van de vorige portfolio wissen (zie CLAUDE.md: Frontend).
     prognoseResultaat = null;
-    // Zelfde reden als prognoseResultaat hierboven: een benchmark-keuze van
-    // een vorige portfolio slaat nergens meer op zodra de data wisselt.
     benchmarkVergelijkingData = null;
-    // Zelfde reden: een eigen-aandeel-vergelijking van een vorige portfolio
-    // slaat nergens meer op zodra de data wisselt.
     eigenAandeelVergelijkingData = null;
-    // Zelfde reden: uitgegrijsde "meer historie laden"-knoppen van een
-    // vorige portfolio slaan nergens meer op.
     meerHistorieUitgeput = {};
-    // Zelfde reden: de transactielijst van een vorige portfolio slaat nergens
-    // meer op -- forceer een verse fetch bij het volgende bezoek aan het
-    // Transacties-tabblad, en begin weer bij pagina 1/de standaardsortering.
     transactiesRuweLijst = null;
     transactiesSorteerKolom = "datum_tijd";
     transactiesSorteerRichting = "desc";
@@ -3688,19 +3364,14 @@ function toonDashboard(data) {
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
 
+    // Tabbladen die een opgeslagen code nodig hebben.
     const instellingenBtn = document.querySelector('.menuBtn[data-view="instellingen"]');
     const bijnamenBtn = document.querySelector('.menuBtn[data-view="instellingen-bijnamen"]');
     const dividendBtn = document.querySelector('.menuBtn[data-view="dividend"]');
     const transactiesBtn = document.querySelector('.menuBtn[data-view="transacties"]');
     instellingenBtn.style.display = data.code ? "" : "none";
     bijnamenBtn.style.display = data.code ? "" : "none";
-    // Dividend is DB-backed (bereken_dividend_samenvatting leest de
-    // dividenden-tabel via de code) — een 'niet opslaan'-analyse heeft geen
-    // code en dus nooit dividenddata, dus verberg de knop net als bij
-    // Instellingen/Bijnamen.
     dividendBtn.style.display = data.code ? "" : "none";
-    // Zelfde reden: het Transacties-overzicht leest /api/portfolio/<code>/
-    // transacties, wat zonder opgeslagen code niet bestaat.
     transactiesBtn.style.display = data.code ? "" : "none";
 
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
@@ -3714,11 +3385,7 @@ function toonDashboard(data) {
     ververEigenAandeelSelect();
     wisselView("portfolio");
 
-    // Verdeling/Land/Sector/Bedrijven/ETF-overlap zitten sinds het gefaseerd-
-    // laden-werk (CLAUDE.md) niet meer standaard in dit antwoord -- behalve
-    // bij een 'niet opslaan'-analyse (geen code, dus geen latere /verrijking-
-    // aanroep mogelijk), die analyze_transacties()'s wrapper gebruikt en ze
-    // dus al meestuurt. Alleen lui ophalen als ze er nog niet zijn.
+    // Bij 'niet opslaan' zit de verrijking al in het antwoord.
     if (data.verdeling !== undefined) {
         verrijkingStatus = "klaar";
     } else if (data.code) {
@@ -3733,10 +3400,7 @@ function actieveViewNaam() {
     return knop ? knop.dataset.view : null;
 }
 
-// Tekent alleen opnieuw als de gebruiker toevallig al op een van de 5
-// verrijkings-tabbladen staat -- anders is er niets zichtbaars om bij te
-// werken, dat gebeurt vanzelf zodra de gebruiker ernaartoe navigeert (zie
-// wisselView, dat toonVerdeling()/toonLand()/etc. bij elke tabwissel aanroept).
+// Anders gebeurt het tekenen vanzelf bij de volgende tabwissel.
 function herTekenVerrijkingTabbladIndienActief() {
     const view = actieveViewNaam();
     if (view === "verdeling") toonVerdeling();
@@ -3746,10 +3410,7 @@ function herTekenVerrijkingTabbladIndienActief() {
     else if (view === "etfoverlap") renderEtfOverlapTabel();
 }
 
-// Toont/verbergt de laad-/foutindicator voor de 5 verrijkings-tabbladen,
-// gedeeld door elk van hun toon-functies (zie hieronder). Geeft true terug
-// als de aanroeper meteen mag stoppen (nog aan het laden, of mislukt) --
-// dan is er niets zinnigs te tekenen.
+// true = de aanroeper moet stoppen (nog aan het laden of mislukt).
 function toonVerrijkingWachtstatusIndienNodig() {
     const laadt = document.getElementById("verrijkingLaadt");
     const fout = document.getElementById("verrijkingFout");
@@ -3762,9 +3423,6 @@ async function laadVerrijking(code) {
     verrijkingStatus = "laden";
     herTekenVerrijkingTabbladIndienActief();
     try {
-        // Bewust geen expliciete timeoutMs -- de default (55s) van
-        // fetchMetTimeout is prima hier, dit endpoint is per definitie het
-        // netwerk-zware deel (zie analyze_transacties_verrijking).
         const res = await fetchMetTimeout(`/api/portfolio/${code}/verrijking`);
         const data = await res.json();
         if (!res.ok) {
@@ -3786,12 +3444,7 @@ document.getElementById("verrijkingOpnieuwBtn").addEventListener("click", () => 
     }
 });
 
-// Opvallende, niet-blokkerende banner (blijft zichtbaar ongeacht welk
-// tabblad open staat) wanneer find_ticker_met_snelle_prijscheck (de
-// standaard lichte prijscontrole, zie CLAUDE.md) bij 1 of meer posities een
-// afwijkende koers vond. Wijst door naar Ticker-zekerheid i.p.v. zelf een
-// alternatieve ticker te tonen/kiezen — dat blijft altijd een suggestie die
-// de gebruiker daar zelf bevestigt.
+// Wijst door naar Ticker-zekerheid; kiest zelf nooit een alternatieve ticker.
 function toonTickerWaarschuwingBanner(waarschuwingen) {
     const banner = document.getElementById("tickerWaarschuwingBanner");
     if (!waarschuwingen || waarschuwingen.length === 0) {
@@ -3807,9 +3460,7 @@ function toonTickerWaarschuwingBanner(waarschuwingen) {
     banner.style.display = "block";
 }
 
-// Hamburger-menu (alleen zichtbaar op mobiel, zie style.css): open/dicht-
-// status wordt berekend door static/js/menu.js (puur, apart getest), deze
-// functie past dat resultaat toe op de DOM.
+// Hamburgermenu: de status komt uit menu.js, hier alleen de DOM.
 let menuOpen = false;
 const hamburgerBtn = document.getElementById("hamburgerBtn");
 const sidebarMenu = document.getElementById("sidebarMenu");
@@ -3862,9 +3513,7 @@ document.getElementById("europaCheckbox").addEventListener("change", () => {
     toonLand();
 });
 
-// Top-bedrijven kiest staand/liggend op basis van de schermbreedte (zie
-// gebruikHorizontaleStaven): bij kantelen of venster-formaat over het
-// mobiele breakpoint opnieuw tekenen, alleen als dat tabblad open staat.
+// Top-bedrijven opnieuw tekenen (staand/liggend) bij het passeren van het mobiele breakpoint.
 window.matchMedia("(max-width: 768px)").addEventListener("change", () => {
     const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
     const data = huidigeData && huidigeData.bedrijven_verdeling;
@@ -3873,12 +3522,7 @@ window.matchMedia("(max-width: 768px)").addEventListener("change", () => {
     }
 });
 
-// Toggle tussen taart (toonPlatteVerdeling) en gestapelde staaf per bron
-// (renderGestapeldeStaafgrafiek) op het Land- en Sector-tabblad. Gedeelde
-// state (landSectorWeergave) i.p.v. per-tabblad, dus de keuze blijft staan
-// bij het wisselen tussen Land en Sector. Data staat al in
-// huidigeData.land_sector_verdeling (land_per_bron_top/
-// land_per_bron_europa_top/sector_per_bron) -- geen nieuwe serveraanroep nodig.
+// De keuze geldt voor Land én Sector; de data staat al in huidigeData.
 document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
     landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
     const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
@@ -3892,13 +3536,8 @@ document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () =
     pasMenuStatusToe(menuOpenStatusNaViewKeuze());
 });
 
-// Rij "gekozen bestand + x-knop" onder een bestandsveld. De x-knop zet
-// input.value = "" zodat het bestand echt niet meegestuurd wordt; daarna
-// gelden weer de gewone regels (`required` op bestand1, formData.delete
-// voor een leeg bestand2). Door de echte reset gaat `change` ook weer af als
-// je daarna hetzelfde bestand opnieuw kiest. Geeft de update-functie terug,
-// zodat de rij ook buiten een `change` (reset, terug naar de startpagina)
-// gelijkgetrokken kan worden met wat er echt in de input zit.
+// De x-knop zet input.value = "", zodat het bestand echt niet meegaat en `change` weer afgaat.
+// Geeft de update-functie terug voor momenten zonder `change` (reset, terug naar de startpagina).
 function koppelBestandWisKnop(inputId) {
     const input = document.getElementById(inputId);
     const rij = document.getElementById(`${inputId}Keuze`);
@@ -3917,8 +3556,7 @@ function koppelBestandWisKnop(inputId) {
     wisKnop.addEventListener("click", () => {
         input.value = "";
         werkBij();
-        // De knop verdwijnt; zet de focus terug op het veld zodat een
-        // toetsenbordgebruiker niet "nergens" uitkomt.
+        // De knop verdwijnt: focus terug op het veld voor toetsenbordgebruikers.
         input.focus();
     });
     werkBij();
@@ -3931,34 +3569,25 @@ function werkBestandKeuzesBij() {
     bestandKeuzeBijwerkers.forEach((werkBij) => werkBij());
 }
 
-// Bij form.reset() gaat geen `change` af, en de inputs zijn pas ná het
-// reset-event leeg -> bijwerken in de volgende tick.
+// reset geeft geen `change` en de inputs zijn pas daarna leeg: volgende tick.
 document.getElementById("uploadForm").addEventListener("reset", () => {
     setTimeout(werkBestandKeuzesBij, 0);
 });
-// Terug via de browser-terugknop (bfcache): de browser kan de inputs dan
-// anders gevuld/leeg teruggeven dan de rij laat zien.
+// Na de terugknop (bfcache) kunnen de inputs afwijken van de rij.
 window.addEventListener("pageshow", werkBestandKeuzesBij);
 
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     document.getElementById("errorMsg").textContent = "";
     const formData = new FormData(e.target);
-    // FormData(form) neemt bestand2 altijd mee, ook als er niets is
-    // geselecteerd (dan als lege file-entry) — expliciet verwijderen zodat
-    // een niet-ingevuld (optioneel) rekeningoverzicht niet als "leeg bestand"
-    // bij Flask binnenkomt.
+    // FormData neemt een leeg bestand2 mee; expliciet verwijderen.
     const bestand2Input = document.getElementById("bestand2");
     if (!bestand2Input.files || bestand2Input.files.length === 0) {
         formData.delete("bestand2");
     }
     toonLaadOverlay("Analyseren...");
     try {
-        // fetchMetTimeout breekt zelf af als de server te lang stil blijft
-        // (zie CLAUDE.md, Statistieken-incident 2026-08-31) -- 60s, iets
-        // ruimer dan de standaard 55s-default omdat een upload (Excel
-        // parsen + ticker-resolutie) doorgaans iets meer tijd nodig heeft
-        // dan een lui geladen tabblad.
+        // Upload krijgt 60 s, iets ruimer dan de standaard 55 s.
         const res = await fetchMetTimeout("/upload", { method: "POST", body: formData }, 60000);
         const data = await res.json();
         if (!res.ok) {
@@ -4061,14 +3690,7 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
             msg.style.display = "block";
             return;
         }
-        // huidigeData bevat de code waarmee alle andere tabbladen (Statistieken,
-        // Dividend, Ticker-zekerheid) hun API-calls doen -- meteen bijwerken zodat
-        // de rest van de sessie de nieuwe code gebruikt zonder herladen.
-        // Object.assign i.p.v. overschrijven: build_portfolio_response() geeft
-        // sinds het gefaseerd-laden-werk alleen de kern terug (zie CLAUDE.md),
-        // dus de al opgehaalde verrijkingsvelden moeten bewaard blijven; de
-        // verse laadVerrijking() hieronder haalt ze daarna alsnog opnieuw op
-        // onder de nieuwe code (de oude code bestaat straks niet meer).
+        // Object.assign (zie CLAUDE.md: Frontend); verrijking opnieuw onder de nieuwe code.
         Object.assign(huidigeData, data);
         laadVerrijking(huidigeData.code);
         document.getElementById("dashCode").textContent = data.code || "";

@@ -1,8 +1,4 @@
-// Rekenkern voor het Diagnostiek-subtabblad (Instellingen > Diagnostiek):
-// meldingen uit de backend-antwoorden (sleutel "diagnostiek", zie
-// diagnostiek.py) samenvoegen, tellen en groeperen. Los van DOM-manipulatie
-// gehouden (net als menu.js) zodat het zowel in de browser (index.html) als
-// onder Node (tests/test_diagnostiek.js) draait.
+// Pure logica voor Instellingen > Diagnostiek: meldingen samenvoegen, tellen en groeperen.
 
 (function (root) {
     "use strict";
@@ -26,9 +22,7 @@
         return `${m.categorie}\u0000${m.sleutel}`;
     }
 
-    // Voegt `nieuw` samen met `bestaand`: ontdubbelen op categorie + sleutel,
-    // de nieuwste wint (op de plek van de oude). Geeft een nieuwe array
-    // terug; de invoer blijft ongewijzigd. null/undefined telt als leeg.
+    // Ontdubbelt op categorie + sleutel; de nieuwste wint, op de plek van de oude.
     function voegMeldingenSamen(bestaand, nieuw) {
         const resultaat = (bestaand || []).slice();
         const positie = new Map(resultaat.map((m, i) => [meldingSleutel(m), i]));
@@ -44,7 +38,6 @@
         return resultaat;
     }
 
-    // Aantal meldingen per niveau, altijd met alle vier de niveaus.
     function telPerNiveau(meldingen) {
         const telling = {};
         DIAGNOSTIEK_NIVEAUS.forEach(n => { telling[n] = 0; });
@@ -54,9 +47,7 @@
         return telling;
     }
 
-    // Groepeert per categorie: [{categorie, meldingen}]. Binnen een categorie
-    // ernstigste eerst; categorieën op hun ernstigste melding, bij gelijke
-    // ernst in volgorde van eerste voorkomen.
+    // [{categorie, meldingen}], ernstigste eerst (binnen en tussen categorieën).
     function groepeerPerCategorie(meldingen) {
         const groepen = [];
         const perCategorie = new Map();
@@ -76,8 +67,20 @@
         return groepen;
     }
 
-    // "1 fout, 2 let op" -- alleen niveaus met minstens één melding, lege
-    // string als er niets is.
+    // null bij een lege lijst; een onbekend niveau telt als INFO.
+    function hoogsteNiveau(meldingen) {
+        const lijst = meldingen || [];
+        if (lijst.length === 0) return null;
+        const ernstigste = Math.min(...lijst.map(m => ernstIndex(m.niveau)));
+        return DIAGNOSTIEK_NIVEAUS[ernstigste];
+    }
+
+    function categorieStandaardOpen(meldingen) {
+        const niveau = hoogsteNiveau(meldingen);
+        return niveau === "FOUT" || niveau === "LET_OP";
+    }
+
+    // Bv. "1 fout, 2 let op"; lege string als er niets is.
     function diagnostiekTellerTekst(telling) {
         return DIAGNOSTIEK_NIVEAUS
             .filter(n => (telling[n] || 0) > 0)
@@ -88,6 +91,7 @@
     const exportsObj = {
         DIAGNOSTIEK_NIVEAUS, DIAGNOSTIEK_NIVEAU_LABEL,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
+        hoogsteNiveau, categorieStandaardOpen,
     };
 
     if (typeof module !== "undefined" && module.exports) {

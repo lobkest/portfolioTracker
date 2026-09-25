@@ -1,10 +1,4 @@
-"""
-Verwerking van het DeGiro-rekeningoverzicht (dividend-tabblad):
-valutaconversie-koppeling, netto-per-uitkering-berekening en de
-opgeslagen-dividenden-samenvatting voor de UI.
-
-Losgetrokken uit analysis.py (was daar een grotendeels zelfstandig blok).
-"""
+"""DeGiro-rekeningoverzicht verwerken en de dividend-samenvatting. Zie CLAUDE.md: DeGiro-bestanden."""
 import hashlib
 
 import pandas as pd
@@ -13,33 +7,8 @@ from db import get_db_connection, get_dividenden
 
 
 def _koppel_valutaconversie_paren(df):
-    """
-    Bouwt de lijst van valutaconversie-'paren' uit een rekeningoverzicht:
-    een 'Valuta Debitering'-rij en een 'Valuta Creditering'-rij die bij
-    elkaar horen.
-
-    De koppeling gaat via een EXACT gelijke (Datum, Tijd) — DEGIRO boekt
-    zo'n conversie altijd als twee rijen met identiek tijdstip. Dit is
-    bewust NIET gekoppeld via Valutadatum: de 'Dividend'-rij die tot deze
-    conversie leidde heeft vaak een Valutadatum van 1 (bank-)dag eerder dan
-    de conversie zelf (de conversie wordt pas de volgende werkdag
-    afgewikkeld) — matchen op Valutadatum was precies de eerdere bug (zie
-    verwerk_rekeningoverzicht).
-
-    Normaliter is de Debitering-rij de vreemde valuta (negatief) en de
-    Creditering-rij EUR (positief) — de normale dividend-conversie (vreemd
-    -> EUR). Maar soms wisselt DEGIRO de andere kant op: EUR -> vreemd, bv.
-    om een buitenlandse dividendbelasting te dekken die niet uit een eerder
-    ontvangen vreemde-valuta-dividend betaald kon worden. Dan is juist de
-    Debitering-rij EUR. Dit paar bepaalt daarom zelf, per rij, welke van de
-    twee EUR is (ongeacht Debitering/Creditering) i.p.v. dat aan te nemen.
-
-    Geeft een lijst van dicts terug: {datum, tijd, valuta (de vreemde
-    valuta), vreemd_bedrag (positief), eur_bedrag (het bedrag van de
-    EUR-rij MET teken: positief als EUR is bijgeschreven — vreemd->EUR —
-    negatief als EUR is afgeschreven — EUR->vreemd), gebruikt (bool, wordt
-    True gezet zodra een dividendgroep hem claimt)}.
-    """
+    """Paren op exact gelijke (Datum, Tijd), niet op Valutadatum.
+    Geeft [{datum, tijd, valuta, vreemd_bedrag, eur_bedrag (met teken), gebruikt}]."""
     fx_rows = df[df["Omschrijving"].isin(["Valuta Debitering", "Valuta Creditering"])]
     paren = []
     for (datum, tijd), groep in fx_rows.groupby(["Datum", "Tijd"]):
@@ -49,6 +18,7 @@ def _koppel_valutaconversie_paren(df):
             continue
         deb = debitering.iloc[0]
         cred = creditering.iloc[0]
+        # Soms wisselt DeGiro EUR -> vreemd; dan is juist de Debitering-rij EUR.
         if deb["valuta_mutatie"] == "EUR":
             eur_rij, vreemd_rij = deb, cred
         else:
@@ -66,13 +36,7 @@ def _koppel_valutaconversie_paren(df):
 
 
 def _match_valutaconversie(paren, valuta, netto_ruw, datum, tolerantie=0.02):
-    """Zoekt in 'paren' (zie _koppel_valutaconversie_paren) het nog niet
-    gebruikte paar met dezelfde valuta en (bijna) hetzelfde bedrag als
-    'netto_ruw' — dat is het paar dat DEZE dividenduitkering heeft
-    omgewisseld naar EUR. Bij meerdere kandidaten (zelfde valuta+bedrag,
-    bv. twee identieke dividendbedragen in dezelfde periode) wint de
-    kandidaat die qua datum het dichtst bij de dividenddatum ligt. Geeft
-    None terug als er geen match binnen tolerantie is."""
+    """Ongebruikt paar met zelfde valuta en bedrag; bij meerdere wint de dichtstbijzijnde datum."""
     kandidaten = [
         p for p in paren
         if not p["gebruikt"] and p["valuta"] == valuta and abs(p["vreemd_bedrag"] - abs(netto_ruw)) <= tolerantie
@@ -86,21 +50,11 @@ def _match_valutaconversie(paren, valuta, netto_ruw, datum, tolerantie=0.02):
 
 
 DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3
-# Hoeveel dagen twee opeenvolgende (op datum gesorteerde) ongematchte
-# dividendgroepen uit elkaar mogen liggen om nog in dezelfde STAP-A-pool
-# te vallen (zie verwerk_rekeningoverzicht_df). Bewust ruim genoeg voor
-# DeGiro's afwikkeltiming (dividend -> conversie is meestal 1 dag), maar
-# begrensd zodat losstaande dividenden van weken uit elkaar niet per
-# ongeluk samengevoegd worden.
+# Ruim genoeg voor DeGiro's afwikkeling (~1 dag), klein genoeg om losse dividenden niet samen te voegen.
 
 
 def _clusters_binnen_venster(items, max_dagen):
-    """Groepeert 'items' (dicts met een 'datum'-sleutel) in clusters van
-    opeenvolgende (op datum gesorteerde) items, waarbij het verschil
-    tussen twee opeenvolgende datums binnen een cluster niet groter is dan
-    'max_dagen'. Gebruikt door STAP A hieronder om per valuta alleen
-    dividendgroepen te poolen die qua datum dicht genoeg bij elkaar
-    liggen."""
+    """Clusters van op datum gesorteerde items met hooguit max_dagen tussen twee opeenvolgende."""
     items_gesorteerd = sorted(items, key=lambda x: x["datum"])
     clusters = []
     huidig = []
@@ -115,45 +69,8 @@ def _clusters_binnen_venster(items, max_dagen):
 
 
 def verwerk_rekeningoverzicht_df(df):
-    """
-    Doet het eigenlijke werk van verwerk_rekeningoverzicht() op een AL
-    ingelezen en hernoemde DataFrame (kolommen: Datum, Tijd, Valutadatum,
-    Product, ISIN, Omschrijving, FX, valuta_mutatie, mutatie, valuta_saldo,
-    saldo, Order Id — Datum/Valutadatum als datetime, mutatie als float).
-    Losgetrokken van het Excel-inlezen zodat dit met een handgemaakte
-    DataFrame te unittesten is (zie tests/test_dividend.py), zonder een
-    echt .xlsx-bestand te hoeven bouwen.
-
-    Per dividenduitkering (gegroepeerd op Datum+ISIN, want correcties/
-    meerdere boekingen voor dezelfde uitkering delen dezelfde Datum):
-    - alle 'Dividend'-, 'Dividend Herinvestering'- en 'Dividendbelasting'-
-      rijen worden genet (inclusief eventuele negatieve correctierijen) tot
-      één bruto- en één belastingbedrag in de eigen valuta. Een 'Dividend
-      Herinvestering'-rij heft het bijbehorende 'Dividend'-bedrag geheel of
-      gedeeltelijk op (automatisch herbelegd i.p.v. uitgekeerd) — het
-      record krijgt een 'herinvesteerd'-vlag zodat de frontend kan tonen
-      *waarom* een bedrag klein/nul/negatief is.
-    - is die valuta EUR, dan is dat meteen het EUR-bedrag
-    - is die valuta NIET EUR, dan wordt EERST geprobeerd deze ÉÉN groep
-      1-op-1 te koppelen aan een 'Valuta Debitering'/'Valuta Creditering'-
-      paar (via _match_valutaconversie) — NIET een eigen FX-herberekening.
-      Lukt dat niet, dan is er een TWEEDE ronde (STAP A hieronder): DeGiro
-      boekt soms meerdere dividenden van dezelfde dag/valuta samen in ÉÉN
-      conversie (bv. twee ETF-uitkeringen dezelfde dag) — dan wordt zo'n
-      conversie nooit door de 1-op-1 match gevonden. Alle nog ongematchte
-      groepen per valuta worden daarom geclusterd (zie
-      _clusters_binnen_venster, max DIVIDEND_POOL_MAX_DAGEN_VERSCHIL dagen
-      uit elkaar) en als cluster (som van hun netto ruwe bedragen) alsnog
-      tegen een ongebruikt conversiepaar geprobeerd. Bij een match wordt
-      het EUR-bedrag van het paar proportioneel verdeeld over de
-      deelnemende groepen naar rato van hun eigen aandeel in de pool-som.
-      In beide rondes worden bruto/belasting naar rato van hun eigen aandeel
-      in het (groeps- of pool-)netto ruwe bedrag verdeeld over het
-      gevonden EUR-bedrag, zodat bruto_eur + belasting_eur altijd optelt
-      tot netto_eur.
-    - is er ook na STAP A geen conversie gevonden, dan blijven bruto_eur/
-      belasting_eur/netto_eur expliciet None ('onbekend') — nooit een gok.
-    """
+    """Rekenwerk op een al ingelezen, hernoemde DataFrame (los van Excel, zodat het testbaar is).
+    Per uitkering (Datum + ISIN) netten, dan 1-op-1 koppelen aan een conversie, daarna gepoold."""
     conversie_paren = _koppel_valutaconversie_paren(df)
 
     dividend_rows = df[df["Omschrijving"].isin(
@@ -194,9 +111,7 @@ def verwerk_rekeningoverzicht_df(df):
                 else:
                     bruto_eur = belasting_eur = 0.0
 
-        # Ruwe (niet-EUR-geconverteerde) bedragen in de dividend_id, zodat die
-        # stabiel blijft ongeacht welk valutaconversie-paar er (opnieuw)
-        # aan gekoppeld wordt bij een herhaalde upload.
+        # Ruwe bedragen: de id blijft gelijk als de EUR-koppeling verandert.
         dividend_id = "DIV-" + hashlib.md5(
             f"{datum.date()}|{isin}|{bruto_ruw:.6f}|{belasting_ruw:.6f}".encode()
         ).hexdigest()[:16]
@@ -216,9 +131,7 @@ def verwerk_rekeningoverzicht_df(df):
             "herinvesteerd": herinvesteerd,
         })
 
-    # STAP A — gepoolde valutaconversie (zie docstring hierboven). Alleen
-    # groepen die na de 1-op-1 ronde nog geen netto_eur hebben, gegroepeerd
-    # per valuta en geclusterd op datumnabijheid.
+    # Tweede ronde: DeGiro poolt soms meerdere dividenden in één conversie.
     onopgelost_per_valuta = {}
     for r in tussenresultaten:
         if r["valuta"] != "EUR" and r["netto_eur"] is None:
@@ -227,9 +140,7 @@ def verwerk_rekeningoverzicht_df(df):
     for valuta, items in onopgelost_per_valuta.items():
         for cluster in _clusters_binnen_venster(items, DIVIDEND_POOL_MAX_DAGEN_VERSCHIL):
             if len(cluster) < 2:
-                # Een cluster van 1 is exact dezelfde poging als de al
-                # mislukte 1-op-1 match hierboven — niets te winnen.
-                continue
+                continue  # zelfde poging als de al mislukte 1-op-1 match
             som_netto_ruw = sum(item["netto_ruw"] for item in cluster)
             referentiedatum = max(item["datum"] for item in cluster)
             match = _match_valutaconversie(conversie_paren, valuta, som_netto_ruw, referentiedatum)
@@ -262,22 +173,10 @@ def verwerk_rekeningoverzicht_df(df):
 
 
 def verwerk_rekeningoverzicht(file_object):
-    """
-    Leest een DeGiro-rekeningoverzicht in en geeft een lijst van
-    dividendrecords terug: {datum, product, isin, valuta, bruto_eur,
-    belasting_eur, netto_eur, dividend_id, herinvesteerd}. Het eigenlijke rekenwerk zit in
-    verwerk_rekeningoverzicht_df() hierboven; deze functie doet alleen het
-    Excel-inlezen en de kolom-normalisatie.
-
-    Kolom-quirk (anders dan bij het transactiebestand): "Mutatie" en
-    "Saldo" zijn elk samengevoegde headers over twee kolommen (valutacode +
-    bedrag) — pandas geeft de tweede kolom van elk paar de naam
-    "Unnamed: 8" / "Unnamed: 10" i.p.v. verkeerd uitgelijnd te zijn, dus die
-    hernoemen we hier expliciet naar leesbare namen.
-    """
     file_object.seek(0)
     df = pd.read_excel(file_object)
     df.columns = df.columns.str.strip()
+    # Samengevoegde koppen, zie CLAUDE.md: DeGiro-bestanden.
     df = df.rename(columns={
         "Mutatie": "valuta_mutatie",
         "Unnamed: 8": "mutatie",
@@ -292,16 +191,7 @@ def verwerk_rekeningoverzicht(file_object):
 
 
 def bereken_dividend_samenvatting(code):
-    """
-    Samenvatting van alle opgeslagen dividenden voor deze code: totaal
-    netto-ontvangen, per ticker/bijnaam, en een gezamenlijke cumulatieve
-    tijdreeks per ticker voor de gestapelde grafiek.
-
-    Geeft None terug als er geen dividenden zijn opgeslagen — de aanroeper
-    (app.py) weet dan dat er nooit een rekeningoverzicht is geüpload voor
-    deze code, i.p.v. dat te verwarren met "wel geüpload, maar toevallig
-    geen dividend ontvangen".
-    """
+    """None = nooit een rekeningoverzicht geüpload (niet hetzelfde als 'geen dividend')."""
     dividenden = get_dividenden(code)
     if not dividenden:
         return None
@@ -316,12 +206,7 @@ def bereken_dividend_samenvatting(code):
     cur.close()
     conn.close()
 
-    # ISIN is de sleutel voor de koppeling, niet de naam — zelfde aanpak als
-    # elders in dit project (zie find_ticker_detailed/verifieer_ticker_met_prijs).
-    # Bij meerdere transactierijen voor dezelfde ISIN wint de eerste
-    # (willekeurige volgorde uit de query) — voor dividend-koppeling is dat
-    # voldoende precisie, in tegenstelling tot de rendementsberekening is er
-    # hier geen aparte behandeling per beursnotering nodig.
+    # Op ISIN alleen (eerste rij wint): per beurs splitsen is hier niet nodig.
     isin_naar_ticker = {}
     isin_naar_bijnaam = {}
     for isin, ticker, product in rows:
@@ -353,10 +238,7 @@ def bereken_dividend_samenvatting(code):
         key=lambda x: x["totaal_netto"], reverse=True,
     )
 
-    # Losse uitkeringen, ongeaggregeerd, voor de lijst onderaan het
-    # Dividend-tabblad — nieuwste eerst. Rijen met netto_eur=None (onbekende
-    # valutaconversie) blijven staan i.p.v. weggefilterd te worden, zelfde
-    # bewuste "nooit een gok"-gedrag als de rest van deze functie.
+    # Rijen met netto_eur None blijven bewust in de lijst staan.
     lijst = sorted(
         (
             {
@@ -374,8 +256,7 @@ def bereken_dividend_samenvatting(code):
         key=lambda x: x["datum"], reverse=True,
     )
 
-    # Alle tickers uitlijnen op dezelfde datumas (unie van alle dividend-
-    # datums) en forward-fillen, zodat de gestapelde grafiek geen gaten heeft.
+    # Eén gedeelde datumas, zodat de gestapelde grafiek geen gaten heeft.
     alle_datums = sorted({datum for punten in per_ticker_punten.values() for datum, _ in punten})
     cumulatief_per_ticker = {}
     for ticker, punten in per_ticker_punten.items():

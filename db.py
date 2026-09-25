@@ -147,7 +147,6 @@ def init_db():
 
 
 def get_cached_classifications(tickers):
-    """Geeft {ticker: is_etf} terug voor tickers die al eens geclassificeerd zijn."""
     if not tickers:
         return {}
     conn = get_db_connection()
@@ -180,7 +179,6 @@ def save_classification(ticker, is_etf, details=None):
 
 
 def get_ticker_details(tickers):
-    """Geeft {ticker: {land, sector, quote_type, valuta, yahoo_beurs, fund_family, category}} terug."""
     if not tickers:
         return {}
     conn = get_db_connection()
@@ -197,16 +195,11 @@ def get_ticker_details(tickers):
     return result
 
 
-# Land/sector-lookups, ETF-holdings/sectorverdeling en splits veranderen
-# traag (samenstelling wijzigt hooguit maandelijks) — cache 30 dagen om niet
-# bij elke upload opnieuw tegen Yahoo te hoeven. (ticker_info hierboven
-# verloopt nooit; die wordt alleen herhaald als de rij "stale" is, zie
-# _ticker_details_met_cache in ticker_classificatie.py.)
+# Geldt niet voor ticker_info, ticker_prijscheck en openfigi_cache: die verlopen nooit.
 CACHE_GELDIGHEID = "30 days"
 
 
 def get_cached_land_sector(tickers):
-    """Geeft {ticker: (land, sector)} terug voor tickers die de afgelopen 30 dagen al opgezocht zijn."""
     if not tickers:
         return {}
     conn = get_db_connection()
@@ -237,7 +230,6 @@ def save_land_sector(ticker, land, sector):
 
 
 def get_cached_etf_sector_verdeling(etf_ticker):
-    """Geeft {sector: gewicht} terug als er een niet-verlopen (<30 dagen) cache is, anders None."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -254,10 +246,7 @@ def get_cached_etf_sector_verdeling(etf_ticker):
 
 
 def save_etf_sector_verdeling(etf_ticker, sector_dict):
-    """Vervangt de volledige sectorverdeling van deze ETF (delete + bulk insert, zodat alle
-    rijen dezelfde bijgewerkt_op krijgen en de cache-leeftijdscheck consistent blijft).
-    Roep dit alleen aan met een niet-lege sector_dict — een mislukte/lege ophaal moet NIET
-    gecached worden (zie get_etf_sector_verdeling in ticker_classificatie.py)."""
+    """Delete + bulk insert, zodat alle rijen dezelfde bijgewerkt_op krijgen. Niet aanroepen met een lege dict."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM etf_sector_verdeling WHERE etf_ticker = %s", (etf_ticker,))
@@ -273,8 +262,6 @@ def save_etf_sector_verdeling(etf_ticker, sector_dict):
 
 
 def get_cached_etf_holdings(etf_ticker):
-    """Geeft lijst van {holding_naam, holding_ticker, gewicht, land, bron} terug als er een
-    niet-verlopen (<30 dagen) cache is, anders None."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -295,8 +282,7 @@ def get_cached_etf_holdings(etf_ticker):
 
 
 def save_etf_holdings(etf_ticker, holdings_lijst):
-    """Vervangt de volledige holdings van deze ETF (delete + bulk insert). Roep dit
-    alleen aan met een niet-lege holdings_lijst — zelfde reden als save_etf_sector_verdeling."""
+    """Delete + bulk insert. Niet aanroepen met een lege lijst."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM etf_holdings WHERE etf_ticker = %s", (etf_ticker,))
@@ -316,23 +302,7 @@ def save_etf_holdings(etf_ticker, holdings_lijst):
 
 
 def get_cached_prijscheck(ticker, datum):
-    """
-    Geeft (yahoo_slotkoers, valuta, high, low) terug als deze (ticker,
-    datum)-combinatie al eens gecontroleerd is, anders None. yahoo_slotkoers
-    kan zelf None zijn (een eerdere mislukte poging die toch gecached is —
-    zie save_prijscheck) — het verschil tussen "nog nooit geprobeerd" (deze
-    functie geeft None) en "geprobeerd maar mislukt" (tuple met None erin)
-    is precies wat de aanroeper nodig heeft om te weten of het zin heeft om
-    het opnieuw te proberen. high/low kunnen ook None zijn terwijl
-    yahoo_slotkoers wél bekend is — een dagrange-fetch die destijds
-    mislukte; de aanroeper
-    (ticker_prijscheck.vergelijk_prijs_op_datum) beslist of dat een nieuwe
-    poging waard is.
-
-    Historische slotkoersen veranderen nooit met terugwerkende kracht, dus
-    deze cache heeft — anders dan de andere caches in dit bestand — geen
-    leeftijdscheck nodig.
-    """
+    """(yahoo_slotkoers, valuta, high, low), of None als nooit geprobeerd; None ín de tuple = geprobeerd, mislukt."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -354,20 +324,7 @@ def get_cached_prijscheck(ticker, datum):
 
 
 def save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
-    """
-    Cacht een historische-slotkoers-check permanent — bewust ook als koers
-    None is (mislukte lookup). Dit wijkt af van de "None niet cachen"-regel
-    bij de andere caches in dit bestand: daar kan een mislukte poging de
-    volgende keer wél lukken (bv. na een tijdelijke rate limit), maar hier
-    verandert de onderliggende historische koers nooit — als Yahoo op dit
-    moment geen koers heeft voor deze ticker op deze datum, blijft dat zo.
-
-    ON CONFLICT ... DO UPDATE (niet DO NOTHING): een hernieuwde aanroep met
-    inmiddels wél bekende high/low (bv. na een eerder mislukte dagrange-
-    fetch) moet die alsnog kunnen bijschrijven, anders blijft een
-    bestaande NULL-rij voor altijd zonder dagrange staan — precies de bug
-    die dividenden.dividend_id destijds had (zie CLAUDE.md).
-    """
+    """Permanent, ook bij koers None. Upsert, zodat later gevonden high/low nog wordt bijgeschreven."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -384,14 +341,7 @@ def save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
 
 
 def get_cached_splits(ticker):
-    """
-    Geeft de gecachte split-geschiedenis van 'ticker' terug als {iso_datum:
-    ratio}, of None als er geen (niet-verlopen, <30 dagen) cache is. Zelfde
-    leeftijdscheck als land/sector hierboven (CACHE_GELDIGHEID) — in
-    tegenstelling tot ticker_prijscheck (historische koersen veranderen
-    nooit) kan een ticker in de toekomst een NIEUWE split doen, dus deze
-    cache mag niet voor altijd blijven staan.
-    """
+    """{iso_datum: ratio} of None. Verloopt wel: een ticker kan later nog splitsen."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -405,7 +355,7 @@ def get_cached_splits(ticker):
 
 
 def save_splits(ticker, splits):
-    """splits: {iso_datum: ratio} — ook een leeg dict cachen (bevestigd geen splits), zie get_cached_splits."""
+    """Ook een leeg dict cachen: dat betekent 'geen splits'."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -419,10 +369,6 @@ def save_splits(ticker, splits):
 
 
 def get_cached_openfigi(isin):
-    """Geeft de gecachete OpenFIGI-resultatenlijst terug, of None als er nog
-    niets gecached is voor deze ISIN. Permanente cache (geen vervaltermijn) --
-    zelfde redenering als ticker_prijscheck: een ISIN->ticker-mapping
-    verandert vrijwel nooit."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT resultaten FROM openfigi_cache WHERE isin = %s", (isin,))
@@ -433,10 +379,7 @@ def get_cached_openfigi(isin):
 
 
 def save_openfigi(isin, resultaten):
-    """Cachet resultaten ALLEEN bij een succesvolle aanroep (resultaten is een
-    lijst, mag leeg zijn bij 'geen match' -- dat is ook een geldig, stabiel
-    resultaat). Fouten/rate-limits worden NIET gecached, zodat een volgende
-    poging opnieuw geprobeerd wordt."""
+    """Alleen na een geslaagde aanroep; een lege lijst ('geen match') mag wel."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -451,9 +394,7 @@ def save_openfigi(isin, resultaten):
 
 
 def delete_portfolio(code):
-    """Verwijdert een portfolio en al zijn transacties/dividenden permanent.
-    Laat de gedeelde caches (prijzen, ticker_info, ...) met rust — dat is
-    anonieme marktdata, geen persoonlijke portfoliodata."""
+    """De caches blijven staan: dat is anonieme marktdata."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("DELETE FROM transacties WHERE code = %s", (code,))
@@ -465,17 +406,7 @@ def delete_portfolio(code):
 
 
 def wijzig_portfolio_code(oude_code, nieuwe_code):
-    """Hernoemt een portfolio-code en alle gekoppelde tabellen (transacties,
-    dividenden). transacties.code heeft een FK naar portfolios(code) zonder
-    ON UPDATE CASCADE, en die check gebeurt meteen aan het eind van elke
-    UPDATE-statement (niet pas bij commit) — de portfolios-rij kan dus niet
-    zomaar hernoemd worden zolang transacties nog naar de oude code wijst.
-    Daarom eerst een nieuwe portfolios-rij met de nieuwe code aanmaken, dan
-    transacties/dividenden ernaartoe verhuizen, en pas daarna de oude
-    portfolios-rij weggooien — allemaal in dezelfde transactie.
-
-    Geeft (True, None) bij succes, (False, foutmelding) als de nieuwe code
-    al in gebruik is of de oude code niet bestaat."""
+    """FK zonder ON UPDATE CASCADE: eerst nieuwe rij, dan verhuizen, dan oude weg. Geeft (gelukt, foutmelding)."""
     conn = get_db_connection()
     cur = conn.cursor()
     try:
@@ -505,21 +436,7 @@ def wijzig_portfolio_code(oude_code, nieuwe_code):
 
 
 def save_dividenden(code, records):
-    """records: lijst van dicts zoals dividend.verwerk_rekeningoverzicht() teruggeeft.
-
-    ON CONFLICT (code, dividend_id) DO UPDATE — bewust een upsert, GEEN DO
-    NOTHING. dividend_id is afgeleid van de RUWE (niet-EUR-geconverteerde)
-    bedragen (zie verwerk_rekeningoverzicht), die niet veranderen als er
-    later iets verbetert aan de EUR-omrekenlogica zelf. Met DO NOTHING zou
-    een bugfix in die omrekenlogica dus nooit een al opgeslagen rij
-    corrigeren: een eerdere (foutieve, bv. NULL) waarde zou voor altijd
-    blijven staan omdat een latere, juiste herberekening exact dezelfde
-    dividend_id oplevert en dus als 'duplicaat' genegeerd werd. Dit was
-    precies de oorzaak van een bug waarbij de Dividend-pagina €0,00 bleef
-    tonen ondanks een gefixte berekening: de upload-log toonde het juiste
-    vers-berekende totaal, maar de oude NULL-rijen in de database bleven
-    intact staan omdat DO NOTHING de nieuwe (juiste) waarden nooit liet
-    doorschrijven."""
+    """Bewust een upsert, zie CLAUDE.md: DeGiro-bestanden."""
     if not records:
         return
     conn = get_db_connection()
@@ -544,7 +461,6 @@ def save_dividenden(code, records):
 
 
 def get_dividenden(code):
-    """Geeft alle dividendrijen voor deze code terug, gesorteerd op datum."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -572,13 +488,7 @@ def get_dividenden(code):
 
 
 def get_transacties_overzicht(code):
-    """Geeft alle transactierijen (datum, tijd, product, aantal, koers,
-    totaal_eur, transactiekosten) voor deze code terug, voor het Transacties-
-    overzichtstabblad. Standaard gesorteerd op datum aflopend (meest recent
-    eerst) -- verdere sortering/paginering gebeurt client-side.
-
-    tijd/transactiekosten kunnen None zijn (bv. een ontbrekende waarde in
-    het Excel-bestand) -- de UI toont dan "—" i.p.v. een verzonnen waarde."""
+    """tijd en transactiekosten kunnen None zijn; nooit een verzonnen waarde invullen."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
@@ -604,7 +514,7 @@ def get_transacties_overzicht(code):
 
 
 def save_prices(rows):
-    """rows: lijst van (ticker, datum, koers_eur) tuples."""
+    """rows: (ticker, datum, koers_eur)-tuples. DO NOTHING: historische koersen veranderen niet."""
     if not rows:
         return
     conn = get_db_connection()
@@ -621,15 +531,7 @@ def save_prices(rows):
 
 
 def upsert_prices(rows):
-    """rows: lijst van (ticker, datum, koers_eur) tuples. In tegenstelling
-    tot save_prices() (ON CONFLICT DO NOTHING — voor historische koersen,
-    die nooit meer veranderen) overschrijft dit een bestaande rij WEL,
-    inclusief bijgewerkt_op. Nodig om 'vandaag' bij elke portfolio-opening
-    te kunnen verversen: zonder DO UPDATE zou een eerder op dezelfde dag
-    gecachete (mogelijk tussentijdse, niet-definitieve) koers nooit
-    plaatsmaken voor een nieuwere/slotkoers. Gebruik dit UITSLUITEND voor
-    de verse-koers-refresh in get_prices() (prijzen.py) — save_prices()
-    blijft de standaard voor de eerste/volledige historische download."""
+    """Alleen voor de verse koers van vandaag (kan tussentijds zijn); historie via save_prices()."""
     if not rows:
         return
     conn = get_db_connection()
@@ -648,15 +550,7 @@ def upsert_prices(rows):
 
 
 def get_laatste_prijs_update(tickers):
-    """
-    Geeft (laatste_koersdatum, laatst_opgehaald_op) terug voor de gegeven
-    tickers, t.b.v. de 'laatst bijgewerkt'-melding op Portfolio-home.
-    - laatste_koersdatum: de meest recente handelsdag waarvoor er een
-      koers bekend is (over alle meegegeven tickers heen).
-    - laatst_opgehaald_op: het meest recente moment waarop een koers voor
-      een van deze tickers gecached is (server-tijdstip, UTC).
-    (None, None) als er geen prijsdata is voor deze tickers.
-    """
+    """(laatste_koersdatum, laatst_opgehaald_op in UTC), of (None, None)."""
     if not tickers:
         return None, None
     conn = get_db_connection()

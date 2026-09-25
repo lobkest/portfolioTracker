@@ -1,12 +1,4 @@
-"""
-Ticker-classificatie: is dit een ETF of een aandeel (yfinance quoteType +
-heuristiek), en de bijbehorende land-/sector-/holdings-opzoekingen (met
-30-dagen-cache via db.py). Gebruikt door zowel de portfoliobrede
-Verdeling/Land/Sector-aggregatie (portfolio_verdeling.py) als de Ticker-
-zekerheid-verificatie.
-
-Losgetrokken uit analysis.py.
-"""
+"""ETF of aandeel, plus land/sector/holdings per ticker (met database-cache)."""
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -23,14 +15,7 @@ from etf_holdings_provider import ETF_HOLDINGS_BRON, fetch_provider_holdings
 
 
 def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
-    """
-    Haalt yf.Ticker(ticker).info op met retry/backoff bij rate limiting
-    (via _met_rate_limit_retry). Gedeeld door classify_ticker() en
-    get_land_sector() zodat beide niet onafhankelijk van elkaar dezelfde
-    Yahoo-call voor dezelfde ticker doen (rate limiting is een bekend
-    pijnpunt in dit project). Geeft None terug bij een definitieve fout
-    (rate limit na alle retries).
-    """
+    """yf.Ticker(ticker).info met retry; None bij een definitieve fout."""
     def _actie():
         _tel_yahoo_call("yf.Ticker.info")
         return yf.Ticker(ticker).info
@@ -42,14 +27,7 @@ def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WA
 
 
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
-    """
-    Doet de daadwerkelijke yfinance-lookup, met retry/backoff bij rate limiting.
-    Geeft None terug bij een definitieve fout (rate limit na alle retries).
-    Anders een dict met de ETF/aandeel-classificatie plus alle Yahoo-info die
-    daarvoor gebruikt is (land, sector, beurs, valuta, ...) — zodat dit in
-    Instellingen > Ticker-zekerheid getoond en met het Excel-bestand
-    vergeleken kan worden.
-    """
+    """{is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category}, of None bij een fout."""
     info = _fetch_yf_info(ticker, pogingen, wachttijd)
     if info is None:
         return None  # onbekend, NIET als aandeel cachen — gewoon opnieuw proberen volgende keer
@@ -75,19 +53,10 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
         ]
         is_etf = sum(signals) >= 2
 
-    # Land/sector kwam toch al mee met deze call — meteen ook in de aparte
-    # ticker_land_sector-cache zetten, zodat get_land_sector() voor deze
-    # ticker geen tweede identieke Yahoo-call meer hoeft te doen.
+    # Scheelt get_land_sector() later een identieke Yahoo-call.
     save_land_sector(ticker, country, sector)
 
-    # info["category"] bestaat alleen voor Amerikaanse fondsen (bv. SPY/VOO
-    # -> "Large Blend"); voor mutual funds (bv. VTSAX) en voor de Ierse
-    # UCITS-ETF's die dit project vooral tegenkomt (CSPX.AS, VUSA.AS, ...)
-    # ontbreekt die key in info helemaal, maar staat 'm (als aanwezig) in
-    # funds_data.fund_overview["categoryName"] — dus dat als fallback
-    # proberen voor fonds-achtige tickers. Blijft None als Yahoo het zelf
-    # ook niet heeft (bevestigd voor meerdere UCITS-ETF's: geen bug, gewoon
-    # geen data).
+    # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; fund_overview is de fallback.
     if not category and (is_etf or quote_type == "MUTUALFUND"):
         try:
             _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
@@ -110,16 +79,7 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
 
 
 def get_land_sector(ticker):
-    """
-    Land + sector van een los aandeel of holding-ticker, met 30-dagen-cache
-    (tabel ticker_land_sector — los van de ticker_info-classificatiecache).
-    Geeft altijd een (land, sector)-tuple terug: "Unknown" i.p.v. None als
-    het niet gevonden is, zodat aanroepers geen None-checks nodig hebben.
-
-    In de praktijk is dit vaak al een cache-hit tegen de tijd dat dit wordt
-    aangeroepen: _classify_ticker_uncached() vult ticker_land_sector als
-    bijproduct van zijn eigen (identieke) yfinance-call.
-    """
+    """(land, sector), met "Unknown" i.p.v. None."""
     cached = get_cached_land_sector([ticker])
     if ticker in cached:
         land, sector = cached[ticker]
@@ -128,10 +88,7 @@ def get_land_sector(ticker):
 
     info = _fetch_yf_info(ticker)
     if info is None:
-        # kon niet opgehaald worden (rate limit na alle retries) — niet
-        # cachen, gewoon Unknown teruggeven voor déze keer maar volgende
-        # keer opnieuw proberen
-        return ("Unknown", "Unknown")
+        return ("Unknown", "Unknown")  # niet cachen, volgende keer opnieuw proberen
 
     land = info.get("country")
     sector = info.get("sector")
@@ -140,25 +97,12 @@ def get_land_sector(ticker):
 
 
 def _sector_naam(sector_key):
-    """Zet yfinance's snake_case sector-sleutel (bv. 'consumer_cyclical') om
-    naar een leesbare naam ('Consumer Cyclical')."""
+    """'consumer_cyclical' -> 'Consumer Cyclical'."""
     return sector_key.replace("_", " ").title()
 
 
 def get_etf_sector_verdeling(ticker):
-    """
-    Sectorverdeling van een ETF/fonds, met 30-dagen-cache (tabel
-    etf_sector_verdeling). Geeft {sector: gewicht} terug.
-
-    Format-keuze: gewicht als fractie 0-1 — zo geeft yfinance dit zelf al
-    terug (bv. 0.374 voor 37.4%), dus geen extra *100 of /100 nodig bij
-    gebruik: waarde_in_euro * gewicht is direct het bedrag in die sector.
-    get_etf_holdings() hieronder gebruikt dezelfde 0-1 schaal.
-
-    Faalt de call of is de verdeling leeg, dan een lege dict teruggeven en
-    NIET cachen (zelfde patroon als _classify_ticker_uncached bij rate
-    limiting: gewoon opnieuw proberen bij de volgende upload).
-    """
+    """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet)."""
     cached = get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
         dprint(f"[etf-sector] '{ticker}': uit cache -> {len(cached)} sectoren")
@@ -179,28 +123,8 @@ def get_etf_sector_verdeling(ticker):
 
 
 def get_etf_holdings(ticker):
-    """
-    Holdings van een ETF/fonds (naam, ticker, gewicht, land, bron), met
-    30-dagen-cache (tabel etf_holdings). Gewicht als fractie 0-1, zelfde
-    schaal als get_etf_sector_verdeling().
-
-    Probeert eerst de VOLLEDIGE holdings-lijst bij de fondsprovider zelf op
-    te halen (fetch_provider_holdings(), zie ETF_HOLDINGS_BRON) — dekking
-    bijna 100%, tegenover de ~35-40% van yfinance's top 10 voor een breed
-    gespreid fonds. Alleen als daarvoor geen URL bekend is, of het ophalen/
-    parsen mislukt, wordt teruggevallen op yfinance's funds_data.
-    top_holdings (max 10, land per holding via get_land_sector()).
-
-    Elke rij krijgt een "bron"-veld ("provider_csv" of "yfinance_top10") —
-    zo weet de aanroeper (en de UI) hoe betrouwbaar de landverdeling voor
-    déze ETF is. Een verse yfinance_top10-cache telt NIET als "goed genoeg"
-    als er ondertussen een provider-URL voor deze ticker bekend is geworden
-    (ETF_HOLDINGS_BRON kan na de vorige cache-vulling zijn aangevuld) — dan
-    wordt alsnog geprobeerd te upgraden naar de volledige lijst.
-
-    Faalt alles, dan een lege lijst teruggeven en NIET cachen (zelfde
-    patroon als de andere ETF-caches bij een mislukte poging).
-    """
+    """[{holding_naam, holding_ticker, gewicht (0-1), land, bron}]: eerst de provider, anders yfinance's top 10.
+    Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider-URL bekend is."""
     heeft_provider_url = ticker in ETF_HOLDINGS_BRON
 
     cached = get_cached_etf_holdings(ticker)
@@ -252,25 +176,8 @@ def get_etf_holdings(ticker):
     return holdings
 
 
-# _normaliseer_bedrijfsnaam/_sorteer_tickers_voor_dropdown/_sorteer_verdeling_
-# groot_naar_klein/bereken_bedrijven_verdeling/bereken_etf_overlap/
-# compute_land_sector_verdeling staan sinds de module-splitsing in
-# portfolio_verdeling.py -- GEEN terug-import hier: niets in de rest van dit
-# bestand gebruikt ze nog (portfolio_orchestratie.py en app.py importeren
-# rechtstreeks uit portfolio_verdeling). Een terug-import zou hier bovendien een
-# fragiele circulaire import opleveren (portfolio_verdeling.py importeert op
-# zijn beurt get_etf_holdings/get_etf_sector_verdeling/get_land_sector UIT
-# dit bestand).
-
-
 def classify_ticker(ticker):
-    """
-    Is dit een ETF volgens Yahoo Finance? Wordt gecached in de database (tabel
-    ticker_info) zodat dit niet bij elke upload opnieuw tegen Yahoo hoeft —
-    dat was de oorzaak van de rate-limit fouten die alles op "100% aandelen"
-    lieten uitkomen (elke .info-call faalde, classify_ticker gaf dan overal
-    False terug).
-    """
+    """True als Yahoo de ticker als ETF ziet. Bij een fout False, zonder te cachen."""
     cached = get_cached_classifications([ticker])
     if ticker in cached:
         dprint(f"[classify] '{ticker}': uit cache -> ETF={cached[ticker]}")
@@ -278,8 +185,6 @@ def classify_ticker(ticker):
 
     details = _classify_ticker_uncached(ticker)
     if details is None:
-        # kon niet bepaald worden (rate limit na alle retries) — niet cachen,
-        # gewoon False teruggeven voor déze keer maar volgende upload opnieuw proberen
         return False
 
     save_classification(ticker, details["is_etf"], details)
@@ -287,12 +192,7 @@ def classify_ticker(ticker):
 
 
 def classify_tickers(tickers):
-    """
-    Batch-variant: 1 cache-lookup voor alle tickers tegelijk, en een korte
-    pauze tussen de individuele Yahoo-calls voor tickers die nog niet
-    gecached zijn (voorkomt dat je meteen weer rate limited wordt na de
-    prijzen-download die er meestal net aan vooraf ging). Geeft {ticker: bool} terug.
-    """
+    """{ticker: is_etf}, met een pauze tussen Yahoo-calls tegen rate limiting."""
     tickers = list(dict.fromkeys(t for t in tickers if t))  # uniek, volgorde behouden
     cached = get_cached_classifications(tickers)
     result = dict(cached)
@@ -312,12 +212,7 @@ def classify_tickers(tickers):
 
 
 def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
-    """Haalt voor alle meegegeven tickers parallel de land/sector/holdings-
-    data op (of pakt 'm uit cache) zodat de latere SEQUENTIËLE verwerking in
-    compute_land_sector_verdeling / bereken_bedrijven_verdeling / bereken_etf_overlap
-    alleen nog cache-hits tegenkomt. Puur een side-effect-functie (vult de
-    database-caches), geeft niets bruikbaars terug — de resultaten worden
-    zoals voorheen per functie apart via de cache opgehaald."""
+    """Vult alleen de caches, zodat de verdelingsfuncties daarna sequentieel alleen cache-hits krijgen."""
     def _warm(ticker):
         if is_etf_map.get(ticker, False):
             get_etf_sector_verdeling(ticker)
@@ -330,22 +225,7 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
 
 
 def _ticker_details_met_cache(ticker):
-    """
-    Land/sector/valuta/fondsfamilie/category/quote_type voor een ticker, via
-    de ticker_info-cache (gevuld door classify_ticker/classify_tickers) als
-    eerste stop. Voorkomt een extra yfinance-.info-call voor een ticker die
-    al eerder in dit request (of een vorige upload) geclassificeerd is —
-    zoals bij een positie in de portfolio zelf, die al via classify_tickers()
-    in analyze_transacties_verrijking gecached is vóórdat de Ticker-
-    zekerheid-pagina wordt opgebouwd.
-
-    Let op: een rij met is_etf gezet maar alle overige velden NULL is niet
-    hetzelfde als "succesvol gecontroleerd en er is gewoon geen data" (bv.
-    land/sector zijn voor een ETF legitiem None). valuta en quote_type zijn vrijwel
-    altijd aanwezig bij een geslaagde .info-call (elke ticker heeft een
-    beurs en een valuta), dus als BEIDE None zijn behandelen we de rij als
-    "nog nooit met de huidige velden gevuld" en halen we 'm opnieuw op.
-    """
+    """Details uit de ticker_info-cache; zijn valuta én quote_type leeg, dan is de rij stale en opnieuw ophalen."""
     bestaand = get_ticker_details([ticker])
     details = bestaand.get(ticker)
     if details and (details.get("valuta") or details.get("quote_type")):

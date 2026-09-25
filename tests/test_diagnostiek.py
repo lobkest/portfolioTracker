@@ -254,8 +254,11 @@ class TestBasisCacheMeldingen(unittest.TestCase):
             tweede = haal_meldingen()
 
         self.assertEqual(mock_get_prices.call_count, 1)  # tweede keer was een hit
-        self.assertEqual(len(eerste), 2)
-        # Alleen wat tijdens de basis ontstond, niet de eerdere Excel-melding.
+        # Sinds de Laadtijden-categorie meldt meet_tijd() ook de basis-fasen.
+        self.assertEqual(len([m for m in eerste if m["categorie"] == CATEGORIE_WISSELKOERSEN]), 2)
+        self.assertIn(diagnostiek.CATEGORIE_LAADTIJDEN, [m["categorie"] for m in eerste])
+        # Alleen wat tijdens de basis ontstond, niet de eerdere Excel-melding,
+        # en geen laadtijden (die tijd is bij een hit niet besteed).
         self.assertEqual([m["sleutel"] for m in tweede], ["USDEUR=X"])
 
 

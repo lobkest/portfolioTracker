@@ -1,13 +1,5 @@
-// Pure logica voor het "Top N bedrijven"-tabblad: nettere bedrijfsnamen
-// (alleen voor weergave), de keuze van N en het inkorten van de door de
-// backend meegeleverde lijst. Los van DOM/Chart.js gehouden (net als menu.js
-// en transacties.js) zodat het zowel in de browser (index.html) als onder
-// Node (tests/test_bedrijven.js) draait.
-//
-// BELANGRIJK: de opmaak van namen is UITSLUITEND voor weergave. Groeperen,
-// optellen en matchen (Top-bedrijven, ETF-overlap) gebeurt in de backend op
-// de ruwe naam via _normaliseer_bedrijfsnaam() -- gebruik
-// maakBedrijfsnaamLeesbaar() nooit als sleutel of om holdings te matchen.
+// Pure logica voor Top-N bedrijven (zonder DOM, getest onder Node).
+// Nette namen zijn alleen voor weergave: nooit als sleutel of om te matchen.
 
 (function (root) {
     "use strict";
@@ -16,9 +8,7 @@
     // (portfolio_verdeling.py); de eerste is ook de standaard-keuze.
     const BEDRIJVEN_TOP_N_KNOPPEN = [10, 20, 50];
 
-    // Vanaf zoveel bedrijven (of op een smal scherm) horizontale staven i.p.v.
-    // staande: bij veel bedrijven worden staande staven met volledige namen
-    // onleesbaar. De breedte is gelijk aan het mobiele breakpoint in style.css.
+    // Vanaf zoveel bedrijven, of op een smal scherm (= breakpoint in style.css), liggende staven.
     const BEDRIJVEN_HORIZONTAAL_VANAF = 15;
     const BEDRIJVEN_SMAL_SCHERM_MAX_BREEDTE = 768;
 
@@ -112,11 +102,7 @@
         return woord; // gemengde hoofdletters (Apple, eBay): de bron weet het best
     }
 
-    // Maakt van een ruwe holdingsnaam (meestal HOOFDLETTERS uit een
-    // ETF-bestand) een nette weergavenaam: nette hoofdletters, juridisch
-    // achtervoegsel weg, onderscheidende "Class A/B/C" blijft. Lege of
-    // niet-tekst-invoer komt ongewijzigd terug. opties.behoudSuffix laat het
-    // juridische achtervoegsel staan (gebruikt door maakUniekeWeergaveNamen).
+    // Juridisch achtervoegsel weg (tenzij opties.behoudSuffix), "Class A/B/C" blijft.
     function maakBedrijfsnaamLeesbaar(naam, opties) {
         if (typeof naam !== "string" || naam.trim() === "") return naam;
         const behoudSuffix = Boolean(opties && opties.behoudSuffix);
@@ -162,11 +148,8 @@
         return kern.concat(staart, klasse).join(" ");
     }
 
-    // Weergavenamen voor een lijst ruwe namen, gelijk aan de volgorde van de
-    // invoer. Twee VERSCHILLENDE ruwe namen krijgen nooit hetzelfde label:
-    // botsen ze na de opmaak (bv. "Rio Tinto PLC" en "Rio Tinto Ltd", beide
-    // "Rio Tinto"), dan houden die het juridische achtervoegsel, en als ook dat
-    // niet onderscheidt, de ruwe naam.
+    // Twee verschillende ruwe namen krijgen nooit hetzelfde label ("Rio Tinto PLC"/"Rio Tinto Ltd"):
+    // bij een botsing blijft het achtervoegsel staan, anders de ruwe naam.
     function maakUniekeWeergaveNamen(ruweNamen) {
         const nette = ruweNamen.map(r => maakBedrijfsnaamLeesbaar(r));
         const ruwPerNet = new Map();
@@ -187,10 +170,7 @@
         });
     }
 
-    // Breekt een label af op woordgrenzen in regels van hooguit maxTekens
-    // (een los woord dat langer is, blijft heel; "Class A" blijft bij elkaar).
-    // Chart.js toont een array als meerregelig label, zodat lange namen niet
-    // met "…" afgekapt hoeven.
+    // Meerregelig label (Chart.js toont een array als regels); "Class A" blijft bij elkaar.
     function breekLabelAf(tekst, maxTekens) {
         if (typeof tekst !== "string" || tekst.length <= maxTekens) return [tekst];
         const regels = [];
@@ -214,14 +194,11 @@
         return regels;
     }
 
-    // Klemt het gekozen aantal in [1, beschikbaar].
     function effectieveTopN(gekozen, beschikbaar) {
         return Math.max(1, Math.min(gekozen, beschikbaar));
     }
 
-    // Verwerkt wat de gebruiker in het invulveld typt: een geheel getal >= 1
-    // (boven het beschikbare aantal wordt het maximum). Leeg, decimaal,
-    // negatief, 0 of tekst geeft het laatst geldige aantal terug.
+    // Ongeldige invoer (leeg, decimaal, <= 0, tekst) geeft het laatst geldige aantal.
     function kiesTopN(invoer, beschikbaar, laatstGeldig) {
         const tekst = String(invoer === null || invoer === undefined ? "" : invoer).trim();
         if (!/^\d+$/.test(tekst)) return laatstGeldig;
@@ -230,10 +207,7 @@
         return Math.min(n, beschikbaar);
     }
 
-    // Knipt de (aflopend gesorteerde) lijst van de backend in tot de top N en
-    // rekent het restant opnieuw uit: backend-"overig" (bedrijven buiten de
-    // meegeleverde lijst + niet-gedekte ETF-holdings) plus de meegeleverde
-    // bedrijven die buiten de gekozen top N vallen.
+    // Overig = backend-overig plus de meegeleverde bedrijven buiten de gekozen N.
     function snijTopBedrijven(data, n) {
         const top = (data && data.top) || [];
         const aantal = Math.max(0, Math.min(n, top.length));

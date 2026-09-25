@@ -1,12 +1,4 @@
-"""
-Upload-verwerking: de taakfuncties achter POST /upload -- Excel inlezen,
-kolom-normalisatie, ticker-resolutie (twee paden: 'niet opslaan' en
-opslaand), Order ID-bepaling, portfolio-code-matching, DB-insert en
-dividend-bestand-verwerking. _upload_impl() in app.py orkestreert deze
-taakfuncties in de juiste volgorde.
-
-Losgetrokken uit app.py.
-"""
+"""Taakfuncties achter POST /upload; _upload_impl() in app.py roept ze in volgorde aan."""
 import hashlib
 
 import pandas as pd
@@ -28,32 +20,14 @@ from portfolio_admin import find_matching_code, generate_code
 from db import save_dividenden
 from dividend import verwerk_rekeningoverzicht
 
-# Kolomnaam exact zoals DeGiro 'm in het transactiebestand zet (na
-# df.columns.str.strip(), dat evt. rondom-spaties in de header wegwerkt).
-# Ontbreekt in oudere DeGiro-exportformaten — daarom overal met een
-# beschikbaarheids-check behandeld i.p.v. als verplichte kolom.
+# Deze drie kolommen kunnen ontbreken in oudere exports (zie CLAUDE.md: Data en rekenen).
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
-
-# Kale waarde (aantal x koers, zonder AutoFX/transactiekosten) — DEGIRO's
-# eigen GAK-weergave is hierop gebaseerd, in tegenstelling tot Totaal EUR
-# (dat wel kosten meetelt en de GAK structureel te hoog maakt, zie
-# CLAUDE.md). Zelfde beschikbaarheids-check-patroon als KOSTEN_KOLOM.
+# Kale waarde zonder kosten: de basis voor de GAK.
 WAARDE_KOLOM = "Waarde EUR"
-
-# DEGIRO's eigen afrekenkoers voor deze transactie — preciezer dan een losse
-# historische FX-lookup achteraf. Gebruikt om de rauwe 'Koers'-kolom (die
-# voor een niet-EUR-genoteerde positie, bv. TTWO op NDQ, gewoon de
-# vreemde-valuta-koers bevat) naar EUR om te rekenen vóór opslag — zie
-# CLAUDE.md, Databasestructuur (transacties.koers). Leeg/NaN voor
-# EUR-genoteerde rijen. Zelfde beschikbaarheids-check-patroon als
-# KOSTEN_KOLOM/WAARDE_KOLOM.
+# DeGiro's eigen afrekenkoers; leeg bij EUR-noteringen.
 WISSELKOERS_KOLOM = "Wisselkoers"
 
-# Diagnostiek-sleutel voor de Excel-wisselkoersmelding (één melding per upload).
 DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS = "excel_wisselkoers"
-
-# Diagnostiek-sleutels voor de upload-categorieën (Order ID's, Opslaan,
-# Dividend) -- één melding per sleutel per upload.
 DIAGNOSTIEK_SLEUTEL_ORDER_IDS = "order_ids"
 DIAGNOSTIEK_SLEUTEL_PORTFOLIO = "portfolio"
 DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN = "insert_opgeslagen"
@@ -66,16 +40,12 @@ DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING = "dividend_samenvatting"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG = "dividend_zonder_conversie_overig"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_NIET_OPSLAAN = "dividend_niet_opslaan"
 
-# Maximaal zoveel losse "geen valutaconversie"-meldingen per upload; de rest
-# gaat in één samenvattende melding (geen ruis bij veel uitkeringen).
+# Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
 
 
 def _normaliseer_tijd(waarde):
-    """Zet de 'Tijd'-kolom uit het transactiebestand om naar een string die
-    Postgres' TIME-kolom kan opslaan. Pandas/openpyxl kan een tijdcel als
-    string ("13:39"), datetime.time of datetime.datetime teruggeven,
-    afhankelijk van hoe de cel in Excel geformatteerd is."""
+    """Excel levert een tijd als string, time of datetime; Postgres wil een TIME-string."""
     if pd.isna(waarde):
         return None
     if hasattr(waarde, "strftime"):
@@ -83,8 +53,6 @@ def _normaliseer_tijd(waarde):
     return str(waarde)
 
 def _lees_transacties_excel(bestand1):
-    """Taak 1/6 (Excel inlezen): leest het transactiebestand in en zet de
-    kolomnamen/Datum-kolom in bruikbare vorm."""
     bestand1.seek(0)
     df = pd.read_excel(bestand1)
     df.columns = df.columns.str.strip()
@@ -93,10 +61,7 @@ def _lees_transacties_excel(bestand1):
 
 
 def _normaliseer_transactie_kolommen(df):
-    """Taak 2/6 (kolom-normalisatie): voegt _kosten_eur/_waarde_eur/_koers_eur
-    toe op basis van KOSTEN_KOLOM/WAARDE_KOLOM/WISSELKOERS_KOLOM -- met een
-    nette fallback (NaN resp. ongewijzigde Koers-kolom) als die kolommen in
-    dit DeGiro-exportformaat ontbreken."""
+    """Voegt _kosten_eur, _waarde_eur en _koers_eur (EUR per stuk) toe; NaN of ongewijzigde koers als een kolom ontbreekt."""
     if KOSTEN_KOLOM in df.columns:
         df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
     else:
@@ -141,11 +106,7 @@ def _normaliseer_transactie_kolommen(df):
 
 
 def _ticker_resolutie_niet_opslaan_pad(df):
-    """Taak 3/6 (ticker-resolutie 'niet opslaan'-pad): lichte, parallelle
-    ticker-zekerheid per (ISIN, Beurs)-groep -- zie de uitgebreide toelichting
-    in _upload_impl() voor waarom dit bewust de goedkope variant is (geen
-    volledige verifieer_tickers_met_prijs_parallel(), zie CLAUDE.md,
-    Statistieken-incident 2026-08-31) """
+    """Lichte ticker-check per (ISIN, Beurs). Geeft (ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)."""
     groepen = list(df.groupby(["ISIN", "Beurs"]))
     namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
 
@@ -177,9 +138,7 @@ def _ticker_resolutie_niet_opslaan_pad(df):
 
 
 def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
-    """Bouwt de transacties_df voor het 'niet opslaan'-pad uit de ruwe
-    Excel-df + de opgeloste tickers -- zelfde kolomvorm als wat normaal uit
-    de database komt, zodat analyze_transacties() ongewijzigd kan blijven."""
+    """Zelfde kolommen als de SELECT's in portfolio_orchestratie.py; samen wijzigen."""
     return pd.DataFrame({
         "datum": df["Datum"],
         "product": df["Product"],
@@ -198,10 +157,7 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
 
 
 def _bepaal_order_ids(bestand1, df):
-    """Order ID-kolom kan door merged cells één kolom verschoven staan
-    t.o.v. de header; leest 'm daarom apart uit met openpyxl, die de
-    waarden onder de merge vindt. Rijen zonder echte (UUID-vormige) Order
-    ID krijgen daarna een synthetische, stabiele ID."""
+    """Order ID's via openpyxl: de kop staat verschoven (zie CLAUDE.md: DeGiro-bestanden)."""
     bestand1.seek(0)
     wb = openpyxl.load_workbook(bestand1, data_only=True)
     ws = wb.active
@@ -235,11 +191,7 @@ def _bepaal_order_ids(bestand1, df):
 
 
 def _meld_order_ids(order_ids_ruw, aantal_rijen):
-    """Diagnostiek (Order ID's): hoeveel rijen een echte Order ID kregen.
-    Alleen melden -- de toewijzing zelf gebeurt in _bepaal_order_ids().
-    Bij een mismatch zijn alle ID's synthetisch; find_matching_code()
-    herkent een portfolio alleen via een deelverzameling van Order ID's,
-    dus eerder opgeslagen echte ID's overlappen dan niet."""
+    """Bij een mismatch zijn alle ID's synthetisch, dan wordt een bestaande portfolio niet herkend."""
     if len(order_ids_ruw) != aantal_rijen:
         meld(CATEGORIE_ORDER_IDS, LET_OP,
              f"Aantal Order ID-rijen in het werkblad ({len(order_ids_ruw)}) klopt niet met het aantal "
@@ -262,9 +214,7 @@ def _meld_order_ids(order_ids_ruw, aantal_rijen):
 
 
 def _vind_of_maak_portfolio_code(cur, df, naam):
-    """Zoekt een bestaande portfolio die dezelfde persoon vertegenwoordigt
-    (via Order ID-overlap, zie find_matching_code) of maakt een nieuwe code
-    aan. Geeft (code, match_code, rows_to_insert) terug."""
+    """Geeft (code, match_code, rows_to_insert)."""
     new_order_ids = set(df["Order ID"])
     match_code, missing_ids = find_matching_code(cur, new_order_ids)
 
@@ -290,10 +240,6 @@ def _vind_of_maak_portfolio_code(cur, df, naam):
 
 
 def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
-    """Diagnostiek (Opslaan) over de rijen die opgeslagen gaan worden:
-    ontbrekende kosten-/waardekolom, aankopen zonder Waarde EUR (de GAK valt
-    dan terug op Totaal EUR, zie bereken_holdings_en_gesloten() en
-    compute_per_ticker()) en corporate-action-rijen. Alleen melden."""
     if rows_to_insert.empty:
         return
 
@@ -328,10 +274,7 @@ def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
 
 
 def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers):
-    """Taak 4/6 (ticker-resolutie opslaan-pad): lichte, parallelle
-    prijscontrole per (ISIN, Beurs)-groep, met hergebruik van al bekende
-    tickers tenzij het 'ticker-informatie opnieuw bepalen'-vinkje aan
-    staat (zie CLAUDE.md). Geeft ticker_by_isin_beurs terug."""
+    """Lichte check per (ISIN, Beurs); bekende tickers worden hergebruikt, tenzij het vinkje 'opnieuw bepalen' aan staat."""
     groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
 
     bekende_tickers = {}
@@ -358,10 +301,7 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
     ticker_by_isin_beurs = {}
     for (key, groep), detail in zip(groepen, resultaten):
         if not detail["ticker"]:
-            # Zeldzame fallback: de eerste Product-naam van de groep gaf
-            # geen match, probeer de overige rijen (zelfde gedrag als
-            # voorheen). Goedkoop: zonder ticker doet find_ticker_met_
-            # snelle_prijscheck() geen enkele prijscheck.
+            # De eerste productnaam gaf niets: probeer de namen van de andere rijen.
             for _, row in groep.iterrows():
                 detail = find_ticker_met_snelle_prijscheck(
                     row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key],
@@ -375,13 +315,9 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
 
 
 def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
-    """Taak 5/6 (DB-insert): voegt nieuwe transactierijen in;
-    ON CONFLICT DO NOTHING negeert rijen die (op order_id) al bestaan.
-    Geeft het aantal INSERT-pogingen zonder exception terug (dus inclusief
-    rijen die door ON CONFLICT genegeerd werden)."""
+    """Geeft het aantal INSERT's zonder exception, inclusief rijen die ON CONFLICT negeerde."""
     ingevoegd = 0
-    # Alleen voor de Diagnostiek-melding hieronder; het insert-gedrag zelf
-    # (except, return, transactie) is ongewijzigd.
+    # Alleen voor de Diagnostiek.
     opgeslagen = genegeerd = mislukt = 0
     eerste_fout = None
     for _, row in rows_to_insert.iterrows():
@@ -414,10 +350,7 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
 
 
 def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
-    """Diagnostiek (Opslaan) + WARN-print over het insert-resultaat. Na een
-    databasefout (psycopg2.Error) faalt in dezelfde Postgres-transactie elk
-    volgend statement, en kan de commit de hele upload terugdraaien -- dan
-    is de "opgeslagen"-telling onbetrouwbaar en wordt alleen de FOUT gemeld."""
+    """Na een psycopg2-fout faalt de rest van de transactie; dan alleen de fout melden."""
     db_fout = isinstance(eerste_fout, psycopg2.Error)
     if mislukt:
         fout_type = type(eerste_fout).__name__
@@ -438,9 +371,6 @@ def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
 
 
 def _verwerk_dividend_bestand_indien_aanwezig(code):
-    """Taak 6/6 (dividend-verwerking): leest het optionele Account-
-    rekeningoverzicht-bestand (request.files['bestand2']) en slaat de
-    dividenden op. Doet niets als er geen bestand2 is meegestuurd."""
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
         with meet_tijd("dividend_bestand_verwerken"):
@@ -450,9 +380,6 @@ def _verwerk_dividend_bestand_indien_aanwezig(code):
 
 
 def _meld_dividend_records(records):
-    """Diagnostiek (Dividend): samenvatting van de verwerkte uitkeringen, op
-    basis van alleen de records van verwerk_rekeningoverzicht(). netto_eur
-    None = geen valutaconversie gevonden (bedrag onbekend)."""
     if not records:
         meld(CATEGORIE_DIVIDEND, INFO, "Geen dividenduitkeringen gevonden in het rekeningoverzicht.",
              sleutel=DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING)
@@ -480,9 +407,6 @@ def _meld_dividend_records(records):
 
 
 def _meld_dividend_bestand_genegeerd():
-    """Diagnostiek (Dividend) voor het 'niet opslaan'-pad: een meegestuurd
-    rekeningoverzicht wordt daar niet verwerkt (dividend leeft in de
-    database). Alleen melden."""
     bestand2 = request.files.get("bestand2")
     if bestand2 and bestand2.filename != "":
         meld(CATEGORIE_DIVIDEND, INFO,
