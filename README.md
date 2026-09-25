@@ -15,9 +15,7 @@ en vervolgens door de agent geïmplementeerd, getest en teruggerapporteerd.
 Belangrijk om te vermelden: **het domeinmodel, de architectuurkeuzes en de
 kernlogica van de backend (databasestructuur, analysestappen, hoe
 transacties/koersen/rendement met elkaar samenhangen) zijn door mijzelf
-bedacht en uitgedacht.** De agent implementeert, schrijft tests en helpt bij
-debugging binnen dat kader, niet andersom. Elke wijziging wordt lokaal in
-VS Code bekeken en pas na eigen review handmatig gecommit en gepusht.
+uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt (met behulp van agentic coding).** De agent implementeert, schrijft tests en helpt bij debugging binnen dat kader, niet andersom. Elke wijziging wordt lokaal in VS Code bekeken en pas na eigen review handmatig gecommit en gepusht.
 
 ## Tech stack
 
