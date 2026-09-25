@@ -3,13 +3,7 @@
 Webapp waarmee je een DEGIRO-transactiebestand (Excel) uploadt. De app slaat
 de data op onder een gegenereerde 3-letter-code, waarmee je later het
 dashboard kunt terugzien zonder opnieuw te hoeven uploaden. De app
-analyseert de data (rendement, XIRR/TWR, verdeling ETF/aandeel, land/sector,
-onderliggende bedrijven, ETF-overlap, dividend, per-aandeel-detail) en toont
-dit interactief.
-
-Oorspronkelijk gestart als leerproject om Python (Flask) en JavaScript beter te leren, inmiddels
-uitgegroeid tot een substantiële persoonlijke
-portfoliotool.
+analyseert de data en toont dit interactief.
 
 ## Werkwijze: agentic coding
 
@@ -21,9 +15,7 @@ en vervolgens door de agent geïmplementeerd, getest en teruggerapporteerd.
 Belangrijk om te vermelden: **het domeinmodel, de architectuurkeuzes en de
 kernlogica van de backend (databasestructuur, analysestappen, hoe
 transacties/koersen/rendement met elkaar samenhangen) zijn door mijzelf
-bedacht en uitgedacht.** De agent implementeert, schrijft tests en helpt bij
-debugging binnen dat kader, niet andersom. Elke wijziging wordt lokaal in
-VS Code bekeken en pas na eigen review handmatig gecommit en gepusht.
+uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt (met behulp van agentic coding).** De agent implementeert, schrijft tests en helpt bij debugging binnen dat kader, niet andersom. Elke wijziging wordt lokaal in VS Code bekeken en pas na eigen review handmatig gecommit en gepusht.
 
 ## Tech stack
 
@@ -128,56 +120,6 @@ opnieuw bepalen**. Een bestaand portfolio haal je op met je code.
 Tabbladen die een opgeslagen code nodig hebben (o.a. Dividend, Transacties,
 Instellingen) zijn niet beschikbaar bij een "Niet opslaan"-analyse.
 
-## Lokaal draaien (Windows cmd)
-
-Vereist: Python (de CI gebruikt 3.13) en een PostgreSQL-database (bv. Neon).
-
-```
-:: virtuele omgeving aanmaken en activeren
-python -m venv venv
-venv\Scripts\activate
-
-:: dependencies installeren
-python -m pip install -r requirements.txt
-
-:: app starten (http://127.0.0.1:5000)
-python app.py
-```
-
-Maak vóór het starten een `.env`-bestand in de projectmap met:
-
-| Variabele | Verplicht | Waarvoor |
-|---|---|---|
-| `DATABASE_URL` | ja | verbindingsstring naar de PostgreSQL-database |
-| `OPENFIGI_API_KEY` | nee | optionele API-key voor OpenFIGI |
-
-`init_db()` draait bij het importeren van `app.py` en maakt de tabellen aan
-als ze nog niet bestaan; zonder `DATABASE_URL` start de app dus niet.
-Zie je lokaal een `UnicodeEncodeError` bij emoji in de logs, zet dan eerst
-`set PYTHONUTF8=1`.
-
-## Tests
-
-```
-:: alle Python-tests
-python -m unittest discover -s tests -v
-
-:: JavaScript-tests (Node, zelfde commando als de CI)
-node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js
-```
-
-Let op: een deel van de Python-tests gebruikt de echte database uit
-`DATABASE_URL` (ook als die alleen in `.env` staat), met eigen test-codes die
-na afloop worden opgeruimd. Zonder `DATABASE_URL` worden die tests
-overgeslagen — zo draait de CI ze, zonder database.
-
-## Deploy
-
-De app draait op Render met gunicorn als productieserver; de database staat
-bij Neon (PostgreSQL). `init_db()` staat bewust buiten
-`if __name__ == "__main__":`, zodat hij ook onder gunicorn uitgevoerd wordt.
-Het startcommando en `DATABASE_URL` zijn in Render zelf ingesteld (er staat
-geen `Procfile` of `render.yaml` in de repo).
 
 ## Bekende eigenaardigheden (goed om te onthouden)
 
