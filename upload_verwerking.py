@@ -1,8 +1,8 @@
 """
 Upload-verwerking: de taakfuncties achter POST /upload -- Excel inlezen,
 kolom-normalisatie, ticker-resolutie (twee paden: 'niet opslaan' en
-opslaand), Order ID-bepaling, portfolio-code-matching, DB-insert/backfill
-en dividend-bestand-verwerking. _upload_impl() in app.py orkestreert deze
+opslaand), Order ID-bepaling, portfolio-code-matching, DB-insert en
+dividend-bestand-verwerking. _upload_impl() in app.py orkestreert deze
 taakfuncties in de juiste volgorde.
 
 Losgetrokken uit app.py; ongewijzigd overgenomen.

@@ -7,6 +7,8 @@ Losgetrokken uit analysis.py; ongewijzigd overgenomen.
 """
 import re
 
+import pandas as pd
+
 from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector
 
 # Landen met een aandeel onder deze drempel (fractie van de totale
@@ -14,6 +16,12 @@ from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get
 # tot één "Overig"-taartpunt — anders eindig je met tientallen verwaarloosbare
 # taartpunten in de legenda. Zie _voeg_kleine_landen_samen().
 LAND_OVERIG_DREMPEL = 0.005
+
+# De gestapelde staaf op het Land-tabblad gebruikt bewust een ANDERE
+# "Overig" dan de taart: top N landen + de rest samen. Een staaf per land
+# vanaf 0.5% wordt bij veel landen onleesbaar; de taart houdt die landen
+# juist wel apart. Zie _beperk_tot_top_n_per_bron().
+LAND_STAAF_TOP_N = 10
 
 # Landen die meetellen als "Europa" voor de Europa-samenvoeg-toggle op het
 # Land-tabblad (zie _groepeer_europa_samen). EU-landen plus de gebruikelijke
@@ -107,6 +115,41 @@ def _sorteer_verdeling_groot_naar_klein(verdeling):
     """Sorteert een verdelingslijst (dicts met 'waarde') van grootste naar
     kleinste waarde, zodat het taartdiagram op Verdeling aflopend oogt."""
     return sorted(verdeling, key=lambda x: x["waarde"], reverse=True)
+
+
+def bereken_verdeling_samenvatting(verdeling):
+    """ETF-vs-aandeel-verhouding van een verdelingslijst (dicts met 'waarde'
+    en 'is_etf'), voor de regel boven de taart op het Verdeling-tabblad.
+    Percentages in 0-100; bij een leeg/nul totaal 0.0 i.p.v. een deling
+    door nul."""
+    etf_waarde = 0.0
+    aandeel_waarde = 0.0
+    for item in verdeling:
+        waarde = item.get("waarde")
+        # NaN/None overslaan: één NaN maakt anders het hele totaal NaN, en
+        # NaN in JSON breekt res.json() in de frontend.
+        if waarde is None or not pd.notna(waarde):
+            continue
+        waarde = float(waarde)
+        if waarde <= 0:
+            continue
+        if item.get("is_etf"):
+            etf_waarde += waarde
+        else:
+            aandeel_waarde += waarde
+
+    totaal = etf_waarde + aandeel_waarde
+
+    def pct(deel):
+        return round(deel / totaal * 100, 2) if totaal > 0 else 0.0
+
+    return {
+        "totaal": round(totaal, 2),
+        "etf_waarde": round(etf_waarde, 2),
+        "aandeel_waarde": round(aandeel_waarde, 2),
+        "etf_pct": pct(etf_waarde),
+        "aandeel_pct": pct(aandeel_waarde),
+    }
 
 
 def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BEDRIJVEN_TOP_N_STANDAARD):
@@ -354,6 +397,34 @@ def _voeg_kleine_landen_samen(land_dict, drempel=LAND_OVERIG_DREMPEL, uitgezonde
     return resultaat
 
 
+def _beperk_tot_top_n_per_bron(per_bron_dict, top_n=LAND_STAAF_TOP_N):
+    """Houdt van een {categorie: {bron: bedrag}}-structuur de top_n
+    categorieën (aflopend op hun totaal over alle bronnen) en telt de rest
+    per bron op in één 'Overig'-categorie. Bij niet meer dan top_n
+    categorieën: ongewijzigd (kopie), dus nooit een lege Overig.
+
+    Bij gelijk totaal blijft de invoervolgorde leidend (stabiele sort)."""
+    def schoon(bedrag):
+        # NaN overslaan: vergiftigt anders de som, en breekt res.json().
+        return float(bedrag) if bedrag is not None and pd.notna(bedrag) else None
+
+    rijen = {
+        categorie: {bron: b for bron, b in ((bron, schoon(x)) for bron, x in per_bron.items()) if b is not None}
+        for categorie, per_bron in per_bron_dict.items()
+    }
+    if len(rijen) <= top_n:
+        return rijen
+
+    volgorde = sorted(rijen, key=lambda c: sum(rijen[c].values()), reverse=True)
+    resultaat = {c: rijen[c] for c in volgorde[:top_n]}
+    overig = {}
+    for categorie in volgorde[top_n:]:
+        for bron, bedrag in rijen[categorie].items():
+            overig[bron] = overig.get(bron, 0.0) + bedrag
+    resultaat["Overig"] = overig
+    return resultaat
+
+
 def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
     """Voegt alle landen uit 'europese_landen' samen tot één 'Europe'-post;
     niet-Europese landen (en 'Unknown') blijven ongewijzigd los staan.
@@ -425,14 +496,16 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
                 # samenvoeging zoals bij "land"/"land_europa" -- die
                 # drempel-groepering slaat een keuze in het totaal-bedrag,
                 # niet in de per-bron-uitsplitsing, dus daar los van
-                # gehouden; de Overig-balk in de staafgrafiek wordt i.p.v.
-                # daarvan client-side bepaald op basis van top-10, zie
-                # opts.maxCategorieen in renderGestapeldeStaafgrafiek).
+                # gehouden; de staaf gebruikt "land_per_bron_top").
             "land_per_bron_europa": {...},  # zelfde als "land_per_bron",
                 # maar met alle EUROPESE_LANDEN samengevoegd tot één
                 # "Europe"-rij (per bron opgeteld) -- zodat de Europa-
                 # samenvoeg-toggle ook in de staafgrafiek-weergave werkt,
                 # niet alleen in de taart/platte weergave.
+            "land_per_bron_top": {...},  # "land_per_bron" beperkt tot
+                # LAND_STAAF_TOP_N landen + "Overig" -- wat de staaf op het
+                # Land-tabblad toont (bewust andere Overig dan de taart).
+            "land_per_bron_europa_top": {...},  # idem, Europa-variant
             "sector_per_bron": {...},  # zelfde idee, voor sector
         }
     """
@@ -502,6 +575,7 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
             optellen_per_bron(sector_per_bron, aandeel_sector, ticker, waarde)
 
     land_europa_gegroepeerd = _groepeer_europa_samen(land)
+    land_per_bron_europa = _groepeer_europa_samen_per_bron(land_per_bron)
     return {
         "land": _voeg_kleine_landen_samen(land),
         "land_europa": _voeg_kleine_landen_samen(
@@ -511,6 +585,8 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
         "sector": sector,
         "per_etf": per_etf,
         "land_per_bron": land_per_bron,
-        "land_per_bron_europa": _groepeer_europa_samen_per_bron(land_per_bron),
+        "land_per_bron_europa": land_per_bron_europa,
+        "land_per_bron_top": _beperk_tot_top_n_per_bron(land_per_bron),
+        "land_per_bron_europa_top": _beperk_tot_top_n_per_bron(land_per_bron_europa),
         "sector_per_bron": sector_per_bron,
     }

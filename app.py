@@ -18,9 +18,11 @@ from upload_verwerking import (
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
+    _laad_split_gecorrigeerde_transacties,
     _ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
+from portfolio_calc import holdings_op_datums
 import math
 import time
 
@@ -166,8 +168,8 @@ def _upload_impl():
 
     _verwerk_dividend_bestand_indien_aanwezig(code)
 
-    # Cache wissen ná ALLE mutaties hierboven (insert, backfills, ticker-
-    # herberekening) -- een upload moet altijd verse data opleveren, nooit
+    # Cache wissen ná ALLE mutaties hierboven (insert, ticker-backfill,
+    # dividenden) -- een upload moet altijd verse data opleveren, nooit
     # de _basis_cache van vóór deze upload (zie opdracht dubbele-fetches).
     _wis_portfolio_basis_cache(code)
     response = jsonify(build_portfolio_response(code))
@@ -333,13 +335,10 @@ def ticker_koers_bereik(code):
     ene knop, niet elke portfolio-load.
     """
     code = code.strip().upper()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    bestaat = cur.fetchone() is not None
-    cur.close()
-    conn.close()
-    if not bestaat:
+    # Bewust niet _haal_portfolio_basis(): die haalt bij een cache-miss de
+    # koersen van ALLE tickers op, terwijl hier alleen deze ene nodig is.
+    transacties_df = _laad_split_gecorrigeerde_transacties(code)
+    if transacties_df is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
     ticker = request.args.get("ticker")
@@ -350,7 +349,7 @@ def ticker_koers_bereik(code):
 
     price_data = get_prices([ticker], vanaf)
     if price_data.empty or ticker not in price_data.columns:
-        return jsonify({"labels": [], "koers": [], "vroegste_beschikbare_datum": None})
+        return jsonify({"labels": [], "koers": [], "holdings": [], "vroegste_beschikbare_datum": None})
 
     serie = price_data[ticker].dropna()
     if tot:
@@ -359,6 +358,7 @@ def ticker_koers_bereik(code):
     return jsonify({
         "labels": [d.strftime("%Y-%m-%d") for d in serie.index],
         "koers": [round(float(k), 4) for k in serie.values],
+        "holdings": holdings_op_datums(transacties_df[transacties_df["ticker"] == ticker], serie.index),
         # Laat de frontend weten of de gevraagde 'vanaf' daadwerkelijk
         # gehaald is, of dat de historie eerder al ophield (bv. bij een
         # positie die pas een paar maanden genoteerd staat) -- t.b.v. het

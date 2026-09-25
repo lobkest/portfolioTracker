@@ -28,7 +28,9 @@ SKIP_REDEN = (
     "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
 )
 
-VERRIJKINGSVELDEN = {"verdeling", "land_sector_verdeling", "bedrijven_verdeling", "etf_overlap"}
+VERRIJKINGSVELDEN = {
+    "verdeling", "verdeling_samenvatting", "land_sector_verdeling", "bedrijven_verdeling", "etf_overlap",
+}
 
 
 def _transacties_df():

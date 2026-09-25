@@ -576,10 +576,7 @@ function mergePrependHistorie(d, data) {
     const nieuweKoers = data.koers.slice(0, eindIdx);
     d.labels = nieuweLabels.concat(d.labels);
     d.koers = nieuweKoers.concat(d.koers);
-    // Alles vóór de oorspronkelijke crop-range heeft per definitie 0
-    // holdings (dat is precies wat de crop-logica eraf trimt) -- geen
-    // backend-call nodig.
-    d.holdings = nieuweLabels.map(() => 0).concat(d.holdings);
+    d.holdings = data.holdings.slice(0, eindIdx).concat(d.holdings);
     return nieuweLabels.length;
 }
 
@@ -595,7 +592,7 @@ function mergeAppendHistorie(d, data) {
     const nieuweKoers = data.koers.slice(startIdx);
     d.labels = d.labels.concat(nieuweLabels);
     d.koers = d.koers.concat(nieuweKoers);
-    d.holdings = d.holdings.concat(nieuweLabels.map(() => 0));
+    d.holdings = d.holdings.concat(data.holdings.slice(startIdx));
     return nieuweLabels.length;
 }
 
@@ -610,7 +607,7 @@ function meerHistorieStatus(ticker) {
 // klikken zou dus toch niets opleveren).
 function werkMeerHistorieKnoppenBij(ticker, d) {
     const status = meerHistorieStatus(ticker);
-    const nogInBezit = d.holdings.length > 0 && Math.abs(d.holdings[d.holdings.length - 1]) > 1e-6;
+    const nogInBezit = d.nog_in_bezit === true;
     const totNuKnop = document.getElementById("meerHistorieTotNuBtn");
     ["meerHistorie6mBtn", "meerHistorie1jBtn", "meerHistorie3jBtn"].forEach(id => {
         document.getElementById(id).disabled = status.terug;
@@ -785,15 +782,14 @@ function toonVerdeling() {
     }
     document.getElementById("geenData").style.display = "none";
 
-    const totaal = items.reduce((som, i) => som + i.waarde, 0);
-    const etfWaarde = items.filter(i => i.is_etf).reduce((som, i) => som + i.waarde, 0);
-    const aandeelWaarde = totaal - etfWaarde;
-    const etfPct = totaal ? (etfWaarde / totaal * 100).toFixed(1) : 0;
-    const aandeelPct = totaal ? (aandeelWaarde / totaal * 100).toFixed(1) : 0;
+    // Verhouding komt uit de backend (bereken_verdeling_samenvatting); totaal
+    // blijft hier alleen nodig voor de %-labels in de taart zelf.
+    const samenvatting = huidigeData.verdeling_samenvatting;
+    const totaal = samenvatting.totaal;
 
     const tekst = document.getElementById("verdelingTekst");
     tekst.style.display = "block";
-    tekst.textContent = `ETF's (streeppatroon): ${etfPct}% — Aandelen: ${aandeelPct}%`;
+    tekst.textContent = `ETF's (streeppatroon): ${samenvatting.etf_pct.toFixed(1)}% — Aandelen: ${samenvatting.aandeel_pct.toFixed(1)}%`;
 
     const kleuren = items.map((_, i) => kleurVoorIndex(i));
     const vlakken = items.map((item, i) => item.is_etf ? maakStrepenPatroon(kleuren[i]) : kleuren[i]);
@@ -923,8 +919,6 @@ const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";
 // euro's of al-percentages zijn -- opts.totaal (som waarmee gedeeld wordt
 // om tot % te komen) bepaalt dat; zonder opts.totaal wordt de ruwe waarde
 // getoond zoals-ie is (voor bedrijven-data die al in % van de portfolio zit).
-// opts.maxCategorieen (optioneel) beperkt het aantal staven tot de top N
-// (aflopend op totaal) plus een "Overig"-balk met de som van de rest.
 // Alleen door Top-bedrijven gebruikt (Land/Sector laten deze weg en blijven
 // dus ongewijzigd): opts.horizontaal tekent liggende staven (indexAxis "y")
 // met de legenda onderaan; opts.labelVoorCategorie(cat) geeft het (mogelijk
@@ -945,30 +939,15 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
     // eerst. Voor bedrijven (al aflopend gesorteerd door
     // bereken_bedrijven_verdeling) verandert dit niets; voor Land/Sector
     // kwamen categorieën anders in willekeurige object-volgorde binnen.
-    let categorieen = Object.keys(categorieData).sort((a, b) => {
+    // "Overig" (Land: top 10 + rest, al samengevoegd door de backend, zie
+    // _beperk_tot_top_n_per_bron) altijd als laatste staaf, ook als die
+    // groter is dan een los land.
+    const categorieen = Object.keys(categorieData).sort((a, b) => {
+        if (a === "Overig" || b === "Overig") return (a === "Overig") - (b === "Overig");
         const totaalA = Object.values(categorieData[a]).reduce((som, w) => som + w, 0);
         const totaalB = Object.values(categorieData[b]).reduce((som, w) => som + w, 0);
         return totaalB - totaalA;
     });
-
-    // Bij veel categorieën (bv. alle landen op het Land-tabblad) wordt de
-    // staafgrafiek onleesbaar -- beperk dan tot de top N (al aflopend
-    // gesorteerd hierboven) plus één "Overig"-balk met de som van de rest,
-    // per bron opgeteld. Alleen actief als de caller opts.maxCategorieen
-    // meegeeft (Land); Sector/Bedrijven hebben van nature al weinig
-    // categorieën en blijven ongewijzigd.
-    if (opts.maxCategorieen && categorieen.length > opts.maxCategorieen) {
-        const top = categorieen.slice(0, opts.maxCategorieen);
-        const rest = categorieen.slice(opts.maxCategorieen);
-        const overigPerBron = {};
-        rest.forEach(cat => {
-            Object.entries(categorieData[cat]).forEach(([bron, waarde]) => {
-                overigPerBron[bron] = (overigPerBron[bron] || 0) + waarde;
-            });
-        });
-        categorieData = Object.assign({}, categorieData, { "Overig": overigPerBron });
-        categorieen = top.concat(["Overig"]);
-    }
 
     const bronTotalen = {};
     categorieen.forEach(cat => {
@@ -1101,15 +1080,11 @@ function toonLand() {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values((lsv && lsv.land) || {}).reduce((s, w) => s + w, 0);
-        // land_per_bron_europa is server-side voorberekend, zelfde patroon als
-        // land/land_europa hieronder — geen her-berekening nodig bij het
-        // aan/uit-zetten van de toggle.
-        const perBron = europaCheckbox.checked ? (lsv && lsv.land_per_bron_europa) : (lsv && lsv.land_per_bron);
-        // maxCategorieen: bij alle landen tegelijk wordt de staafgrafiek
-        // onleesbaar -- toon alleen de top 10 (aflopend), rest in "Overig".
-        // De taart/platte weergave (toonPlatteVerdeling) toont bewust wel
-        // alle landen, blijft hier ongewijzigd.
-        renderGestapeldeStaafgrafiek(perBron, tickerNamen, { totaal, maxCategorieen: 10 });
+        // Server-side al beperkt tot top 10 + "Overig" (bewust een andere
+        // Overig dan de taart, die landen < 0,5% samenvoegt), ook voor de
+        // Europa-variant -- geen her-berekening bij het wisselen van de toggle.
+        const perBron = europaCheckbox.checked ? (lsv && lsv.land_per_bron_europa_top) : (lsv && lsv.land_per_bron_top);
+        renderGestapeldeStaafgrafiek(perBron, tickerNamen, { totaal });
     } else {
         // land_europa is server-side voorberekend (zelfde als "land" maar met
         // alle EU/UK/etc. samengevoegd tot één "Europe"-post, zie

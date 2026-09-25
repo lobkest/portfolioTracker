@@ -188,9 +188,9 @@ def compute_per_ticker(transacties_df, price_data):
                 if delta_aantal > 0:
                     # Kostenbasis o.b.v. de kale Waarde EUR (aantal x koers,
                     # zonder kosten), niet totaal_eur — DEGIRO's eigen GAK
-                    # gebruikt ook de kale waarde. Valt terug op totaal_eur
-                    # als waarde_eur (nog) niet gevuld is (oudere, nog niet
-                    # gebackfillde rijen of een Excel-export zonder de kolom).
+                    # gebruikt ook de kale waarde. Valt terug op totaal_eur (incl.
+                    # AutoFX/kosten, GAK dus iets te hoog) als waarde_eur NULL is: DEGIRO
+                    # leverde geen Waarde EUR of de Excel mist die kolom (wordt niet later aangevuld).
                     waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
                     delta_cash_aankoop = -float(waarde_bron)
                     aantal_lopend += delta_aantal
@@ -356,6 +356,9 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
             # herkent zowel None als NaN correct.
             "koers": [round(k, 4) if pd.notna(k) else None for k in df_t["koers"]],
             "holdings": df_t["holdings"].round(6).tolist(),
+            # Meegestuurd zodat de frontend niet een eigen drempel op
+            # holdings[-1] hoeft toe te passen (zie werkMeerHistorieKnoppenBij).
+            "nog_in_bezit": bool(is_still_held),
             "aankoop_datums": sorted(
                 d.strftime("%Y-%m-%d")
                 for d in pd.to_datetime(aankopen["datum"]).dt.normalize().unique()
@@ -366,6 +369,37 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
             ),
         }
     return result
+
+
+def holdings_op_datums(trades_df, datums):
+    """
+    Aantal aangehouden stuks (cumulatieve adj_aantal van alle trades t/m
+    die datum) op elke datum in `datums`, als lijst in dezelfde volgorde.
+    `trades_df` bevat de split-gecorrigeerde transacties van één ticker.
+
+    Voor /ticker-koers-bereik: geen expliciete crop nodig, want buiten de
+    crop-range van compute_per_ticker_koers_en_aankopen() is de cumulatieve
+    stand per definitie al 0 (vóór de eerste trade, na een volledige
+    verkoop) -- en een tussentijdse nul-periode blijft zo gewoon staan.
+    """
+    if len(datums) == 0:
+        return []
+    if trades_df.empty:
+        return [0.0] * len(datums)
+
+    aantallen = pd.to_numeric(trades_df["adj_aantal"].map(
+        lambda a: float(a) if pd.notna(a) else 0.0
+    ))
+    per_dag = (
+        pd.Series(aantallen.to_numpy(), index=pd.to_datetime(trades_df["datum"]).to_numpy())
+        .groupby(level=0).sum()
+        .sort_index()
+        .cumsum()
+    )
+    # Laatste stand op of vóór elke datum; datums vóór de eerste trade -> 0.
+    stand = per_dag.reindex(pd.DatetimeIndex(datums), method="ffill").fillna(0.0)
+    # + 0.0 maakt van -0.0 (na afronden van float-ruis) een gewone 0.0.
+    return [round(float(h), 6) + 0.0 for h in stand]
 
 
 def debug_position(transacties_df, price_data, ticker=None, product_contains=None):

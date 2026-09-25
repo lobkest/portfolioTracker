@@ -111,7 +111,7 @@ class TestHoldingsEnGeslotenSameDayVolgorde(unittest.TestCase):
         self.assertAlmostEqual(gesloten["IS3N.DE"]["gemiddelde_verkoopkoers"], 585.81 / 12, places=4)
 
     def test_zonder_tijd_geen_crash_en_niet_slechter_dan_voorheen(self):
-        # Backfill-overgangsperiode: oudere rijen hebben tijd=None. Zonder
+        # Rijen met tijd=None (bv. geen tijd in het Excel-bestand). Zonder
         # tijdinformatie kan de volgorde niet ECHT gecorrigeerd worden --
         # dit mag niet crashen, en mag niet slechter zijn dan de oude
         # datum-only sortering (die had dit probleem al net zo goed).
@@ -124,7 +124,7 @@ class TestHoldingsEnGeslotenSameDayVolgorde(unittest.TestCase):
         except Exception as e:
             self.fail(f"bereken_holdings_en_gesloten() crashte zonder tijd: {e}")
         self.assertIn("IS3N.DE", gesloten)
-        # Bekende, geaccepteerde beperking tijdens de backfill-overgang: zonder
+        # Bekende, geaccepteerde beperking: zonder
         # tijd kan de verkoop nog steeds vóór de koop verwerkt worden (identiek
         # aan het gedrag vóór deze fix) -- geen crash, geen erger resultaat.
         self.assertIsNone(gesloten["IS3N.DE"]["gemiddelde_verkoopkoers"])

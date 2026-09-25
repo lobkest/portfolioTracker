@@ -72,6 +72,9 @@ class TestTickerKoersBereikRoute(unittest.TestCase):
         data = res.get_json()
         self.assertEqual(data["labels"], ["2023-01-01", "2023-01-02", "2023-01-03"])
         self.assertEqual(data["koers"], [10.0, 11.0, 12.0])
+        # Test-portfolio heeft geen transacties -> overal 0 stuks, wel even
+        # lang als labels (zie holdings_op_datums voor de rekenkern zelf).
+        self.assertEqual(data["holdings"], [0.0, 0.0, 0.0])
         self.assertEqual(data["vroegste_beschikbare_datum"], "2023-01-01")
         # 'vanaf' moet ongewijzigd doorgegeven zijn aan get_prices (de
         # startdatum bepaalt hoever de cache/download teruggaat).
@@ -103,6 +106,7 @@ class TestTickerKoersBereikRoute(unittest.TestCase):
         data = res.get_json()
         self.assertEqual(data["labels"], [])
         self.assertEqual(data["koers"], [])
+        self.assertEqual(data["holdings"], [])
         self.assertIsNone(data["vroegste_beschikbare_datum"])
 
     def test_ontbrekend_ticker_of_vanaf_geeft_400(self):

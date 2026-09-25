@@ -133,6 +133,44 @@ class TestPerTickerKoersEnAankopen(unittest.TestCase):
         self.assertEqual(result["X"]["aankoop_datums"], [])
         self.assertGreaterEqual(len(result["X"]["labels"]), 1)
 
+    def test_open_positie_is_nog_in_bezit(self):
+        df = pd.DataFrame([self._rij("2023-01-01", 10.0, -100.0)])
+        price_data = pd.DataFrame(
+            {"X": [10.0, 11.0]},
+            index=[pd.Timestamp("2023-01-01"), pd.Timestamp("2023-01-02")],
+        )
+        result = compute_per_ticker_koers_en_aankopen(df, price_data)
+        self.assertIs(result["X"]["nog_in_bezit"], True)
+
+    def test_gesloten_positie_is_niet_meer_in_bezit(self):
+        df = pd.DataFrame([
+            self._rij("2023-01-01", 10.0, -100.0),
+            self._rij("2023-01-02", -10.0, 110.0),
+        ])
+        price_data = pd.DataFrame(
+            {"X": [10.0, 11.0, 12.0]},
+            index=[pd.Timestamp(d) for d in ["2023-01-01", "2023-01-02", "2023-01-03"]],
+        )
+        result = compute_per_ticker_koers_en_aankopen(df, price_data)
+        self.assertIs(result["X"]["nog_in_bezit"], False)
+
+    def test_nog_in_bezit_gelijk_aan_compute_per_ticker(self):
+        # Eén drempel voor beide tabbladen: de knoppen op 'Per aandeel
+        # aankoop' en de "(oud)"-dropdown mogen elkaar niet tegenspreken.
+        df = pd.DataFrame([
+            self._rij("2023-01-01", 10.0, -100.0),
+            self._rij("2023-01-02", -10.0, 110.0),
+            self._rij("2023-01-01", 5.0, -50.0, ticker="Y"),
+        ])
+        price_data = pd.DataFrame(
+            {"X": [10.0, 11.0, 12.0], "Y": [10.0, 10.0, 10.0]},
+            index=[pd.Timestamp(d) for d in ["2023-01-01", "2023-01-02", "2023-01-03"]],
+        )
+        aankoop = compute_per_ticker_koers_en_aankopen(df, price_data)
+        waarde = compute_per_ticker(df, price_data)
+        for t in ["X", "Y"]:
+            self.assertEqual(aankoop[t]["nog_in_bezit"], waarde[t]["nog_in_bezit"])
+
 
 if __name__ == "__main__":
     unittest.main()

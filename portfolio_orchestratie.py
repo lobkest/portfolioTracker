@@ -35,7 +35,7 @@ from statistieken import bereken_statistieken
 from portfolio_verdeling import (
     compute_land_sector_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
-    BEDRIJVEN_TOP_N_MAX,
+    bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX,
 )
 from ticker_classificatie import classify_tickers, _verwarm_land_sector_cache_parallel
 
@@ -134,21 +134,20 @@ def _wis_portfolio_basis_cache(code):
         _basis_cache.pop(code, None)
 
 
-def _laad_transacties_en_resultaat(code):
-    """Haalt transacties op voor `code`, past split-correctie toe en
-    berekent de waarde-tijdreeks (resultaat) — gedeelde basis voor de lui
-    geladen endpoints die op deze twee objecten verder rekenen
-    (benchmark-vergelijking, xirr-over-tijd), zodat het hoofd-dashboard-
-    antwoord (build_portfolio_response) dit niet standaard hoeft mee te
-    sturen. Geeft (transacties_df, resultaat) terug; resultaat is None als
-    er geen koersdata is. (None, None) als de code niet bestaat."""
+def _laad_split_gecorrigeerde_transacties(code):
+    """Transacties van `code` met split-correctie, zonder koersen op te
+    halen -- voor lui geladen endpoints die alleen de transacties nodig
+    hebben (ticker-koers-bereik) of zelf koersen ophalen. Split-correctie
+    over ALLE transacties van de code, niet per ticker gefilterd: de
+    corporate-action-rijen hangen aan de ISIN, niet altijd aan de ticker.
+    None als de code niet bestaat."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
     if cur.fetchone() is None:
         cur.close()
         conn.close()
-        return None, None
+        return None
 
     cur.execute(
         "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
@@ -163,7 +162,20 @@ def _laad_transacties_en_resultaat(code):
         rows,
         columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
     )
-    transacties_df = compute_split_adjusted_shares(transacties_df)
+    return compute_split_adjusted_shares(transacties_df)
+
+
+def _laad_transacties_en_resultaat(code):
+    """Haalt transacties op voor `code`, past split-correctie toe en
+    berekent de waarde-tijdreeks (resultaat) — gedeelde basis voor de lui
+    geladen endpoints die op deze twee objecten verder rekenen
+    (benchmark-vergelijking, xirr-over-tijd), zodat het hoofd-dashboard-
+    antwoord (build_portfolio_response) dit niet standaard hoeft mee te
+    sturen. Geeft (transacties_df, resultaat) terug; resultaat is None als
+    er geen koersdata is. (None, None) als de code niet bestaat."""
+    transacties_df = _laad_split_gecorrigeerde_transacties(code)
+    if transacties_df is None:
+        return None, None
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
@@ -367,7 +379,10 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
             price_data = get_prices(tickers, start_date)
 
     if price_data.empty:
-        return {"verdeling": [], "land_sector_verdeling": {}, "bedrijven_verdeling": {}, "etf_overlap": {}}
+        return {
+            "verdeling": [], "verdeling_samenvatting": bereken_verdeling_samenvatting([]),
+            "land_sector_verdeling": {}, "bedrijven_verdeling": {}, "etf_overlap": {},
+        }
 
     ticker_namen = (
         transacties_df.dropna(subset=["ticker"])
@@ -414,6 +429,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
     return {
         "verdeling": verdeling,
+        "verdeling_samenvatting": bereken_verdeling_samenvatting(verdeling),
         "land_sector_verdeling": land_sector_verdeling,
         "bedrijven_verdeling": bedrijven_verdeling,
         "etf_overlap": etf_overlap,

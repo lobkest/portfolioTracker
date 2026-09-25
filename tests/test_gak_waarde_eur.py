@@ -46,7 +46,7 @@ class TestGakGebruiktWaardeEurNietTotaalEur(unittest.TestCase):
         self.assertNotAlmostEqual(open_posities["TEST.AS"]["gak"], 48.37, places=2)
 
     def test_gak_valt_terug_op_totaal_eur_zonder_waarde_eur_kolom(self):
-        """Oude rijen zonder waarde_eur (nog niet gebackfilld) mogen niet
+        """Rijen zonder waarde_eur (DEGIRO leverde geen Waarde EUR) mogen niet
         crashen; GAK gebruikt dan totaal_eur (huidig gedrag) als fallback."""
         rijen = [{
             "datum": pd.Timestamp("2025-08-21"), "tijd": "10:00:00", "ticker": "TEST.AS",
