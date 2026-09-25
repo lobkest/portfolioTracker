@@ -21,6 +21,13 @@ NIVEAUS = (FOUT, LET_OP, INFO, GOED)
 
 # Categorieën. Nieuwe categorie: hier een constante toevoegen en meld() aanroepen.
 CATEGORIE_WISSELKOERSEN = "Wisselkoersen"
+CATEGORIE_ORDER_IDS = "Order ID's"
+CATEGORIE_OPSLAAN = "Opslaan"
+CATEGORIE_DIVIDEND = "Dividend"
+CATEGORIE_KOERSEN = "Koersen"
+CATEGORIE_SPLITS = "Splits"
+CATEGORIE_ETF_HOLDINGS = "ETF-holdings"
+CATEGORIE_LAADTIJDEN = "Laadtijden"
 
 # Sleutel in het JSON-antwoord.
 DIAGNOSTIEK_SLEUTEL = "diagnostiek"

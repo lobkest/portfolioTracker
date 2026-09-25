@@ -15,7 +15,7 @@ from upload_verwerking import (
     _lees_transacties_excel, _normaliseer_transactie_kolommen, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _bepaal_order_ids, _vind_of_maak_portfolio_code,
     _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
-    _verwerk_dividend_bestand_indien_aanwezig,
+    _verwerk_dividend_bestand_indien_aanwezig, _meld_nieuwe_rijen_kwaliteit, _meld_dividend_bestand_genegeerd,
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
@@ -103,6 +103,7 @@ def _upload_impl():
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
+        _meld_dividend_bestand_genegeerd()
         log_yahoo_call_samenvatting()
         return jsonify(voeg_diagnostiek_toe(result))
 
@@ -113,6 +114,7 @@ def _upload_impl():
     cur = conn.cursor()
 
     code, match_code, rows_to_insert = _vind_of_maak_portfolio_code(cur, df, naam)
+    _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
 
     if not rows_to_insert.empty:
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen — zie de
