@@ -1,0 +1,783 @@
+# Portfolio Dashboard — projectinstructies voor Claude Code
+
+## Wat dit project is
+Webapp waar je een DeGiro-transactiebestand (Excel) uploadt. De app slaat de
+data op onder een gegenereerde 3-letter-code, waarmee je later het dashboard
+kan terugzien zonder opnieuw te uploaden. De app analyseert de data
+(rendement, verdeling ETF/aandeel, per aandeel, dividend) en toont dit
+interactief.
+
+Leerproject — ik ben nog aan het leren programmeren met Python (Flask) en
+JavaScript. Leg daarom kort uit wat een commando doet als je iets voorstelt
+om in de terminal te draaien.
+
+## Tech stack
+- **Backend**: Python + Flask
+- **Excel inlezen**: pandas + openpyxl (+ handmatige openpyxl-fallback voor
+  Order ID's — zie "Bekende eigenaardigheden")
+- **Koersdata**: yfinance (koersen) + yahooquery (ticker-zoeken)
+- **Land/sector-parsing**: `pycountry` (ISIN-prefix/regiocode → leesbare
+  landnaam, voor `_land_via_isin()` bij VanEck-bestanden; ook in de
+  Vanguard-holdings-parser, die momenteel door geen enkele ETF gebruikt wordt)
+- **XIRR**: pyxirr
+- **Database**: PostgreSQL via Neon (niet SQLite, i.v.m. ephemeral filesystem
+  op Render)
+- **Frontend**: single-page app — `templates/index.html` + `static/js/app.js`
+  (vanilla JS, geen framework), Chart.js (incl. zoom/pan-plugin en
+  chartjs-plugin-datalabels)
+- **Hosting**: Render (gunicorn als productieserver)
+- **Tests**: Python `unittest`, in `tests/`, draait automatisch via GitHub
+  Actions bij elke push (`.github/workflows/tests.yml`)
+- **Repo**: github.com/lobkest/portfolioTracker (privé)
+
+## Bestandsstructuur
+`analysis.py` (voorheen 4709 regels, ~90 functies) en het oorspronkelijke
+`app.py` (1297 regels) zijn in september 2026 opgesplitst in kleinere,
+domeingerichte modules (zie "Wijzigingslog" onderaan) — `analysis.py`
+bestaat niet meer. Huidige structuur:
+```
+app.py                  → grotendeels dunne Flask-routes die een request
+                           lezen, de juiste orkestratiefunctie(s) uit
+                           portfolio_orchestratie.py/upload_verwerking.py
+                           aanroepen, en een JSON-respons teruggeven —
+                           behalve _upload_impl() (zie hieronder) bevatten
+                           ook ticker_koers_bereik(), dividend(),
+                           transacties_overzicht() en
+                           benchmark_vergelijking() eigen SQL of
+                           validatielogica, niet alleen een aanroep
+db.py                    → DB-connectie, init_db(), save_prices(), dividend-
+                           opslag
+
+# Orkestratielaag (roept taakfuncties uit de domeinmodules hieronder aan
+# om een complete use case te vervullen -- zie ook de uitleg verderop)
+portfolio_orchestratie.py → bouwt de dashboard-respons op: transacties+
+                           koersen ophalen (met een korte-levende cache
+                           tegen dubbele fetches binnen één
+                           portfolio-bezoek: build_portfolio_response(),
+                           analyze_transacties_kern()/_verrijking(),
+                           _haal_portfolio_basis(); zonder cache/koersen:
+                           _laad_split_gecorrigeerde_transacties(),
+                           _laad_transacties_en_resultaat())
+upload_verwerking.py     → taakfuncties achter POST /upload (Excel inlezen,
+                           kolom-normalisatie, ticker-resolutie op de twee
+                           paden, Order ID-bepaling, DB-insert,
+                           dividend-bestand-verwerking); orkestrator
+                           _upload_impl() zelf staat nog in app.py
+
+# Domeinmodules (taakfuncties: pure berekeningen of één DB-/netwerk-taak)
+debug_utils.py           → dprint()/meet_tijd(), geen eigen afhankelijkheden
+transactie_utils.py      → kleine gedeelde taakfuncties op ruwe transactie-
+                           rijen/DataFrames (corporate-action-detectie,
+                           chronologisch sorteren)
+statistieken.py          → Statistieken-tabblad: bereken_positie_rendement/
+                           _totaal_rendement/_jaar_rendement/_xirr/
+                           _holdings_gak/_jaren_overzicht/
+                           _benchmark_vergelijking/_rendement_over_tijd/
+                           _totale_transactiekosten/_statistieken,
+                           BENCHMARK_TICKERS
+dividend.py               → Dividend-tabblad: rekeningoverzicht inlezen,
+                           valutaconversie-koppeling, netto-per-uitkering,
+                           bereken_dividend_samenvatting()
+yahoo_client.py          → gedeelde Yahoo-infrastructuur: call-telling,
+                           rate-limit-/retry-logica (_met_rate_limit_retry,
+                           _is_rate_limit_fout, download_met_retry)
+prijzen.py                → koersen ophalen+cachen (get_prices()) + FX-
+                           conversie naar EUR (_converteer_naar_eur,
+                           _fx_prijzen_serie, FX_ANKER_DATUM)
+portfolio_calc.py         → split-correctie + per-dag/per-ticker waarde-/
+                           geïnvesteerd-tijdreeksen (Home, Per aandeel)
+portfolio_verdeling.py    → Verdeling/Land/Sector/Bedrijven/ETF-overlap:
+                           portfoliobrede aggregaties over alle holdings
+ticker_classificatie.py   → ETF-vs-aandeel-classificatie + land/sector/
+                           holdings-opzoekingen (met cache), incl.
+                           _fetch_yf_info
+ticker_matching.py        → welke Yahoo-ticker hoort bij een DeGiro-
+                           productnaam/ISIN/beurs: yahooquery-zoekopdracht
+                           (_zoek_product_progressief, find_ticker_detailed),
+                           MANUAL_TICKER_OVERRIDES(_ISIN), OpenFIGI
+                           (haal_openfigi_resultaten)
+ticker_prijscheck.py      → lage-niveau Yahoo-prijsvergelijking voor 1
+                           (ticker, datum): _haal_slotkoers_op/
+                           _haal_dagrange_op, _cumulatieve_split_factor,
+                           _fx_koers_op_datum, vergelijk_prijs_op_datum
+ticker_zekerheid.py       → Ticker-zekerheid-orkestratie: combineert
+                           prijscontrole + matching-/classificatiesignalen
+                           tot een zekerheidsoordeel
+                           (find_ticker_met_snelle_prijscheck,
+                           verifieer_ticker_met_prijs,
+                           verifieer_tickers_met_prijs_parallel,
+                           backfill_verouderde_tickers)
+portfolio_admin.py        → portfolio-code genereren/valideren, upload-
+                           matching via Order ID-overlap
+etf_holdings_provider.py  → volledige holdings-lijst ophalen bij de
+                           fondsprovider zelf (ETF_HOLDINGS_BRON,
+                           test_holdings_url())
+
+templates/index.html → enige pagina, SPA
+static/js/app.js     → hoofdbestand van de frontend-logica (navigatie,
+                        grafieken, tabellen, API-calls); daarnaast een
+                        paar kleinere, dependency-vrije "pure module"-
+                        bestanden zonder DOM-afhankelijkheid, elk met een
+                        eigen unittest via Node's testrunner:
+static/js/menu.js       → rekenkern hamburgermenu (mobiel)
+static/js/prognose.js   → rekenkern Prognose-tabblad
+static/js/transacties.js → sorteren/pagineren Transacties-tabblad
+static/js/bedrijven.js  → rekenkern Top-N-bedrijven-tabblad (naam-
+                        opmaak, keuze van N, lijst inkorten)
+static/js/infotip.js    → bouwt (i)-hulpicoontjes met tooltip van
+                        `<span class="infoTip">`-markup; raakt de DOM,
+                        (nog) geen test
+static/css/style.css
+tests/               → unittest-suite (rendement, dividend, ticker-zoeken/
+                        -verificatie, backfills, upload-route, ...) +
+                        `test_*.js` (Node --test) voor de pure JS-modules
+.github/workflows/tests.yml → CI, draait tests bij elke push (Python +
+                        JS als twee losse jobs)
+```
+`instance/` (ongebruikt sinds de overstap naar Postgres) bestaat inmiddels
+niet meer in de werkmap; staat nog wel in `.gitignore`, kan daar ook weg.
+
+**Taak- vs. orkestratiefuncties**: de domeinmodules bevatten vrijwel alleen
+taakfuncties (één berekening, één DB-call, één transformatie — makkelijk
+apart te testen). De functies die meerdere taakfuncties samenvoegen tot een
+compleet antwoord op een use case ("orkestratiefuncties") staan gebundeld in
+`portfolio_orchestratie.py` (dashboard-respons opbouwen — kern + lui
+geladen verrijking) en `upload_verwerking.py`/`app.py`'s `_upload_impl()`
+(een upload verwerken). Wil je begrijpen **hoe een portfolio-response wordt
+opgebouwd**, begin dan bij `portfolio_orchestratie.py`, niet bij `app.py`
+zelf — de meeste routes daar zijn bewust dun (zie hierboven voor de
+uitzonderingen).
+
+Legacy (verwijderd): `class_degiro.py` / `trading_degiro.py` waren het oude
+script waar dit project een opvolger van is. Ze staan niet meer in de repo
+of werkmap — alleen nog een paar codecommentaren (`portfolio_calc.py`,
+`statistieken.py`, `ticker_matching.py`, `app.js`) verwijzen er terug naar
+als historische context voor bepaalde poort-logica (split-correctie, oude
+XIRR/dividend-berekeningen).
+
+## Testconventie
+**Elke nieuwe feature of bugfix moet vergezeld gaan van kleine, gerichte
+unit tests** die het specifieke gedrag verifiëren (met de hand na te
+rekenen voorbeelden waar mogelijk) — geen losse, ongeteste wijzigingen.
+Dit geldt vanaf nu voor alle werk aan dit project, niet alleen voor
+onderdelen waar al tests voor bestaan. Zet tests in `tests/`, gebruik
+`unittest` (geen pytest, om consistent te blijven met de bestaande suite).
+Pure rekenfuncties (geen DB/netwerk) zijn het makkelijkst en verdienen
+voorrang; voor opslag/ophaal-logica (bv. de dividend-database-bug) mag een
+test die wél de database aanraakt, zolang die een eigen test-code gebruikt.
+
+## Functionaliteit (geïmplementeerd)
+
+**Land- en sectorverdeling** (portfolio-breed + per ETF):
+- Twee tabbladen "Land" en "Sector" naast Verdeling.
+- Sector via `yf.Ticker(ticker).funds_data.sector_weightings` (dekt ~100%
+  van elk fonds).
+- Land aanvankelijk via yfinance top-10-holdings (dekking laag, ~30-40%),
+  inmiddels uitgebreid met een **provider-CSV/XLSX-pad**: voor ETF's met een
+  bekende download-URL (`ETF_HOLDINGS_BRON` in `etf_holdings_provider.py`) wordt de
+  **volledige** holdingslijst (incl. land per positie) opgehaald bij de
+  fondsprovider zelf (iShares CSV, VanEck XLSX), wat de dekking naar
+  bijna 100% brengt voor die fondsen. Ingevuld: CSPX.AS, IWDA.AS, IMAE.AS,
+  EMIM.AS, IS3N.DE, CNDX.AS, EUEA.AS (allen iShares), GDX.L, G2X.DE, TDT.AS,
+  VE6I.DE (allen VanEck) — 11 tickers in totaal; IS3N.DE en G2X.DE zijn een
+  andere beursnotering van hetzelfde fonds als EMIM.AS resp. GDX.L en delen
+  daarom dezelfde bron-URL. Fondsen zonder bekende URL vallen terug op de oude
+  top-10-aanpak — dit geldt bewust voor VWCE.AS/VUSA.AS (Vanguard): hun
+  holdings-download gaat via een GraphQL-API met een complexe query in de
+  request-body, niet via een simpele GET-URL, en is te fragiel/complex
+  gebleken om te implementeren; een geaccepteerde beperking, geen
+  openstaande bug. Welke bron gebruikt is (`provider_csv` vs
+  `yfinance_top10`) is zichtbaar in de UI (Land-tabblad + per-ETF-
+  drilldown).
+- Per-ETF-drilldown in het "Per aandeel"-tabblad: land/sector-verdeling
+  van de geselecteerde ETF, alleen zichtbaar bij ETF's.
+- **"Overig" bij Land is bewust per weergave anders**: de taart
+  (`land`/`land_europa`) voegt landen < 0,5% samen
+  (`_voeg_kleine_landen_samen()`), de gestapelde staaf toont de top 10 +
+  de rest (`land_per_bron_top`/`land_per_bron_europa_top` via
+  `_beperk_tot_top_n_per_bron()`, `LAND_STAAF_TOP_N`), allebei berekend in
+  `portfolio_verdeling.py`. Een staaf per land vanaf 0,5% is bij veel
+  landen onleesbaar; een taart met maar 10 punten verstopt relevante
+  landen. Niet "gelijktrekken".
+
+**Ticker-zekerheid** (submenu onder Instellingen):
+- Toont per positie: gevonden ticker, zekerheidsoordeel (zeker/onzeker),
+  land, sector (voor ETF's: top-2/3-sectoren uit `sector_weightings`,
+  géén los "Land"-veld — dat is voor een ETF geen zinnig begrip; wel een
+  aparte "land grootste holding"-regel), valuta, fondsfamilie, categorie
+  (met "onbekend" waar Yahoo het simpelweg niet heeft, met name bij
+  Europese UCITS-ETF's).
+- **Prijsvergelijking als extra zekerheidscheck**: de bekende
+  transactieprijs uit het Excel-bestand wordt vergeleken met Yahoo's
+  historische slotkoers op dezelfde datum (2-3 datums per positie) — een
+  sterker signaal dan alleen beurs-matching. Resultaat beïnvloedt het
+  uiteindelijke zekerheidsoordeel.
+- Laadt lazy, met een "Bezig met controleren..."-indicator, omdat dit
+  zwaarder is dan de rest van het dashboard (meerdere Yahoo-calls per
+  positie/kandidaat). Niet via één groot endpoint: de frontend haalt eerst
+  de (vrijwel instante) positielijst op (`/api/portfolio/<code>/ticker-
+  zekerheid/lijst`) en verifieert daarna elke positie apart via
+  `/api/portfolio/<code>/ticker-zekerheid/positie` (max. 4 gelijktijdig) —
+  zo blokkeert één trage/rate-limited positie niet meer de hele pagina. Het
+  oude, alles-in-één `/api/portfolio/<code>/ticker-zekerheid`-endpoint
+  bestaat nog in `app.py` maar wordt door de frontend niet meer aangeroepen.
+- **Escalatietrapje bij de standaard prijscontrole**
+  (`find_ticker_met_snelle_prijscheck()` in `ticker_zekerheid.py`, draait
+  bij elke upload): begint met alleen de laatste transactiedatum, breidt
+  bij een afwijking uit naar de rest van de steekproef, en rekent pas bij
+  een aanhoudende afwijking (>10%) ook alternatieve tickers door. Een
+  alternatief wordt automatisch overgenomen bij **tier 1** (verwachte
+  beurs + ≥2 kloppende datums) of, als dat niets oplevert, **tier 2** (een
+  andere beurs, maar alle gecontroleerde datums kloppen) — anders blijft
+  het hooguit een suggestie (`aanbevolen_alternatief`).
+- Werkt ook zonder opgeslagen portfolio ("niet opslaan"-analyse): de
+  rijke data wordt dan in-memory berekend tijdens de upload en
+  meegestuurd in de response (`ticker_zekerheid`-veld), i.p.v. een aparte
+  DB-call.
+- **Progressief inkorten bij een mislukte beurs-match**: als de volledige
+  productnaam geen kandidaat op de verwachte beurs oplevert, wordt de
+  naam progressief ingekort (laatste woord eraf, opnieuw zoeken) tot er
+  wél een kandidaat op de juiste beurs verschijnt of de ondergrens (2
+  woorden) bereikt is — `_zoek_product_progressief()` in `ticker_matching.py`,
+  regressietest in `tests/test_ticker_zoeken.py`. Inmiddels
+  geïmplementeerd (was eerder de openstaande bug hieronder).
+- **`MANUAL_TICKER_OVERRIDES_ISIN`**: aanvullend op progressief inkorten
+  bestaat er een klasse fouten die dat niet oplost — de volledige
+  productnaam vindt al een "zekere" (want exacte-beurs-)match, maar
+  toevallig de VERKEERDE notering, omdat Yahoo's zoekindex voor die
+  exacte naam-spelling niet alle noteringen van het bedrijf teruggeeft
+  (bv. BYD: "BYD COMPANY LIMITED" vindt alleen de Frankfurt-notering
+  4BY1.F met een structureel foute koers; de juiste Münchense notering
+  BY6.MU wordt alleen gevonden met de spelling "BYD CO LTD" — geen enkele
+  inkorting van de eerste naam kan ooit die andere spelling opleveren).
+  Voor dit soort gevallen bestaat sinds kort `MANUAL_TICKER_OVERRIDES_ISIN`
+  in `ticker_matching.py`, gekeyed op `(ISIN, Beurs)` en gecheckt VÓÓR het
+  zoeken — i.t.t. `MANUAL_TICKER_OVERRIDES` (naam-gebaseerd, alleen
+  fallback ná een mislukte zoekopdracht) mag dit ook een automatisch
+  "zeker" resultaat overschrijven. Vul aan met nieuwe gevallen zodra ze
+  opduiken (bv. via een prijswaarschuwing op de Ticker-zekerheid-pagina).
+  Tweede voorbeeld naast BYD: `("IE00B3RBWM25", "EAM")` → `VWRL.AS` — de
+  naam-gebaseerde zoekopdracht voor "Vanguard FTSE All-World UCITS ETF USD
+  Dis" vond hier de verkeerde (accumulerende) aandelenklasse; OpenFIGI's
+  ISIN-lookup bevestigde dat de juiste ticker-root VWRL is, niet VWCE.
+- **OpenFIGI als extra, diagnostisch signaal**: naast de prijscontrole
+  toont de Ticker-zekerheid-pagina per positie ook of de ticker-root
+  voorkomt tussen OpenFIGI's bekende noteringen voor die ISIN
+  (`haal_openfigi_resultaten()`/`_openfigi_root_matches()` in
+  `ticker_matching.py`, permanent gecachet in `openfigi_cache`). Verandert
+  nooit automatisch welke ticker gebruikt wordt, alleen het
+  zekerheidsoordeel en een eventuele waarschuwing.
+
+**Statistieken-tabblad**:
+- Posities-tabel: ticker, aantal, huidige waarde, GAK, rendement %.
+- **Verkochte posities-tabel**: volledig gesloten posities én posities die
+  onderweg deels verkocht zijn (met het gerealiseerde resultaat van het
+  verkochte deel), naast de nog-open-posities-tabel — zie
+  `bereken_holdings_en_gesloten()` in `statistieken.py`.
+- Totalen: geïnvesteerd, huidige waarde, rendement € en %, all-time high
+  (de hoogste waarde die `rendement` — dus waarde min geïnvesteerd — ooit
+  bereikte, **niet** de hoogste portefeuillewaarde zelf; een hoge waarde
+  vlak na een grote storting hoeft immers geen hoog rendement te zijn;
+  berekend uit de bestaande dagelijkse waarde-reeks, geen aparte
+  snapshot-tabel nodig), totale transactiekosten (`bereken_totale_
+  transactiekosten()` in `statistieken.py`, som van de `transactiekosten`-
+  kolom). Geeft `beschikbaar=False` terug (i.p.v. een verzonnen getal) als
+  die kolom ontbreekt of alleen NaN bevat — bv. een ouder DeGiro-
+  exportformaat zonder aparte kostenkolom — en de UI toont dat dan
+  expliciet i.p.v. €0,00.
+- Rendement per jaar: start/eind-waarde, ingelegd, winst € en %, dagen
+  verstreken in dat jaar.
+- XIRR (via pyxirr), **TWR** (time-weighted return — anders dan XIRR niet
+  vertekend door de timing van stortingen/onttrekkingen, `bereken_twr()`),
+  gemiddeld jaarrendement, aantal jaren, met korte uitleg-blokjes over wat
+  XIRR/TWR vs. jaarrendement betekenen.
+- Eigen "XIRR & rendement"-tabblad (los van Statistieken, lui geladen via
+  `/api/portfolio/<code>/rendement-over-tijd`): dezelfde drie maatstaven
+  (rendement%, XIRR%, TWR%) als lijn over de tijd, per kalendermaandeinde
+  herberekend (`bereken_rendement_over_tijd()` in `statistieken.py`).
+- Rekenlogica in pure functies in `statistieken.py` (`bereken_positie_
+  rendement`, `bereken_totaal_rendement`, `bereken_jaar_rendement`,
+  `bereken_xirr`, `bereken_twr`, `bereken_holdings_gak`,
+  `bereken_holdings_en_gesloten`, `bereken_jaren_overzicht`) — bewust
+  DB/netwerk-vrij gehouden voor testbaarheid.
+
+**Dividend-tabblad**:
+- Verwerkt het "Account"-rekeningoverzicht-bestand (los upload-veld,
+  apart van het transactiebestand).
+- Netto dividend per uitkering: meerdere "Dividend"-rijen op dezelfde
+  datum/product worden genet (incl. eventuele negatieve correctierijen),
+  niet los geteld.
+- **Valutaconversie-quirk (belangrijk, zie ook "Bekende eigenaardigheden"
+  hieronder)**: het EUR-bedrag komt uit de gekoppelde "Valuta
+  Debitering"/"Valuta Creditering"-rijen (het bedrag dat DeGiro
+  daadwerkelijk bijschrijft), niet uit een eigen wisselkoers-herberekening.
+  Koppeling gaat via gelijk tijdstip + valuta/bedrag, NIET via de
+  Valutadatum van de dividendrij zelf (die loopt vaak 1 dag achter op de
+  conversie-rijen). Aangevuld met drie edge cases (sessie 2026-09-11, in
+  `verwerk_rekeningoverzicht_df()`/`_koppel_valutaconversie_paren()`,
+  `dividend.py`):
+  - **Gepoolde conversie**: DeGiro boekt soms meerdere dividenden van
+    dezelfde dag/valuta samen in één conversie (bv. twee ETF-uitkeringen
+    dezelfde dag). Vindt de 1-op-1 match (`_match_valutaconversie()`)
+    niets, dan worden alle nog ongematchte groepen per valuta geclusterd
+    op datumnabijheid (`_clusters_binnen_venster()`, venster
+    `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3` dagen) en als pool (som van hun
+    netto ruwe bedragen) alsnog tegen een ongebruikt conversiepaar
+    geprobeerd; bij een match wordt het EUR-bedrag proportioneel verdeeld
+    naar rato van het aandeel van elke groep in de pool-som.
+  - **"Dividend Herinvestering"-rijen** heffen het bijbehorende
+    "Dividend"-bedrag (deels) op (automatische herbelegging i.p.v.
+    uitkering) en worden nu meegeteld in de nettering — anders klopt het
+    netto-cijfer niet. Elke dividendrecord krijgt een `herinvesteerd`-vlag
+    (True als er voor die datum/ISIN ook een "Dividend
+    Herinvestering"-rij bestond). **Let op**: dit veld zit in de database
+    en in de API-respons (`data.lijst[].herinvesteerd`), maar heeft nog
+    GEEN visueel signaal (badge/tooltip) in de frontend — zie "Open
+    aandachtspunten".
+  - **Conversierichting is niet altijd vreemd→EUR**: soms wisselt DeGiro
+    juist EUR náár vreemde valuta (bv. om buitenlandse bronbelasting te
+    dekken die niet uit een eerder ontvangen vreemde-valuta-dividend
+    betaald kon worden). `_koppel_valutaconversie_paren()` bepaalt nu per
+    paar, aan de hand van welke rij daadwerkelijk `valuta_mutatie == "EUR"`
+    is, welke kant EUR is — i.p.v. aan te nemen dat Debitering altijd
+    vreemd en Creditering altijd EUR is.
+- **Volledige uitkeringenlijst** staat direct onder de cumulatieve
+  grafiek: een eigen sectie (`#dividendUitkeringenSectie` in
+  `templates/index.html`), gevuld door `renderDividendUitkeringenlijst()`
+  in `static/js/app.js`, bewust apart van `#dividendStatsSectie`
+  (totaal/per-ticker-tabel, staat daarvóór) zodat de lijst visueel ná de
+  grafiek verschijnt. Data komt uit `bereken_dividend_samenvatting()`'s
+  `"lijst"`-key in `dividend.py` (ongeaggregeerd, nieuwste eerst, rijen
+  met `netto_eur=None` blijven staan i.p.v. weggefilterd). Tabel via
+  `maakDividendUitkeringenTabel()`; scrollbaar bij veel rijen
+  (CSS-class `.scrollbareTabel`, max-height 420px, in `style.css`).
+- Debug-logging met prefix `[dividend-debug]` (ruwe rijen, nettering per
+  groep, gekoppelde conversies, eindtotaal) staat momenteel volledig
+  uitgecommentarieerd in `dividend.py`/`db.py`; weer aanzetten om te debuggen.
+- Melding + "Terug naar upload"-knop als er geen Account-bestand is
+  geüpload voor de huidige code; andere tabbladen blijven dan gewoon
+  werken.
+- **Gefixte bug: pagina toonde €0,00 ondanks correcte berekening**:
+  `save_dividenden()` in `db.py` gebruikte `ON CONFLICT ... DO NOTHING`
+  i.p.v. een upsert. `dividend_id` is afgeleid van de RUWE bedragen (niet
+  van de EUR-conversie), dus een latere bugfix in de EUR-omrekenlogica
+  leverde dezelfde `dividend_id` op en werd als "duplicaat" genegeerd —
+  de oude (foutieve, vaak `NULL`) rij bleef voor altijd staan, ook al
+  toonde de upload-log het juiste vers-berekende totaal. Fix: nu
+  `ON CONFLICT ... DO UPDATE SET ...`, zodat een herberekening altijd
+  doorschrijft.
+
+**Instellingen herstructureerd**: parent-tabblad "Instellingen" toont nu
+een "Verwijder mijn data uit de database"-knop, en (zelfde view, geen
+apart submenu) een "Code wijzigen"-veld+knop (`POST /api/portfolio/<code>/
+wijzig-code`, `wijzig_portfolio_code()` in `db.py` — hernoemt de code met
+behoud van alle gekoppelde transacties/dividenden); submenu's eronder:
+"Bijnamen", "Ticker-zekerheid".
+
+**Overige tabbladen/features die (nog) niet elders in dit document
+gedetailleerd staan** — kort, voor de volledigheid van dit overzicht:
+- **Rendement**: rendement€-lijn (waarde min geïnvesteerd) met optioneel
+  een hypothetische vergelijkingslijn tegen een vaste benchmark
+  (`BENCHMARK_TICKERS` in `statistieken.py`: S&P 500/Nasdaq 100/AEX) of
+  tegen een andere, zelf al aangehouden positie — beide via hetzelfde lui
+  geladen endpoint `/api/portfolio/<code>/benchmark-vergelijking`
+  (`?benchmark=` resp. `?eigen_ticker=`), dat dezelfde cashflows
+  hypothetisch in de gekozen koers simuleert (`bereken_benchmark_
+  vergelijking()`).
+- **Per aandeel aankoop**: koers + aankoop-/verkoopmomenten (verticale
+  annotatielijnen) + aantal aangehouden aandelen per positie, met
+  "meer historie laden"-knoppen (+6 maanden/+1 jaar/+3 jaar/tot nu) die
+  extra koershistorie ophalen via `/api/portfolio/<code>/ticker-koers-
+  bereik` zonder de rest van het dashboard opnieuw te laden. Die route
+  geeft naast `labels`/`koers` ook `holdings` terug (`holdings_op_datums()`
+  in `portfolio_calc.py`, cumulatieve `adj_aantal` per datum); de frontend
+  voegt de reeksen alleen nog samen. `per_ticker_aankoop[t].nog_in_bezit`
+  bepaalt of de "Tot nu"-knop uitgegrijsd is (zelfde drempel als
+  `compute_per_ticker()`).
+- **Top N bedrijven**: gestapelde staafgrafiek van de onderliggende
+  bedrijven (via ETF-holdings + losse aandelen), met keuzeknoppen
+  (10/20/50) en een eigen invulveld — de backend levert er tot
+  `BEDRIJVEN_TOP_N_MAX` (`portfolio_verdeling.py`) mee, de frontend
+  (`static/js/bedrijven.js`) knipt zelf in tot de gekozen N zonder nieuwe
+  serveraanroep. Namen worden alleen voor weergave opgemaakt
+  (`maakBedrijfsnaamLeesbaar()`); groeperen/matchen blijft op de ruwe
+  naam (`_normaliseer_bedrijfsnaam()` in `portfolio_verdeling.py`).
+- **ETF-overlap**: matrix met per ETF-paar het percentage gedeelde
+  onderliggende bedrijven (`bereken_etf_overlap()`); een klik op een cel
+  toont de onderliggende holdings-detailtabel van dat paar
+  (`/api/etf-overlap-detail`, `bereken_etf_overlap_detail()`).
+- **Transacties-tabblad**: volledig transactieoverzicht van de huidige
+  code, client-side sorteerbaar en gepagineerd (25/50 per pagina), via
+  `/api/portfolio/<code>/transacties` + `static/js/transacties.js`.
+- **Prognose-tabblad**: puur client-side (geen backend-route) —
+  `static/js/prognose.js` projecteert de bestaande waarde-/geïnvesteerd-
+  reeks vooruit met een samengesteld maandrendement en een optionele
+  bandbreedte (laag/hoog%).
+- **Hamburgermenu (mobiel)**: `static/js/menu.js` (open/dicht-logica) +
+  responsieve CSS in `style.css` (`@media (max-width: 768px)`, en
+  liggend tot 900px) klappen het zijmenu op een smal scherm in een
+  uitschuifbaar paneel.
+- **(i)-hulpicoontjes**: `static/js/infotip.js` bouwt van
+  `<span class="infoTip" data-label="...">`-markup naast een label een
+  focusbare (i)-knop met tooltip (hover/toetsenbord-focus/tik).
+- **`fetchMetTimeout()`** (`static/js/app.js`): breekt een `fetch()` zelf
+  af (default 55s, upload 60s) als de server te lang stil blijft, i.p.v.
+  een oneindige laadanimatie zonder foutmelding te tonen.
+
+**"Niet opslaan"-optie**: checkbox op het startscherm — analyseert het
+Excel-bestand eenmalig zonder iets in Neon op te slaan (geen
+`portfolios`/`transacties`-rijen). Instellingen/Bijnamen-knoppen zijn dan
+verborgen (vereisen een opgeslagen code); Ticker-zekerheid blijft
+beschikbaar.
+
+**Verdeling-tabblad**: de ETF-vs-aandeel-verhouding boven de taart komt
+uit `verdeling_samenvatting` (`bereken_verdeling_samenvatting()` in
+`portfolio_verdeling.py`, lui geladen verrijkingsveld), niet uit een som
+in `app.js`.
+
+**Pie chart-verbeteringen** (Verdeling/Land/Sector):
+- Vaste, colorblind-veilige 8-kleuren-palet i.p.v. blauw/rood-tinten.
+- ETF vs. aandeel wordt aangegeven met een **diagonaal streeppatroon**
+  op ETF-slices (niet met een rand — dat is een eerdere, vervangen
+  aanpak).
+- Korte naam + percentage direct op de taartpunt via
+  chartjs-plugin-datalabels (uitgeschakeld op de lijngrafieken).
+- "Unknown"/"onbekend" altijd grijs en laatst in de legenda.
+
+**Bugfixes nickname-flow**: bijnaam opslaan/resetten update de UI nu
+direct (dropdown in "Per aandeel", Instellingen-formulier) zonder
+page-reload, met een bevestigingsmelding bij opslaan.
+
+**Code-bij-startscherm**: hoofdletterongevoelig, met laadindicator
+tijdens het ophalen.
+
+**"Ticker-informatie voor alle posities opnieuw bepalen"-vinkje**: staat bij
+zowel de upload-sectie als de "Ophalen met code"-sectie op het
+startscherm. Staat UIT (standaard gedrag): bij een upload wordt dan alleen
+een écht nieuwe (ISIN, Beurs)-combinatie automatisch via yahooquery
+opgelost — een positie die al eerder een ticker kreeg voor deze code slaat
+de dure zoekopdracht over, tenzij de bestaande backfill-logica alsnog een
+prijsprobleem detecteert. Vinkje AAN forceert een volledige herbepaling
+van alle posities in die upload, resp. bij het ophalen. Backend:
+`backfill_verouderde_tickers(code, forceer=False)` in `ticker_zekerheid.py`
+(aangeroepen vanuit zowel `/upload` als `/api/portfolio/<code>?
+herbepaal_alle_tickers=true`) en `find_ticker_met_snelle_prijscheck(...,
+bekende_ticker=None)` (ook in `ticker_zekerheid.py`) — een `bekende_ticker` wordt alleen meegegeven
+(oftewel: de zoekopdracht overgeslagen) als het vinkje UIT staat.
+
+## Databasestructuur
+- `portfolios (code PK, naam, aangemaakt_op)`
+- `transacties (id PK, code FK, datum, product [=bijnaam], isin, beurs,
+  ticker, aantal, koers, totaal_eur, order_id, echte_naam,
+  transactiekosten, waarde_eur, tijd)` — `UNIQUE (code, order_id)`. `koers`
+  is altijd de EUR-koers per stuk (`_koers_eur` uit `upload_verwerking.py`:
+  Excel-`Koers` gedeeld door `Wisselkoers`, ook voor een niet-EUR-genoteerde
+  positie). `waarde_eur` is de kale waarde (aantal × koers, zonder
+  AutoFX/transactiekosten — dat zit wel in `totaal_eur`) en is de basis
+  voor de GAK; is `waarde_eur` `NULL`, dan valt de GAK terug op
+  `totaal_eur` (en komt dus iets te hoog uit, `portfolio_calc.py`). `tijd` is nodig om transacties op dezelfde kalenderdag
+  chronologisch te sorteren (anders kon een verkoop vóór de bijbehorende
+  koop van diezelfde dag verwerkt worden). **Geen data-backfill**: een
+  upload naar een bestaande code voegt alleen nieuwe Order ID's in (`ON
+  CONFLICT (code, order_id) DO NOTHING`); staat `transactiekosten`/
+  `waarde_eur`/`tijd` in een al opgeslagen rij op `NULL`, dan wordt die
+  bij een latere upload niet meer aangevuld. Herstel: portfolio
+  verwijderen en opnieuw uploaden.
+- `dividenden (id PK, code, dividend_id, datum, product, isin, valuta,
+  bruto_eur, belasting_eur, netto_eur, herinvesteerd)` — `code` heeft
+  **geen** foreign key naar `portfolios`, alleen `UNIQUE (code,
+  dividend_id)`. Opgeslagen via `verwerk_rekeningoverzicht()` +
+  `save_dividenden()` (upsert, zie "Dividend-tabblad" hierboven).
+  `herinvesteerd BOOLEAN DEFAULT FALSE`: True als er voor die datum/ISIN
+  ook een "Dividend Herinvestering"-rij was.
+- `prijzen (ticker, datum, koers_eur, bijgewerkt_op)` — cache,
+  `PK (ticker, datum)`. `bijgewerkt_op` wordt gebruikt om te bepalen of de koers van "vandaag" al ververst is
+  binnen het huidige bezoek (`DREMPEL_HERGEBRUIK_KOERS` in `prijzen.py`).
+  Sinds kort ook gebruikt voor FX-koersparen (bv. `USDEUR=X`, `GBPEUR=X`),
+  niet alleen aandelen/ETF-tickers — voor yfinance is een FX-paar gewoon
+  een ticker. Opgevraagd via `_fx_prijzen_serie()` in `prijzen.py`,
+  gebruikt door de valutaconversie in `_converteer_naar_eur()` (via
+  `get_prices()`) en `_fx_koers_op_datum()` (via `vergelijk_prijs_op_datum()`)
+- `ticker_info (ticker PK, is_etf, land, sector, quote_type, valuta,
+  yahoo_beurs, fund_family, category, bijgewerkt_op)` — cache voor
+  ETF/aandeel-classificatie plus land/sector/valuta/yahoo-beurs/
+  fondsfamilie/categorie
+- `ticker_land_sector (ticker PK, land, sector, bijgewerkt_op)` — cache
+  voor land/sector van losse aandelen
+- `etf_sector_verdeling (etf_ticker, sector, gewicht, bijgewerkt_op)` —
+  cache van `sector_weightings` per ETF, PK `(etf_ticker, sector)`
+- `etf_holdings (etf_ticker, holding_naam, holding_ticker, gewicht, land,
+  bron, bijgewerkt_op)` — cache van holdings per ETF, PK `(etf_ticker,
+  holding_naam)`. `bron` is `'provider_csv'` (volledige lijst via
+  fondsprovider) of `'yfinance_top10'` (fallback)
+- `ticker_prijscheck (ticker, datum, yahoo_slotkoers, valuta, opgehaald_op,
+  high, low)` — permanente cache van historische slotkoersen (en
+  intraday-dagrange `high`/`low`) voor de
+  prijsvergelijking op de Ticker-zekerheid-pagina, PK `(ticker, datum)`.
+  Verloopt nooit (historische koersen veranderen niet met terugwerkende
+  kracht)
+- `ticker_splits (ticker PK, splits JSONB, bijgewerkt_op)` — cache
+  (30 dagen) van de split-geschiedenis per ticker, gebruikt door
+  `_cumulatieve_split_factor()` in `ticker_prijscheck.py` voor de split-correctie
+- `openfigi_cache (isin PK, resultaten JSONB, opgehaald_op)` — permanente
+  cache van OpenFIGI-resultaten per ISIN, gebruikt als extra matchsignaal
+  bij ticker-verificatie (`haal_openfigi_resultaten()` in `ticker_matching.py`)
+
+Het schema staat volledig in de `CREATE TABLE`'s in `init_db()` — er is
+geen migratiecode. Een nieuwe kolom toevoegen aan een bestaande tabel:
+achteraan in de `CREATE TABLE` zetten én eenmalig met de hand toevoegen
+in Neon (`CREATE TABLE IF NOT EXISTS` raakt een bestaande tabel niet aan).
+
+## Bekende eigenaardigheden (niet per ongeluk "fixen")
+- **DeGiro Excel-quirk (transactiebestand)**: "Order ID"-kolomkop staat
+  door merged cells één kolom verschoven t.o.v. de waarden. Daarom een
+  aparte openpyxl-doorloop die UUID-vormige cellen zoekt (36 tekens, 4
+  streepjes).
+- **DeGiro Excel-quirk (rekeningoverzicht/Account-bestand)**: "Mutatie" en
+  "Saldo" zijn elk samengevoegde headers over twee kolommen (valutacode +
+  bedrag) — pandas geeft de tweede kolom van elk paar de naam
+  "Unnamed: 8" / "Unnamed: 10". Worden hernoemd naar `valuta_mutatie`/
+  `mutatie` en `valuta_saldo`/`saldo` in `verwerk_rekeningoverzicht()`.
+- **Dividend-Valutadatum matcht niet met de conversie-Valutadatum**: een
+  "Dividend"-rij heeft een Valutadatum die vaak 1 dag vóór de bijbehorende
+  "Valuta Debitering"/"Valuta Creditering"-rijen ligt (conversie wordt pas
+  de volgende bankwerkdag afgewikkeld). Koppel dus NOOIT op datum-gelijkheid
+  tussen deze twee soorten rijen — koppel op tijdstip van de conversie-rijen
+  onderling, en op valuta+bedrag tussen dividend-groep en conversie-paar.
+- **DeGiro boekt soms meerdere dividenden van dezelfde dag/valuta samen in
+  ÉÉN conversie** (i.p.v. één conversie per dividend) — vandaar de tweede,
+  gepoolde matchronde (STAP A) in `verwerk_rekeningoverzicht_df()`, met
+  venster `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL` dagen. Verklein dit venster
+  niet zomaar: te klein en gepoolde conversies worden gemist, te groot en
+  losstaande dividenden van weken uit elkaar kunnen ten onrechte
+  samengevoegd worden.
+- **"Dividend Herinvestering"-rijen neutraliseren het brutobedrag en
+  MOETEN meegeteld worden** — niet wegfilteren als "geen echte
+  uitkering". Zonder deze rijen in de nettering mee te nemen klopt het
+  netto-cijfer niet (het lijkt dan een gewone kleine/negatieve uitkering,
+  terwijl in werkelijkheid alleen de bronbelasting is afgeschreven en de
+  rest automatisch is herbelegd).
+- **Een valutaconversie-paar is niet altijd vreemd→EUR** — soms wisselt
+  DeGiro juist EUR náár vreemde valuta (bv. om buitenlandse
+  bronbelasting te dekken die niet uit een eerder ontvangen
+  vreemde-valuta-dividend betaald kon worden). `_koppel_
+  valutaconversie_paren()` bepaalt dit per paar aan de hand van welke rij
+  daadwerkelijk `EUR` is — neem het nooit aan op basis van
+  Debitering/Creditering.
+- **Ticker-koppeling per (ISIN, Beurs)**, niet per ISIN alleen — bij één
+  ISIN genoteerd op meerdere beurzen (bv. VUSA.AS/VUSD.L, zelfde fonds op
+  Amsterdam én Londen) vervuilt anders de ene notering de prijscontrole
+  van de andere.
+- **Postgres NUMERIC → Python Decimal**: expliciet naar `float` casten vóór
+  berekeningen, anders `TypeError`.
+- **NaN-koersen**: overslaan i.p.v. meenemen in `sum()`, anders vergiftigt
+  één ontbrekende koers de hele dagsom.
+- **Stock-split-correctie**: DEGIRO boekt splits als NON TRADEABLE/DEG-rijen,
+  vereist correctie anders is portfoliowaarde structureel te laag. Let op
+  bij GAK-berekeningen: zo'n corporate-action-rij mag de kostenbasis alleen
+  verdunnen (meer stuks, zelfde totale kostenbasis), niet resetten naar 0.
+- **`ticker_info`-cache-staleness**: als je kolommen toevoegt aan een
+  cache-tabel, controleer of de cache-hit-check ook op die nieuwe kolommen
+  let — anders blijven oude rijen voor altijd `NULL` op de nieuwe velden.
+  Daarom geldt een `ticker_info`-rij als "stale" (wordt herfetched) als
+  zowel `valuta` als `quote_type` `NULL` zijn
+  (`_ticker_details_met_cache()` in `ticker_classificatie.py`).
+- **`FX_ANKER_DATUM` mag niet te vroeg staan** (`prijzen.py`): FX-paren
+  (`USDEUR=X`, `GBPEUR=X`) worden via de bestaande `prijzen`-cache/
+  `get_prices()` opgevraagd i.p.v. een losse download per aanroep (zie
+  `_fx_prijzen_serie()`), met een VASTE ankerdatum als startpunt — die moet
+  ná Yahoo's daadwerkelijke eerste beschikbare datum voor dat FX-paar
+  liggen (voor USDEUR=X/GBPEUR=X: eind 2003). We hadden dit eerst fout met
+  `2000-01-01`: `get_prices()`'s "is de cache ver genoeg terug"-check zag
+  de cache dan bij ÉLKE aanroep als incompleet en downloadde toch telkens
+  opnieuw — precies het duplicate-call-probleem dat de caching had moeten
+  oplossen. Empirisch geverifieerd en op `2005-01-01` gezet (ruim ná
+  Yahoo's echte startdatum, ruim vóór elke DeGiro-transactie). Verlaag
+  deze datum niet zonder eerst te verifiëren wat Yahoo's echte vroegste
+  beschikbare datum is voor het betreffende FX-paar.
+- **Rate-limit-retry gedeeld, `download_met_retry()` bewust niet**:
+  `_fetch_yf_info` (`ticker_classificatie.py`) en `_haal_koers_en_dagrange_op`/
+  `_haal_dagrange_op`/`_haal_slotkoers_op` (`ticker_prijscheck.py`) delen
+  `_met_rate_limit_retry()`/`_is_rate_limit_fout()` (`yahoo_client.py`);
+  `download_met_retry()` (ook `yahoo_client.py`) staat daar bewust buiten,
+  want die retryt op ELKE fout (niet alleen rate limits) met een vaste
+  in plaats van oplopende backoff.
+- **ETF's hebben geen land/sector in `yf.Ticker(x).info`** — dat bestaat
+  structureel niet voor fondsen in Yahoo's data. Gebruik
+  `funds_data.sector_weightings` / `funds_data.top_holdings` voor ETF's,
+  `.info.get("country"/"sector")` alleen voor losse aandelen.
+- **`category` staat bijna nooit in `.info` voor niet-Amerikaanse
+  fondsen** (UCITS ETF's o.a.) — `funds_data.fund_overview["categoryName"]`
+  is een betere fallback, maar zelfs die is voor veel Europese ETF's
+  gewoon leeg bij Yahoo. "onbekend" is dan het correcte eindresultaat,
+  geen bug.
+- **`find_ticker_detailed()` stopte te vroeg**: zocht eerst op productnaam,
+  dan pas op ISIN, en gaf het eerste resultaat terug zodra één van beide
+  iets vond — ook een zwakke fallback-match. Dit koos soms de verkeerde
+  beursnotering (bv. de Amerikaanse ADR i.p.v. de Europese notering).
+  Fix: probeer beide queries, geef voorrang aan een exacte ("zeker")
+  match uit welke van de twee dan ook. Aangevuld met progressief inkorten
+  van de productnaam bij een mislukte beurs-match (zie "Ticker-zekerheid"
+  hierboven) — inmiddels beide geïmplementeerd.
+- **Yahoo's zoekindex geeft niet altijd alle beursnoteringen van een
+  bedrijf terug, afhankelijk van de exacte naam-spelling** — zelfs
+  progressief inkorten (alleen woorden van het EIND weglaten) lost dit
+  niet altijd op, omdat de juiste spelling soms een afkorting is, geen
+  inkorting (voorbeeld: BYD/CNE100000296 op beurs "TDG" — "BYD COMPANY
+  LIMITED" vindt alleen de Frankfurt-notering 4BY1.F, "BYD CO LTD" vindt
+  wél de juiste Münchense notering BY6.MU, en de eerste spelling is op
+  geen enkele manier tot de tweede in te korten). Dit soort gevallen komt
+  pas aan het licht via de prijsvergelijking (4BY1.F's koers week ~11x af
+  van de echte transactieprijzen) en wordt opgelost met
+  `MANUAL_TICKER_OVERRIDES_ISIN` (zie "Ticker-zekerheid" hierboven) —
+  geen automatische fix mogelijk zonder een naamafkortingen-woordenboek.
+- **`MANUAL_TICKER_OVERRIDES` vuurde vóór het zoeken, beurs-agnostisch**
+  — kon een correcte zoekresultaat overschrijven bij een ISIN die op
+  meerdere beurzen genoteerd staat. Fix: overrides gelden nu alleen als
+  fallback, ná een zoekpoging die geen "zekere" match opleverde. Let op:
+  dit is een ANDER mechanisme dan `MANUAL_TICKER_OVERRIDES_ISIN` (zie
+  hierboven), dat juist WEL vóór het zoeken checkt en een "zeker"
+  resultaat mag overschrijven — precies omdat het op (ISIN, Beurs) i.p.v.
+  op naam werkt en dus niet het beurs-agnostische probleem van hier heeft.
+- **"Niet opslaan"-analyse kan de gunicorn-timeout raken bij een grotere
+  portfolio met een koude cache** (Statistieken-incident 2026-08-31): de
+  volledige, dure `verifieer_tickers_met_prijs_parallel()` draaide
+  synchroon in de `/upload`-route voor de HELE portfolio, wat bij veel
+  nog-nooit-gecontroleerde tickers (koude `ticker_prijscheck`-cache) ruim
+  over de timeout heen liep — zonder foutmelding, de request bleef
+  gewoon hangen. Fix: de 'niet opslaan'-tak gebruikt nu de goedkope
+  `find_ticker_detailed()`-match + een lichte, PARALLELLE prijscheck
+  (`basis_ticker_zekerheid_parallel()` → `find_ticker_met_snelle_
+  prijscheck()`, meestal 1 gecachete call per positie); de dure volledige
+  check is een aparte, expliciet aangevraagde `/api/ticker-zekerheid-
+  check`-aanroep vanuit de frontend geworden. `/upload` zelf is ook in
+  een try/except gewrapt (`_upload_impl()`) zodat elke onverwachte fout
+  een nette JSON-foutrespons geeft i.p.v. een stille hang.
+- **iShares holdings-CSV-download-URL**: patroon
+  `blackrock.com/varnish-api/.../get-fund-document?...&portfolioId=
+  {id}&component=holdings`. **Laat `asOfDate` weg** — een hardcoded datum
+  gaat de volgende dag stil kapot (levert dan een lege CSV terug, geen
+  foutmelding); zonder dat parameter geeft de provider altijd de meest
+  recente holdings terug.
+- **GitHub Actions vereist een token met `workflow`-scope**: een gewone
+  Personal Access Token met alleen `repo`-scope wordt geweigerd zodra een
+  commit iets in `.github/workflows/` wijzigt ("refusing to allow a
+  Personal Access Token to create or update workflow ... without
+  `workflow` scope"). Nodig als je ooit de CI-workflow zelf aanpast.
+
+## Werkwijze-voorkeuren
+- Windows **cmd** (niet PowerShell, niet Mac/Linux terminal)
+- `python -m pip install ...`, nooit los `pip install ...`
+- Incrementeel bouwen: klein werkend ding eerst, steeds testen
+- **Elke feature/bugfix krijgt kleine, gerichte unit tests** (zie
+  "Testconventie" hierboven) — dit is een staande afspraak, niet iets
+  waar apart om gevraagd hoeft te worden
+- Git op Render: nooit rechtstreeks in de editor op Render bewerken, altijd
+  via VS Code lokaal + git push
+- `init_db()` (en vergelijkbare setup) altijd buiten
+  `if __name__ == '__main__':`, i.v.m. WSGI/gunicorn
+- GitHub Personal Access Token = wachtwoord, nooit in leesbare logs/chats
+- **Nooit zelf committen of pushen** — Claude laat wijzigingen alleen in de
+  werkmap staan; `git commit`/`git push` doe ik zelf
+- **Rekenen in Python, tonen in JS**: financiële/inhoudelijke berekeningen
+  (sommen, percentages, rendement, aggregaties, top-N + Overig) komen in
+  de backend, als pure functie met een Python-unittest; JS doet alleen
+  formatteren, sorteren, kleuren en grafiekconfiguratie (plus lichte
+  afgeleiden van al geleverde data). Nieuwe velden op één plek zetten:
+  kern óf lui geladen verrijking, niet allebei. Bewuste uitzonderingen:
+  - `static/js/prognose.js` blijft in JS: puur, getest
+    (`tests/test_prognose.js`), werkt op gebruikersinvoer en heeft geen
+    netwerkaanroep nodig.
+  - `snijTopBedrijven()` (`static/js/bedrijven.js`) herberekent `overigPct`
+    in JS, zodat de top-N zonder request te kiezen is; afwijking t.o.v. de
+    backend hooguit ±0,01% door afronding.
+
+## Open aandachtspunten
+- **`herinvesteerd`-badge in de UI ontbreekt nog**: het veld
+  (zie "Dividend-tabblad" hierboven) zit in de database en in
+  `data.lijst[].herinvesteerd` uit `/api/portfolio/<code>/dividend`, maar
+  `static/js/app.js` gebruikt het nergens — de uitkeringenlijst toont dus
+  nog geen visueel signaal (badge/tooltip) bij een herbelegde uitkering.
+- **`ETF_HOLDINGS_BRON` is ingevuld voor 11 fondsen** (CSPX.AS, IWDA.AS,
+  IMAE.AS, EMIM.AS, IS3N.DE, CNDX.AS, EUEA.AS, GDX.L, G2X.DE, TDT.AS,
+  VE6I.DE) — zie "Land- en sectorverdeling" hierboven. **VWCE.AS/VUSA.AS
+  (Vanguard)
+  draaien bewust op de yfinance-top-10-fallback** (GraphQL-holdings-API,
+  te fragiel/complex om te implementeren) — een geaccepteerde beperking,
+  geen openstaand actiepunt. Nieuwe ETF's (nog geen bron bekend) kunnen
+  via dezelfde aanpak toegevoegd worden, test eerst met
+  `test_holdings_url()`.
+- **Bekende bijvangst-bug (niet dringend)**: elke functie die een
+  ✅/⚠️-teken print (via `dprint()` in `_zoek_product_progressief` en
+  `find_ticker_detailed` in `ticker_matching.py`; via een gewone `print` in
+  `compute_value_over_time` en `debug_position` in `portfolio_calc.py`) kan
+  lokaal op Windows crashen met een
+  `UnicodeEncodeError` zodra dat teken geprint wordt naar een cp1252-
+  console (dus bij lokaal `python app.py` of losse scripts draaien zonder
+  UTF-8-instelling — ook `python -m unittest discover` op Windows raakt
+  dit als een test die pad doorloopt). Workaround: `PYTHONUTF8=1` zetten
+  vóór het starten. Speelt vermoedelijk niet op Render (Linux/gunicorn).
+  Nog niet structureel gefixed.
+- **Ticker-matching blijft fundamenteel op zoekresultaten leunen** — ook
+  ná progressief inkorten + `MANUAL_TICKER_OVERRIDES_ISIN` (zie "Bekende
+  eigenaardigheden") kan een nieuw, nog-niet-tegengekomen geval van "juiste
+  spelling geeft andere resultaten dan de Excel-spelling" opduiken. Geen
+  actie nodig tenzij een prijswaarschuwing op de Ticker-zekerheid-pagina
+  daadwerkelijk zo'n geval blootlegt — dan een nieuw entry aan
+  `MANUAL_TICKER_OVERRIDES_ISIN` toevoegen, zoals bij BYD.
+- **Nog één aggregatie in JS**: `renderGestapeldeStaafgrafiek()` (`app.js`)
+  voegt bronnen onder `BRON_OVERIG_DREMPEL` (0,5%) client-side samen tot
+  "Overige bronnen" (legenda-opschoning). Staat niet bij de bewuste
+  uitzonderingen op "rekenen in Python" hierboven; nog te beslissen of dit
+  naar de backend moet.
+
+## Wijzigingslog
+- **2026-09-14**: `Bestandsstructuur` herzien na de herstructurering van
+  `app.py`/`analysis.py` in 15 modules (`analysis.py` is verwijderd); alle
+  losse functieverwijzingen in dit document naar hun huidige bestand
+  bijgewerkt.
+- **2026-09-21**: **Top-N-bedrijven-feature** afgerond (was geen open punt,
+  gewoon nieuwe functionaliteit): het "Top 10 bedrijven"-tabblad is
+  "Top N bedrijven" geworden met keuzeknoppen (10/20/50) en een eigen
+  invulveld, nieuw bestand `static/js/bedrijven.js` (naam-opmaak alleen
+  voor weergave, keuze van N, lijst inkorten zonder nieuwe serveraanroep),
+  nieuwe constanten `BEDRIJVEN_TOP_N_STANDAARD`/`BEDRIJVEN_TOP_N_MAX` in
+  `portfolio_verdeling.py`. Losstaand daarvan: een reeks mobiele
+  CSS-verfijningen (menu-scroll-lock, dvh-viewporthoogte, 16px-
+  invoervelden tegen iOS-autozoom).
+- **2026-09-22**: CLAUDE.md gesynchroniseerd met de code n.a.v.
+  `docs/CODE_OVERZICHT.md`.
+- **2026-09-25**: Alle tabellen eenmalig opnieuw aangemaakt; de
+  `ALTER TABLE ... ADD COLUMN`-migraties in `init_db()` zijn verwijderd en
+  alle kolommen staan nu direct in de `CREATE TABLE`'s. Daarna ook de
+  data-backfill verwijderd (`backfill_transactiekosten()`/`backfill_tijd()`/
+  `backfill_waarde_eur()` in `db.py`, `_backfill_bestaande_rijen()` in
+  `upload_verwerking.py` en de twee bijbehorende DB-tests); NULL-waardes in
+  bestaande `transacties`-rijen worden niet meer aangevuld bij een latere
+  upload.
+- **2026-09-25**: Rekenlogica uit `app.js` naar de backend verplaatst:
+  `nog_in_bezit` in `per_ticker_aankoop`, `verdeling_samenvatting`
+  (verrijking), `holdings` in `/ticker-koers-bereik` (nieuwe pure
+  `holdings_op_datums()` + lichte loader `_laad_split_gecorrigeerde_
+  transacties()` in `portfolio_orchestratie.py`) en de top-10 + Overig van
+  de Land-staaf (`land_per_bron_top`/`land_per_bron_europa_top`). Nieuwe
+  tests: `test_verdeling_samenvatting.py`, `test_holdings_op_datums.py`,
+  `test_land_staaf_top_n.py`, plus uitbreidingen in
+  `test_per_ticker_koers_en_aankopen.py` (Python: 52 bestanden, 432 tests;
+  JS ongewijzigd: 73).
+- **2026-09-25**: Docs, comments en docstrings opnieuw gesynchroniseerd met
+  de code (alleen tekst, geen logica): verouderde bestand-/functie-
+  verwijzingen (o.a. `analyze_transacties` "in app.py", `KOSTEN_KOLOM`
+  "in app.py"), verwijzingen naar niet-bestaande `opdracht_*.md`-bestanden
+  en CLAUDE.md-secties, en "ongewijzigd overgenomen" in de module-
+  docstrings rechtgezet. Uitgecommentarieerde debug-prints bewust laten staan.
+
+---
+
+## Gewenste features (backlog)
+**Belangrijk: dit is een wensenlijst, geen opdracht.** Werk hier alleen aan
+als ik een specifiek punt hieronder expliciet noem en vraag om te
+implementeren. Begin niet zelf aan deze punten.
+
+1. **Responsive layout (mobiel/PWA)** — stappenplan al geschreven
+   (`opdracht_responsive_layout.md`), nog niet gebouwd.

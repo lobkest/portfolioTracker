@@ -1,6 +1,6 @@
 """
-Unit tests voor de land_per_bron/sector_per_bron-uitbreiding van
-analysis.compute_land_sector_verdeling() -- de databron voor de gestapelde-
+Unit tests voor de land_per_bron_top/sector_per_bron-uitbreiding van
+portfolio_verdeling.compute_land_sector_verdeling() -- de databron voor de gestapelde-
 staafgrafiek-weergave op het Land/Sector-tabblad (toggle in
 static/js/app.js, renderGestapeldeStaafgrafiek).
 
@@ -28,10 +28,11 @@ def _price_data(tickers, waarde=100.0, datum="2024-01-02"):
 class TestLandSectorPerBron(unittest.TestCase):
     def test_land_per_bron_optelt_naar_totaal(self):
         # Een ETF (60% VS/40% Japan) + een los VS-aandeel -- de som van alle
-        # bronnen per land in land_per_bron moet gelijk zijn aan de waarde in
-        # "land" (consistentiecheck taart- vs. staaf-data). Bewust geen
-        # landen onder de 0.5%-Overig-drempel, zodat "land" hier niet
-        # gegroepeerd wordt en de vergelijking direct klopt.
+        # bronnen per land in land_per_bron_top moet gelijk zijn aan de
+        # waarde in "land" (consistentiecheck taart- vs. staaf-data). Bewust
+        # geen landen onder de 0.5%-Overig-drempel en minder dan 10 landen,
+        # zodat taart en staaf hier geen van beide groeperen en de
+        # vergelijking direct klopt.
         transacties_df = pd.DataFrame({
             "ticker": ["ETF_A", "AAPL"],
             "aantal": [1.0, 1.0],
@@ -50,7 +51,7 @@ class TestLandSectorPerBron(unittest.TestCase):
                 transacties_df, price_data, {"ETF_A": True, "AAPL": False}
             )
 
-        land_per_bron = resultaat["land_per_bron"]
+        land_per_bron = resultaat["land_per_bron_top"]
         for landnaam, per_bron in land_per_bron.items():
             self.assertAlmostEqual(sum(per_bron.values()), resultaat["land"][landnaam])
 

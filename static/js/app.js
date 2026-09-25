@@ -2,7 +2,7 @@ let chart = null;
 let huidigeData = null;
 
 // Status van de lui opgehaalde verrijking (Verdeling/Land/Sector/Bedrijven/
-// ETF-overlap, zie analyze_transacties_verrijking in app.py): null zolang er
+// ETF-overlap, zie analyze_transacties_verrijking in portfolio_orchestratie.py): null zolang er
 // geen aparte /verrijking-aanroep loopt (bv. een 'niet opslaan'-analyse, die
 // deze velden al standaard meestuurt), "laden" tijdens de achtergrond-fetch,
 // "fout" bij een timeout/mislukking (toont een "opnieuw proberen"-knop),
@@ -46,8 +46,8 @@ let benchmarkVergelijkingData = null;
 // tonen. Null als er geen eigen aandeel gekozen is.
 let eigenAandeelVergelijkingData = null;
 
-// Transacties-tabblad: ruwe lijst (datum/product/aantal/koers/totaal_eur)
-// van /api/portfolio/<code>/transacties, null zolang nog niet opgehaald voor
+// Transacties-tabblad: ruwe lijst (datum/tijd/product/aantal/koers/totaal_eur/
+// transactiekosten) van /api/portfolio/<code>/transacties, null zolang nog niet opgehaald voor
 // de huidige portfolio (zie toonDashboard() voor de reset bij een nieuwe
 // portfolio). Sortering/paginering gebeurt hier client-side (sorteerTransacties/
 // totaalPaginas/pagineer, static/js/transacties.js) -- blijft bewaard bij het
@@ -202,11 +202,11 @@ function toonPortfolio() {
     }
 
     // Alleen tonen als er daadwerkelijk koersdata is (zie laatste_koersdatum/
-    // laatst_opgehaald_op in analyze_transacties_kern, app.py) -- anders de
+    // laatst_opgehaald_op in analyze_transacties_kern, portfolio_orchestratie.py) -- anders de
     // regel gewoon weglaten i.p.v. "Invalid Date" o.i.d. te tonen.
     const bijgewerktEl = document.getElementById("laatstBijgewerktText");
     if (huidigeData.laatste_koersdatum && huidigeData.laatst_opgehaald_op) {
-        // new Date(...) rekent de UTC-ISO-string (zie 'Z'-suffix, app.py) om
+        // new Date(...) rekent de UTC-ISO-string (zie 'Z'-suffix, portfolio_orchestratie.py) om
         // naar de lokale tijdzone van de browser -- dus zowel datum als tijd
         // hieronder via de Date-methoden opbouwen, NIET via een slice() op de
         // ruwe ISO-string (die blijft UTC en kan een dag verschillen van de
@@ -332,7 +332,7 @@ async function wisselEigenAandeel(ticker) {
 let meerHistorieUitgeput = {};
 
 // DB-backed (leest transacties via de code, zie _laad_transacties_en_
-// resultaat in app.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
+// resultaat in portfolio_orchestratie.py) — net als Dividend/Ticker-zekerheid niet beschikbaar
 // bij een 'niet opslaan'-analyse. Geen cache: elke keer dat dit tabblad
 // geopend wordt, wordt opnieuw opgehaald (zelfde patroon als
 // toonInstellingenTicker()) — de berekening zelf is licht (pure functie,
@@ -1420,7 +1420,7 @@ function maakPrijscontroleTabel(prijsChecks) {
 
 // Laatste (meest recente) prijscheck met een bekende dagrange -- voor de
 // ETF-weergave hieronder, waar High/Low i.p.v. land/sector het prominente
-// signaal is (zie CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+// signaal is.
 function laatsteDagrangeUitChecks(prijsChecks) {
     if (!prijsChecks) return null;
     for (let i = prijsChecks.length - 1; i >= 0; i--) {
@@ -1500,9 +1500,9 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
 }
 
 // Eén samenvattingsregel voor de OpenFIGI-root-check (server-side al
-// berekend, zie _openfigi_root_bekend()/_voeg_openfigi_check_toe() in
-// ticker_matching.py/ticker_zekerheid.py) -- i.p.v. de volledige ruwe resultatentabel uit de vorige
-// opdracht, die vooral ruis bleek (soms 100+ rijen per positie). Geen regel
+// berekend, zie _voeg_openfigi_check_toe() in ticker_zekerheid.py) -- i.p.v.
+// een volledige ruwe resultatentabel, die vooral ruis bleek (soms 100+
+// rijen per positie). Geen regel
 // bij p.openfigi_root_bekend === null/undefined (geen ticker of geen
 // OpenFIGI-resultaten om tegen te vergelijken -- geen oordeel mogelijk).
 function maakOpenfigiRegel(p) {
@@ -1525,8 +1525,7 @@ function maakOpenfigiRegel(p) {
     return regel;
 }
 
-// __TIJDELIJK, diagnostisch__ (CLAUDE.md-opdracht "OpenFIGI-kandidaten
-// zichtbaar maken"): laat zien of _verrijk_met_openfigi_kandidaten()
+// __TIJDELIJK, diagnostisch__: laat zien of _verrijk_met_openfigi_kandidaten()
 // (ticker_zekerheid.py) voor deze positie daadwerkelijk draaide, welke
 // unieke OpenFIGI-roots er voor deze ISIN zijn, welke daarvan als "nieuw"
 // golden (dus een extra Yahoo-zoekopdracht triggerden) en wat die
@@ -1708,7 +1707,7 @@ function maakTickerZekerheidKaart(p) {
 // tegelijk in de lucht -- niet alles in één keer (rate-limit-risico bij
 // Yahoo/gunicorn-workers) en niet na elkaar (traag bij veel posities). Geen
 // SSE/websockets nodig, gewone fetch()-calls met deze eenvoudige worker-pool
-// zijn genoeg (zie CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+// zijn genoeg.
 async function voerMetConcurrencyLimietUit(items, limiet, taakFn) {
     let volgendeIndex = 0;
     async function werker() {
@@ -1775,7 +1774,7 @@ async function toonInstellingenTicker() {
     // Alleen de (vrijwel instante) lijst van posities ophalen -- de dure
     // prijscontrole gebeurt hieronder per positie apart, zodat één trage/
     // rate-limited positie niet meer de hele pagina laat mislukken (zie
-    // CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+    // CLAUDE.md, Ticker-zekerheid).
     toonLaadOverlay("Posities ophalen...");
     let data;
     try {
@@ -1993,6 +1992,16 @@ function maakDividendUitkeringenTabel(lijst) {
                 const td = document.createElement("td");
                 td.textContent = r.bijnaam;
                 td.style.padding = "4px 16px 4px 0";
+                // herinvesteerd komt als bool uit de backend (dividend.py):
+                // DeGiro heeft deze uitkering automatisch herbelegd, wat een
+                // klein/nul/negatief bedrag verklaart.
+                if (r.herinvesteerd === true) {
+                    const badge = document.createElement("span");
+                    badge.className = "badge badgeHerinvesteerd";
+                    badge.textContent = "herinvesteerd";
+                    badge.title = "Automatisch herbelegd i.p.v. uitgekeerd (DeGiro: 'Dividend Herinvestering')";
+                    td.appendChild(badge);
+                }
                 return td;
             },
         },
@@ -2271,7 +2280,8 @@ function maakRendementCel(eurWaarde, pctWaarde) {
     return td;
 }
 
-// Herbruikbare sorteerbare-tabel-helper voor het Statistieken-tabblad.
+// Herbruikbare sorteerbare-tabel-helper (Statistieken-tabellen, de
+// dividend-uitkeringenlijst en de ETF-overlap-detailtabel).
 // kolommen: array van { label, waarde: fn(rij) => getal|null (optioneel —
 // zonder 'waarde' is de kolom niet klikbaar/sorteerbaar), renderTd:
 // fn(rij) => HTMLTableCellElement }.
@@ -2682,7 +2692,8 @@ function toonStatistieken() {
 }
 
 // Transacties-tabblad: overzicht van alle transacties van de huidige
-// portfolio-code (datum, product, aantal, koers, totaal_eur), sorteerbaar
+// portfolio-code (datum & tijd, product, aantal, koers, totaal_eur,
+// transactiekosten), sorteerbaar
 // per kolom en gepagineerd (25/50 per pagina). DB-backed (net als Dividend),
 // dus niet beschikbaar bij een 'niet opslaan'-analyse.
 //
@@ -2892,7 +2903,7 @@ function maakTransactiesPaginaNavigatie(totPag) {
 // zowel bedrijven buiten de top-N als het niet-gedekte restant van
 // ETF-holdings, dus die twee zijn hier niet los te onderscheiden --
 // dekkingTekst hierboven de grafiek maakt wel duidelijk hoe compleet het
-// totaal is. per_bron/totaal_pct komen al als percentage van de
+// totaal is. per_bron komt al als percentage van de
 // portfoliowaarde uit portfolio_verdeling.bereken_bedrijven_verdeling, dus
 // geen aparte 'totaal'-deler nodig. Namen worden pas hier (bij weergave)
 // opgemaakt; de ruwe naam blijft de sleutel (static/js/bedrijven.js).
@@ -3700,7 +3711,7 @@ async function laadVerrijking(code) {
     try {
         // Bewust geen expliciete timeoutMs -- de default (55s) van
         // fetchMetTimeout is prima hier, dit endpoint is per definitie het
-        // netwerk-zware deel (zie CLAUDE.md / opdracht_gefaseerd_laden.md).
+        // netwerk-zware deel (zie analyze_transacties_verrijking).
         const res = await fetchMetTimeout(`/api/portfolio/${code}/verrijking`);
         const data = await res.json();
         if (!res.ok) {
@@ -3812,8 +3823,8 @@ window.matchMedia("(max-width: 768px)").addEventListener("change", () => {
 // (renderGestapeldeStaafgrafiek) op het Land- en Sector-tabblad. Gedeelde
 // state (landSectorWeergave) i.p.v. per-tabblad, dus de keuze blijft staan
 // bij het wisselen tussen Land en Sector. Data staat al in
-// huidigeData.land_sector_verdeling (land_per_bron/sector_per_bron) --
-// geen nieuwe serveraanroep nodig.
+// huidigeData.land_sector_verdeling (land_per_bron_top/
+// land_per_bron_europa_top/sector_per_bron) -- geen nieuwe serveraanroep nodig.
 document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
     landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
     const actieveKnop = document.querySelector(".menuBtn[data-view].actief");

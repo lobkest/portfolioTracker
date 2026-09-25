@@ -5,7 +5,7 @@ opslaand), Order ID-bepaling, portfolio-code-matching, DB-insert en
 dividend-bestand-verwerking. _upload_impl() in app.py orkestreert deze
 taakfuncties in de juiste volgorde.
 
-Losgetrokken uit app.py; ongewijzigd overgenomen.
+Losgetrokken uit app.py.
 """
 import hashlib
 
@@ -38,14 +38,14 @@ WAARDE_KOLOM = "Waarde EUR"
 # historische FX-lookup achteraf. Gebruikt om de rauwe 'Koers'-kolom (die
 # voor een niet-EUR-genoteerde positie, bv. TTWO op NDQ, gewoon de
 # vreemde-valuta-koers bevat) naar EUR om te rekenen vóór opslag — zie
-# CLAUDE.md/opdracht "koers-kolom altijd in EUR opslaan". Leeg/NaN voor
+# CLAUDE.md, Databasestructuur (transacties.koers). Leeg/NaN voor
 # EUR-genoteerde rijen. Zelfde beschikbaarheids-check-patroon als
 # KOSTEN_KOLOM/WAARDE_KOLOM.
 WISSELKOERS_KOLOM = "Wisselkoers"
 
 
 def _log_valuta_kolom_naast_koers(df):
-    """Debug-onderzoek (TTWO-valuta-hypothese, zie CLAUDE.md/opdracht): checkt
+    """Debug-onderzoek (TTWO-valuta-hypothese): checkt
     of er in het ingelezen Excel-bestand een aparte valuta-kolom direct
     rechts van 'Koers' staat, en logt per unieke (ISIN, Beurs)-combinatie
     welke kolom dat is en wat erin staat -- puur constaterend, geen aanname
@@ -118,7 +118,7 @@ def _normaliseer_transactie_kolommen(df):
             )
     else:
         df["_koers_eur"] = df["Koers"].astype(float)
-        dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden — "
+        dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden - "
                f"koers-kolom blijft ongewijzigd (aanname: al EUR)")
     return df
 
@@ -289,7 +289,8 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
 def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
     """Taak 5/6 (DB-insert): voegt nieuwe transactierijen in;
     ON CONFLICT DO NOTHING negeert rijen die (op order_id) al bestaan.
-    Geeft het aantal succesvol ingevoegde rijen terug."""
+    Geeft het aantal INSERT-pogingen zonder exception terug (dus inclusief
+    rijen die door ON CONFLICT genegeerd werden)."""
     ingevoegd = 0
     for _, row in rows_to_insert.iterrows():
         try:

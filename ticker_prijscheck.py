@@ -4,7 +4,7 @@ slotkoers/dagrange ophalen (met retry/cache), split-correctie, FX-conversie,
 en de vergelijking met de bekende DEGIRO-transactieprijs die de basis vormt
 voor de Ticker-zekerheid-prijscontrole.
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import pandas as pd
 import yfinance as yf
@@ -35,49 +35,17 @@ PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 DAGRANGE_TOLERANTIE = 0.05
 
 
-def _haal_slotkoers_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
-    """
-    Haalt de slotkoers van 'ticker' op de eerste geldige handelsdag op of ná
-    'datum' op (buffer voor weekend/feestdagen waarop de markt dicht was),
-    in de eigen valuta van de ticker — GEEN EUR-conversie, dit is puur een
-    identiteitscheck (klopt de prijs), geen waardeberekening. Retry/backoff
-    bij rate limiting via _met_rate_limit_retry (zelfde patroon als
-    _fetch_yf_info). Geeft None terug als het na alle retries niet lukt of
-    er geen koersdata is.
-    """
-    einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
-
-    def _actie():
-        _tel_yahoo_call("yf.download(slotkoers)")
-        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)["Close"]
-
-    raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"'{ticker}'", pogingen, wachttijd)
-    if fout is not None:
-        # print(f"[prijscheck] ❌ kon historische koers niet ophalen voor '{ticker}' rond {datum}: {fout}")
-        return None
-
-    if isinstance(raw, pd.DataFrame):
-        # yf.download geeft bij 1 ticker soms toch een DataFrame terug i.p.v. een Series
-        raw = raw[ticker] if ticker in raw.columns else raw.iloc[:, 0]
-
-    geldig = raw.dropna()
-    if geldig.empty:
-        # print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
-        return None
-
-    return float(geldig.iloc[0])
-
-
 def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
-    Zelfde als _haal_slotkoers_op hierboven (retry/backoff + weekend/
-    feestdag-buffer), maar geeft (high, low) van de handelsdag terug i.p.v.
-    de slotkoers -- voor de dagrange-check op de Ticker-zekerheid-pagina
-    (staat de Excel-transactieprijs tussen het intraday-high en -low). Losse
-    functie i.p.v. _haal_slotkoers_op uit te breiden: die wordt ook gebruikt
-    voor FX-koersen (via _fx_prijzen_serie -> get_prices()), waar een
-    dagrange niet relevant is.
-    Geeft (None, None) terug bij dezelfde faalcondities als _haal_slotkoers_op.
+    Haalt (high, low) op van de eerste geldige handelsdag op of ná 'datum'
+    (buffer voor weekend/feestdagen waarop de markt dicht was), in de eigen
+    valuta van de ticker -- voor de dagrange-check op de Ticker-zekerheid-
+    pagina (staat de Excel-transactieprijs tussen het intraday-high en
+    -low). Retry/backoff bij rate limiting via _met_rate_limit_retry (zelfde
+    patroon als _fetch_yf_info). Gebruikt door vergelijk_prijs_op_datum()
+    om een gecachete rij zonder high/low alsnog aan te vullen.
+    Geeft (None, None) terug als het na alle retries niet lukt of er geen
+    koersdata is.
     """
     einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
 
@@ -85,9 +53,8 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
         _tel_yahoo_call("yf.download(dagrange)")
         return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["High", "Low"]]
 
-    raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"dagrange '{ticker}'", pogingen, wachttijd)
+    raw, fout = _met_rate_limit_retry(_actie, pogingen, wachttijd)
     if fout is not None:
-        # print(f"[prijscheck] ❌ kon dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
         return None, None
 
     if isinstance(raw.columns, pd.MultiIndex):
@@ -96,7 +63,6 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
 
     geldig = raw.dropna()
     if geldig.empty:
-        # print(f"[prijscheck] ⚠️ geen dagrange gevonden voor '{ticker}' rond {datum}")
         return None, None
 
     eerste = geldig.iloc[0]
@@ -105,19 +71,19 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
 
 def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
-    Combinatie van _haal_slotkoers_op() en _haal_dagrange_op() hierboven in
-    ÉÉN yf.download()-call i.p.v. twee losse downloads voor exact dezelfde
-    ticker + periode -- gebruikt door vergelijk_prijs_op_datum() in het pad
-    waar altijd zowel de slotkoers als de dagrange nodig zijn (de eerste,
-    verse fetch). _haal_slotkoers_op()/_haal_dagrange_op() zelf blijven
-    ongewijzigd bestaan voor plekken die er maar één van nodig hebben: het
-    FX-pad (_fx_prijzen_serie(), dagrange niet relevant) en de
-    ticker_prijscheck-cache-backfill in vergelijk_prijs_op_datum() (daar is
-    de slotkoers al bekend uit de cache, alleen de dagrange ontbreekt nog).
+    Slotkoers + dagrange (high, low) in ÉÉN yf.download()-call -- gebruikt
+    door vergelijk_prijs_op_datum() in het pad waar altijd zowel de
+    slotkoers als de dagrange nodig zijn (de eerste, verse fetch). Zelfde
+    weekend/feestdag-buffer en retry als _haal_dagrange_op() hierboven. De
+    slotkoers is in de eigen valuta van de ticker -- GEEN EUR-conversie, dit
+    is puur een identiteitscheck (klopt de prijs), geen waardeberekening.
+    _haal_dagrange_op() blijft bestaan voor de ticker_prijscheck-cache-
+    aanvulling in vergelijk_prijs_op_datum() (daar is de slotkoers al
+    bekend uit de cache, alleen de dagrange ontbreekt nog).
 
-    Geeft (slotkoers, high, low) terug, of (None, None, None) bij dezelfde
-    faalcondities als _haal_slotkoers_op/_haal_dagrange_op (mislukte
-    download na alle retries, of geen koersdata in de periode).
+    Geeft (slotkoers, high, low) terug, of (None, None, None) bij een
+    mislukte download na alle retries, of als er geen koersdata is in de
+    periode.
     """
     einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
 
@@ -125,9 +91,8 @@ def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMI
         _tel_yahoo_call("yf.download(slotkoers+dagrange)")
         return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["Close", "High", "Low"]]
 
-    raw, fout = _met_rate_limit_retry(_actie, "prijscheck", f"'{ticker}'", pogingen, wachttijd)
+    raw, fout = _met_rate_limit_retry(_actie, pogingen, wachttijd)
     if fout is not None:
-        # print(f"[prijscheck] ❌ kon historische koers/dagrange niet ophalen voor '{ticker}' rond {datum}: {fout}")
         return None, None, None
 
     if isinstance(raw.columns, pd.MultiIndex):
@@ -136,7 +101,6 @@ def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMI
 
     geldig = raw.dropna()
     if geldig.empty:
-        # print(f"[prijscheck] ⚠️ geen koersdata gevonden voor '{ticker}' rond {datum}")
         return None, None, None
 
     eerste = geldig.iloc[0]
@@ -162,11 +126,9 @@ def _haal_splits_op(ticker):
     try:
         _tel_yahoo_call("yf.Ticker.splits")
         splits = yf.Ticker(ticker).splits
-    except Exception as e:
-        # print(f"[splits] kon split-geschiedenis niet ophalen voor '{ticker}': {e}")
+    except Exception:
         return {}
     resultaat = {pd.Timestamp(datum).date().isoformat(): float(ratio) for datum, ratio in splits.items()}
-    # print(f"[splits] '{ticker}': opgehaald -> {len(resultaat)} split(s)")
     save_splits(ticker, resultaat)
     return resultaat
 
@@ -176,7 +138,7 @@ def _cumulatieve_split_factor(ticker, vanaf_datum):
     Cumulatieve vermenigvuldigingsfactor van alle splits die voor 'ticker'
     hebben plaatsgevonden NA 'vanaf_datum' (tot nu).
 
-    Nodig omdat _haal_slotkoers_op met auto_adjust=True werkt: een
+    Nodig omdat de Yahoo-downloads hierboven met auto_adjust=True werken: een
     historische Yahoo-slotkoers van vóór een latere split komt terug op de
     HUIDIGE aandelen-basis (dus bv. 1/3e van de destijds werkelijk
     verhandelde prijs na een 3-voor-1-split), terwijl de Excel/DEGIRO-
@@ -199,7 +161,7 @@ def _cumulatieve_split_factor(ticker, vanaf_datum):
 def _fx_koers_op_datum(valuta, datum, dagen_buffer=7, verversen=True):
     """
     FX-koers (valuta -> EUR) op de eerste geldige handelsdag op of ná
-    'datum' (zelfde weekend/feestdag-buffer als _haal_slotkoers_op), voor
+    'datum' (zelfde weekend/feestdag-buffer als _haal_koers_en_dagrange_op), voor
     het omrekenen van een LOSSE historische Yahoo-slotkoers in
     vergelijk_prijs_op_datum() naar EUR. Haalt de ruwe FX-reeks op via
     _fx_prijzen_serie() (persistent gecached via prijzen/get_prices(), zie
@@ -216,7 +178,6 @@ def _fx_koers_op_datum(valuta, datum, dagen_buffer=7, verversen=True):
     """
     fx_pair = FX_PAAR_PER_VALUTA.get(valuta)
     if fx_pair is None:
-        # print(f"[prijscheck] ⚠️ onbekende valuta '{valuta}' voor FX-conversie, geen conversie toegepast")
         return None
 
     datum = pd.Timestamp(datum)
@@ -224,7 +185,6 @@ def _fx_koers_op_datum(valuta, datum, dagen_buffer=7, verversen=True):
     reeks = _fx_prijzen_serie(valuta, verversen=verversen)
     geldig = reeks[(reeks.index >= datum) & (reeks.index <= einddatum)].dropna()
     if geldig.empty:
-        # print(f"[prijscheck] ⚠️ kon FX-koers ({fx_pair}) niet ophalen voor {datum}")
         return None
     return float(geldig.iloc[0])
 
@@ -277,7 +237,6 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     else:
         yahoo_koers, high, low = _haal_koers_en_dagrange_op(ticker, datum)
         valuta = _ticker_details_met_cache(ticker).get("valuta")
-        # print(f"[prijscheck] '{ticker}' op {datum}: opgehaald -> yahoo_koers={yahoo_koers} ({valuta})")
         save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
     if yahoo_koers is None or not bekende_koers:
@@ -312,18 +271,12 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
             high_eur = high_eur / divisor * fx_koers
             low_eur = low_eur / divisor * fx_koers
         valuta_conversie_toegepast = True
-        # print(f"[prijscheck] '{ticker}' op {datum}: valutaconversie toegepast ({valuta} -> EUR, "
-              # f"FX-koers {fx_koers:.4f}) -> yahoo_koers {yahoo_koers} wordt {yahoo_koers_eur:.4f}")
 
     split_factor = _cumulatieve_split_factor(ticker, datum)
     yahoo_koers_gecorrigeerd = yahoo_koers_eur * split_factor
     if high_eur is not None and low_eur is not None:
         high_eur = high_eur * split_factor
         low_eur = low_eur * split_factor
-    if split_factor != 1.0:
-        pass
-        # print(f"[prijscheck] '{ticker}' op {datum}: split-correctie toegepast (factor {split_factor:.4f}) "
-              # f"-> yahoo_koers {yahoo_koers_eur} wordt {yahoo_koers_gecorrigeerd} voor de vergelijking")
 
     binnen_dagrange = (
         low_eur * (1 - DAGRANGE_TOLERANTIE) <= bekende_koers <= high_eur * (1 + DAGRANGE_TOLERANTIE)

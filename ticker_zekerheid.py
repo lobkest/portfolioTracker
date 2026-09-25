@@ -6,14 +6,12 @@ dat een geresolveerde ticker de juiste is, op basis van prijsvergelijking
 (lichte, standaard check) als de Ticker-zekerheid-pagina (volledige,
 lui geladen check).
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from db import get_db_connection
 from debug_utils import dprint
-from transactie_utils import _is_corporate_action_row
 from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
@@ -23,7 +21,7 @@ from ticker_classificatie import (
 )
 
 # Drempel voor de standaard, LICHTE prijscontrole (find_ticker_met_snelle_
-# prijscheck, i.t.t. de volledige verifieer_ticker_met_prijs hierboven):
+# prijscheck, i.t.t. de volledige verifieer_ticker_met_prijs verderop):
 # pas boven deze afwijking (ná de stap-2-steekproef) worden ook alternatieve
 # tickers doorgerekend -- zie find_ticker_met_snelle_prijscheck().
 PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10
@@ -52,8 +50,7 @@ def _naar_basis_vorm(beurs, resultaat):
     valuta, ...) staan hier bewust op None i.p.v. weggelaten.
     'prijs_checks'/'waarschuwing'/'aanbevolen_alternatief' komen wél uit de
     lichte check, dus een positie met een echte afwijking laat dat hier
-    alsnog zien. Gedeeld door basis_ticker_zekerheid() (1 positie) en
-    basis_ticker_zekerheid_parallel() (meerdere tegelijk).
+    alsnog zien. Gebruikt door basis_ticker_zekerheid_parallel().
     """
     basis = {
         "ticker": resultaat["ticker"],
@@ -63,35 +60,12 @@ def _naar_basis_vorm(beurs, resultaat):
         "fondsfamilie": None, "category": None, "quote_type": None,
         "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
         "prijs_checks": resultaat.get("prijs_checks", []), "alternatieven": [],
-        "basis_alleen": True,
         "openfigi_root_bekend": resultaat.get("openfigi_root_bekend"),
         "openfigi_root_matches": resultaat.get("openfigi_root_matches"),
     }
     if resultaat.get("aanbevolen_alternatief"):
         basis["aanbevolen_alternatief"] = resultaat["aanbevolen_alternatief"]
     return basis
-
-
-def basis_ticker_zekerheid(product, isin, beurs, transacties_van_dit_isin=None):
-    """
-    Lichtgewicht ticker-zekerheid-dict, in dezelfde vorm als
-    verifieer_ticker_met_prijs() maar zonder de dure, volledige Yahoo-
-    prijsverificatie (die alle 3 steekproefdatums én alle kandidaten
-    doorrekent) -- gebruikt find_ticker_met_snelle_prijscheck(), dat in het
-    gangbare geval (geen afwijking) maar 1 extra, gecachete Yahoo-call
-    kost. Bedoeld voor het 'niet opslaan'-pad in app.py: de VOLLEDIGE check
-    mag daar niet meer standaard/synchroon voor de hele portfolio draaien
-    (kan bij een grotere portfolio met een koude cache ruim over de
-    gunicorn-timeout heen lopen, zie verifieer_tickers_met_prijs_parallel()
-    hieronder). De uitgebreide check blijft beschikbaar als losse, door de
-    gebruiker aangevraagde actie.
-
-    Voor MEERDERE posities tegelijk: gebruik basis_ticker_zekerheid_parallel()
-    hieronder, niet deze functie in een for-loop -- zie die docstring voor
-    waarom (koude-cache-timeoutrisico).
-    """
-    resultaat = find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_isin or [])
-    return _naar_basis_vorm(beurs, resultaat)
 
 
 # Poolgrootte voor de LICHTE ticker-resolutie (basis_ticker_zekerheid_parallel/
@@ -107,11 +81,20 @@ TICKER_RESOLUTIE_POOL_GROOTTE = 12
 
 def basis_ticker_zekerheid_parallel(posities, max_workers=TICKER_RESOLUTIE_POOL_GROOTTE):
     """
-    basis_ticker_zekerheid() voor meerdere posities tegelijk
-    (ThreadPoolExecutor) -- zie vind_tickers_met_snelle_prijscheck_parallel()
-    hieronder voor de reden: de lichte prijscheck (find_ticker_met_snelle_
-    prijscheck) draait nu bij ELKE upload, dus bij een portfolio met veel
-    unieke, nog nooit gecontroleerde tickers (koude ticker_prijscheck-cache)
+    Lichtgewicht ticker-zekerheid voor het 'niet opslaan'-pad in app.py:
+    dezelfde vorm als verifieer_ticker_met_prijs() maar zonder de dure,
+    volledige Yahoo-prijsverificatie (die alle 3 steekproefdatums én alle
+    kandidaten doorrekent) -- gebruikt find_ticker_met_snelle_prijscheck(),
+    dat in het gangbare geval (geen afwijking) maar 1 extra, gecachete
+    Yahoo-call per positie kost. De VOLLEDIGE check mag daar niet
+    standaard/synchroon voor de hele portfolio draaien (kan bij een grotere
+    portfolio met een koude cache ruim over de gunicorn-timeout heen lopen);
+    die blijft beschikbaar als losse, door de gebruiker aangevraagde actie.
+
+    Parallel (ThreadPoolExecutor) -- zie
+    vind_tickers_met_snelle_prijscheck_parallel() hieronder voor de reden:
+    de lichte prijscheck draait bij ELKE upload, dus bij een portfolio met
+    veel unieke, nog nooit gecontroleerde tickers (koude ticker_prijscheck-cache)
     zou zelfs 1 Yahoo-call per positie SEQUENTIEEL al genoeg kunnen optellen
     om de 'niet opslaan'-gunicorn-timeoutfix weer te ondermijnen (zie
     CLAUDE.md, vervolg op het Statistieken-incident van 2026-08-31).
@@ -124,34 +107,6 @@ def basis_ticker_zekerheid_parallel(posities, max_workers=TICKER_RESOLUTIE_POOL_
         _naar_basis_vorm(beurs, resultaat)
         for (_product, _isin, beurs, _transacties), resultaat in zip(posities, ruwe_resultaten)
     ]
-
-
-# _fetch_yf_info/_classify_ticker_uncached/get_land_sector/get_etf_sector_
-# verdeling/get_etf_holdings/classify_ticker(s)/_verwarm_land_sector_cache_
-# parallel staan sinds de module-splitsing in ticker_classificatie.py -- de
-# namen die de rest van dit bestand nog gebruikt (_ticker_details_met_cache,
-# _sector_samenvatting, _top_holding_land, _land_sector_voor_weergave,
-# _zoek_betere_alternatieven, verifieer_ticker_met_prijs) hier opnieuw
-# geïmporteerd. classify_tickers/_verwarm_land_sector_cache_parallel worden
-# alleen door app.py gebruikt, dat rechtstreeks uit ticker_classificatie
-# importeert.
-from ticker_classificatie import (
-    classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings,
-    _ticker_details_met_cache,
-)
-
-
-# _haal_slotkoers_op/_haal_dagrange_op/_haal_koers_en_dagrange_op/
-# _haal_splits_op/_cumulatieve_split_factor/_fx_koers_op_datum/
-# vergelijk_prijs_op_datum/_prijscheck_is_probleem (en PRIJSCHECK_DREMPEL_OK/
-# _WAARSCHUWING/DAGRANGE_TOLERANTIE) staan sinds de module-splitsing in
-# ticker_prijscheck.py -- hier opnieuw geïmporteerd voor de ticker-
-# zekerheid-functies verderop in dit bestand die dat nog gebruiken
-# (vergelijk_prijs_op_datum/_prijscheck_is_probleem worden op meerdere
-# plekken aangeroepen; de losse _haal_*/​_cumulatieve_split_factor/
-# _fx_koers_op_datum-taakfuncties alleen nog binnen ticker_prijscheck.py
-# zelf, dus die importeren we hier niet terug).
-from ticker_prijscheck import vergelijk_prijs_op_datum, _prijscheck_is_probleem
 
 
 def _kies_steekproef_transacties(transacties_van_dit_isin, aantal=3):
@@ -299,9 +254,8 @@ def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, i
     Geeft (extra, debug) terug:
       extra: NIEUWE lijst (alternatieven_kandidaten + eventuele OpenFIGI-
         gevonden extra's), in hetzelfde {"symbol","exchange"}-formaat.
-      debug: __TIJDELIJK, diagnostisch__ (zie CLAUDE.md-opdracht "OpenFIGI-
-        kandidaten zichtbaar maken", makkelijk te verwijderen samen met het
-        'openfigi_kandidaten_debug'-veld in verifieer_ticker_met_prijs()) —
+      debug: __TIJDELIJK, diagnostisch__ (makkelijk te verwijderen samen
+        met het 'openfigi_kandidaten_debug'-veld in verifieer_ticker_met_prijs()) —
         dict met 'roots' (alle unieke OpenFIGI-roots voor deze ISIN),
         'nieuwe_roots' (roots die een Yahoo-zoekopdracht triggerden),
         'overgeslagen_roots' (roots die al bekend waren, dus overgeslagen),
@@ -398,8 +352,7 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
         alt_beurs_klopt = (alt.get("exchange") in verwachte_beurzen) if verwachte_beurzen else None
         # Meest recente check met een bekende dagrange (steekproef is
         # chronologisch eerste/middelste/laatste) -- voor de ETF-weergave op
-        # de Ticker-zekerheid-pagina (High/Low i.p.v. land/sector, zie
-        # CLAUDE.md/opdracht_ticker_zekerheid_dagrange_performance.md).
+        # de Ticker-zekerheid-pagina (High/Low i.p.v. land/sector).
         alt_high, alt_low = next(
             ((c["high"], c["low"]) for c in reversed(alt_checks)
              if c.get("high") is not None and c.get("low") is not None),
@@ -509,7 +462,6 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
                 f"datums valt buiten de dagrange (grootste afwijking "
                 f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
             )
-        # print(f"[prijscheck] ⚠️ '{ticker}' ({isin}): {waarschuwing}")
 
     details = _ticker_details_met_cache(ticker)
     is_etf = classify_ticker(ticker)
@@ -523,8 +475,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     # winnen met het checken van kandidaten die toch niet gekozen zijn.
     alternatieven = []
     aanbevolen_alternatief = None
-    # __TIJDELIJK, diagnostisch__ (zie CLAUDE.md-opdracht "OpenFIGI-
-    # kandidaten zichtbaar maken"): laat op de Ticker-zekerheid-pagina zien
+    # __TIJDELIJK, diagnostisch__: laat op de Ticker-zekerheid-pagina zien
     # of _verrijk_met_openfigi_kandidaten() hieronder daadwerkelijk draait,
     # en zo ja met welke roots/resultaten -- makkelijk te verwijderen samen
     # met het 'openfigi_kandidaten_debug'-veld in 'result' hieronder en het
@@ -620,7 +571,6 @@ def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwi
         f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
         f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
     )
-    # print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
 
     bestaande = resultaat.get(waarschuwing_veld)
     resultaat[waarschuwing_veld] = f"{bestaande}\n{extra_waarschuwing}" if bestaande else extra_waarschuwing
@@ -644,7 +594,8 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     -- en dus de onvoorwaardelijke, nooit-gecachete yahooquery-zoekopdracht
     -- overgeslagen; de rest van deze functie (prijscontrole + escalatie)
     draait gewoon door op deze ticker. Voor het "ticker-informatie opnieuw
-    bepalen"-vinkje op het uploadscherm (zie app.py/_upload_impl): staat
+    bepalen"-vinkje op het uploadscherm (zie _ticker_resolutie_opslaan_pad
+    in upload_verwerking.py): staat
     het vinkje UIT, dan geeft de aanroeper hier de al bekende ticker van
     een eerdere upload door voor posities die niet écht nieuw zijn. De
     escalatie in stap 3 hieronder heeft dan geen alternatieven om op terug
@@ -684,8 +635,7 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     escalatie) en 'prijswaarschuwing' (None als er niets aan de hand is).
 
     Bij escalatie naar stap 3 wordt een alternatieve ticker in twee gevallen
-    automatisch overgenomen (ticker/zekerheid worden dan overschreven en
-    'automatisch_gecorrigeerd_van' bevat de oorspronkelijke ticker):
+    automatisch overgenomen (ticker/zekerheid worden dan overschreven):
       - Tier 1: het alternatief staat op een VERWACHTE beurs (BEURS_MAP) en
         de prijs klopt op >= MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE
         steekproefdatums.
@@ -721,13 +671,10 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     # Dagrange-bewust i.p.v. alleen de ruwe %-afwijking -- zelfde criterium
     # als _prijscheck_is_probleem() elders in het bestand (bv. de bovenste
     # waarschuwingsbalk). "Geen koersdata" blijft apart escaleren
-    # (regressie t.o.v. het G2X.MU-geval, zie CLAUDE.md):
+    # (regressie t.o.v. het G2X.MU-geval):
     # _prijscheck_is_probleem() geeft bij ontbrekende data GEEN probleem
     # terug (match=None), dus die check hier expliciet ervoor houden.
     escaleert = check_laatste["afwijking_pct"] is None or _prijscheck_is_probleem(check_laatste)
-    # print(f"[snelle-prijscheck] '{ticker}' ({isin}, beurs={beurs}) laatste={check_laatste['datum']} "
-          # f"afwijking={check_laatste['afwijking_pct']} binnen_dagrange={check_laatste.get('binnen_dagrange')} "
-          # f"-> escaleert={escaleert}")
 
     if not escaleert:
         # Koers klopt -- het gangbare geval, klaar na 1 (gecachete) call.
@@ -763,7 +710,6 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
             f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
             f"controleer op het Ticker-zekerheid-tabblad."
         )
-    # print(f"[snelle-prijscheck] ⚠️ '{ticker}' ({isin}): {prijswaarschuwing}")
 
     resultaat = {
         **basis, "zekerheid": zekerheid, "prijs_checks": prijs_checks,
@@ -800,25 +746,13 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
 
         gekozen = beurs_bevestigd or volledig_prijs_bevestigd
         if gekozen:
-            if gekozen is beurs_bevestigd:
-                reden = f"beurs ({gekozen['beurs']}) + prijs bevestigd ({gekozen['aantal_matches']} datums)"
-            else:
-                reden = f"beurs niet bevestigd, maar prijs klopt op alle {len(steekproef)} gecontroleerde datums"
-            # print(f"[snelle-prijscheck] ✅ '{ticker}' ({isin}) automatisch vervangen door "
-                  # f"'{gekozen['ticker']}' ({reden})")
             resultaat["ticker"] = gekozen["ticker"]
             resultaat["zekerheid"] = "zeker"
             resultaat["prijswaarschuwing"] = None
-            resultaat["automatisch_gecorrigeerd_van"] = ticker
         elif aanbevolen_alternatief:
             # Geen van beide tiers voldoende bewijs -- bestaand gedrag: alleen
             # tonen als suggestie, niets automatisch overnemen.
-            # print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): alternatief '{aanbevolen_alternatief}' "
-                  # f"gevonden maar onvoldoende bewijs voor automatische correctie -- alleen als suggestie getoond")
             resultaat["aanbevolen_alternatief"] = aanbevolen_alternatief
-        else:
-            pass
-            # print(f"[snelle-prijscheck] ℹ️ '{ticker}' ({isin}): geëscaleerd, maar geen enkel alternatief gevonden")
 
     return _voeg_openfigi_check_toe(resultaat, isin)
 
@@ -843,8 +777,6 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     laatste = max(geldige, key=lambda t: t["datum"])
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
     probleem = check["afwijking_pct"] is None or _prijscheck_is_probleem(check)
-    # print(f"[backfill-check] '{ticker}' laatste={laatste['datum']} afwijking={check['afwijking_pct']} "
-          # f"binnen_dagrange={check.get('binnen_dagrange')} -> probleem={probleem}")
     return probleem
 
 
@@ -896,8 +828,6 @@ def backfill_verouderde_tickers(code, forceer=False):
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
         if not forceer and not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
-            # print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): '{oude_ticker}' heeft geen "
-                  # f"prijsprobleem -- niets te backfillen")
             continue  # oude ticker werkt prima, niets te backfillen
 
         nieuw = find_ticker_met_snelle_prijscheck(info["naam"], isin, beurs, transacties)
@@ -906,9 +836,6 @@ def backfill_verouderde_tickers(code, forceer=False):
             continue
 
         if _ticker_heeft_prijsprobleem(nieuwe_ticker, transacties):
-            # print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): oude ticker '{oude_ticker}' had een "
-                  # f"prijsprobleem, maar kandidaat '{nieuwe_ticker}' ook -- NIET overschreven, "
-                  # f"handmatige controle nodig.")
             continue
 
         cur.execute(
@@ -916,9 +843,6 @@ def backfill_verouderde_tickers(code, forceer=False):
             (nieuwe_ticker, code, isin, beurs),
         )
         gecorrigeerd += 1
-        # print(f"[backfill-ticker] ISIN={isin} (beurs={beurs}): ticker gecorrigeerd van '{oude_ticker}' "
-              # f"naar '{nieuwe_ticker}' ({cur.rowcount} rij(en)) -- oude ticker had een prijsprobleem, "
-              # f"nieuwe niet.")
 
     conn.commit()
     cur.close()
@@ -930,8 +854,8 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
     """
     Leest (via vergelijk_prijs_op_datum's eigen ticker_prijscheck-cache) of
     de laatste transactieprijs van deze positie afwijkt van Yahoo — voor
-    gebruik bij ELK bezoek aan een opgeslagen portfolio (analyze_transacties
-    in app.py), niet alleen direct na de upload. Roept BEWUST
+    gebruik bij ELK bezoek aan een opgeslagen portfolio (via
+    ticker_waarschuwingen_voor_transacties), niet alleen direct na de upload. Roept BEWUST
     find_ticker_detailed() niet aan (dat doet altijd een live yahooquery-
     zoekopdracht, nooit gecached) en doet geen kandidaten-escalatie (die
     heeft dezelfde beperking) — de ticker is hier al bekend (opgeslagen in
@@ -980,15 +904,15 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
         f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
         f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
     )
-    # print(f"[openfigi-check] ⚠️ {isin}: {extra_waarschuwing}")
     return f"{boodschap}\n{extra_waarschuwing}" if boodschap else extra_waarschuwing
 
 
 def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
     """
     Verzamelt prijswaarschuwing_voor_ticker()-meldingen voor elke unieke
-    ticker in transacties_df — gebruikt door analyze_transacties() in app.py
-    bij ELK bezoek aan een portfolio (niet alleen direct na de upload), zie
+    ticker in transacties_df — gebruikt door analyze_transacties_kern()
+    (portfolio_orchestratie.py) bij ELK bezoek aan een portfolio (niet
+    alleen direct na de upload), zie
     prijswaarschuwing_voor_ticker() hierboven voor waarom dat in het
     gangbare geval geen nieuwe Yahoo-calls kost.
 
@@ -1071,20 +995,12 @@ def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):
     volgende logische stap.
 
     Geeft een lijst van resultaat-dicts terug, in dezelfde volgorde als
-    'posities' (dus niet per se de volgorde waarin ze klaar zijn). Logt de
-    tijd per positie apart (i.p.v. alleen de totale duur, die de aanroeper
-    zelf al logt) zodat zichtbaar wordt welke specifieke positie traag is.
+    'posities' (dus niet per se de volgorde waarin ze klaar zijn).
     """
-    def _verifieer_met_timing(naam, isin, beurs, transacties):
-        t0 = time.time()
-        resultaat = verifieer_ticker_met_prijs(naam, isin, beurs, transacties)
-        # print(f"[ticker-zekerheid] positie {isin} ({beurs}) klaar in {time.time() - t0:.1f}s")
-        return resultaat
-
     resultaten = [None] * len(posities)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_naar_index = {
-            executor.submit(_verifieer_met_timing, naam, isin, beurs, transacties): i
+            executor.submit(verifieer_ticker_met_prijs, naam, isin, beurs, transacties): i
             for i, (naam, isin, beurs, transacties) in enumerate(posities)
         }
         for future in as_completed(future_naar_index):

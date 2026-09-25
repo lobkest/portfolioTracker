@@ -10,11 +10,9 @@ behalve TestBackfillHighLowDoUpdate, die bewust de echte database raakt
 (net als TestPrijscheckCache aldaar) om het bekende ON CONFLICT DO NOTHING-
 patroon te regressietesten.
 
-_haal_koers_en_dagrange_op() combineert sinds kort _haal_slotkoers_op() en
-_haal_dagrange_op() tot één yf.download()-call voor het pad hieronder waar
-altijd beide nodig zijn (zie CLAUDE.md/opdracht_slotkoers_dagrange_
-samenvoegen.md) -- deze tests mocken daarom die gecombineerde functie
-i.p.v. de twee losse.
+_haal_koers_en_dagrange_op() haalt slotkoers en dagrange in één
+yf.download()-call op voor het pad hieronder waar altijd beide nodig zijn
+-- deze tests mocken daarom die gecombineerde functie.
 """
 import os
 import sys
@@ -34,7 +32,7 @@ from ticker_prijscheck import DAGRANGE_TOLERANTIE
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
-# blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
+# blijven -- _openfigi_root_matches() geeft dan None terug (geen oordeel).
 #
 # Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix (zie
 # CLAUDE.md/opdracht_alternatieve_kandidaten_dagrange.md) doet

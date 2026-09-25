@@ -154,12 +154,12 @@ class TestComputeLandSectorVerdelingTopVelden(unittest.TestCase):
         self.assertNotIn("Spain", top)  # plek 12 (25)
         self.assertAlmostEqual(top["Overig"]["ETF_A"], 55.0)
 
+        # Europa-variant: 8 niet-Europese landen + "Europe" = 9 posten, dus
+        # geen Overig. Europe = 1000 x (0.065 + 0.05 + 0.03 + 0.025) = 170.
         europa_top = resultaat["land_per_bron_europa_top"]
-        self.assertEqual(europa_top, resultaat["land_per_bron_europa"])
+        self.assertEqual(len(europa_top), 9)
         self.assertNotIn("Overig", europa_top)
-
-        # De ruwe velden blijven onbeperkt (building block, eigen tests).
-        self.assertEqual(len(resultaat["land_per_bron"]), 12)
+        self.assertAlmostEqual(europa_top["Europe"]["ETF_A"], 170.0)
 
 
 if __name__ == "__main__":

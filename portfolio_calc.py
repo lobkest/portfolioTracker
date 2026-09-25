@@ -1,9 +1,10 @@
 """
 Kern-tijdreeks-/holdings-berekeningen op transacties_df + price_data:
 split-correctie en de per-dag/per-ticker waarde-/geïnvesteerd-tijdreeksen
-achter Home, Per aandeel en Per aandeel aankoop.
+achter Home, Per aandeel en Per aandeel aankoop (incl. het aantal
+aangehouden stuks voor /ticker-koers-bereik, holdings_op_datums).
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import pandas as pd
 
@@ -40,25 +41,15 @@ def compute_split_adjusted_shares(transacties_df):
             (real_trades["koers"] == 0) & (real_trades["adj_aantal"] > 0)
         ].sort_values("datum")
 
-        if conversion_rows.empty:
-            # Bewust een normale print (niet dprint): dit signaleert een
-            # STILLE fout in de rendementsberekening (aandelenaantal klopt
-            # vanaf hier niet meer) en hoort daarom net zo zichtbaar te zijn
-            # als de andere ⚠️-waarschuwingen elders in het project, i.p.v.
-            # alleen zichtbaar met debug-logging aan.
-            pass
-            # print(f"[split-detect]   ⚠️ GEEN conversion-rij gevonden (real trade met koers=0 en "
-                  # f"aantal>0) ondanks {len(ca_rows)} corporate-action rij(en) voor ISIN={isin} "
-                  # f"('{product_naam}') — deze split wordt NIET verwerkt! Aandelenaantal/rendement "
-                  # f"voor '{product_naam}' klopt dan niet vanaf hier.")
-
+        # Geen conversierij = een STILLE fout in de rendementsberekening:
+        # het aandelenaantal klopt vanaf hier niet meer (wordt niet gelogd).
         for _, conv in conversion_rows.iterrows():
             conv_date = conv["datum"]
             eerdere_trades = real_trades[(real_trades["datum"] < conv_date) & (real_trades["koers"] > 0)]
             shares_before = float(eerdere_trades["adj_aantal"].sum())
             if shares_before <= 0:
                 dprint(f"[split-detect]   conversie op {conv_date}: shares_before={shares_before} "
-                       f"(<=0) — overgeslagen, kan geen ratio berekenen")
+                       f"(<=0) - overgeslagen, kan geen ratio berekenen")
                 continue
 
             last_real_date = eerdere_trades["datum"].max()
@@ -68,12 +59,10 @@ def compute_split_adjusted_shares(transacties_df):
             ].sum())
             if new_shares <= 0:
                 dprint(f"[split-detect]   conversie op {conv_date}: new_shares={new_shares} (<=0) "
-                       f"— overgeslagen")
+                       f"- overgeslagen")
                 continue
 
             ratio = (shares_before + new_shares) / shares_before
-            # print(f"[split] {isin} ('{product_naam}'): split gedetecteerd op {conv_date}, "
-                  # f"{shares_before:.4f} -> {shares_before + new_shares:.4f} (ratio {ratio:.4f}x)")
 
             mask = (
                 (df["isin"] == isin)
@@ -91,17 +80,12 @@ def compute_value_over_time(transacties_df, price_data):
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
-    ontbrekend = [t for t in transacties_df["ticker"].unique() if t not in price_data.columns]
-    if ontbrekend:
-        pass
-        # print(f"[waarde] ⚠️ tickers zonder koersdata, worden genegeerd in totale waarde: {ontbrekend}")
-
     if not price_data.empty:
         laatste_koersdatum = price_data.index.max()
         na_laatste_koers = transacties_df[pd.to_datetime(transacties_df["datum"]) > laatste_koersdatum]
         if not na_laatste_koers.empty:
-            print(f"[waarde] ⚠️ {len(na_laatste_koers)} transactie(s) met datum ná de laatste "
-                  f"beschikbare koersdatum ({laatste_koersdatum.date()}) — deze tellen NIET mee "
+            print(f"[waarde] WARN {len(na_laatste_koers)} transactie(s) met datum na de laatste "
+                  f"beschikbare koersdatum ({laatste_koersdatum.date()}) - deze tellen NIET mee "
                   f"in de waarde-tijdreeks (price_data.index loopt niet ver genoeg door). "
                   f"Mogelijk is de koersencache verouderd.")
 
@@ -111,8 +95,8 @@ def compute_value_over_time(transacties_df, price_data):
     trade_i = 0
 
     # Snelle dict/array-toegang i.p.v. price_data.loc[date, t] per iteratie
-    # (zie CLAUDE.md, ".loc-overhead wegnemen") -- zelfde loop-structuur en
-    # -volgorde, alleen de koerslookup is nu een goedkope array-index.
+    # (.loc-overhead) -- zelfde loop-structuur en -volgorde, alleen de
+    # koerslookup is nu een goedkope array-index.
     prijs_per_ticker = {t: price_data[t].to_numpy() for t in tickers}
 
     for i, date in enumerate(price_data.index):
@@ -140,15 +124,6 @@ def compute_per_ticker(transacties_df, price_data):
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
 
-    if not price_data.empty:
-        laatste_koersdatum = price_data.index.max()
-        na_laatste_koers = transacties_df[pd.to_datetime(transacties_df["datum"]) > laatste_koersdatum]
-        if not na_laatste_koers.empty:
-            pass
-            # print(f"[per-ticker] ⚠️ {len(na_laatste_koers)} transactie(s) met datum ná de laatste "
-                  # f"beschikbare koersdatum ({laatste_koersdatum.date()}) — deze tellen NIET mee "
-                  # f"in de per-ticker-tijdreeks. Mogelijk is de koersencache verouderd.")
-
     result = {}
     for ticker in tickers:
         trades = transacties_df[transacties_df["ticker"] == ticker].reset_index(drop=True)
@@ -161,9 +136,7 @@ def compute_per_ticker(transacties_df, price_data):
         prev_invested = None
 
         # Snelle array-toegang i.p.v. price_data.loc[date, ticker] per
-        # iteratie (zie CLAUDE.md, ".loc-overhead wegnemen") -- zelfde
-        # loop-structuur en -volgorde, alleen de koerslookup is nu een
-        # goedkope array-index.
+        # iteratie (.loc-overhead), zelfde loop-structuur en -volgorde.
         prijzen_array = price_data[ticker].to_numpy()
 
         for i, date in enumerate(price_data.index):
@@ -182,8 +155,8 @@ def compute_per_ticker(transacties_df, price_data):
                 delta_aantal = float(row["aantal"])
                 # totaal_eur incl. AutoFX/transactiekosten; alleen gebruikt
                 # voor de cashflow-check (corporate-action-rijen hebben
-                # totaal_eur=0) en de verkoopkant, die bewust ongewijzigd
-                # blijft — zie CLAUDE.md, "GAK gebruikt verkeerde kolom".
+                # totaal_eur=0) en de verkoopkant, die bewust op totaal_eur
+                # blijft (de aankoopkant gebruikt waarde_eur, zie hieronder).
                 delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
                 if delta_aantal > 0:
                     # Kostenbasis o.b.v. de kale Waarde EUR (aantal x koers,
@@ -212,7 +185,7 @@ def compute_per_ticker(transacties_df, price_data):
             # duidelijke oorzaak (helpt ISIN-migraties / verkeerde splits opsporen)
             if prev_waarde is not None and prev_invested not in (None, 0):
                 if abs(invested - prev_invested) > 0.5 * abs(prev_invested) + 50:
-                    dprint(f"[per-ticker:{ticker}] grote sprong in geïnvesteerd op {date.date()}: "
+                    dprint(f"[per-ticker:{ticker}] grote sprong in geinvesteerd op {date.date()}: "
                            f"{prev_invested:.2f} -> {invested:.2f}")
                 if pd.notna(prijs) and prev_waarde > 0 and abs(waarde - prev_waarde) > 0.5 * prev_waarde + 50 \
                         and holdings != 0:
@@ -298,9 +271,7 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
         rows = []
 
         # Snelle array-toegang i.p.v. price_data.loc[date, ticker] per
-        # iteratie (zie CLAUDE.md, ".loc-overhead wegnemen") -- zelfde
-        # loop-structuur en -volgorde, alleen de koerslookup is nu een
-        # goedkope array-index.
+        # iteratie (.loc-overhead), zelfde loop-structuur en -volgorde.
         prijzen_array = price_data[ticker].to_numpy()
 
         for i, date in enumerate(price_data.index):
@@ -401,51 +372,3 @@ def holdings_op_datums(trades_df, datums):
     # + 0.0 maakt van -0.0 (na afronden van float-ruis) een gewone 0.0.
     return [round(float(h), 6) + 0.0 for h in stand]
 
-
-def debug_position(transacties_df, price_data, ticker=None, product_contains=None):
-    """
-    Handmatige diagnose-helper voor 1 positie. Roep aan met bv.:
-        debug_position(transacties_df, price_data, product_contains="S&P 500")
-    of
-        debug_position(transacties_df, price_data, ticker="VUSA.AS")
-
-    Print: alle ruwe transactierijen, split-adjustment resultaat, en of/vanaf
-    wanneer er koersdata is.
-    """
-    print("\n" + "=" * 70)
-    print("DEBUG POSITION")
-    print("=" * 70)
-
-    df = transacties_df.copy()
-    if product_contains:
-        mask = df["product"].astype(str).str.upper().str.contains(product_contains.upper())
-        df = df[mask]
-    if ticker:
-        df = df[df["ticker"] == ticker]
-
-    if df.empty:
-        print("Geen transacties gevonden voor dit filter.")
-        return
-
-    print(f"\n{len(df)} transactie(s) gevonden. Unieke ISIN's: {df['isin'].unique().tolist()}")
-    print(f"Unieke tickers: {df['ticker'].unique().tolist() if 'ticker' in df.columns else '(nog niet toegekend)'}")
-    print(f"Unieke product-namen: {df['product'].unique().tolist()}")
-
-    print("\nAlle rijen (gesorteerd op datum):")
-    cols_to_show = [c for c in ["datum", "isin", "product", "beurs", "ticker", "aantal",
-                                 "adj_aantal", "koers", "totaal_eur"] if c in df.columns]
-    for _, r in df.sort_values("datum").iterrows():
-        print("  " + " | ".join(f"{c}={r[c]}" for c in cols_to_show))
-
-    if ticker and ticker in price_data.columns:
-        serie = price_data[ticker]
-        eerste = serie.first_valid_index()
-        laatste = serie.last_valid_index()
-        n_nan = serie.isna().sum()
-        print(f"\nKoersdata voor '{ticker}': eerste geldige waarde op {eerste}, laatste op {laatste}, "
-              f"{n_nan} NaN-waarden van de {len(serie)} dagen in price_data.")
-    elif ticker:
-        print(f"\n⚠️ '{ticker}' zit niet (of nog niet) in price_data.columns: "
-              f"{list(price_data.columns)[:20]}...")
-
-    print("=" * 70 + "\n")

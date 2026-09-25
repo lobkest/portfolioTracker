@@ -221,7 +221,7 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
         with redirect_stdout(buf):
             result = portfolio_calc.compute_value_over_time(transacties_df, price_data)
 
-        self.assertIn("ná de laatste beschikbare koersdatum", buf.getvalue())
+        self.assertIn("na de laatste beschikbare koersdatum", buf.getvalue())
         # bestaand (nog niet gewijzigd) gedrag: de transactie van 2024-01-05
         # valt buiten price_data.index en telt dus niet mee -- de
         # waarschuwing maakt dit nu zichtbaar i.p.v. stil te falen
@@ -243,7 +243,7 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
         with redirect_stdout(buf):
             portfolio_calc.compute_value_over_time(transacties_df, price_data)
 
-        self.assertNotIn("ná de laatste beschikbare koersdatum", buf.getvalue())
+        self.assertNotIn("na de laatste beschikbare koersdatum", buf.getvalue())
 
 
 if __name__ == "__main__":

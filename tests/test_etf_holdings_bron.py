@@ -8,7 +8,7 @@ locale-bewuste parsing werd bv. gewicht '5,25%' stilzwijgend 525 i.p.v.
 5.25.
 
 Draait geheel offline: kleine, handgemaakte voorbeeld-CSV/XLSX-content in
-de test zelf, geen echte downloads (dat is test_holdings_url()'s taak, een
+de test zelf, geen echte downloads (een nieuwe bron-URL controleren is een
 losse handmatige verificatiestap, geen onderdeel van deze geautomatiseerde
 suite).
 """
@@ -166,7 +166,7 @@ class TestVertaalLandNl(unittest.TestCase):
         self.assertEqual(_vertaal_land_nl("Absoluut Nergensland"), "Absoluut Nergensland")
 
     def test_alle_landen_uit_de_echte_iwda_imae_emim_data_zijn_gedekt(self):
-        # Vastgelegd tijdens het testen van de echte bronnen (test_holdings_url),
+        # Vastgelegd tijdens het testen van de echte bronnen,
         # zodat een toekomstige wijziging in NL_LAND_VERTALING niet per
         # ongeluk een van deze weglaat.
         verwacht = [

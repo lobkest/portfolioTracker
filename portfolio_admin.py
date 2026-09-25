@@ -3,7 +3,7 @@ Portfolio-code-beheer en upload-matching: genereren/valideren van de
 3-letter-portfoliocode, en het herkennen of een nieuwe upload bij een
 bestaande portfolio hoort (via Order ID-overlap).
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import random
 import re

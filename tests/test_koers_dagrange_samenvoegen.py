@@ -5,11 +5,10 @@ samenvoegen.md).
 
 Achtergrond: vergelijk_prijs_op_datum() deed voorheen, in het pad waar de
 prijs nog niet gecached is, twee losse yf.download()-aanroepen voor exact
-dezelfde ticker + periode -- één voor de slotkoers (_haal_slotkoers_op),
-één voor de dagrange (_haal_dagrange_op). _haal_koers_en_dagrange_op() doet
-dit nu in één download. _haal_slotkoers_op()/_haal_dagrange_op() zelf
-blijven ongewijzigd bestaan voor het FX-pad resp. de ticker_prijscheck-
-cache-backfill, die er maar één van nodig hebben.
+dezelfde ticker + periode -- één voor de slotkoers, één voor de dagrange
+(_haal_dagrange_op). _haal_koers_en_dagrange_op() doet dit nu in één
+download. _haal_dagrange_op() blijft bestaan voor de ticker_prijscheck-
+cache-aanvulling, die alleen de dagrange nodig heeft.
 
 Draait geheel offline: ticker_prijscheck.yf.download wordt gemockt, geen echte
 netwerkcalls.

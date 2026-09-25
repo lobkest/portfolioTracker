@@ -139,29 +139,6 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertEqual(result["resultaten"], [])
 
 
-class TestOpenfigiRootBekend(unittest.TestCase):
-    def test_root_gevonden_exact(self):
-        resultaten = [{"ticker": "BY6", "exchCode": "GR"}, {"ticker": "1211", "exchCode": "HK"}]
-        self.assertIs(ticker_matching._openfigi_root_bekend("BY6.MU", resultaten), True)
-
-    def test_root_gevonden_met_suffix_variant(self):
-        resultaten = [{"ticker": "1211HKD", "exchCode": "X2"}]
-        self.assertIs(ticker_matching._openfigi_root_bekend("1211.HK", resultaten), True)
-
-    def test_root_niet_gevonden(self):
-        resultaten = [{"ticker": "VWRL", "exchCode": "NA"}, {"ticker": "VGWL", "exchCode": "GR"}]
-        self.assertIs(ticker_matching._openfigi_root_bekend("VWCE.AS", resultaten), False)
-
-    def test_geen_oordeel_zonder_ticker(self):
-        self.assertIsNone(ticker_matching._openfigi_root_bekend(None, [{"ticker": "AAPL"}]))
-
-    def test_geen_oordeel_zonder_resultaten(self):
-        self.assertIsNone(ticker_matching._openfigi_root_bekend("AAPL", []))
-
-    def test_ticker_zonder_punt_geen_crash(self):
-        self.assertIs(ticker_matching._openfigi_root_bekend("AAPL", [{"ticker": "AAPL"}]), True)
-
-
 class TestOpenfigiRootMatches(unittest.TestCase):
     def test_telt_alle_matchende_rijen_ongeacht_beurs(self):
         resultaten = [
@@ -177,6 +154,14 @@ class TestOpenfigiRootMatches(unittest.TestCase):
     def test_none_zonder_ticker_of_resultaten(self):
         self.assertIsNone(ticker_matching._openfigi_root_matches(None, [{"ticker": "AAPL"}]))
         self.assertIsNone(ticker_matching._openfigi_root_matches("AAPL", []))
+
+    def test_root_gevonden_met_suffix_variant(self):
+        # OpenFIGI-ticker met valuta-suffix ('1211HKD') telt als match op root '1211'.
+        resultaten = [{"ticker": "1211HKD", "exchCode": "X2"}]
+        self.assertEqual(ticker_matching._openfigi_root_matches("1211.HK", resultaten), 1)
+
+    def test_ticker_zonder_punt_geen_crash(self):
+        self.assertEqual(ticker_matching._openfigi_root_matches("AAPL", [{"ticker": "AAPL"}]), 1)
 
 
 class TestVoegOpenfigiCheckToe(unittest.TestCase):

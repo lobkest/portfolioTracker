@@ -12,8 +12,8 @@ via _fx_prijzen_serie(), die de bestaande prijzen-tabel/get_prices()-cache
 hergebruikt (een FX-paar is voor yfinance gewoon een ticker).
 
 Daarnaast stond het rate-limit-detectiepatroon (+ oplopende backoff)
-drie keer bijna-identiek uitgeschreven in _fetch_yf_info, _haal_slotkoers_op
-en _haal_dagrange_op -- nu gedeeld via _met_rate_limit_retry().
+bijna-identiek uitgeschreven in _fetch_yf_info en de _haal_*_op-functies
+in ticker_prijscheck.py -- nu gedeeld via _met_rate_limit_retry().
 
 Draait geheel offline: get_db_connection/download_met_retry/save_prices/
 yf.Ticker/time.sleep worden gemockt, geen echte database- of Yahoo-calls.
@@ -202,8 +202,8 @@ class TestIsRateLimitFout(unittest.TestCase):
 
 
 class TestMetRateLimitRetry(unittest.TestCase):
-    """Gedeelde retry/backoff-helper voor _fetch_yf_info, _haal_slotkoers_op
-    en _haal_dagrange_op."""
+    """Gedeelde retry/backoff-helper voor _fetch_yf_info en de _haal_*_op-
+    functies in ticker_prijscheck.py."""
 
     @patch("yahoo_client.time.sleep")
     def test_rate_limit_gevolgd_door_succes_retryt_met_oplopende_backoff(self, mock_sleep):
@@ -215,7 +215,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
                 raise Exception("Too Many Requests")
             return "ok"
 
-        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, pogingen=3, wachttijd=8)
 
         self.assertEqual(resultaat, "ok")
         self.assertIsNone(fout)
@@ -228,7 +228,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         def actie():
             raise Exception("rate limit exceeded")
 
-        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=2, wachttijd=5)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, pogingen=2, wachttijd=5)
 
         self.assertIsNone(resultaat)
         self.assertIsInstance(fout, Exception)
@@ -250,7 +250,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
                 )
             return "ok"
 
-        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=8)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, pogingen=3, wachttijd=8)
 
         self.assertEqual(resultaat, "ok")
         self.assertIsNone(fout)
@@ -262,7 +262,7 @@ class TestMetRateLimitRetry(unittest.TestCase):
         def actie():
             raise ValueError("iets heel anders")
 
-        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, "test", "'X'", pogingen=3, wachttijd=5)
+        resultaat, fout = yahoo_client._met_rate_limit_retry(actie, pogingen=3, wachttijd=5)
 
         self.assertIsNone(resultaat)
         self.assertIsInstance(fout, ValueError)

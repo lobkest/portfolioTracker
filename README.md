@@ -3,8 +3,9 @@
 Webapp waarmee je een DEGIRO-transactiebestand (Excel) uploadt. De app slaat
 de data op onder een gegenereerde 3-letter-code, waarmee je later het
 dashboard kunt terugzien zonder opnieuw te hoeven uploaden. De app
-analyseert de data (rendement, verdeling ETF/aandeel, land/sector, dividend,
-per-aandeel-detail) en toont dit interactief.
+analyseert de data (rendement, XIRR/TWR, verdeling ETF/aandeel, land/sector,
+onderliggende bedrijven, ETF-overlap, dividend, per-aandeel-detail) en toont
+dit interactief.
 
 Oorspronkelijk gestart als leerproject om Python (Flask) en JavaScript beter te leren, inmiddels
 uitgegroeid tot een substantiële persoonlijke
@@ -37,73 +38,146 @@ VS Code bekeken en pas na eigen review handmatig gecommit en gepusht.
 - **Database**: PostgreSQL via Neon (serverless, i.v.m. Render's ephemeral
   filesystem)
 - **Frontend**: single-page application — één `templates/index.html` +
-  `static/js/app.js` (vanilla JS, geen framework), Chart.js (incl. zoom/pan
-  en datalabels-plugin)
+  vanilla JS in `static/js/` (geen framework), Chart.js (incl. zoom/pan-,
+  datalabels- en annotation-plugin)
 - **Hosting**: Render, gunicorn als productieserver
-- **Tests**: Python `unittest` (~300+ tests) + JS-tests via `node --test`,
+- **Tests**: Python `unittest` (ruim 400 tests) + JS-tests via `node --test`,
   draait automatisch via GitHub Actions bij elke push
-- **Ticker-validatie**: OpenFIGI als aanvullende diagnostische laag bovenop
-  yfinance/yahooquery
+- **Ticker-validatie**: prijsvergelijking met Yahoo's historische koersen,
+  plus OpenFIGI als extra ISIN-gebaseerd signaal bovenop yahooquery
 
 ## Bestandsstructuur
 
 ```
 portfolioTracker/
-├── app.py                  → Flask routes, orkestratie
-├── db.py                   → DB-connectie, init_db(), price/dividend-opslag
-├── analysis.py              → alle analyselogica: ticker-zoeken en
-│                               -validatie, koersen ophalen, split-correctie,
-│                               rendement- en dividendberekeningen,
-│                               land/sector-verdeling, statistieken
+├── app.py                      → Flask-routes (+ orkestratie van de upload)
+├── db.py                       → DB-connectie, init_db(), opslag en caches
+├── upload_verwerking.py        → taakfuncties achter de upload
+├── portfolio_orchestratie.py   → bouwt de dashboard-respons op
+├── portfolio_calc.py           → split-correctie, waarde-tijdreeksen
+├── portfolio_verdeling.py      → verdeling, land/sector, bedrijven, ETF-overlap
+├── statistieken.py             → rendement, XIRR, TWR, GAK, jaaroverzicht
+├── dividend.py                 → rekeningoverzicht en dividend
+├── prijzen.py                  → koersen ophalen/cachen, valuta naar EUR
+├── ticker_matching.py          → ticker zoeken (yahooquery, overrides, OpenFIGI)
+├── ticker_prijscheck.py        → prijsvergelijking Yahoo ↔ DEGIRO
+├── ticker_zekerheid.py         → zekerheidsoordeel per ticker
+├── ticker_classificatie.py     → ETF/aandeel, land/sector/holdings
+├── etf_holdings_provider.py    → volledige holdings bij de fondsprovider
+├── yahoo_client.py, portfolio_admin.py, transactie_utils.py, debug_utils.py
 ├── requirements.txt
-├── .env                     → DATABASE_URL (niet in git)
-├── templates/
-│   └── index.html            → enige pagina, SPA
+├── .env                        → omgevingsvariabelen (niet in git)
+├── templates/index.html        → enige pagina, SPA
 ├── static/
 │   ├── css/style.css
-│   ├── js/app.js              → alle frontendlogica
+│   ├── js/                     → app.js + kleine pure modules (prognose,
+│   │                              transacties, bedrijven, menu, infotip)
 │   └── favicon/                → favicon + PWA-manifest
-├── tests/                    → unittest-suite
-├── .github/workflows/tests.yml → CI, draait tests bij elke push
-├── CLAUDE.md                 → projectinstructies/context voor Claude Code
-├── class_degiro.py           → legacy referentiescript (poort-logica, o.a.
-│                                split-correctie, oude XIRR/dividend-code)
-└── trading_degiro.py         → legacy referentiescript, idem
+├── tests/                      → unittest-suite + JS-tests
+├── docs/CODE_OVERZICHT.md      → uitgebreid code-overzicht (architectuur, flows)
+└── .github/workflows/tests.yml → CI, draait tests bij elke push
 ```
 
-`class_degiro.py` en `trading_degiro.py` zijn de oude, niet-actief-gebruikte
-scripts van vóór dit full-stack project, puur relevant als referentiemateriaal voor
-hoe bepaalde berekeningen (split-correctie, dividend, XIRR) oorspronkelijk
-zijn aangepakt.
+Wil je weten hoe alles samenhangt (routes, datastroom, database, frontend),
+lees dan [`docs/CODE_OVERZICHT.md`](docs/CODE_OVERZICHT.md).
 
 ## Functionaliteit
 
 **Upload-flow**
-1. Excel inlezen (Transacties + optioneel Rekeningoverzicht), Order ID's
-   apart uitgelezen via openpyxl
+1. Excel inlezen (Transacties + optioneel Rekeningoverzicht voor dividend),
+   Order ID's apart uitgelezen via openpyxl
 2. Rijen zonder echte Order ID krijgen een synthetische, deterministische ID
 3. Vergelijking met bestaande portfolio's op Order ID-sets: bestaande code
    aangevuld, of nieuwe 3-letter-code aangemaakt
 4. Ticker-zoeken per (ISIN, Beurs), met progressief inkorten van de
-   productnaam en handmatige overrides voor bekende edge cases
-5. Stock-split-detectie en -correctie
-6. Koersdata ophalen (cache + retry bij rate limiting + EUR-conversie)
-7. Dashboarddata teruggeven als JSON, zwaardere verrijking (ticker-
-   zekerheid, land/sector) lazy achteraf opgehaald
+   productnaam, handmatige overrides voor bekende edge cases en een lichte
+   prijscontrole (bij een afwijking worden alternatieve tickers doorgerekend)
+5. Koersdata ophalen (cache + retry bij rate limiting + EUR-conversie),
+   stock-split-correctie
+6. Dashboarddata teruggeven als JSON; het netwerk-zware deel (verdeling,
+   land/sector, bedrijven, ETF-overlap) wordt daarna lazy opgehaald
 
-**Dashboard (SPA, sidebar-menu)**
-- **Portfolio-home** — waarde vs. geïnvesteerd over tijd
-- **Rendement** — waarde-min-geïnvesteerd, XIRR/TWR
-- **Per aandeel** — individuele waarde/geïnvesteerd-grafiek per positie,
-  vergelijk met benchmark of met een andere eigen positie
+Opties op het startscherm: **Niet opslaan** (eenmalige analyse, er wordt
+niets in de database bewaard) en **Ticker-informatie voor alle posities
+opnieuw bepalen**. Een bestaand portfolio haal je op met je code.
+
+**Dashboard (SPA, sidebar-menu, op mobiel een hamburgermenu)**
+- **Portfolio-home** — waarde vs. geïnvesteerd over tijd, totalen
+- **Rendement** — waarde-min-geïnvesteerd, optioneel vergeleken met een
+  benchmark (S&P 500, Nasdaq 100, AEX) of een eigen positie
+- **Per aandeel** — waarde/geïnvesteerd per positie, met land/sector-
+  verdeling bij een ETF
+- **Per aandeel aankoop** — koers met aankoop-/verkoopmomenten en aantal
+  aandelen, met knoppen om meer koershistorie te laden
 - **Verdeling** — taartdiagram huidige posities (ETF/aandeel-onderscheid)
-- **Land / Sector** — portfoliobrede en per-ETF-verdeling, met volledige
-  dekking waar een providerbron beschikbaar is
-- **Statistieken** — GAK, rendement per positie, totalen, all-time high,
-  transactiekosten
-- **Ticker-zekerheid** — per positie zichtbaar welke ticker gevonden is, hoe
-  zeker die match is, en een prijsvergelijking als extra check
-- **Instellingen** — bijnaam per positie instellen/resetten
+- **Land / Sector** — portfoliobrede verdeling als taart of gestapelde staaf
+  per bron, met volledige dekking waar een providerbron beschikbaar is
+- **Top N bedrijven** — onderliggende bedrijven via ETF's en losse aandelen
+- **ETF-overlap** — overlap-matrix tussen ETF's, met detail per paar
+- **Statistieken** — GAK, rendement per positie, verkochte posities,
+  rendement per jaar, XIRR/TWR, all-time high, transactiekosten
+- **Transacties** — sorteerbaar, gepagineerd transactieoverzicht
+- **XIRR & rendement** — rendement%, XIRR en TWR over de tijd
+- **Prognose** — projectie van de waarde met instelbaar rendement en inleg
+- **Dividend** — ontvangen dividend (uit het rekeningoverzicht), cumulatief
+  en per uitkering
+- **Instellingen** — data verwijderen, code wijzigen, bijnaam per positie,
+  en **Ticker-zekerheid**: per positie welke ticker gevonden is, hoe zeker
+  die match is, met prijsvergelijking en alternatieven
+
+Tabbladen die een opgeslagen code nodig hebben (o.a. Dividend, Transacties,
+Instellingen) zijn niet beschikbaar bij een "Niet opslaan"-analyse.
+
+## Lokaal draaien (Windows cmd)
+
+Vereist: Python (de CI gebruikt 3.13) en een PostgreSQL-database (bv. Neon).
+
+```
+:: virtuele omgeving aanmaken en activeren
+python -m venv venv
+venv\Scripts\activate
+
+:: dependencies installeren
+python -m pip install -r requirements.txt
+
+:: app starten (http://127.0.0.1:5000)
+python app.py
+```
+
+Maak vóór het starten een `.env`-bestand in de projectmap met:
+
+| Variabele | Verplicht | Waarvoor |
+|---|---|---|
+| `DATABASE_URL` | ja | verbindingsstring naar de PostgreSQL-database |
+| `OPENFIGI_API_KEY` | nee | optionele API-key voor OpenFIGI |
+
+`init_db()` draait bij het importeren van `app.py` en maakt de tabellen aan
+als ze nog niet bestaan; zonder `DATABASE_URL` start de app dus niet.
+Zie je lokaal een `UnicodeEncodeError` bij emoji in de logs, zet dan eerst
+`set PYTHONUTF8=1`.
+
+## Tests
+
+```
+:: alle Python-tests
+python -m unittest discover -s tests -v
+
+:: JavaScript-tests (Node, zelfde commando als de CI)
+node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js
+```
+
+Let op: een deel van de Python-tests gebruikt de echte database uit
+`DATABASE_URL` (ook als die alleen in `.env` staat), met eigen test-codes die
+na afloop worden opgeruimd. Zonder `DATABASE_URL` worden die tests
+overgeslagen — zo draait de CI ze, zonder database.
+
+## Deploy
+
+De app draait op Render met gunicorn als productieserver; de database staat
+bij Neon (PostgreSQL). `init_db()` staat bewust buiten
+`if __name__ == "__main__":`, zodat hij ook onder gunicorn uitgevoerd wordt.
+Het startcommando en `DATABASE_URL` zijn in Render zelf ingesteld (er staat
+geen `Procfile` of `render.yaml` in de repo).
 
 ## Bekende eigenaardigheden (goed om te onthouden)
 
@@ -115,5 +189,6 @@ zijn aangepakt.
   berekeningen
 - Stock-splits worden door DEGIRO als NON TRADEABLE-rijen geboekt en moeten
   apart gecorrigeerd worden
-- yfinance's ISIN-lookup heeft een zeer lage matchrate. OpenFIGI is
-  betrouwbaarder voor ISIN-naar-ticker-validatie
+- Yahoo's zoekindex geeft niet altijd de juiste beursnotering terug; daarom
+  een prijscontrole, OpenFIGI als extra ISIN-check en handmatige overrides
+  per (ISIN, Beurs)

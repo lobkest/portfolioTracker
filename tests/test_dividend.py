@@ -10,11 +10,14 @@ Unnamed: 8 -> mutatie).
 import sys
 import os
 import unittest
+from datetime import date
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import dividend
 from dividend import verwerk_rekeningoverzicht_df, _koppel_valutaconversie_paren
 
 
@@ -198,6 +201,39 @@ class TestDividendConversieRichting(unittest.TestCase):
         paar = paren[0]
         self.assertEqual(paar["valuta"], "USD")
         self.assertAlmostEqual(paar["eur_bedrag"], 9.15, places=6)
+
+
+def _opgeslagen_dividend(datum, netto, **extra):
+    # Vorm zoals db.get_dividenden() een rij teruggeeft.
+    return {
+        "datum": datum, "product": "FONDS X", "isin": "IE0000000001", "valuta": "EUR",
+        "bruto_eur": netto, "belasting_eur": 0.0, "netto_eur": netto, **extra,
+    }
+
+
+class TestDividendSamenvattingHerinvesteerd(unittest.TestCase):
+    """bereken_dividend_samenvatting()["lijst"][].herinvesteerd is het veld
+    waarop de frontend het "herinvesteerd"-label toont -- moet altijd een
+    echte bool zijn. Database-aanroepen gemockt, dus offline."""
+
+    def _samenvatting(self, dividenden):
+        conn = MagicMock()
+        conn.cursor.return_value.fetchall.return_value = []
+        with patch.object(dividend, "get_dividenden", return_value=dividenden),              patch.object(dividend, "get_db_connection", return_value=conn):
+            return dividend.bereken_dividend_samenvatting("TST")
+
+    def test_vlag_komt_als_bool_in_de_lijst(self):
+        s = self._samenvatting([
+            _opgeslagen_dividend(date(2024, 3, 1), 1.50, herinvesteerd=True),
+            _opgeslagen_dividend(date(2024, 6, 1), 2.00, herinvesteerd=False),
+        ])
+        # Nieuwste eerst: 2024-06-01 (False), dan 2024-03-01 (True).
+        self.assertIs(s["lijst"][0]["herinvesteerd"], False)
+        self.assertIs(s["lijst"][1]["herinvesteerd"], True)
+
+    def test_ontbrekende_vlag_wordt_false(self):
+        s = self._samenvatting([_opgeslagen_dividend(date(2024, 3, 1), 1.50)])
+        self.assertIs(s["lijst"][0]["herinvesteerd"], False)
 
 
 class TestDividendGeenData(unittest.TestCase):

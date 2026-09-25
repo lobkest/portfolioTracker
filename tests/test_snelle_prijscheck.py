@@ -35,7 +35,7 @@ from ticker_zekerheid import (
 # (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
 # doen. Module-breed op "geen resultaten" gepatcht zodat de bestaande
-# tests hier offline en ongewijzigd blijven -- _openfigi_root_bekend()
+# tests hier offline en ongewijzigd blijven -- _openfigi_root_matches()
 # geeft dan None terug (geen oordeel), dus geen effect op deze tests.
 _openfigi_patcher = None
 
@@ -424,7 +424,6 @@ class TestBasisTickerZekerheidParallel(unittest.TestCase):
 
         self.assertEqual([r["ticker"] for r in resultaten], ["TICK-ISINA", "TICK-ISINB", "TICK-ISINC"])
         for r in resultaten:
-            self.assertTrue(r["basis_alleen"])
             self.assertEqual(r["prijs_checks"], [])
 
 

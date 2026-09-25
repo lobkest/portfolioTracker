@@ -197,9 +197,11 @@ def get_ticker_details(tickers):
     return result
 
 
-# Land/sector-lookups en ETF-holdings/sectorverdeling veranderen traag
-# (samenstelling wijzigt hooguit maandelijks) — cache 30 dagen om niet bij
-# elke upload opnieuw tegen Yahoo te hoeven, net als ticker_info hierboven.
+# Land/sector-lookups, ETF-holdings/sectorverdeling en splits veranderen
+# traag (samenstelling wijzigt hooguit maandelijks) — cache 30 dagen om niet
+# bij elke upload opnieuw tegen Yahoo te hoeven. (ticker_info hierboven
+# verloopt nooit; die wordt alleen herhaald als de rij "stale" is, zie
+# _ticker_details_met_cache in ticker_classificatie.py.)
 CACHE_GELDIGHEID = "30 days"
 
 
@@ -419,8 +421,8 @@ def save_splits(ticker, splits):
 def get_cached_openfigi(isin):
     """Geeft de gecachete OpenFIGI-resultatenlijst terug, of None als er nog
     niets gecached is voor deze ISIN. Permanente cache (geen vervaltermijn) --
-    zelfde redenering als ticker_splits: een ISIN->ticker-mapping verandert
-    vrijwel nooit."""
+    zelfde redenering als ticker_prijscheck: een ISIN->ticker-mapping
+    verandert vrijwel nooit."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("SELECT resultaten FROM openfigi_cache WHERE isin = %s", (isin,))
@@ -537,9 +539,6 @@ def save_dividenden(code, records):
         ],
     )
     conn.commit()
-    aantal_bekend = sum(1 for r in records if r["netto_eur"] is not None)
-    # print(f"[dividend-debug] save_dividenden: code='{code}', {len(records)} record(s) ge-upsert "
-          # f"({aantal_bekend} met een bekende netto_eur, {len(records) - aantal_bekend} met netto_eur=None)")
     cur.close()
     conn.close()
 
@@ -569,9 +568,6 @@ def get_dividenden(code):
         }
         for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd in rows
     ]
-    aantal_bekend = sum(1 for r in resultaat if r["netto_eur"] is not None)
-    # print(f"[dividend-debug] get_dividenden: code='{code}', {len(resultaat)} rij(en) opgehaald "
-          # f"({aantal_bekend} met een bekende netto_eur, {len(resultaat) - aantal_bekend} met netto_eur=None)")
     return resultaat
 
 

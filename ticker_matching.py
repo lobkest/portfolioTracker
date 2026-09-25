@@ -1,10 +1,9 @@
 """
 Ticker-resolutie/matching: welke Yahoo Finance-ticker hoort bij een
 DeGiro-productnaam/ISIN/beurs (yahooquery-zoekopdracht, progressief
-inkorten, handmatige overrides), plus het experimentele OpenFIGI-
-extra-validatiesignaal.
+inkorten, handmatige overrides), plus het OpenFIGI-extra-validatiesignaal.
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import os
 
@@ -32,9 +31,9 @@ BEURS_MAP = {
 
 # Handmatige overrides voor fondsen die yahooquery.search() niet (goed) vindt.
 # Overgenomen uit class_degiro.py — vul aan als je nog meer van dit soort
-# gevallen tegenkomt (print hieronder waarschuwt je als find_ticker() een
-# "blinde" quotes[0]-fallback moet gebruiken, dat is meestal het signaal om
-# hier iets aan toe te voegen).
+# gevallen tegenkomt (de WARN-dprint in _zoek_product_progressief/
+# find_ticker_detailed waarschuwt als er een "blinde" quotes[0]-fallback
+# nodig is, dat is meestal het signaal om hier iets aan toe te voegen).
 MANUAL_TICKER_OVERRIDES = {
     "VANGUARD S&P 500 UCITS": "VUSA.AS",
     "VANGUARD FTSE ALL-WORLD UCITS": "VWRL.AS",
@@ -64,7 +63,7 @@ MANUAL_TICKER_OVERRIDES_ISIN = {
     # yahooquery's naam-gebaseerde zoekopdracht vond hier de VERKEERDE
     # aandelenklasse (VWCE, de accumulerende variant, ISIN LU1737085518)
     # ondanks "Dis" in de productnaam. OpenFIGI's ISIN-lookup bevestigt de
-    # juiste ticker-root is VWRL, niet VWCE. Zie opdracht_vwce_correctie.md.
+    # juiste ticker-root is VWRL, niet VWCE.
     ("IE00B3RBWM25", "EAM"): "VWRL.AS",
 }
 
@@ -148,7 +147,7 @@ def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
         match = _kies_beurs_match(quotes, targets)
         if match:
             symbol, exch = match
-            dprint(f"[ticker]   ✅ beurs-match ({len(variant.split())} woorden): "
+            dprint(f"[ticker]   OK beurs-match ({len(variant.split())} woorden): "
                    f"'{variant}' -> {symbol} ({exch})")
             alternatieven = [
                 {"symbol": q.get("symbol"), "exchange": q.get("exchange")}
@@ -158,10 +157,10 @@ def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
 
     if eerste_quotes:
         symbol, alternatieven = _onzeker_fallback(eerste_quotes)
-        dprint(f"[ticker]   ⚠️ '{product}': GEEN match voor beurs '{beurs}' (verwacht {targets}) na "
-               f"{len(varianten)} poging(en) (progressief ingekort tot {min_woorden} woorden) — "
+        dprint(f"[ticker]   WARN '{product}': GEEN match voor beurs '{beurs}' (verwacht {targets}) na "
+               f"{len(varianten)} poging(en) (progressief ingekort tot {min_woorden} woorden) - "
                f"val terug op eerste resultaat van query '{eerste_query}': "
-               f"{symbol} ({eerste_quotes[0].get('exchange')}) — mogelijk fout! "
+               f"{symbol} ({eerste_quotes[0].get('exchange')}) - mogelijk fout! "
                f"Alle kandidaten van die zoekopdracht: "
                f"{[(q.get('symbol'), q.get('exchange')) for q in eerste_quotes]}")
         return symbol, "onzeker", alternatieven
@@ -172,9 +171,8 @@ def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
 def find_ticker_detailed(product, isin, beurs):
     """
     Zoekt de Yahoo Finance ticker op basis van productnaam of ISIN, en geeft
-    er een zekerheidsindicatie + alternatieven bij terug (voor het
-    Instellingen-ticker-overzicht). Bevat verder dezelfde matching-logica als
-    de oude find_ticker().
+    er een zekerheidsindicatie + alternatieven bij terug (basis voor zowel de
+    upload-ticker-resolutie als de Ticker-zekerheid-pagina).
 
     Geeft een dict terug:
         ticker:        gevonden symbool, of None
@@ -183,14 +181,15 @@ def find_ticker_detailed(product, isin, beurs):
                                       teruggevallen op het eerste zoekresultaat
                        "geen_match" — helemaal geen kandidaat gevonden
         alternatieven: lijst van {"symbol", "exchange"} van kandidaten die niet
-                       gekozen zijn (alleen relevant/gevuld bij "onzeker")
+                       gekozen zijn (de rest van de zoekresultaten; leeg bij een
+                       override)
     """
     if _is_corporate_action_row({"beurs": beurs, "product": product}):  # corporate-action rij, geen echt aandeel/ETF
         return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
 
     isin_override = MANUAL_TICKER_OVERRIDES_ISIN.get((isin, beurs))
     if isin_override:
-        dprint(f"[ticker] ({isin}, {beurs}) -> ISIN-override '{isin_override}' (vóór het zoeken toegepast)")
+        dprint(f"[ticker] ({isin}, {beurs}) -> ISIN-override '{isin_override}' (voor het zoeken toegepast)")
         return {"ticker": isin_override, "zekerheid": "zeker", "alternatieven": []}
 
     targets = BEURS_MAP.get(beurs, [])
@@ -220,8 +219,8 @@ def find_ticker_detailed(product, isin, beurs):
             kandidaten.append((symbol, "zeker", alternatieven))
         elif isin_quotes:
             symbol, alternatieven = _onzeker_fallback(isin_quotes)
-            dprint(f"[ticker]   ⚠️ query='{isin}': GEEN match voor beurs '{beurs}' (verwacht {targets}), "
-                   f"val terug op eerste resultaat {symbol} ({isin_quotes[0].get('exchange')}) — "
+            dprint(f"[ticker]   WARN query='{isin}': GEEN match voor beurs '{beurs}' (verwacht {targets}), "
+                   f"val terug op eerste resultaat {symbol} ({isin_quotes[0].get('exchange')}) - "
                    f"mogelijk fout! Alle kandidaten: "
                    f"{[(q.get('symbol'), q.get('exchange')) for q in isin_quotes]}")
             kandidaten.append((symbol, "onzeker", alternatieven))
@@ -253,38 +252,30 @@ def find_ticker_detailed(product, isin, beurs):
         symbol, zekerheid, alternatieven = beste
         return {"ticker": symbol, "zekerheid": zekerheid, "alternatieven": alternatieven}
 
-    # print(f"[ticker] ❌ GEEN ticker gevonden voor '{product}' (ISIN={isin}, beurs={beurs})")
     return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
 
 
-def find_ticker(product, isin, beurs):
-    """Backwards-compatible wrapper rond find_ticker_detailed() die alleen de ticker teruggeeft."""
-    return find_ticker_detailed(product, isin, beurs)["ticker"]
-
-
-# EXPERIMENTEEL/DIAGNOSTISCH — haal_openfigi_resultaten() hieronder is een
-# los, extra paneel op de Ticker-zekerheid-pagina om te beoordelen of
-# OpenFIGI bruikbare/betere matches geeft dan de bestaande yahooquery-
-# aanpak. Verandert NIETS aan find_ticker_detailed() of aan welke ticker
-# daadwerkelijk gebruikt/opgeslagen wordt.
+# OpenFIGI als extra, ISIN-gebaseerd validatiesignaal naast de yahooquery-
+# aanpak: beïnvloedt alleen het zekerheidsoordeel en de waarschuwingen (zie
+# _voeg_openfigi_check_toe in ticker_zekerheid.py). Verandert NIETS aan
+# find_ticker_detailed() of aan welke ticker daadwerkelijk gebruikt/
+# opgeslagen wordt.
 OPENFIGI_API_KEY = os.environ.get("OPENFIGI_API_KEY")  # optioneel, mag None zijn
 
 
 def haal_openfigi_resultaten(isin):
     """
-    EXPERIMENTEEL — puur diagnostisch. Haalt bij OpenFIGI alle bekende
-    beursnoteringen op voor een ISIN, voor weergave op de
-    Ticker-zekerheid-pagina naast de bestaande (yahooquery-gebaseerde)
-    ticker-resolutie. Verandert niets aan find_ticker_detailed() of aan
-    welke ticker daadwerkelijk gebruikt/opgeslagen wordt.
+    Haalt bij OpenFIGI alle bekende beursnoteringen op voor een ISIN -- voor
+    de root-check (_openfigi_root_matches) en de extra kandidaten op de
+    Ticker-zekerheid-pagina. Verandert niets aan find_ticker_detailed() of
+    aan welke ticker daadwerkelijk gebruikt/opgeslagen wordt.
 
     Geeft terug: {"resultaten": [...], "fout": None} bij succes, of
     {"resultaten": [], "fout": "<boodschap>"} bij een mislukte aanroep of
     "geen match". Elk element in 'resultaten' is een dict met de velden
     ticker, exchCode, naam, securityType, marketSector, compositeFIGI —
     rechtstreeks van OpenFIGI, ongefilterd (ook noteringen op beurzen die
-    niet in BEURS_MAP voorkomen worden getoond, juist om te zien of
-    OpenFIGI meer/andere beurzen kent dan verwacht).
+    niet in BEURS_MAP voorkomen blijven erin).
 
     Gebruikt een permanente DB-cache (openfigi_cache) -- een ISIN->ticker-
     mapping verandert vrijwel nooit, dus bij een cache-hit geen externe call.
@@ -351,8 +342,8 @@ def _openfigi_root_matches(ticker, openfigi_resultaten):
     Geeft None terug als er niets te vergelijken valt (geen ticker, of
     OpenFIGI had geen resultaten) -- dat betekent NIET "onbekend/fout", puur
     "geen oordeel mogelijk". Anders een int (0 = root niet gevonden, gebruikt
-    door _openfigi_root_bekend() en de samenvattingsregel op de
-    Ticker-zekerheid-pagina).
+    door _voeg_openfigi_check_toe() en prijswaarschuwing_voor_ticker() in
+    ticker_zekerheid.py).
     """
     if not ticker or not openfigi_resultaten:
         return None
@@ -362,14 +353,3 @@ def _openfigi_root_matches(ticker, openfigi_resultaten):
     # (bv. '1211HKD', 'VUSACHF') -- een prefix-match voorkomt dat zulke
     # varianten ten onrechte als "root niet gevonden" gelden.
     return sum(1 for t in figi_tickers if root == t or t.startswith(root))
-
-
-def _openfigi_root_bekend(ticker, openfigi_resultaten):
-    """
-    Of de ROOT van 'ticker' voorkomt tussen OpenFIGI's resultaten voor deze
-    ISIN (zie _openfigi_root_matches() voor de matchregel). None als er
-    niets te vergelijken valt -- moet door de aanroeper als "geen oordeel
-    mogelijk" behandeld worden, niet als een negatief signaal.
-    """
-    matches = _openfigi_root_matches(ticker, openfigi_resultaten)
-    return None if matches is None else matches > 0

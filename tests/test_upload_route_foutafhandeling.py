@@ -62,7 +62,7 @@ BASIS_RESULTAAT = {
     "land": None, "sector": None, "top_holding_land": None, "valuta": None,
     "fondsfamilie": None, "category": None, "quote_type": None,
     "excel_beurs": "EAM", "yahoo_beurs": None, "beurs_klopt": None,
-    "prijs_checks": [], "alternatieven": [], "basis_alleen": True,
+    "prijs_checks": [], "alternatieven": [],
 }
 
 

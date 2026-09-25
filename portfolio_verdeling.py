@@ -1,9 +1,9 @@
 """
 Verdeling/Land/Sector/Bedrijven/ETF-overlap: portfoliobrede aggregaties over
-alle holdings heen, voor de Verdeling-, Land-, Sector-, Top-20-bedrijven- en
+alle holdings heen, voor de Verdeling-, Land-, Sector-, Top-N-bedrijven- en
 ETF-overlap-tabbladen.
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import re
 
@@ -52,8 +52,8 @@ EUROPESE_LANDEN = frozenset({
 # (lowercase + leestekens weg) niet tot dezelfde sleutel herleidt, omdat
 # providers niet alleen qua casing/leestekens verschillen maar ook qua
 # woordkeuze zelf (bv. de rechtspersoonsvorm "NV" wel/niet meegeschreven).
-# Zelfde stijl/plek als MANUAL_TICKER_OVERRIDES hierboven -- aanvullen
-# zodra een dubbele rij in Top 10 bedrijven / ETF-overlap in de praktijk
+# Zelfde stijl als MANUAL_TICKER_OVERRIDES (ticker_matching.py) -- aanvullen
+# zodra een dubbele rij in Top N bedrijven / ETF-overlap in de praktijk
 # opvalt. Sleutel en waarde zijn allebei al door de leesteken-normalisatie
 # heen (dus lowercase, geen leestekens); de waarde is de canonieke sleutel
 # waar de linkerkant naartoe gemapt wordt.
@@ -145,8 +145,6 @@ def bereken_verdeling_samenvatting(verdeling):
 
     return {
         "totaal": round(totaal, 2),
-        "etf_waarde": round(etf_waarde, 2),
-        "aandeel_waarde": round(aandeel_waarde, 2),
         "etf_pct": pct(etf_waarde),
         "aandeel_pct": pct(aandeel_waarde),
     }
@@ -159,18 +157,17 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
     (ETF-ticker of los aandeel) die blootstelling ontstaat -- zo blijft
     "dubbele blootstelling" zichtbaar als hetzelfde bedrijf zowel via een
     of meer ETF's als los wordt aangehouden. Zelfde basis als
-    compute_land_sector_verdeling() hierboven: huidige holdings
+    compute_land_sector_verdeling() hieronder: huidige holdings
     (aantal x laatste koers, de "aantal"-kolom, niet "adj_aantal") zodat
     de totalen op elkaar aansluiten. Voor de gestapelde-staafgrafiek-
     weergave op het "Top N bedrijven"-tabblad (zie static/js/app.js,
-    renderGestapeldeStaafgrafiek): "totaal_pct" en "per_bron" zijn beide al
-    percentages van totaal_waarde, dus per_bron-waarden per bedrijf tellen
-    op tot totaal_pct van dat bedrijf -- direct bruikbaar als stack.
+    renderGestapeldeStaafgrafiek): "per_bron" zijn al percentages van
+    totaal_waarde -- direct bruikbaar als stack-hoogtes.
 
     Geeft terug:
         {
             "top": [
-                {"bedrijf": "Apple Inc", "waarde": 1234.56, "totaal_pct": 24.69,
+                {"bedrijf": "Apple Inc", "waarde": 1234.56,
                  "per_bron": {"CSPX.AS": 16.0, "AAPL": 8.69}},
                 ...
             ],  # aflopend gesorteerd op waarde, max top_n items
@@ -257,7 +254,6 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
         top_resultaat.append({
             "bedrijf": e["naam"],
             "waarde": round(e["waarde"], 2),
-            "totaal_pct": round(naar_pct(e["waarde"]), 4),
             "per_bron": {k: round(naar_pct(v), 4) for k, v in e["per_bron"].items()},
         })
 
@@ -446,9 +442,9 @@ def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
 
 def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE_LANDEN):
     """Zelfde idee als _groepeer_europa_samen(), maar dan op de per-bron-
-    uitgesplitste land_per_bron-structuur ({land: {bron: bedrag}}) --
-    gebruikt door de Europa-samenvoeg-toggle op de staafgrafiek-weergave
-    van het Land-tabblad (renderGestapeldeStaafgrafiek in app.js). De
+    uitgesplitste land-per-bron-structuur ({land: {bron: bedrag}}) --
+    basis van land_per_bron_europa_top, dat de Europa-samenvoeg-toggle op
+    de staafgrafiek-weergave van het Land-tabblad toont. De
     per-bron-bedragen van elk Europees land worden per bron opgeteld onder
     een gezamenlijke "Europe"-rij; niet-Europese landen blijven ongewijzigd."""
     resultaat = {}
@@ -468,8 +464,9 @@ def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE
 def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
     """
     Land- en sectorverdeling van de hele portfolio (huidige holdings x
-    laatste koers — zelfde basis als de ETF/aandeel-verdeling hierboven,
-    dus met dezelfde "aantal"-kolom, niet "adj_aantal", zodat de totalen
+    laatste koers — zelfde basis als de ETF/aandeel-verdeling in
+    analyze_transacties_verrijking(), dus met dezelfde "aantal"-kolom,
+    niet "adj_aantal", zodat de totalen
     van beide verdelingen op elkaar aansluiten), plus dezelfde verdeling
     per ETF afzonderlijk (voor de per-ETF-drill-down).
 
@@ -483,29 +480,20 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
                 # her-berekening nodig bij het aan/uit-zetten van de toggle)
             "sector": {"Technology": 999.00, ..., "Unknown": 45.00},
             "per_etf": {
-                "CSPX.AS": {"land": {...}, "sector": {...}},   # fracties 0-1, dit fonds z'n eigen verdeling
+                "CSPX.AS": {"land": {...}, "sector": {...}, "land_bron": "provider_csv"},
                 ...
-            },
-            "land_per_bron": {
+            },  # land/sector als fracties 0-1 (dit fonds z'n eigen verdeling);
+                # land_bron = "provider_csv" of "yfinance_top10"
+            "land_per_bron_top": {
                 "United States": {"CSPX.AS": 800.0, "AAPL": 200.0}, ...
             },  # zelfde totalen als "land", maar per categorie uitgesplitst
-                # naar welke positie (ETF-ticker of los aandeel) 'm inbrengt
-                # -- voor de gestapelde-staafgrafiek-weergave op het Land-
-                # tabblad (renderGestapeldeStaafgrafiek in app.js). LET OP:
-                # dit is de RUWE, ongegroepeerde verdeling (geen Overig-
-                # samenvoeging zoals bij "land"/"land_europa" -- die
-                # drempel-groepering slaat een keuze in het totaal-bedrag,
-                # niet in de per-bron-uitsplitsing, dus daar los van
-                # gehouden; de staaf gebruikt "land_per_bron_top").
-            "land_per_bron_europa": {...},  # zelfde als "land_per_bron",
-                # maar met alle EUROPESE_LANDEN samengevoegd tot één
-                # "Europe"-rij (per bron opgeteld) -- zodat de Europa-
-                # samenvoeg-toggle ook in de staafgrafiek-weergave werkt,
-                # niet alleen in de taart/platte weergave.
-            "land_per_bron_top": {...},  # "land_per_bron" beperkt tot
-                # LAND_STAAF_TOP_N landen + "Overig" -- wat de staaf op het
-                # Land-tabblad toont (bewust andere Overig dan de taart).
-            "land_per_bron_europa_top": {...},  # idem, Europa-variant
+                # naar welke positie (ETF-ticker of los aandeel) 'm inbrengt,
+                # beperkt tot LAND_STAAF_TOP_N landen + "Overig" -- wat de
+                # staaf op het Land-tabblad toont (bewust andere Overig dan
+                # de taart).
+            "land_per_bron_europa_top": {...},  # idem, maar met alle
+                # EUROPESE_LANDEN eerst samengevoegd tot één "Europe"-rij
+                # (per bron opgeteld).
             "sector_per_bron": {...},  # zelfde idee, voor sector
         }
     """
@@ -584,8 +572,6 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
         ),
         "sector": sector,
         "per_etf": per_etf,
-        "land_per_bron": land_per_bron,
-        "land_per_bron_europa": land_per_bron_europa,
         "land_per_bron_top": _beperk_tot_top_n_per_bron(land_per_bron),
         "land_per_bron_europa_top": _beperk_tot_top_n_per_bron(land_per_bron_europa),
         "sector_per_bron": sector_per_bron,

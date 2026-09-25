@@ -29,17 +29,6 @@ BENCHMARK_TICKERS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Statistieken-tabblad
-#
-# De onderstaande "bereken_*"-functies zijn bewust pure functies (getallen in,
-# getallen uit, geen DataFrame/DB-toegang) — dat maakt ze met de hand na te
-# rekenen en apart te unittesten (zie tests/test_rendement.py) zonder een
-# databaseverbinding of live yfinance-data nodig te hebben. bereken_statistieken()
-# hieronder is de orkestratie die er transacties_df/price_data/resultaat
-# (al berekend in analyze_transacties) voor voedt.
-# ---------------------------------------------------------------------------
-
 def bereken_positie_rendement(gak, aantal, huidige_koers):
     """Rendement van 1 positie op basis van GAK (gemiddelde aankoopkoers).
     geinvesteerd = kostenbasis van de nu aangehouden stukken (GAK x aantal),
@@ -85,8 +74,7 @@ def bereken_xirr(cashflows):
     bedragen = [c[1] for c in cashflows]
     try:
         return xirr(datums, bedragen)
-    except Exception as e:
-        # print(f"[statistieken] XIRR-berekening mislukt: {e}")
+    except Exception:
         return None
 
 
@@ -145,10 +133,12 @@ def bereken_twr(transacties_df, resultaat):
     return product - 1
 
 
-def bereken_holdings_gak(transacties_df):
-    """Per ticker: huidige aantal + GAK (gemiddelde aankoopkoers) via de
+def bereken_holdings_en_gesloten(transacties_df):
+    """Per ticker: aantal + GAK (gemiddelde aankoopkoers) via de
     lopende-gemiddelde-kostprijs-methode (zelfde methode als DEGIRO zelf
-    hanteert).
+    hanteert), en in dezelfde doorloop ook de posities die volledig
+    verkocht zijn (één pas door de data, zodat de boekhoud-logica —
+    split-correctie, GAK-methode — niet op twee plekken hoeft te kloppen).
 
     ALLE rijen tellen mee voor het aantal — ook DEGIRO's
     corporate-action-boekingsrijen (zie _is_corporate_action_row): die
@@ -161,25 +151,10 @@ def bereken_holdings_gak(transacties_df):
     kostenbasis intact — alleen het aantal daalt tijdelijk, om vervolgens via
     de bijbehorende conversie-rij weer (met meer stukken) aangevuld te
     worden. Zo verdunt een split de GAK per aandeel vanzelf correct, zonder
-    de kostenbasis aan te tasten. Posities die volledig verkocht zijn
-    (aantal <= 0) komen niet in het resultaat terecht.
-
-    Geeft {ticker: {"aantal": float, "gak": float}} terug. Dunne wrapper om
-    bereken_holdings_en_gesloten() — behouden voor bestaande aanroepers/tests
-    die alleen de open posities nodig hebben."""
-    open_posities, _ = bereken_holdings_en_gesloten(transacties_df)
-    return open_posities
-
-
-def bereken_holdings_en_gesloten(transacties_df):
-    """Zelfde lopende-gemiddelde-kostprijs-methode als bereken_holdings_gak()
-    hierboven, maar houdt in dezelfde doorloop ook posities bij die
-    volledig verkocht zijn (één pas door de data, zodat de boekhoud-logica
-    — split-correctie, GAK-methode — niet op twee plekken hoeft te kloppen).
+    de kostenbasis aan te tasten.
 
     Geeft (open_posities, gesloten_posities) terug:
-    - open_posities: {ticker: {"aantal", "gak"}} — ongewijzigd t.o.v.
-      bereken_holdings_gak().
+    - open_posities: {ticker: {"aantal", "gak"}} — posities met aantal > 0.
     - gesloten_posities: {ticker: {"aantal", "gemiddelde_aankoopkoers",
       "gemiddelde_verkoopkoers", "gerealiseerd_eur"}} voor tickers die ooit
       een positie hadden (totaal_gekocht_aantal > 0) en nu op (ongeveer)
@@ -212,12 +187,11 @@ def bereken_holdings_en_gesloten(transacties_df):
             delta_aantal = float(row["aantal"])
             # totaal_eur incl. AutoFX/transactiekosten; alleen gebruikt voor
             # de cashflow-check (corporate-action-rijen hebben totaal_eur=0)
-            # en de verkoopkant, die bewust ongewijzigd blijft — zie
-            # CLAUDE.md, "GAK gebruikt verkeerde kolom".
+            # en de verkoopkant, die bewust op totaal_eur blijft.
             delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
             if delta_aantal > 0:
                 # Kostenbasis o.b.v. de kale Waarde EUR, niet totaal_eur —
-                # zie compute_per_ticker() hierboven voor dezelfde fix/reden.
+                # zie compute_per_ticker() (portfolio_calc.py) voor dezelfde reden.
                 waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
                 delta_cash_aankoop = -float(waarde_bron)
                 aantal_lopend += delta_aantal
@@ -525,7 +499,7 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
 def bereken_totale_transactiekosten(transacties_df):
     """
     Somt de 'transactiekosten'-kolom op (negatieve waarden in de brondata,
-    zie KOSTEN_KOLOM in app.py) tot een positief totaalbedrag. Geeft
+    zie KOSTEN_KOLOM in upload_verwerking.py) tot een positief totaalbedrag. Geeft
     beschikbaar=False terug als de kolom ontbreekt of enkel NaN bevat — bv.
     een ouder DeGiro-exportformaat zonder aparte kostenkolom — zodat de UI
     dan een eerlijke 'data ontbreekt'-melding kan tonen i.p.v. een verzonnen
@@ -541,19 +515,21 @@ def bereken_totale_transactiekosten(transacties_df):
 def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None):
     """
     Bouwt alle data voor het Statistieken-tabblad. Gebruikt uitsluitend data
-    die analyze_transacties() (app.py) al berekend heeft (transacties_df ná
-    compute_split_adjusted_shares, price_data van get_prices(), resultaat van
-    compute_value_over_time()) — geen extra yfinance-calls, dus dit hoeft
-    (anders dan Ticker-zekerheid) niet lui/lazy geladen te worden.
+    die analyze_transacties_kern() (portfolio_orchestratie.py) al berekend
+    heeft (transacties_df ná compute_split_adjusted_shares, price_data van
+    get_prices(), resultaat van compute_value_over_time()) — geen extra
+    yfinance-calls, dus dit hoeft (anders dan Ticker-zekerheid) niet
+    lui/lazy geladen te worden.
 
     dividend_per_ticker (optioneel): {ticker: totaal_netto} uit
-    bereken_dividend_samenvatting() (app.py haalt dit apart op, want dat
-    raakt de database aan — deze functie blijft bewust DB-vrij). Leeg/None
-    bij een 'niet opslaan'-analyse (geen dividendhistorie mogelijk zonder
-    opgeslagen code) — dan krijgt elke positie gewoon 0.0.
+    bereken_dividend_samenvatting() (analyze_transacties_kern haalt dit
+    apart op, want dat raakt de database aan — deze functie blijft bewust
+    DB-vrij). Leeg/None bij een 'niet opslaan'-analyse (geen
+    dividendhistorie mogelijk zonder opgeslagen code) — dan krijgt elke
+    positie gewoon 0.0.
 
     ticker_namen (optioneel): {ticker: naam} voor de "naam"-kolom bij
-    gesloten posities (zelfde bron als de rest van analyze_transacties).
+    gesloten posities (zelfde bron als de rest van analyze_transacties_kern).
 
     Let op: voor 'huidig aantal per positie' wordt (net als bij de
     Verdeling-taart, zie compute_land_sector_verdeling) de ruwe 'aantal'-

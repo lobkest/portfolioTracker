@@ -1,7 +1,8 @@
 """
 Route-level test voor de nieuwe per-positie ticker-zekerheid-route
 (/api/portfolio/<code>/ticker-zekerheid/positie) -- opdracht: grote
-portfolio's liepen vast op /api/portfolio/<code>/ticker-zekerheid omdat die
+portfolio's liepen vast op /api/portfolio/<code>/ticker-zekerheid (inmiddels
+verwijderd) omdat die
 route moet wachten tot ALLE posities klaar zijn (verifieer_tickers_met_
 prijs_parallel), waardoor één trage/rate-limited positie de hele opvraag
 liet mislukken. De nieuwe route verifieert precies 1 positie en hergebruikt

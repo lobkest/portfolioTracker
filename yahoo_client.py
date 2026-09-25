@@ -4,7 +4,7 @@ de upload-flow) en de rate-limit-/retry-logica die yfinance-aanroepers door
 het hele project heen gebruiken (ticker-classificatie, prijscontrole,
 koersen-download).
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import threading
 import time
@@ -22,8 +22,9 @@ _yahoo_call_teller = {}
 
 def reset_yahoo_call_teller():
     """Zet de Yahoo-call-teller terug naar 0 -- aangeroepen aan het begin
-    van _upload_impl() zodat elke upload zijn EIGEN call-aantal rapporteert,
-    niet een cumulatief totaal sinds het opstarten van de server."""
+    van _upload_impl() en api_portfolio() (app.py), zodat elke upload/
+    opening zijn EIGEN call-aantal rapporteert, niet een cumulatief totaal
+    sinds het opstarten van de server."""
     with _yahoo_call_lock:
         _yahoo_call_teller.clear()
 
@@ -44,8 +45,8 @@ def log_yahoo_call_samenvatting():
     print(f"[timing] Yahoo-calls sinds laatste reset: {totaal} totaal -> {samenvatting}")
 
 
-# Gedeelde retry/backoff-instellingen voor _fetch_yf_info/_haal_slotkoers_op/
-# _haal_dagrange_op (via _met_rate_limit_retry hieronder). Losstaand van
+# Gedeelde retry/backoff-instellingen voor _fetch_yf_info en de _haal_*_op-
+# functies in ticker_prijscheck.py (via _met_rate_limit_retry hieronder). Losstaand van
 # BULK_DOWNLOAD_POGINGEN/_WACHTTIJD hieronder: dat is een functioneel ANDER
 # retry-patroon (zie download_met_retry).
 RATE_LIMIT_POGINGEN = 3
@@ -69,19 +70,13 @@ def _is_rate_limit_fout(e):
     )
 
 
-def _met_rate_limit_retry(actie, log_prefix, beschrijving,
-                           pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
+def _met_rate_limit_retry(actie, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """
     Voert 'actie' (een callable zonder argumenten die de eigenlijke Yahoo-
     call doet) uit met retry en oplopende backoff bij rate limiting --
-    gedeeld door _fetch_yf_info, _haal_slotkoers_op en _haal_dagrange_op
-    (dit patroon stond voorheen drie keer bijna-identiek uitgeschreven,
-    zie CLAUDE.md).
-
-    'log_prefix' is de []-logprefix (bv. 'yf-info', 'prijscheck'),
-    'beschrijving' de tekst die in de retry-logregel na "rate limited voor"
-    komt (bv. "'AAPL'" of "dagrange 'AAPL'") -- de aanroeper bepaalt de
-    exacte formulering, want die verschilt per aanroeper.
+    gedeeld door _fetch_yf_info en de _haal_*_op-functies in
+    ticker_prijscheck.py (dit patroon stond voorheen drie keer bijna-
+    identiek uitgeschreven).
 
     Geeft (resultaat, None) terug bij succes, of (None, fout) terug bij een
     definitieve mislukking na alle pogingen -- de aanroeper bepaalt zelf de
@@ -94,8 +89,6 @@ def _met_rate_limit_retry(actie, log_prefix, beschrijving,
         except Exception as e:
             if _is_rate_limit_fout(e) and poging < pogingen:
                 wacht = wachttijd * poging
-                # print(f"[{log_prefix}] rate limited voor {beschrijving} (poging {poging}/{pogingen}), "
-                      # f"{wacht}s wachten...")
                 time.sleep(wacht)
                 continue
             return None, e
@@ -127,11 +120,9 @@ def download_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOAD_POGING
         try:
             _tel_yahoo_call("yf.download")
             return yf.download(ticker_of_pair, start=start_date, auto_adjust=True, progress=False)["Close"]
-        except Exception as e:
-            # print(f"[koersen] poging {poging}/{pogingen} mislukt voor {ticker_of_pair}: {e}")
+        except Exception:
             if poging < pogingen:
                 time.sleep(wachttijd)
             else:
-                # print(f"[koersen] definitief mislukt voor {ticker_of_pair}, sla over")
                 return pd.Series(dtype=float)
 

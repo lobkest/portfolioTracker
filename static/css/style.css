@@ -63,7 +63,7 @@ body {
     display: none;
 }
 
-/* Brede tabellen (Posities, Rendement per jaar) scrollen zelf horizontaal
+/* Brede tabellen (o.a. Posities, Rendement per jaar) scrollen zelf horizontaal
    i.p.v. de hele pagina breder te maken op smalle schermen. */
 .tabelWrapper {
     overflow-x: auto;
@@ -79,6 +79,24 @@ body {
 .scrollbareTabel {
     max-height: 420px;
     overflow-y: auto;
+}
+
+/* Klein label in een tabelcel, zelfde vorm als de "Deels verkocht"/
+   "Gesloten"-badge op Statistieken. Gebruikt voor "herinvesteerd" in de
+   dividend-uitkeringenlijst. */
+.badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.85em;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.badgeHerinvesteerd {
+    background: #d4edda;
+    color: #155724;
 }
 
 label {

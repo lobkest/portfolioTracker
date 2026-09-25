@@ -32,7 +32,7 @@ from ticker_zekerheid import verifieer_ticker_met_prijs, _verzamel_extra_kandida
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
-# blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
+# blijven -- _openfigi_root_matches() geeft dan None terug (geen oordeel).
 _openfigi_patcher = None
 
 

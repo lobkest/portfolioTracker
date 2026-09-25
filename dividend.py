@@ -9,7 +9,6 @@ import hashlib
 
 import pandas as pd
 
-from debug_utils import dprint
 from db import get_db_connection, get_dividenden
 
 
@@ -47,8 +46,6 @@ def _koppel_valutaconversie_paren(df):
         debitering = groep[groep["Omschrijving"] == "Valuta Debitering"]
         creditering = groep[groep["Omschrijving"] == "Valuta Creditering"]
         if debitering.empty or creditering.empty:
-            # print(f"[dividend-debug] ⚠️ onvolledig valutaconversie-paar op {datum.date()} {tijd}: "
-                  # f"{len(debitering)}x Debitering, {len(creditering)}x Creditering — overgeslagen")
             continue
         deb = debitering.iloc[0]
         cred = creditering.iloc[0]
@@ -65,8 +62,6 @@ def _koppel_valutaconversie_paren(df):
             "gebruikt": False,
         }
         paren.append(paar)
-        # print(f"[dividend-debug] valutaconversie-paar: {datum.date()} {tijd} — "
-              # f"{paar['vreemd_bedrag']:.2f} {paar['valuta']} -> €{paar['eur_bedrag']:.2f}")
     return paren
 
 
@@ -164,12 +159,6 @@ def verwerk_rekeningoverzicht_df(df):
     dividend_rows = df[df["Omschrijving"].isin(
         ["Dividend", "Dividend Herinvestering", "Dividendbelasting"]
     )]
-    # print(f"[dividend-debug] {len(dividend_rows)} ruwe Dividend/Dividend Herinvestering/"
-          # f"Dividendbelasting-rij(en) gevonden")
-    for _, r in dividend_rows.iterrows():
-        pass
-        # print(f"[dividend-debug]   {r['Datum'].date()} | {r['Omschrijving']} | {r.get('Product')} | "
-              # f"{r['mutatie']} {r['valuta_mutatie']}")
 
     herinvesteerd_keys = {
         (datum, isin) for datum, isin in
@@ -190,20 +179,13 @@ def verwerk_rekeningoverzicht_df(df):
         netto_ruw = bruto_ruw + belasting_ruw
         herinvesteerd = (datum, isin) in herinvesteerd_keys
 
-        # print(f"[dividend-debug] groep {datum.date()} / {isin} ({product}): "
-              # f"{len(bruto_rijen)}x Dividend/Dividend Herinvestering + {len(belasting_rijen)}x "
-              # f"Dividendbelasting -> netto {netto_ruw:.2f} {valuta} (bruto {bruto_ruw:.2f}, "
-              # f"belasting {belasting_ruw:.2f}, herinvesteerd={herinvesteerd})")
 
         if valuta == "EUR":
             bruto_eur, belasting_eur, netto_eur = bruto_ruw, belasting_ruw, netto_ruw
-            # print(f"[dividend-debug]   -> al in EUR, netto_eur=€{netto_eur:.2f}")
         else:
             match = _match_valutaconversie(conversie_paren, valuta, netto_ruw, datum)
             if match is None:
                 bruto_eur = belasting_eur = netto_eur = None
-                # print(f"[dividend-debug]   ❌ geen 1-op-1 valutaconversie-paar gevonden voor "
-                      # f"{netto_ruw:.2f} {valuta} — probeer STAP A (gepoold) hierna")
             else:
                 netto_eur = match["eur_bedrag"]
                 if netto_ruw != 0:
@@ -211,8 +193,6 @@ def verwerk_rekeningoverzicht_df(df):
                     belasting_eur = netto_eur * (belasting_ruw / netto_ruw)
                 else:
                     bruto_eur = belasting_eur = 0.0
-                # print(f"[dividend-debug]   ✓ gekoppeld aan conversie {match['datum'].date()} {match['tijd']} "
-                      # f"-> netto_eur=€{netto_eur:.2f}")
 
         # Ruwe (niet-EUR-geconverteerde) bedragen in de dividend_id, zodat die
         # stabiel blijft ongeacht welk valutaconversie-paar er (opnieuw)
@@ -254,8 +234,6 @@ def verwerk_rekeningoverzicht_df(df):
             referentiedatum = max(item["datum"] for item in cluster)
             match = _match_valutaconversie(conversie_paren, valuta, som_netto_ruw, referentiedatum)
             if match is None:
-                # print(f"[dividend-debug]   ❌ STAP A: geen conversie gevonden voor pool van "
-                      # f"{len(cluster)} groep(en), som {som_netto_ruw:.2f} {valuta}")
                 continue
             for item in cluster:
                 aandeel = (item["netto_ruw"] / som_netto_ruw) if som_netto_ruw != 0 else 0.0
@@ -265,9 +243,6 @@ def verwerk_rekeningoverzicht_df(df):
                     item["belasting_eur"] = item["netto_eur"] * (item["belasting_ruw"] / item["netto_ruw"])
                 else:
                     item["bruto_eur"] = item["belasting_eur"] = 0.0
-                # print(f"[dividend-debug]   ✓ STAP A: groep {item['datum'].date()} / {item['isin']} "
-                      # f"gepoold gematcht -> netto_eur=€{item['netto_eur']:.2f} "
-                      # f"(aandeel {aandeel:.1%} van pool €{match['eur_bedrag']:.2f})")
 
     records = [
         {
@@ -283,10 +258,6 @@ def verwerk_rekeningoverzicht_df(df):
         }
         for r in tussenresultaten
     ]
-
-    totaal = sum(r["netto_eur"] for r in records if r["netto_eur"] is not None)
-    # print(f"[dividend-debug] TOTAAL: {len(records)} dividendgroep(en), "
-          # f"€{totaal:.2f} netto (som van de rijen met een bekend netto_eur)")
     return records
 
 
@@ -294,7 +265,7 @@ def verwerk_rekeningoverzicht(file_object):
     """
     Leest een DeGiro-rekeningoverzicht in en geeft een lijst van
     dividendrecords terug: {datum, product, isin, valuta, bruto_eur,
-    belasting_eur, netto_eur, dividend_id}. Het eigenlijke rekenwerk zit in
+    belasting_eur, netto_eur, dividend_id, herinvesteerd}. Het eigenlijke rekenwerk zit in
     verwerk_rekeningoverzicht_df() hierboven; deze functie doet alleen het
     Excel-inlezen en de kolom-normalisatie.
 

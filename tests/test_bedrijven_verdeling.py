@@ -75,12 +75,11 @@ class TestBerekenBedrijvenVerdeling(unittest.TestCase):
 
         apple_entry = next(e for e in resultaat["top"] if e["bedrijf"] == "Apple Inc")
         self.assertAlmostEqual(apple_entry["waarde"], 150.0)  # 100 (los) + 50 (via ETF)
-        # totaal_waarde = 200 (100 AAPL + 100 CSPX.AS) -- per_bron/totaal_pct
-        # zijn percentages van dat totaal, direct bruikbaar als stack-hoogtes.
-        self.assertAlmostEqual(apple_entry["totaal_pct"], 75.0)
+        # totaal_waarde = 200 (100 AAPL + 100 CSPX.AS) -- per_bron zijn
+        # percentages van dat totaal, direct bruikbaar als stack-hoogtes.
         self.assertAlmostEqual(apple_entry["per_bron"]["AAPL"], 50.0)
         self.assertAlmostEqual(apple_entry["per_bron"]["CSPX.AS"], 25.0)
-        self.assertAlmostEqual(sum(apple_entry["per_bron"].values()), apple_entry["totaal_pct"])
+        self.assertAlmostEqual(sum(apple_entry["per_bron"].values()), 75.0)
 
         bron_tickers = {b["ticker"] for b in resultaat["bronnen"]}
         self.assertEqual(bron_tickers, {"AAPL", "CSPX.AS"})

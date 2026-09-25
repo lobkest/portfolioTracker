@@ -16,8 +16,6 @@ Draait geheel offline: geen database, geen yfinance-calls.
 """
 import sys
 import os
-import random
-import time
 import unittest
 
 import pandas as pd
@@ -61,42 +59,6 @@ def bouw_fixture():
         "A": [10.0, 10.5, 11.0, 11.2, 11.5, 11.8, 12.0, 12.2, 12.5, 12.8],
         "B": [20.0, 20.5, float("nan"), 21.0, 21.5, 22.0, 22.5, 23.0, 23.5, 24.0],
     }, index=datums)
-    return df, price_data
-
-
-def bouw_grote_fixture(n_tickers=15, n_dagen=750, seed=42):
-    """Grotere, willekeurig gegenereerde fixture voor de performance-test
-    (niet voor correctheid -- geen golden-master-assert op deze fixture)."""
-    rng = random.Random(seed)
-    datums = pd.date_range("2021-01-01", periods=n_dagen, freq="D")
-
-    rijen = []
-    prices = {}
-    for i in range(n_tickers):
-        ticker = f"T{i}"
-        prijs_reeks = []
-        prijs = rng.uniform(10, 200)
-        for d in datums:
-            prijs *= 1 + rng.uniform(-0.02, 0.02)
-            prijs_reeks.append(round(prijs, 4))
-        prices[ticker] = prijs_reeks
-
-        # Een handvol aan- en verkopen verspreid over de periode.
-        aantal_lopend = 0.0
-        for _ in range(6):
-            idx = rng.randint(0, n_dagen - 1)
-            if aantal_lopend > 0 and rng.random() < 0.4:
-                aantal = -round(rng.uniform(1, aantal_lopend), 2)
-            else:
-                aantal = round(rng.uniform(1, 20), 2)
-            aantal_lopend += aantal
-            koers = prices[ticker][idx]
-            waarde_eur = -aantal * koers if aantal > 0 else None
-            totaal_eur = -aantal * koers
-            rijen.append(_rij(ticker, datums[idx], "10:00", aantal, waarde_eur, totaal_eur, beurs="EAM"))
-
-    df = pd.DataFrame(rijen)
-    price_data = pd.DataFrame(prices, index=datums)
     return df, price_data
 
 
@@ -195,33 +157,6 @@ class TestGoldenMasterPerTickerKoersEnAankopen(unittest.TestCase):
                     self.assertIsNone(e)
                 else:
                     self.assertAlmostEqual(v, e, places=6)
-
-
-class TestPerformanceIndicatie(unittest.TestCase):
-    """Geen harde assert op absolute looptijd (omgevingsafhankelijk) --
-    puur ter observatie in de testoutput."""
-
-    def test_looptijd_grote_fixture(self):
-        df, price_data = bouw_grote_fixture()
-
-        start = time.perf_counter()
-        compute_value_over_time(df.copy(), price_data)
-        t_waarde = time.perf_counter() - start
-
-        start = time.perf_counter()
-        compute_per_ticker(df.copy(), price_data)
-        t_per_ticker = time.perf_counter() - start
-
-        start = time.perf_counter()
-        compute_per_ticker_koers_en_aankopen(df.copy(), price_data)
-        t_koers_aankopen = time.perf_counter() - start
-
-        print(
-            f"\n[performance] 15 tickers x 750 dagen -- "
-            f"compute_value_over_time: {t_waarde:.3f}s, "
-            f"compute_per_ticker: {t_per_ticker:.3f}s, "
-            f"compute_per_ticker_koers_en_aankopen: {t_koers_aankopen:.3f}s"
-        )
 
 
 if __name__ == "__main__":

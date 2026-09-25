@@ -20,7 +20,6 @@ from statistieken import (
     bereken_totaal_rendement,
     bereken_jaar_rendement,
     bereken_xirr,
-    bereken_holdings_gak,
     bereken_holdings_en_gesloten,
     bereken_jaren_overzicht,
     bereken_totale_transactiekosten,
@@ -89,6 +88,8 @@ class TestXirr(unittest.TestCase):
 
 
 class TestHoldingsGak(unittest.TestCase):
+    """GAK van de OPEN posities uit bereken_holdings_en_gesloten()."""
+
     def _rij(self, datum, aantal, koers, totaal_eur, beurs="EAM"):
         return {
             "ticker": "X", "datum": pd.Timestamp(datum), "aantal": aantal,
@@ -97,7 +98,7 @@ class TestHoldingsGak(unittest.TestCase):
 
     def test_simpele_aankoop(self):
         df = pd.DataFrame([self._rij("2023-01-01", 10.0, 10.0, -100.0)])
-        result = bereken_holdings_gak(df)
+        result, _ = bereken_holdings_en_gesloten(df)
         self.assertAlmostEqual(result["X"]["aantal"], 10.0)
         self.assertAlmostEqual(result["X"]["gak"], 10.0)
 
@@ -110,16 +111,18 @@ class TestHoldingsGak(unittest.TestCase):
             self._rij("2023-06-01", -4.0, 20.0, 80.0),
             self._rij("2023-09-01", 10.0, 30.0, -300.0),
         ])
-        result = bereken_holdings_gak(df)
+        result, gesloten = bereken_holdings_en_gesloten(df)
         self.assertAlmostEqual(result["X"]["aantal"], 16.0)
         self.assertAlmostEqual(result["X"]["gak"], 22.5)
+        # Deels verkocht, daarna weer bijgekocht: niet "gesloten".
+        self.assertNotIn("X", gesloten)
 
     def test_volledig_verkochte_positie_niet_in_resultaat(self):
         df = pd.DataFrame([
             self._rij("2023-01-01", 10.0, 10.0, -100.0),
             self._rij("2023-06-01", -10.0, 15.0, 150.0),
         ])
-        result = bereken_holdings_gak(df)
+        result, _ = bereken_holdings_en_gesloten(df)
         self.assertNotIn("X", result)
 
     def test_stocksplit_via_corporate_action_rij_verdunt_gak(self):
@@ -134,15 +137,14 @@ class TestHoldingsGak(unittest.TestCase):
             self._rij("2023-06-01", -10.0, 0.0, 0.0, beurs="DEG"),
             self._rij("2023-06-01", 20.0, 0.0, 0.0),
         ])
-        result = bereken_holdings_gak(df)
+        result, _ = bereken_holdings_en_gesloten(df)
         self.assertAlmostEqual(result["X"]["aantal"], 20.0)
         self.assertAlmostEqual(result["X"]["gak"], 5.0)
 
 
 class TestHoldingsEnGesloten(unittest.TestCase):
-    """bereken_holdings_en_gesloten() -- zelfde GAK-methode als
-    bereken_holdings_gak(), maar houdt nu ook volledig verkochte posities
-    bij (Feature 'verkochte posities' op het Statistieken-tabblad)."""
+    """bereken_holdings_en_gesloten() -- de volledig verkochte posities
+    (Feature 'verkochte posities' op het Statistieken-tabblad)."""
 
     def _rij(self, datum, aantal, koers, totaal_eur, ticker="X", beurs="EAM"):
         return {
@@ -163,19 +165,6 @@ class TestHoldingsEnGesloten(unittest.TestCase):
         self.assertAlmostEqual(gesloten["X"]["gemiddelde_aankoopkoers"], 10.0)
         self.assertAlmostEqual(gesloten["X"]["gemiddelde_verkoopkoers"], 15.0)
         self.assertAlmostEqual(gesloten["X"]["gerealiseerd_eur"], 50.0)
-
-    def test_deels_verkocht_alleen_in_open_matcht_bereken_holdings_gak(self):
-        df = pd.DataFrame([
-            self._rij("2023-01-01", 10.0, 10.0, -100.0),
-            self._rij("2023-06-01", -4.0, 20.0, 80.0),
-            self._rij("2023-09-01", 10.0, 30.0, -300.0),
-        ])
-        open_posities, gesloten = bereken_holdings_en_gesloten(df)
-        self.assertNotIn("X", gesloten)
-        self.assertIn("X", open_posities)
-        oud_resultaat = bereken_holdings_gak(df)
-        self.assertAlmostEqual(open_posities["X"]["aantal"], oud_resultaat["X"]["aantal"])
-        self.assertAlmostEqual(open_posities["X"]["gak"], oud_resultaat["X"]["gak"])
 
     def test_split_voor_volledige_verkoop_aankoopkoers_klopt(self):
         # 10 stuks @ €10 (kost €100), dan 2-voor-1 split (DEG-boekingsrij +

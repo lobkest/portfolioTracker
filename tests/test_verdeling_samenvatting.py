@@ -24,16 +24,13 @@ class TestVerdelingSamenvatting(unittest.TestCase):
         ]
         s = bereken_verdeling_samenvatting(verdeling)
         self.assertEqual(s["totaal"], 1000.0)
-        self.assertEqual(s["etf_waarde"], 600.0)
-        self.assertEqual(s["aandeel_waarde"], 400.0)
         self.assertEqual(s["etf_pct"], 60.0)
         self.assertEqual(s["aandeel_pct"], 40.0)
 
     def test_lege_lijst_geeft_nullen_geen_deling_door_nul(self):
         s = bereken_verdeling_samenvatting([])
         self.assertEqual(s, {
-            "totaal": 0.0, "etf_waarde": 0.0, "aandeel_waarde": 0.0,
-            "etf_pct": 0.0, "aandeel_pct": 0.0,
+            "totaal": 0.0, "etf_pct": 0.0, "aandeel_pct": 0.0,
         })
 
     def test_alleen_etfs_geeft_100_procent_etf(self):
@@ -44,7 +41,6 @@ class TestVerdelingSamenvatting(unittest.TestCase):
         s = bereken_verdeling_samenvatting(verdeling)
         self.assertEqual(s["etf_pct"], 100.0)
         self.assertEqual(s["aandeel_pct"], 0.0)
-        self.assertEqual(s["aandeel_waarde"], 0.0)
 
     def test_waarde_nul_telt_niet_mee_en_crasht_niet(self):
         verdeling = [

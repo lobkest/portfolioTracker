@@ -5,7 +5,7 @@ heuristiek), en de bijbehorende land-/sector-/holdings-opzoekingen (met
 Verdeling/Land/Sector-aggregatie (portfolio_verdeling.py) als de Ticker-
 zekerheid-verificatie.
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -35,9 +35,8 @@ def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WA
         _tel_yahoo_call("yf.Ticker.info")
         return yf.Ticker(ticker).info
 
-    info, fout = _met_rate_limit_retry(_actie, "yf-info", f"'{ticker}'", pogingen, wachttijd)
+    info, fout = _met_rate_limit_retry(_actie, pogingen, wachttijd)
     if fout is not None:
-        # print(f"[yf-info] ❌ kon info niet ophalen voor '{ticker}': {fout}")
         return None
     return info
 
@@ -75,9 +74,6 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
             category is not None,
         ]
         is_etf = sum(signals) >= 2
-        # print(f"[classify] ⚠️ quoteType onbekend voor '{ticker}', gok ETF={is_etf} "
-              # f"(country={country}, sector={sector}, totalAssets={total_assets}, "
-              # f"fundFamily={fund_family}, category={category})")
 
     # Land/sector kwam toch al mee met deze call — meteen ook in de aparte
     # ticker_land_sector-cache zetten, zodat get_land_sector() voor deze
@@ -135,12 +131,10 @@ def get_land_sector(ticker):
         # kon niet opgehaald worden (rate limit na alle retries) — niet
         # cachen, gewoon Unknown teruggeven voor déze keer maar volgende
         # keer opnieuw proberen
-        # print(f"[land-sector] ⚠️ '{ticker}': kon niet opgehaald worden, Unknown voor nu")
         return ("Unknown", "Unknown")
 
     land = info.get("country")
     sector = info.get("sector")
-    # print(f"[land-sector] '{ticker}': opgehaald -> land={land}, sector={sector}")
     save_land_sector(ticker, land, sector)  # None mag hier gecached worden, is niet kritiek
     return (land or "Unknown", sector or "Unknown")
 
@@ -173,16 +167,13 @@ def get_etf_sector_verdeling(ticker):
     try:
         _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")
         weightings = yf.Ticker(ticker).funds_data.sector_weightings
-    except Exception as e:
-        # print(f"[etf-sector] ❌ kon sectorverdeling niet ophalen voor '{ticker}': {e}")
+    except Exception:
         return {}
 
     if not weightings:
-        # print(f"[etf-sector] ⚠️ lege sectorverdeling voor '{ticker}', niet gecached")
         return {}
 
     sector_dict = {_sector_naam(sector_key): float(gewicht) for sector_key, gewicht in weightings.items()}
-    # print(f"[etf-sector] '{ticker}': opgehaald -> {sector_dict}")
     save_etf_sector_verdeling(ticker, sector_dict)
     return sector_dict
 
@@ -236,17 +227,14 @@ def get_etf_holdings(ticker):
             ]
             save_etf_holdings(ticker, holdings)
             return holdings
-        # print(f"[etf-holdings] '{ticker}': provider-holdings ophalen mislukt, terugvallen op yfinance-top-10")
 
     try:
         _tel_yahoo_call("yf.Ticker.funds_data.top_holdings")
         top_holdings = yf.Ticker(ticker).funds_data.top_holdings
-    except Exception as e:
-        # print(f"[etf-holdings] ❌ kon top-holdings niet ophalen voor '{ticker}': {e}")
+    except Exception:
         return cached or []
 
     if top_holdings is None or top_holdings.empty:
-        # print(f"[etf-holdings] ⚠️ geen top-holdings gevonden voor '{ticker}', niet gecached")
         return cached or []
 
     holdings = []
@@ -260,7 +248,6 @@ def get_etf_holdings(ticker):
             "bron": "yfinance_top10",
         })
 
-    # print(f"[etf-holdings] '{ticker}': opgehaald -> {len(holdings)} holdings (yfinance_top10)")
     save_etf_holdings(ticker, holdings)
     return holdings
 
@@ -269,8 +256,8 @@ def get_etf_holdings(ticker):
 # groot_naar_klein/bereken_bedrijven_verdeling/bereken_etf_overlap/
 # compute_land_sector_verdeling staan sinds de module-splitsing in
 # portfolio_verdeling.py -- GEEN terug-import hier: niets in de rest van dit
-# bestand gebruikt ze nog (alleen app.py, dat rechtstreeks uit
-# portfolio_verdeling importeert). Een terug-import zou hier bovendien een
+# bestand gebruikt ze nog (portfolio_orchestratie.py en app.py importeren
+# rechtstreeks uit portfolio_verdeling). Een terug-import zou hier bovendien een
 # fragiele circulaire import opleveren (portfolio_verdeling.py importeert op
 # zijn beurt get_etf_holdings/get_etf_sector_verdeling/get_land_sector UIT
 # dit bestand).
@@ -349,8 +336,8 @@ def _ticker_details_met_cache(ticker):
     eerste stop. Voorkomt een extra yfinance-.info-call voor een ticker die
     al eerder in dit request (of een vorige upload) geclassificeerd is —
     zoals bij een positie in de portfolio zelf, die al via classify_tickers()
-    in analyze_transacties gecached is vóórdat de Ticker-zekerheid-pagina
-    wordt opgebouwd.
+    in analyze_transacties_verrijking gecached is vóórdat de Ticker-
+    zekerheid-pagina wordt opgebouwd.
 
     Let op: een rij met is_etf gezet maar alle overige velden NULL is niet
     hetzelfde als "succesvol gecontroleerd en er is gewoon geen data" (bv.

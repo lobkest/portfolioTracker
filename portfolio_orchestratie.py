@@ -5,7 +5,7 @@ korte-levende in-process cache tegen dubbele fetches binnen één
 portfolio-bezoek), en bouwt daaruit de dashboard-respons op (kern +
 lui geladen verrijking).
 
-Losgetrokken uit app.py; ongewijzigd overgenomen.
+Losgetrokken uit app.py.
 """
 import threading
 import time
@@ -22,7 +22,7 @@ except ImportError:
 
 
 from db import get_db_connection, get_laatste_prijs_update
-from debug_utils import meet_tijd, dprint
+from debug_utils import meet_tijd
 from transactie_utils import _is_corporate_action_row
 from prijzen import get_prices
 from portfolio_calc import (
@@ -169,7 +169,7 @@ def _laad_transacties_en_resultaat(code):
     """Haalt transacties op voor `code`, past split-correctie toe en
     berekent de waarde-tijdreeks (resultaat) — gedeelde basis voor de lui
     geladen endpoints die op deze twee objecten verder rekenen
-    (benchmark-vergelijking, xirr-over-tijd), zodat het hoofd-dashboard-
+    (benchmark-vergelijking, rendement-over-tijd), zodat het hoofd-dashboard-
     antwoord (build_portfolio_response) dit niet standaard hoeft mee te
     sturen. Geeft (transacties_df, resultaat) terug; resultaat is None als
     er geen koersdata is. (None, None) als de code niet bestaat."""
@@ -190,8 +190,8 @@ def _laad_transacties_en_resultaat(code):
 def _ticker_zekerheid_groepen(code):
     """
     Haalt de transacties van 'code' op en groepeert ze per (ISIN, Beurs) —
-    gedeeld door de volledige route, de lichte lijst-route en de
-    per-positie-route hieronder, zodat de groepeerlogica (en de corporate-
+    gedeeld door de lijst-route en de per-positie-route van
+    Ticker-zekerheid (app.py), zodat de groepeerlogica (en de corporate-
     action-rijen-filter) maar op één plek staat. Geeft None terug als de
     code niet bestaat, anders een lijst van ((isin, beurs), info)-tuples
     met info = {"naam", "echte_naam", "beurs", "isin", "transacties"}.
@@ -246,8 +246,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     Alles wat de Home-, Rendement-, Per-aandeel- en Statistieken-tabbladen
     nodig hebben — bewust ZONDER classify_tickers/land/sector/bedrijven-
     verdeling/ETF-overlap, want dat is het netwerk-zware deel dat bij een
-    nieuwe, koude-cache-portfolio de meeste tijd kost (zie CLAUDE.md /
-    opdracht_gefaseerd_laden.md). Die rest wordt lui opgehaald via
+    nieuwe, koude-cache-portfolio de meeste tijd kost. Die rest wordt lui opgehaald via
     analyze_transacties_verrijking() + de /verrijking-route.
 
     `prijs_data_al_klaar`: optioneel, al opgehaalde price_data -- als
@@ -352,13 +351,10 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
 
 def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None):
     """
-    Het netwerk-zware deel: Verdeling, Land/Sector, Top-bedrijven en ETF-
-    overlap — lui opgevraagd via /api/portfolio/<code>/verrijking, ná de
-    Home-pagina (zie analyze_transacties_kern). Doet zonder
-    `prijs_data_al_klaar` ZELF opnieuw compute_split_adjusted_shares/
-    get_prices — dat was bij het gangbare gebruik (kern al opgehaald) een
-    warme cache-hit, geen nieuwe download, maar wel dubbel werk; zie
-    `prijs_data_al_klaar` hieronder voor hoe dat nu overgeslagen wordt.
+    Het netwerk-zware deel: Verdeling (+ verdeling_samenvatting),
+    Land/Sector, Top-bedrijven en ETF-overlap — lui opgevraagd via
+    /api/portfolio/<code>/verrijking, ná de Home-pagina (zie
+    analyze_transacties_kern).
 
     `prijs_data_al_klaar`: optioneel, al opgehaalde price_data -- als
     meegegeven wordt aangenomen dat transacties_df AL split-gecorrigeerd is

@@ -6,12 +6,13 @@ als zo'n rij toevallig NIET op beurs "DEG" staat (zoals bij BYD).
 Achtergrond: analysis._is_corporate_action_row() (beurs == "DEG" OF "NON
 TRADEABLE" in product) was de volledige, correcte check, maar
 find_ticker_detailed() had een eigen, onvolledige inline-versie
-(uitsluitend beurs == "DEG") en de GET /api/portfolio/<code>/ticker-
-zekerheid-route filterde helemaal niet voordat er per (ISIN, Beurs)
-gegroepeerd werd. Twee losse fixes, één test per fix:
+(uitsluitend beurs == "DEG") en de Ticker-zekerheid-routes filterden
+helemaal niet voordat er per (ISIN, Beurs) gegroepeerd werd. Twee losse
+fixes, één test per fix:
 
 1. find_ticker_detailed() hergebruikt nu _is_corporate_action_row().
-2. De ticker-zekerheid-route filtert nu voordat er gegroepeerd wordt.
+2. _ticker_zekerheid_groepen() (achter /ticker-zekerheid/lijst en
+   /ticker-zekerheid/positie) filtert nu voordat er gegroepeerd wordt.
 
 Draait geheel offline voor de find_ticker_detailed-tests (geen yahooquery/
 netwerk nodig: een corporate-action-rij retourneert al vóór er gezocht
@@ -88,8 +89,9 @@ SKIP_REDEN = (
 
 @unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
-    """GET /api/portfolio/<code>/ticker-zekerheid mag een NON TRADEABLE-rij
-    (ook op een niet-DEG-beurs) nooit als eigen positie teruggeven."""
+    """GET /api/portfolio/<code>/ticker-zekerheid/lijst mag een NON
+    TRADEABLE-rij (ook op een niet-DEG-beurs) nooit als eigen positie
+    teruggeven."""
 
     CODE = "TCA"
 
@@ -127,26 +129,17 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
         conn.close()
 
         import app as app_module
-        self.app_module = app_module
         self.client = app_module.app.test_client()
 
     def tearDown(self):
         self._leeg_op()
 
     def test_non_tradeable_rij_verschijnt_niet_als_eigen_positie(self):
-        with patch.object(
-            self.app_module, "verifieer_tickers_met_prijs_parallel",
-            side_effect=lambda posities: [
-                {"ticker": "AKZA.AS", "zekerheid": "zeker", "alternatieven": [], "prijs_checks": []}
-                for _ in posities
-            ],
-        ) as mock_check:
-            res = self.client.get(f"/api/portfolio/{self.CODE}/ticker-zekerheid")
+        res = self.client.get(f"/api/portfolio/{self.CODE}/ticker-zekerheid/lijst")
 
         self.assertEqual(res.status_code, 200)
-        # Maar 1 (ISIN, Beurs)-groep had verifieer_tickers_met_prijs_parallel
-        # in mogen gaan -- de NON TRADEABLE-rij is er vóóraf uitgefilterd.
-        self.assertEqual(len(mock_check.call_args.args[0]), 1)
+        # Maar 1 (ISIN, Beurs)-groep -- de NON TRADEABLE-rij is er vóóraf
+        # uitgefilterd.
         data = res.get_json()
         self.assertEqual(len(data["posities"]), 1)
         self.assertEqual(data["posities"][0]["isin"], "NL0013267909")
@@ -166,17 +159,9 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
         cur.close()
         conn.close()
 
-        with patch.object(
-            self.app_module, "verifieer_tickers_met_prijs_parallel",
-            side_effect=lambda posities: [
-                {"ticker": "AKZA.AS", "zekerheid": "zeker", "alternatieven": [], "prijs_checks": []}
-                for _ in posities
-            ],
-        ) as mock_check:
-            res = self.client.get(f"/api/portfolio/{self.CODE}/ticker-zekerheid")
+        res = self.client.get(f"/api/portfolio/{self.CODE}/ticker-zekerheid/lijst")
 
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(len(mock_check.call_args.args[0]), 1)
         data = res.get_json()
         self.assertEqual(len(data["posities"]), 1)
 

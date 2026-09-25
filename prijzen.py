@@ -1,7 +1,7 @@
 """
 Koersen ophalen + cachen (via de 'prijzen'-tabel) + FX-conversie naar EUR.
 
-Losgetrokken uit analysis.py; ongewijzigd overgenomen.
+Losgetrokken uit analysis.py.
 """
 import threading
 
@@ -40,8 +40,7 @@ FX_PAAR_PER_VALUTA = {"USD": "USDEUR=X", "GBP": "GBPEUR=X", "GBp": "GBPEUR=X"}
 FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
 
 # get_prices() ververst de cache-rij van "vandaag" voortaan bij ELKE
-# aanroep (i.p.v. pas als de cache >4 dagen achterloopt, zie CLAUDE.md,
-# "koersen bij élke portfolio-opening verversen") — deze drempel voorkomt
+# aanroep (i.p.v. pas als de cache >4 dagen achterloopt) — deze drempel voorkomt
 # dat de meerdere endpoints van ÉÉN portfolio-opening (home, verrijking,
 # ticker-zekerheid) Yahoo binnen dezelfde paar seconden meermaals voor
 # dezelfde ticker bevragen.
@@ -53,8 +52,7 @@ def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
     tickers_kolommen, in-place. FX-reeks komt uit _fx_prijzen_serie()
     (persistent gecached via prijzen/get_prices(), zie daar) i.p.v. bij
     elke aanroep een eigen download te doen -- vóór deze fix werd dezelfde
-    FX-koers soms meermaals per upload opnieuw gedownload (zie CLAUDE.md,
-    performance-meting upload/analyse-flow).
+    FX-koers soms meermaals per upload opnieuw gedownload.
 
     `verversen` wordt ongewijzigd doorgegeven aan _fx_prijzen_serie(): dit
     pad hoort het gedrag van zijn aanroeper (get_prices(), voor het
@@ -142,14 +140,9 @@ def get_prices(tickers, start_date, verversen=True):
         # kleine marge voor weekenden/feestdagen rond de gevraagde startdatum
         if eerste > start_date + pd.Timedelta(days=5):
             missing.append(t)
-            # print(f"[koersen] ⚠️ '{t}' zit in cache maar pas vanaf {eerste.date()}, terwijl "
-                  # f"vanaf {start_date.date()} nodig is — cache lijkt incompleet (eerdere "
-                  # f"download waarschijnlijk mislukt/afgebroken), wordt opnieuw volledig "
-                  # f"gedownload")
             continue
         # Was: alleen verversen als de cache >4 dagen achterloopt. Nu: bij
-        # ELKE portfolio-opening verversen (zie CLAUDE.md, "koersen bij
-        # élke portfolio-opening verversen") — een rij voor "vandaag" die
+        # ELKE portfolio-opening verversen — een rij voor "vandaag" die
         # tijdens handelstijd is opgehaald (tussentijdse, niet-definitieve
         # koers) bleef anders de rest van de dag ongewijzigd staan, ook na
         # sluiting. DREMPEL_HERGEBRUIK_KOERS voorkomt dat de meerdere
@@ -165,11 +158,6 @@ def get_prices(tickers, start_date, verversen=True):
             dprint(f"[koersen] '{t}' wordt ververst vanaf {laatste.date()} "
                    f"(bij elke opening, tenzij <2 min geleden al ververst)")
 
-    cache_hits = len(tickers) - len(missing) - len(stale)
-    # print(f"[koersen] cache-samenvatting: {cache_hits} ticker(s) volledig uit cache, "
-          # f"{len(missing)} nieuw te downloaden, {len(stale)} incrementeel te verversen "
-          # f"(totaal {len(tickers)} gevraagd)")
-
     if missing:
         with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
             raw = download_met_retry(missing, start_date)
@@ -179,8 +167,6 @@ def get_prices(tickers, start_date, verversen=True):
 
             for t in missing:
                 if t not in raw.columns:
-                    # print(f"[koersen] ⚠️ '{t}' zit niet in yfinance-download resultaat "
-                          # f"(mogelijk ongeldige/onbekende ticker)")
                     continue
                 eerste_ruw = raw[t].first_valid_index()
                 dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
@@ -239,16 +225,9 @@ def get_prices(tickers, start_date, verversen=True):
 
     for t in tickers:
         if t not in pivot.columns:
-            # print(f"[koersen] ❌ GEEN data gevonden voor ticker {t} (helemaal niet in pivot)")
             continue
         eerste_geldige = pivot[t].first_valid_index()
         dprint(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
-        if eerste_geldige is not None and pd.Timestamp(eerste_geldige) > pd.Timestamp(start_date) + pd.Timedelta(days=10):
-            pass
-            # print(f"[koersen] ⚠️ {t}: eerste geldige koers ({eerste_geldige}) ligt >10 dagen na "
-                  # f"gevraagde startdatum ({start_date}) — 'waarde' voor deze ticker zal 0 zijn vóór "
-                  # f"die datum, terwijl 'geïnvesteerd' wel al kan oplopen. Vaak een teken van een "
-                  # f"verkeerde/onvolledige ticker.")
 
     return pivot
 
@@ -275,8 +254,7 @@ def _fx_prijzen_serie(valuta, verversen=True):
     een eigen parallelle cache te bouwen. Gedeeld door _converteer_naar_eur
     (via get_prices()) en _fx_koers_op_datum (via vergelijk_prijs_op_datum)
     -- vóór deze fix downloadde elke aanroeper z'n eigen FX-koers apart,
-    ook binnen dezelfde upload voor exact dezelfde (valuta, datum) (zie
-    CLAUDE.md, performance-meting upload/analyse-flow).
+    ook binnen dezelfde upload voor exact dezelfde (valuta, datum).
 
     `verversen` wordt doorgegeven aan get_prices(): vergelijk_prijs_op_datum()
     vergelijkt altijd tegen een HISTORISCHE datum en geeft hier bewust

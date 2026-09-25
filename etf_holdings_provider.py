@@ -1,6 +1,6 @@
 """
 Ophalen en parsen van de VOLLEDIGE holdings-lijst van een ETF bij de
-fondsprovider zelf (iShares/Vanguard/VanEck), i.p.v. yfinance's top-10 —
+fondsprovider zelf (iShares/VanEck), i.p.v. yfinance's top-10 —
 zie ETF_HOLDINGS_BRON hieronder voor de achtergrond. Losgetrokken uit
 analysis.py (was daar het eerste, volledig zelfstandige blok functies).
 """
@@ -20,8 +20,10 @@ from debug_utils import dprint
 #
 # Zoek dit op via de fondspagina van de provider (iShares/Vanguard/VanEck
 # etc.) -> knop "Holdings downloaden" / "Full holdings" -> rechtermuisklik
-# op de downloadknop -> "Kopieer linkadres". Test een gevonden link eerst
-# met test_holdings_url(url, provider) voordat je 'm hier toevoegt. Vul
+# op de downloadknop -> "Kopieer linkadres". Controleer een gevonden link
+# eerst door het bestand los door de parser uit _PROVIDER_PARSERS te halen
+# (aantal holdings, som van de gewichten moet dicht bij 100 liggen) voordat
+# je 'm hier toevoegt. Vul
 # stap voor stap aan naarmate je meer ETF's tegenkomt; een ticker die hier
 # niet in staat valt automatisch terug op de yfinance-top-10-aanpak.
 ETF_HOLDINGS_BRON = {
@@ -38,8 +40,8 @@ ETF_HOLDINGS_BRON = {
     # niet van het fonds — de blackrock.com/varnish-api-bron (CSPX.AS,
     # CNDX.AS, expliciet locale=en_GB in de URL) is Engels; de
     # ishares.com/nl/-site (IWDA.AS, IMAE.AS, EMIM.AS) en VanEck se
-    # Nederlandse site (GDX.L) zijn Nederlands. Dit ontdekten we pas door
-    # test_holdings_url() te draaien: zonder locale="nl" werd bv. "5,25%"
+    # Nederlandse site (GDX.L) zijn Nederlands. Dit ontdekten we pas aan de
+    # gewichtensom van een testdownload: zonder locale="nl" werd bv. "5,25%"
     # stilzwijgend als 525 gelezen (komma weggehaald als duizendtal-
     # scheidingsteken) — een gewichten-som van ~10000% i.p.v. ~100%. Zie
     # _parse_ishares_holdings()/_parse_vaneck_holdings() voor de details.
@@ -145,8 +147,8 @@ def _parse_percentage_waarde(waarde, locale="en"):
     (%-teken eraf, duizendtal-punten eraf, komma -> punt) voordat
     pd.to_numeric() 'm kan parsen. Zonder deze opschoning leest
     pd.to_numeric zo'n string simpelweg niet (geeft NaN, geen fout) —
-    precies zo werd de eerdere iShares-locale-bug pas zichtbaar via
-    test_holdings_url()'s gewichtensom (~10000% i.p.v. ~100%)."""
+    precies zo werd de eerdere iShares-locale-bug pas zichtbaar via de
+    gewichtensom van een testdownload (~10000% i.p.v. ~100%)."""
     if isinstance(waarde, str):
         waarde = waarde.strip().rstrip("%").strip()
         if locale == "nl":
@@ -268,12 +270,9 @@ def _vertaal_land_nl(land):
     gebruikt (zie NL_LAND_VERTALING hierboven). Een onbekende naam blijft
     bewust ONVERTAALD i.p.v. stilzwijgend 'Unknown' te worden — zo blijft
     hij als aparte, herkenbare bucket zichtbaar in de UI i.p.v. op te gaan
-    in een verkeerde categorie, en de waarschuwing hieronder maakt
-    duidelijk dat NL_LAND_VERTALING aangevuld moet worden."""
+    in een verkeerde categorie."""
     if land in NL_LAND_VERTALING:
         return NL_LAND_VERTALING[land]
-    # print(f"[etf-holdings-provider] ⚠️ onbekende Nederlandse landnaam '{land}' — "
-          # f"NL_LAND_VERTALING aanvullen, blijft voor nu onvertaald staan")
     return land
 
 
@@ -298,48 +297,6 @@ def _land_via_isin(isin):
     except Exception as e:
         dprint(f"[etf-holdings-provider] pycountry-lookup faalde voor ISIN-prefix '{code}': {e}")
     return "Unknown"
-
-
-def _regio_naar_land(regio_code):
-    """Zet een Vanguard-regiocode om naar een leesbare landnaam via
-    pycountry (Vanguard gebruikt vaak 2-letter ISO-landcodes in de
-    'Region'-kolom). Geeft de code zelf terug als pycountry 'm niet kent
-    (bv. al een leesbare naam, of een bredere regio zoals 'Europe')."""
-    if pd.isna(regio_code) or not str(regio_code).strip():
-        return "Unknown"
-    regio_code = str(regio_code).strip()
-    try:
-        import pycountry
-        land = pycountry.countries.get(alpha_2=regio_code.upper())
-        if land:
-            return land.name
-    except Exception as e:
-        dprint(f"[etf-holdings-provider] pycountry-lookup faalde voor '{regio_code}': {e}")
-    return regio_code
-
-
-def _parse_vanguard_holdings(content, locale="en"):
-    """Vanguard full-holdings XLSX. Header staat vanaf regel 7
-    (skiprows=6). Kolommen: Holding name, % of market value, Sector,
-    Region (regiocode, omgezet naar landnaam via _regio_naar_land).
-    'locale' wordt (nog) niet gebruikt door deze parser — parameter erbij
-    voor een uniforme aanroep-signatuur met de andere parsers, zie
-    fetch_provider_holdings()."""
-    df = pd.read_excel(io.BytesIO(content), skiprows=6)
-    df.columns = df.columns.str.strip()
-
-    holdings = []
-    for _, row in df.iterrows():
-        naam = row.get("Holding name")
-        if pd.isna(naam) or not str(naam).strip():
-            continue
-        gewicht = pd.to_numeric(row.get("% of market value"), errors="coerce")
-        if pd.isna(gewicht):
-            continue
-        holdings.append(_holding_rij(
-            naam, gewicht, _regio_naar_land(row.get("Region")), row.get("Sector"),
-        ))
-    return holdings
 
 
 def _parse_vaneck_holdings(content, locale="en"):
@@ -389,7 +346,6 @@ def _parse_vaneck_holdings(content, locale="en"):
 
 _PROVIDER_PARSERS = {
     "ishares": _parse_ishares_holdings,
-    "vanguard": _parse_vanguard_holdings,
     "vaneck": _parse_vaneck_holdings,
 }
 
@@ -438,61 +394,17 @@ def fetch_provider_holdings(etf_ticker):
     locale = bron.get("locale", "en")
     parser = _PROVIDER_PARSERS.get(provider)
     if parser is None:
-        # print(f"[etf-holdings-provider] ❌ onbekende provider '{provider}' voor '{etf_ticker}'")
         return None
 
     try:
         response = requests.get(url, headers={"User-Agent": _PROVIDER_USER_AGENT}, timeout=30)
         response.raise_for_status()
         holdings = parser(response.content, locale=locale)
-    except Exception as e:
-        # print(f"[etf-holdings-provider] ❌ kon holdings niet ophalen/parsen voor '{etf_ticker}' "
-              # f"(provider={provider}, url={url}): {e}")
+    except Exception:
         return None
 
     if not holdings:
-        # print(f"[etf-holdings-provider] ⚠️ lege holdings-lijst voor '{etf_ticker}' (provider={provider})")
         return None
 
-    aantal_voor_dedup = len(holdings)
-    holdings = _dedupliceer_holdings(holdings)
-    if len(holdings) != aantal_voor_dedup:
-        pass
-        # print(f"[etf-holdings-provider] '{etf_ticker}': {aantal_voor_dedup - len(holdings)} "
-              # f"dubbele holding-naam/namen samengevoegd ({aantal_voor_dedup} -> {len(holdings)})")
+    return _dedupliceer_holdings(holdings)
 
-    totaal_gewicht = sum(h["gewicht"] for h in holdings)
-    # print(f"[etf-holdings-provider] '{etf_ticker}': {len(holdings)} holdings opgehaald via {provider}, "
-          # f"totaal gewicht {totaal_gewicht:.1f}%")
-    return holdings
-
-
-def test_holdings_url(url, provider, locale="en"):
-    """
-    Test-helper: haalt een provider-URL op en parset 'm, ZONDER 'm aan
-    ETF_HOLDINGS_BRON toe te voegen of iets te cachen — gebruik dit om een
-    gevonden download-link te checken vóórdat je 'm toevoegt, bv.:
-
-        test_holdings_url("https://www.ishares.com/.../download", "ishares", locale="nl")
-
-    Print het aantal gevonden holdings en de som van de gewichten (moet
-    dicht bij 100 liggen) plus de eerste paar rijen, zodat meteen duidelijk
-    is of de kolom-aannames (skiprows, kolomnamen, getalformaat) voor dit
-    bestand kloppen.
-    """
-    parser = _PROVIDER_PARSERS.get(provider)
-    if parser is None:
-        # print(f"[test-holdings-url] onbekende provider '{provider}', kies uit: {list(_PROVIDER_PARSERS)}")
-        return None
-
-    response = requests.get(url, headers={"User-Agent": _PROVIDER_USER_AGENT}, timeout=30)
-    response.raise_for_status()
-    holdings = parser(response.content, locale=locale)
-
-    # print(f"[test-holdings-url] {len(holdings)} holdings gevonden")
-    # print(f"[test-holdings-url] som van gewichten: {sum(h['gewicht'] for h in holdings):.2f}%")
-    # print("[test-holdings-url] eerste 5 rijen:")
-    for h in holdings[:5]:
-        pass
-        # print("  ", h)
-    return holdings

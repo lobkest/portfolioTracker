@@ -24,7 +24,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from portfolio_calc import compute_value_over_time, compute_per_ticker
-from statistieken import bereken_holdings_en_gesloten, bereken_holdings_gak
+from statistieken import bereken_holdings_en_gesloten
 from transactie_utils import _sorteer_chronologisch
 
 
@@ -130,8 +130,8 @@ class TestHoldingsEnGeslotenSameDayVolgorde(unittest.TestCase):
         self.assertIsNone(gesloten["IS3N.DE"]["gemiddelde_verkoopkoers"])
 
     def test_bestaande_verschillende_dagen_scenario_blijft_ongewijzigd(self):
-        # Regressie tegen bereken_holdings_gak's al-geteste 'aankoop-verkoop-
-        # aankoop'-scenario (test_rendement.py), nu met een tijd-kolom erbij.
+        # Regressie tegen het al-geteste 'aankoop-verkoop-aankoop'-scenario
+        # (test_rendement.py, TestHoldingsGak), nu met een tijd-kolom erbij.
         df = pd.DataFrame([
             self._rij("10:00", 10.0, -100.0, "X", "EAM", datum="2023-01-01"),
             self._rij("10:00", -4.0, 80.0, "X", "EAM", datum="2023-06-01"),
@@ -142,8 +142,8 @@ class TestHoldingsEnGeslotenSameDayVolgorde(unittest.TestCase):
         self.assertAlmostEqual(open_posities["X"]["aantal"], 16.0)
         self.assertAlmostEqual(open_posities["X"]["gak"], 22.5)
 
-    def test_geen_tijd_kolom_gedraagt_zich_zoals_de_oude_bereken_holdings_gak(self):
-        # bereken_holdings_gak's bestaande fixtures (zonder 'tijd'-kolom,
+    def test_geen_tijd_kolom_geeft_zelfde_gak_als_met_tijd(self):
+        # De fixtures uit test_rendement.py (zonder 'tijd'-kolom,
         # verschillende dagen) moeten identiek resultaat blijven geven.
         rijen = [
             {"ticker": "X", "datum": pd.Timestamp("2023-01-01"), "aantal": 10.0,
@@ -155,7 +155,7 @@ class TestHoldingsEnGeslotenSameDayVolgorde(unittest.TestCase):
         ]
         df = pd.DataFrame(rijen)
         self.assertNotIn("tijd", df.columns)
-        result = bereken_holdings_gak(df)
+        result, _ = bereken_holdings_en_gesloten(df)
         self.assertAlmostEqual(result["X"]["aantal"], 16.0)
         self.assertAlmostEqual(result["X"]["gak"], 22.5)
 

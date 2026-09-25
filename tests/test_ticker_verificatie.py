@@ -2,7 +2,8 @@
 Unit tests voor de performance-fix van de Ticker-zekerheid-pagina
 (ticker_zekerheid.verifieer_ticker_met_prijs / vergelijk_prijs_op_datum).
 
-Achtergrond: GET /api/portfolio/<code>/ticker-zekerheid gaf op Render een
+Achtergrond: GET /api/portfolio/<code>/ticker-zekerheid (inmiddels
+verwijderd, vervangen door /lijst + /positie) gaf op Render een
 500 (gunicorn worker timeout) doordat elke onzekere positie ALLE
 kandidaat-tickers doorrekende, ook nadat een eerdere kandidaat al een
 overtuigende match (juiste beurs + kloppende prijs) had opgeleverd. Deze
@@ -20,10 +21,8 @@ Draait geheel offline (test 1 en 2): ticker_zekerheid.find_ticker_detailed en
 ticker_zekerheid.vergelijk_prijs_op_datum worden gemockt, dus geen echte
 yahooquery/yfinance-calls. Test 3 raakt wél de echte database aan (net als
 tests/test_dividend_db.py) om de ticker_prijscheck-cache zelf te testen,
-maar mockt de Yahoo-call (_haal_koers_en_dagrange_op, sinds kort de
-gecombineerde slotkoers+dagrange-download i.p.v. losse
-_haal_slotkoers_op/_haal_dagrange_op-aanroepen, zie CLAUDE.md/opdracht_
-slotkoers_dagrange_samenvoegen.md) — geen netwerkverkeer.
+maar mockt de Yahoo-call (_haal_koers_en_dagrange_op, de gecombineerde
+slotkoers+dagrange-download) — geen netwerkverkeer.
 """
 import os
 import sys
@@ -43,7 +42,7 @@ from ticker_prijscheck import _cumulatieve_split_factor
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
-# blijven -- _openfigi_root_bekend() geeft dan None terug (geen oordeel).
+# blijven -- _openfigi_root_matches() geeft dan None terug (geen oordeel).
 #
 # Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix (zie
 # CLAUDE.md/opdracht_alternatieve_kandidaten_dagrange.md) doet
@@ -242,7 +241,7 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
 class TestSplitCorrectie(unittest.TestCase):
     """
     Bugfix: vergelijk_prijs_op_datum hield geen rekening met aandelensplits.
-    _haal_slotkoers_op gebruikt yf.download(..., auto_adjust=True), dat
+    _haal_koers_en_dagrange_op gebruikt yf.download(..., auto_adjust=True), dat
     historische slotkoersen aanpast naar de HUIDIGE aandelenbasis — een
     koers van vóór een latere split komt dus terug als (koers / cumulatieve
     split-ratio), terwijl de Excel/DEGIRO-transactieprijs de ruwe prijs van
@@ -300,7 +299,7 @@ class TestValutaConversie(unittest.TestCase):
 
     def _mock_omgeving(self, yahoo_koers, valuta, fx_koers, fx_faalt=False):
         # FX-koers wordt sinds de FX-caching-fix (zie CLAUDE.md, performance-
-        # meting upload/analyse-flow) niet meer via _haal_slotkoers_op
+        # meting upload/analyse-flow) niet meer via een losse slotkoers-download
         # opgehaald maar via _fx_koers_op_datum (op zijn beurt gecached via
         # _fx_prijzen_serie/get_prices) -- dus die wordt nu los gemockt,
         # i.p.v. de gecombineerde slotkoers+dagrange-fetch op de FX-ticker-
