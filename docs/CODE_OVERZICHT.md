@@ -49,8 +49,7 @@ Je kunt ook **"Niet opslaan"** kiezen: dan wordt er niets in de database bewaard
 | Productie (Render) | gunicorn | `gunicorn` staat in `requirements.txt`. Het **startcommando staat niet in de repo** (geen `Procfile`, `render.yaml` of dergelijke gevonden) — het is dus waarschijnlijk in het Render-dashboard ingesteld. Voor een Flask-object `app` in `app.py` is `gunicorn app:app` de gebruikelijke vorm, maar dat kan ik hier niet verifiëren: **onzeker**. |
 | Gunicorn-timeout | niet in de repo | Diverse commentaren in de code gaan uit van "de standaard gunicorn-timeout van 30 s", en de frontend breekt zelf af na 55 s (`fetchMetTimeout`) resp. 60 s (upload). Wat er op Render echt is ingesteld: **onzeker**. |
 
-Wat `init_db()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF NOT EXISTS` voor elke tabel en
-`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` voor kolommen die er later bij kwamen (zie [hoofdstuk 4](#4-database)),
+Wat `init_db()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF NOT EXISTS` voor elke tabel (zie [hoofdstuk 4](#4-database)),
 `commit`, sluiten. Het is dus veilig om het bij elke start opnieuw uit te voeren — ook bij elke gunicorn-worker.
 
 ### Hoe de modules elkaar aanroepen
@@ -890,7 +889,7 @@ Lezen: `generate_code()` (bestaat de code al?), `_haal_portfolio_basis()`, `_laa
 | `id` | SERIAL, primary key | |
 | `code` | TEXT, NOT NULL, foreign key → `portfolios(code)` | |
 | `datum` | DATE, NOT NULL | transactiedatum |
-| `tijd` | TIME | uitvoeringstijd; kwam later bij (`ALTER TABLE`); nodig voor de chronologische volgorde binnen een dag |
+| `tijd` | TIME | uitvoeringstijd; nodig voor de chronologische volgorde binnen een dag |
 | `product` | TEXT, NOT NULL | **bijnaam** (standaard gelijk aan `echte_naam`, aanpasbaar via Instellingen → Bijnamen) |
 | `echte_naam` | TEXT | de productnaam zoals in het Excel-bestand; dit gaat naar de Yahoo-zoekopdracht |
 | `isin` | TEXT, NOT NULL | |
@@ -899,8 +898,8 @@ Lezen: `generate_code()` (bestaat de code al?), `_haal_portfolio_basis()`, `_laa
 | `aantal` | NUMERIC, NOT NULL | negatief bij verkoop |
 | `koers` | NUMERIC | koers per stuk **in EUR** (`_koers_eur`, zie hoofdstuk 3) |
 | `totaal_eur` | NUMERIC, NOT NULL | totaalbedrag inclusief kosten/AutoFX; negatief bij koop |
-| `waarde_eur` | NUMERIC | kale waarde (aantal × koers, zonder kosten); basis voor de GAK; kwam later bij |
-| `transactiekosten` | NUMERIC | kwam later bij |
+| `waarde_eur` | NUMERIC | kale waarde (aantal × koers, zonder kosten); basis voor de GAK |
+| `transactiekosten` | NUMERIC | DeGiro-transactiekosten; `NULL` als de kolom in het Excel-bestand ontbreekt |
 | `order_id` | TEXT | echte UUID of synthetische `SYN-...` |
 | | `UNIQUE (code, order_id)` | voorkomt dubbele rijen bij herhaalde upload |
 
@@ -917,7 +916,7 @@ Lezen: `_haal_portfolio_basis()`, `_laad_transacties_en_resultaat()`, `get_order
 | `dividend_id` | TEXT, NOT NULL | `DIV-` + hash van datum, ISIN en de ruwe bedragen |
 | `datum`, `product`, `isin`, `valuta` | | |
 | `bruto_eur`, `belasting_eur`, `netto_eur` | NUMERIC | in EUR; `NULL` als de valutaconversie niet te koppelen was |
-| `herinvesteerd` | BOOLEAN, default FALSE | er was ook een "Dividend Herinvestering"-rij (kwam later bij) |
+| `herinvesteerd` | BOOLEAN, default FALSE | er was ook een "Dividend Herinvestering"-rij |
 | | `UNIQUE (code, dividend_id)` | |
 
 Schrijven: `save_dividenden()` (**upsert**), `wijzig_portfolio_code()`, `delete_portfolio()`. Lezen: `get_dividenden()` (via `bereken_dividend_samenvatting()`).
@@ -954,17 +953,14 @@ Naast de database bestaan er drie **in-process** caches: `_basis_cache` (20 s, `
 
 ### 4.4 Backfill-mechanismen
 
-"Backfill" betekent hier: een kolom of waarde die er later bij kwam, voor bestaande rijen alsnog invullen. Er zijn vier verschillende mechanismen:
+"Backfill" betekent hier: een waarde die in een bestaande rij nog `NULL` (of verouderd) is, alsnog invullen. Er zijn drie verschillende mechanismen:
 
-1. **Schema-migraties** (`init_db()`): `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` voor `transacties` (`transactiekosten`, `tijd`, `waarde_eur`), `prijzen` (`bijgewerkt_op`),
-   `ticker_info` (`land`, `sector`, `quote_type`, `valuta`, `yahoo_beurs`, `fund_family`, `category`), `etf_holdings` (`bron`), `ticker_prijscheck` (`high`, `low`) en `dividenden` (`herinvesteerd`).
-   `CREATE TABLE IF NOT EXISTS` raakt een bestaande tabel niet aan, vandaar de aparte `ALTER`-regels. Bestaande rijen krijgen `NULL` (of de default).
-2. **Data-backfill via een herhaalde upload** (`transactiekosten`, `waarde_eur`, `tijd`): bij een upload naar een bestaande code zijn de al bekende Order ID's `rows_bestaand`;
+1. **Data-backfill via een herhaalde upload** (`transactiekosten`, `waarde_eur`, `tijd`): bij een upload naar een bestaande code zijn de al bekende Order ID's `rows_bestaand`;
    `_backfill_bestaande_rijen()` roept `backfill_transactiekosten()`, `backfill_waarde_eur()` en `backfill_tijd()` aan. Elke doet `UPDATE ... WHERE code = ... AND order_id = ... AND <kolom> IS NULL`:
    **een bekende waarde wordt nooit overschreven**, en `None`-waarden uit het Excel-bestand worden overgeslagen. Het werkt dus alleen als dezelfde Order ID's terugkomen.
    Zolang `waarde_eur` nog `NULL` is, valt de GAK-berekening terug op `totaal_eur`.
-3. **Ticker-backfill**: `backfill_verouderde_tickers()` (bij upload naar een bestaande code of bij "ophalen met code" met het vinkje) herbeoordeelt de opgeslagen tickers; zie hoofdstuk 3.
-4. **"Self-healing" bij lezen** (geen apart commando): `_ticker_details_met_cache()` (stale `ticker_info`), `vergelijk_prijs_op_datum()` (mist high/low → aanvullen), `get_etf_holdings()` (upgrade van
+2. **Ticker-backfill**: `backfill_verouderde_tickers()` (bij upload naar een bestaande code of bij "ophalen met code" met het vinkje) herbeoordeelt de opgeslagen tickers; zie hoofdstuk 3.
+3. **"Self-healing" bij lezen** (geen apart commando): `_ticker_details_met_cache()` (stale `ticker_info`), `vergelijk_prijs_op_datum()` (mist high/low → aanvullen), `get_etf_holdings()` (upgrade van
    `yfinance_top10` naar `provider_csv`), `get_prices()` (cache begint te laat → opnieuw downloaden) en `save_dividenden()` als upsert (een herberekening overschrijft een oude `NULL`-rij; met `DO NOTHING` bleef een foute rij voor altijd staan).
 
 **Let op bij tests:** een deel van de tests werkt met een **echte database** (zie hoofdstuk 7) en gebruikt eigen test-codes (zoals `TESTDIV`); er is geen aparte testdatabase.
@@ -1166,7 +1162,7 @@ Uitgangspunt: een tabblad is een knop in het menu + een sectie in de HTML + een 
 
 Voorbeeld uit de code: `waarde_eur`. Hetzelfde pad volgden `transactiekosten` en `tijd`. Neem ze als sjabloon, inclusief hun tests (`tests/test_transactiekosten_db.py`, `tests/test_tijd_backfill_db.py`).
 
-1. **`db.py`, `init_db()`:** voeg de kolom toe in `CREATE TABLE transacties` **én** een aparte `ALTER TABLE transacties ADD COLUMN IF NOT EXISTS <kolom> <type>;` (voor bestaande Neon-tabellen; `CREATE TABLE IF NOT EXISTS` raakt een bestaande tabel niet aan).
+1. **`db.py`, `init_db()`:** voeg de kolom toe (achteraan de kolomlijst) in `CREATE TABLE transacties`. Let op: `CREATE TABLE IF NOT EXISTS` raakt een al bestaande tabel niet aan — voeg de kolom in de bestaande Neon-database dus eenmalig met de hand toe (bv. `ALTER TABLE transacties ADD COLUMN <kolom> <type>;` in Neon's SQL-editor).
 2. **`db.py`:** schrijf `backfill_<kolom>(code, order_id_waarden)` naar het model van `backfill_waarde_eur()`: `UPDATE ... WHERE code = %s AND order_id = %s AND <kolom> IS NULL` (nooit een bekende waarde overschrijven).
 3. **`upload_verwerking.py`:**
    - lees de Excel-kolom in `_normaliseer_transactie_kolommen()` (met een nette fallback als de kolom in dit DeGiro-formaat ontbreekt) en gebruik een constante zoals `WAARDE_KOLOM`;
@@ -1281,7 +1277,7 @@ Van eenvoudig naar complex. Bij elke stap: wat te lezen, en een vraag of oefenin
 | # | Lees | Waarom nu | Vraag of oefening |
 |---|---|---|---|
 | 1 | `debug_utils.py`, `transactie_utils.py`, `portfolio_admin.py` | Klein, geen afhankelijkheden; je ziet de stijl van het project. | Wat gebeurt er in `_sorteer_chronologisch()` met een rij zonder tijd? Bedenk drie ongeldige codes voor `is_geldige_code()` en kijk in `tests/test_code_validatie.py` of ze al getest worden. |
-| 2 | `db.py`: eerst `init_db()`, dan één `get_cached_*`/`save_*`-paar | Het datamodel is de ruggengraat. | Waarom staat `transactiekosten` zowel in het `CREATE TABLE` als in een `ALTER TABLE`? Wat is het verschil tussen `save_prices()` en `upsert_prices()`? Welke tabellen zijn na `delete_portfolio()` nog gevuld? |
+| 2 | `db.py`: eerst `init_db()`, dan één `get_cached_*`/`save_*`-paar | Het datamodel is de ruggengraat. | Wat gebeurt er met een al bestaande tabel als je een kolom aan zijn `CREATE TABLE IF NOT EXISTS` toevoegt? Wat is het verschil tussen `save_prices()` en `upsert_prices()`? Welke tabellen zijn na `delete_portfolio()` nog gevuld? |
 | 3 | `static/js/menu.js`, `static/js/prognose.js`, `tests/test_menu.js`, `tests/test_prognose.js`; draai `node --test` | Pure JS, geen DOM: de makkelijkste ingang tot de frontend. | Waarom `Math.pow(1 + r/100, 1/12) - 1` als maandrente? Controleer met de hand dat 12 maanden bij 10% jaarrendement weer 10% geeft. |
 | 4 | `templates/index.html` (alleen doorbladeren) en de routelijst in hoofdstuk 3 → `app.py` | Je ziet welke schermen en routes er zijn. | Welke routes gebruikt de frontend niet (zoek de `fetch(`-aanroepen in `app.js`)? |
 | 5 | `upload_verwerking.py` + `find_matching_code()` in `portfolio_admin.py` | De ingang van alle data. | Wat gebeurt er als je dezelfde Excel twee keer uploadt? En bij een upload met 5 nieuwe en zonder 2 oude transacties (denk aan de twee deelverzameling-regels)? |

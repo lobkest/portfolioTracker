@@ -36,40 +36,23 @@ def init_db():
             order_id TEXT,
             echte_naam TEXT,
             transactiekosten NUMERIC,
+            -- DEGIRO's kale Waarde EUR (aantal x koers, zonder kosten); basis voor de GAK, want totaal_eur telt AutoFX/kosten mee
             waarde_eur NUMERIC,
+            -- nodig om transacties op dezelfde dag chronologisch te sorteren (koop vóór verkoop)
+            tijd TIME,
             UNIQUE (code, order_id)
         );
     """)
-    # transacties bestond al vóór transactiekosten erbij kwam — bestaande
-    # (Neon-)tabellen missen deze kolom dus nog, CREATE TABLE IF NOT EXISTS
-    # raakt een bestaande tabel niet aan.
-    cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS transactiekosten NUMERIC;")
-    # Zelfde migratiepatroon: 'tijd' kwam later bij, nodig om transacties op
-    # dezelfde kalenderdag chronologisch te kunnen sorteren (zie
-    # bereken_holdings_en_gesloten (statistieken.py)/compute_value_over_time
-    # (portfolio_calc.py) —
-    # zonder tijdstip kon een verkoop vóór de bijbehorende koop van diezelfde
-    # dag verwerkt worden, afhankelijk van de (willekeurige) SELECT-volgorde).
-    cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS tijd TIME;")
-    # Zelfde migratiepatroon: 'waarde_eur' (DEGIRO's kale Waarde EUR-kolom,
-    # aantal x koers zonder kosten) kwam later bij — de GAK hoort hierop
-    # gebaseerd te zijn i.p.v. op totaal_eur (dat AutoFX/transactiekosten
-    # meetelt en de GAK structureel te hoog maakt, zie CLAUDE.md).
-    cur.execute("ALTER TABLE transacties ADD COLUMN IF NOT EXISTS waarde_eur NUMERIC;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS prijzen (
             ticker TEXT NOT NULL,
             datum DATE NOT NULL,
             koers_eur NUMERIC NOT NULL,
+            -- moment van ophalen; bepaalt of de koers van vandaag ververst moet worden (prijzen.py)
+            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (ticker, datum)
         );
     """)
-    # prijzen bestond al vóór bijgewerkt_op erbij kwam -- bestaande rijen
-    # missen deze kolom dus nog, CREATE TABLE IF NOT EXISTS raakt een
-    # bestaande tabel niet aan. Oude rijen blijven NULL (onbekend moment van
-    # ophalen) -- geen backfill nodig, dat lost zichzelf vanzelf op naarmate
-    # koersen opnieuw/nieuw gecached worden.
-    cur.execute("ALTER TABLE prijzen ADD COLUMN IF NOT EXISTS bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_info (
             ticker TEXT PRIMARY KEY,
@@ -84,11 +67,6 @@ def init_db():
             bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
-    # ticker_info bestond al vóór land/sector/etc. erbij kwamen — bestaande
-    # (Neon-)tabellen missen deze kolommen dus nog, CREATE TABLE IF NOT EXISTS
-    # raakt een bestaande tabel niet aan.
-    for kolom in ("land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category"):
-        cur.execute(f"ALTER TABLE ticker_info ADD COLUMN IF NOT EXISTS {kolom} TEXT;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_land_sector (
             ticker TEXT PRIMARY KEY,
@@ -113,15 +91,12 @@ def init_db():
             holding_ticker TEXT,
             gewicht NUMERIC NOT NULL,
             land TEXT,
+            -- 'provider_csv' (volledige lijst via fondsprovider) of 'yfinance_top10' (fallback)
             bron TEXT DEFAULT 'yfinance_top10',
             bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (etf_ticker, holding_naam)
         );
     """)
-    # etf_holdings bestond al vóór 'bron' erbij kwam — bestaande rijen
-    # missen deze kolom dus nog, CREATE TABLE IF NOT EXISTS raakt een
-    # bestaande tabel niet aan.
-    cur.execute("ALTER TABLE etf_holdings ADD COLUMN IF NOT EXISTS bron TEXT DEFAULT 'yfinance_top10';")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_prijscheck (
             ticker TEXT NOT NULL,
@@ -129,13 +104,12 @@ def init_db():
             yahoo_slotkoers NUMERIC,
             valuta TEXT,
             opgehaald_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- intraday-dagrange voor de prijsvergelijking op de Ticker-zekerheid-pagina
+            high NUMERIC,
+            low NUMERIC,
             PRIMARY KEY (ticker, datum)
         );
     """)
-    # high/low kwamen later bij (High/Low-dagrange op de Ticker-zekerheid-
-    # pagina) -- bestaande rijen missen deze kolommen nog.
-    cur.execute("ALTER TABLE ticker_prijscheck ADD COLUMN IF NOT EXISTS high NUMERIC;")
-    cur.execute("ALTER TABLE ticker_prijscheck ADD COLUMN IF NOT EXISTS low NUMERIC;")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_splits (
             ticker TEXT PRIMARY KEY,
@@ -162,13 +136,11 @@ def init_db():
             bruto_eur NUMERIC,
             belasting_eur NUMERIC,
             netto_eur NUMERIC,
+            -- True als er voor deze datum/ISIN ook een "Dividend Herinvestering"-rij was
+            herinvesteerd BOOLEAN DEFAULT FALSE,
             UNIQUE (code, dividend_id)
         );
     """)
-    # 'herinvesteerd' kwam later bij (Dividend Herinvestering-rijen meetellen,
-    # zie CLAUDE.md) -- zelfde migratiepatroon als transactiekosten/tijd
-    # hierboven, bestaande (Neon-)tabellen missen deze kolom dus nog.
-    cur.execute("ALTER TABLE dividenden ADD COLUMN IF NOT EXISTS herinvesteerd BOOLEAN DEFAULT FALSE;")
     conn.commit()
     cur.close()
     conn.close()
@@ -350,8 +322,8 @@ def get_cached_prijscheck(ticker, datum):
     functie geeft None) en "geprobeerd maar mislukt" (tuple met None erin)
     is precies wat de aanroeper nodig heeft om te weten of het zin heeft om
     het opnieuw te proberen. high/low kunnen ook None zijn terwijl
-    yahoo_slotkoers wél bekend is — een rij van vóór de dagrange-uitbreiding,
-    of een dagrange-fetch die destijds mislukte; de aanroeper
+    yahoo_slotkoers wél bekend is — een dagrange-fetch die destijds
+    mislukte; de aanroeper
     (ticker_prijscheck.vergelijk_prijs_op_datum) beslist of dat een nieuwe
     poging waard is.
 
@@ -389,8 +361,8 @@ def save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
     moment geen koers heeft voor deze ticker op deze datum, blijft dat zo.
 
     ON CONFLICT ... DO UPDATE (niet DO NOTHING): een hernieuwde aanroep met
-    inmiddels wél bekende high/low (bv. een rij van vóór de dagrange-
-    uitbreiding) moet die alsnog kunnen bijschrijven, anders blijft een
+    inmiddels wél bekende high/low (bv. na een eerder mislukte dagrange-
+    fetch) moet die alsnog kunnen bijschrijven, anders blijft een
     bestaande NULL-rij voor altijd zonder dagrange staan — precies de bug
     die dividenden.dividend_id destijds had (zie CLAUDE.md).
     """
@@ -532,16 +504,12 @@ def wijzig_portfolio_code(oude_code, nieuwe_code):
 
 def backfill_transactiekosten(code, order_id_kosten):
     """order_id_kosten: lijst van (order_id, kosten_waarde) tuples uit een
-    hernieuwde upload. transactiekosten kwam pas via een latere migratie bij
-    (zie ALTER TABLE ... ADD COLUMN hierboven) — de insert-query gebruikt
-    ON CONFLICT (code, order_id) DO NOTHING, dus alle vóór-migratie-rijen
-    (elke order_id die al eens eerder is opgeslagen) missen transactiekosten
-    structureel, ook bij een herhaalde upload van hetzelfde Excel-bestand.
+    hernieuwde upload. De insert-query gebruikt ON CONFLICT (code, order_id)
+    DO NOTHING, dus een al opgeslagen rij met transactiekosten=NULL wordt
+    daar nooit bijgewerkt — deze functie vult die alsnog in.
 
-    Vult daarom alsnog transactiekosten in voor rijen die nu nog NULL zijn.
     Overschrijft NOOIT een al bekende waarde (de IS NULL-voorwaarde in de
-    UPDATE) — puur backfill, geen risico op dataverlies. Geeft het aantal
-    daadwerkelijk bijgewerkte rijen terug."""
+    UPDATE). Geeft het aantal daadwerkelijk bijgewerkte rijen terug."""
     if not order_id_kosten:
         return 0
     conn = get_db_connection()
@@ -590,12 +558,10 @@ def backfill_waarde_eur(code, order_id_waarde):
 
 def backfill_tijd(code, order_id_tijd):
     """order_id_tijd: lijst van (order_id, tijd_waarde) tuples uit een
-    hernieuwde upload. 'tijd' kwam net als transactiekosten pas via een
-    latere migratie bij (zie ALTER TABLE ... ADD COLUMN hierboven) —
-    bestaande rijen missen dit veld dus structureel. Zelfde backfill-
-    patroon als backfill_transactiekosten() hierboven: vult tijd alleen in
-    waar het nog NULL is, overschrijft nooit een al bekende waarde. Geeft
-    het aantal daadwerkelijk bijgewerkte rijen terug."""
+    hernieuwde upload. Zelfde backfill-patroon als
+    backfill_transactiekosten() hierboven: vult tijd alleen in waar het nog
+    NULL is, overschrijft nooit een al bekende waarde. Geeft het aantal
+    daadwerkelijk bijgewerkte rijen terug."""
     if not order_id_tijd:
         return 0
     conn = get_db_connection()
@@ -695,9 +661,8 @@ def get_transacties_overzicht(code):
     overzichtstabblad. Standaard gesorteerd op datum aflopend (meest recent
     eerst) -- verdere sortering/paginering gebeurt client-side.
 
-    tijd/transactiekosten kwamen via een latere migratie bij (zie init_db())
-    en kunnen dus None zijn voor transacties die sindsdien niet opnieuw
-    geüpload zijn -- de UI toont dan "—" i.p.v. een verzonnen waarde."""
+    tijd/transactiekosten kunnen None zijn (bv. een ontbrekende waarde in
+    het Excel-bestand) -- de UI toont dan "—" i.p.v. een verzonnen waarde."""
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute(
