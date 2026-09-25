@@ -33,4 +33,4 @@ jobs:
       # Geen package.json/dependencies nodig: prognose.js/menu.js/transacties.js/
       # bedrijven.js zijn dependency-vrij en gebruiken Node's ingebouwde testrunner.
       - name: JS unit tests draaien
-        run: node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js
+        run: node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js

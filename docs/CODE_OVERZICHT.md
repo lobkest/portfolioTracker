@@ -492,6 +492,39 @@ niet crasht. Uitgecommentarieerde prints bestaan niet meer: wat niet gelogd hoef
 
 ---
 
+### `diagnostiek.py` — meldingen per laadbeurt (Instellingen > Diagnostiek)
+
+**Verantwoordelijkheid:** meldingen verzamelen over wat er tijdens het laden goed ging, minder verwacht was of misging, en die meesturen in het
+JSON-antwoord. Geen afhankelijkheden op andere projectmodules, niets in de database.
+
+- **Meldingsformaat:** een dict `{categorie, niveau, tekst, sleutel}`. Niveaus zijn constanten: `FOUT`, `LET_OP`, `INFO`, `GOED`.
+- **`meld(categorie, niveau, tekst, sleutel=None)`** voegt een melding toe aan de huidige request (op Flask's `g`). Een tweede melding met dezelfde
+  `(categorie, sleutel)` vervangt de eerste; zonder sleutel geldt de tekst als sleutel. Een ongeldig niveau wordt `INFO`. Gooit nooit een exception.
+- **Alleen per laadbeurt:** de meldingen leven één request lang. Buiten een app-context (unittests, losse scripts, én de worker-threads van een
+  `ThreadPoolExecutor`, zoals de prijscheck bij ticker-resolutie) is `meld()` een stille no-op. Daarom meldt `ticker_prijscheck.py` niets.
+- **Meesturen:** `voeg_diagnostiek_toe(resultaat)` zet `haal_meldingen()` onder de sleutel `diagnostiek`. Gebruikt in `app.py` bij upload (opslaan
+  en niet opslaan), ophalen met code en `/verrijking`. Niet bij bijnaam/code wijzigen.
+- **Basis-cache:** `_haal_portfolio_basis()` bewaart bij een miss de meldingen die tijdens het ophalen ontstonden (`meldingen_sinds()`) in de
+  cache-entry en geeft ze bij een hit opnieuw door (`meld_opnieuw()`).
+- **Frontend:** `static/js/diagnostiek.js` (puur, getest) voegt samen (nieuwste wint per categorie + sleutel), telt en groepeert;
+  `app.js` bewaart de meldingen in `diagnostiekMeldingen`, gereset in `toonDashboard()` (nieuwe upload of andere code).
+
+**Categorie Wisselkoersen** (de eerste):
+
+| Waar | Melding |
+|---|---|
+| `_normaliseer_transactie_kolommen()` | Excel-bron: `GOED` (wisselkoers gebruikt voor N van M transacties), `INFO` (kolom leeg), `LET_OP` (kolom ontbreekt). Alleen bij een upload. |
+| `_haal_valuta_op()` | `LET_OP` per ticker: valuta niet op te halen, geen valuta van Yahoo, of valuta zonder FX-paar (bv. CHF). Naast de bestaande WARN-print. |
+| `_fx_prijzen_serie()` | Per FX-paar: `GOED` (N koersen vanaf datum; uit cache / gedownload / ververst) of `FOUT` (geen koersdata). De herkomst noteert `get_prices()` via `_noteer_fx_bron()`. |
+
+Geen FX-melding betekent: bij deze laadbeurt is niets gedownload of ververst (alles vers uit de cache), niet dat er iets mis is.
+
+**Nieuwe categorie toevoegen:** een constante `CATEGORIE_...` in `diagnostiek.py`, en `meld(CATEGORIE_..., niveau, tekst, sleutel=...)` naast de
+bestaande logica (niet in plaats van `dprint`). Meld vanuit de hoofdthread; vanuit een thread gaat de melding verloren. De frontend hoeft niets te weten
+van nieuwe categorieën.
+
+---
+
 ### `portfolio_calc.py` — tijdreeksen en split-correctie
 
 **Verantwoordelijkheid:** de per-dag-berekeningen op `transacties_df` + `price_data` voor Home, Per aandeel en Per aandeel aankoop, plus de split-correctie.

@@ -99,6 +99,63 @@ body {
     color: #155724;
 }
 
+/* Instellingen > Diagnostiek: niveau-labels (tekst + kleur, niet alleen kleur). */
+.diagnostiekToelichting > p {
+    margin: 0;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.diagnostiekTeller {
+    font-weight: bold;
+}
+
+.diagnostiekCategorie {
+    margin: 18px 0 6px;
+    font-size: 1em;
+}
+
+.diagnostiekLijst {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.diagnostiekLijst li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid #eee;
+    overflow-wrap: anywhere;
+}
+
+.diagnostiekLijst .badge {
+    margin-left: 0;
+    min-width: 52px;
+    text-align: center;
+}
+
+.badgeFOUT {
+    background: #f8d7da;
+    color: #9C0006;
+}
+
+.badgeLET_OP {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.badgeINFO {
+    background: #e9ecef;
+    color: #495057;
+}
+
+.badgeGOED {
+    background: #d4edda;
+    color: #155724;
+}
+
 label {
     display: block;
     margin-top: 15px;

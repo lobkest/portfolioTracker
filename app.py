@@ -6,6 +6,7 @@ from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
 )
 from debug_utils import meet_tijd
+from diagnostiek import voeg_diagnostiek_toe
 from yahoo_client import reset_yahoo_call_teller, log_yahoo_call_samenvatting
 from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
 from dividend import bereken_dividend_samenvatting
@@ -103,7 +104,7 @@ def _upload_impl():
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
         log_yahoo_call_samenvatting()
-        return jsonify(result)
+        return jsonify(voeg_diagnostiek_toe(result))
 
     with meet_tijd("excel_inlezen_orderid_openpyxl"):
         df = _bepaal_order_ids(bestand1, df)
@@ -151,7 +152,7 @@ def _upload_impl():
     # dividenden) -- een upload moet altijd verse data opleveren, nooit
     # de _basis_cache van vóór deze upload (zie opdracht dubbele-fetches).
     _wis_portfolio_basis_cache(code)
-    response = jsonify(build_portfolio_response(code))
+    response = jsonify(voeg_diagnostiek_toe(build_portfolio_response(code)))
     log_yahoo_call_samenvatting()
     return response
 
@@ -181,7 +182,7 @@ def api_portfolio(code):
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     log_yahoo_call_samenvatting()
-    return jsonify(result)
+    return jsonify(voeg_diagnostiek_toe(result))
 
 
 @app.route("/api/portfolio/<code>/verrijking")
@@ -200,7 +201,9 @@ def portfolio_verrijking(code):
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
     try:
-        response = jsonify(analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data))
+        response = jsonify(voeg_diagnostiek_toe(
+            analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data)
+        ))
         # Geen reset_yahoo_call_teller() hier: /verrijking wordt door de
         # frontend los van /upload aangeroepen, dus deze samenvatting toont
         # het CUMULATIEVE aantal calls sinds de laatste reset in

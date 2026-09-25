@@ -9,6 +9,17 @@ let huidigeData = null;
 // "klaar" zodra huidigeData de verrijkingsvelden bevat.
 let verrijkingStatus = null;
 
+// Diagnostiek-meldingen van de huidige portfolio-sessie (Instellingen >
+// Diagnostiek). Gereset in toonDashboard() (nieuwe upload of andere code);
+// aangevuld met de "diagnostiek"-sleutel van elk kern-/verrijkingsantwoord.
+// Bijnaam/code-wijzigen roepen toonDashboard() niet aan en laten dit staan.
+let diagnostiekMeldingen = [];
+
+function voegDiagnostiekToe(data) {
+    diagnostiekMeldingen = voegMeldingenSamen(diagnostiekMeldingen, data && data.diagnostiek);
+    if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
+}
+
 // Gedeelde fetch-met-timeout-helper: breekt de aanroep zelf af als de server
 // (of de verbinding) veel te lang stil blijft -- bv. een gunicorn-worker die
 // vastloopt zonder de verbinding netjes te sluiten. Zonder dit blijft de
@@ -1751,6 +1762,43 @@ function toonTickerZekerheidPositieFout(kaart, tekst) {
         status.textContent = `⚠️ ${tekst}`;
         status.style.color = "#9C0006";
     }
+}
+
+// Instellingen > Diagnostiek: teller bovenaan, daaronder per categorie de
+// meldingen (ernstigste eerst) met een tekstlabel per niveau.
+function toonDiagnostiek() {
+    const teller = document.getElementById("diagnostiekTeller");
+    const lijst = document.getElementById("diagnostiekLijst");
+    lijst.innerHTML = "";
+
+    if (diagnostiekMeldingen.length === 0) {
+        teller.textContent = "Nog geen meldingen voor deze laadbeurt.";
+        return;
+    }
+    teller.textContent = diagnostiekTellerTekst(telPerNiveau(diagnostiekMeldingen));
+
+    groepeerPerCategorie(diagnostiekMeldingen).forEach(groep => {
+        const kop = document.createElement("h3");
+        kop.className = "diagnostiekCategorie";
+        kop.textContent = groep.categorie;
+        lijst.appendChild(kop);
+
+        const ul = document.createElement("ul");
+        ul.className = "diagnostiekLijst";
+        groep.meldingen.forEach(melding => {
+            const niveau = DIAGNOSTIEK_NIVEAU_LABEL[melding.niveau] ? melding.niveau : "INFO";
+            const li = document.createElement("li");
+            const badge = document.createElement("span");
+            badge.className = `badge badge${niveau}`;
+            badge.textContent = DIAGNOSTIEK_NIVEAU_LABEL[niveau];
+            const tekst = document.createElement("span");
+            tekst.textContent = melding.tekst;
+            li.appendChild(badge);
+            li.appendChild(tekst);
+            ul.appendChild(li);
+        });
+        lijst.appendChild(ul);
+    });
 }
 
 async function toonInstellingenTicker() {
@@ -3511,7 +3559,7 @@ function pasViewToe(view) {
     // standaard terug.
     document.getElementById("chartWrapper").style.height = "";
     document.getElementById("rendementChart").style.touchAction = "";
-    const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker";
+    const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker" || view === "instellingen-diagnostiek";
 
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
         btn.classList.toggle("actief", btn.dataset.view === view);
@@ -3530,6 +3578,7 @@ function pasViewToe(view) {
     document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
     document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
     document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
+    document.getElementById("instellingenDiagnostiekSectie").style.display = view === "instellingen-diagnostiek" ? "block" : "none";
     document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("dividendUitkeringenSectie").style.display = view === "dividend" ? "block" : "none";
     document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
@@ -3587,6 +3636,7 @@ function pasViewToe(view) {
     else if (view === "sector") toonSector();
     else if (view === "instellingen-bijnamen") toonInstellingen();
     else if (view === "instellingen-ticker") toonInstellingenTicker();
+    else if (view === "instellingen-diagnostiek") toonDiagnostiek();
     else if (view === "dividend") toonDividend();
     else if (view === "statistieken") toonStatistieken();
     else if (view === "transacties") toonTransacties();
@@ -3608,6 +3658,9 @@ function pasViewToe(view) {
 
 function toonDashboard(data) {
     huidigeData = data;
+    // Nieuwe upload of andere code: meldingen van de vorige laadbeurt wissen.
+    diagnostiekMeldingen = [];
+    voegDiagnostiekToe(data);
     // Zonder reset bleef een eerder berekende prognose (van een andere
     // portfolio, of van vóór "Terug naar upload" + een nieuwe code) gewoon
     // staan: toonPrognose() hergebruikt prognoseResultaat zolang die niet
@@ -3718,6 +3771,7 @@ async function laadVerrijking(code) {
             throw new Error(data.error || "Verrijking ophalen mislukt.");
         }
         Object.assign(huidigeData, data);
+        voegDiagnostiekToe(data);
         verrijkingStatus = "klaar";
     } catch (err) {
         console.error("[verrijking] ophalen mislukt:", err.message);

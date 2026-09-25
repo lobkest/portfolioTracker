@@ -11,6 +11,7 @@ from flask import g, has_app_context
 
 from db import get_db_connection, save_prices, upsert_prices
 from debug_utils import dprint, meet_tijd
+from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, GOED, LET_OP, FOUT
 from yahoo_client import download_met_retry, _tel_yahoo_call
 
 # FX-paar per valuta, gebruikt door zowel _converteer_naar_eur() (via
@@ -46,6 +47,32 @@ FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
 # dezelfde ticker bevragen.
 DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
 
+# Herkomst van een FX-reeks binnen deze request, voor de Diagnostiek-melding
+# in _fx_prijzen_serie(). get_prices() noteert per FX-paar welke van de drie
+# het was (zijn bestaande missing/stale-onderscheid); _fx_prijzen_serie()
+# leest het terug via _fx_bron(). Alleen binnen een app-context (op `g`).
+FX_PAREN = set(FX_PAAR_PER_VALUTA.values())
+FX_BRON_CACHE = "uit cache"
+FX_BRON_GEDOWNLOAD = "gedownload"
+FX_BRON_VERVERST = "ververst"
+_G_ATTR_FX_BRON = "_fx_bron"
+
+
+def _noteer_fx_bron(fx_pair, bron):
+    if fx_pair not in FX_PAREN or not has_app_context():
+        return
+    bronnen = getattr(g, _G_ATTR_FX_BRON, None)
+    if bronnen is None:
+        bronnen = {}
+        setattr(g, _G_ATTR_FX_BRON, bronnen)
+    bronnen[fx_pair] = bron
+
+
+def _fx_bron(fx_pair):
+    if not has_app_context():
+        return None
+    return (getattr(g, _G_ATTR_FX_BRON, None) or {}).get(fx_pair)
+
 
 def _haal_valuta_op(t):
     """Vraagt de noteringsvaluta van ticker t op bij Yahoo. Lukt dat niet, of
@@ -59,13 +86,20 @@ def _haal_valuta_op(t):
     except Exception as e:
         print(f"[koersen] WARN {t}: valuta opvragen bij Yahoo mislukt ({e!a}) - "
               f"koers NIET omgerekend, aanname EUR")
+        meld(CATEGORIE_WISSELKOERSEN, LET_OP,
+             f"Valuta van '{t}' niet op te halen bij Yahoo; aangenomen EUR (geen omrekening).", sleutel=t)
         return "EUR"
     if not currency:
         print(f"[koersen] WARN {t}: Yahoo geeft geen valuta - koers NIET omgerekend, aanname EUR")
+        meld(CATEGORIE_WISSELKOERSEN, LET_OP,
+             f"Yahoo geeft geen valuta voor '{t}'; aangenomen EUR (geen omrekening).", sleutel=t)
         return "EUR"
     if currency != "EUR" and currency not in FX_PAAR_PER_VALUTA:
         print(f"[koersen] WARN {t}: valuta '{currency}' wordt niet ondersteund - "
               f"koers NIET omgerekend, telt mee alsof het EUR is")
+        meld(CATEGORIE_WISSELKOERSEN, LET_OP,
+             f"Valuta {currency} van '{t}' wordt niet ondersteund; niet omgerekend, telt mee alsof het EUR is.",
+             sleutel=t)
     return currency
 
 
@@ -176,6 +210,9 @@ def get_prices(tickers, start_date, verversen=True):
             dprint(f"[koersen] '{t}' wordt ververst vanaf {laatste.date()} "
                    f"(bij elke opening, tenzij <2 min geleden al ververst)")
 
+    for t in tickers:
+        _noteer_fx_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
+
     if missing:
         with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
             raw = download_met_retry(missing, start_date)
@@ -225,6 +262,7 @@ def get_prices(tickers, start_date, verversen=True):
                            f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
                     continue
                 _converteer_naar_eur(raw_t, [t], verversen=verversen)
+                _noteer_fx_bron(t, FX_BRON_VERVERST)
                 for datum, koers in raw_t[t].dropna().items():
                     stale_rows.append((t, datum.date(), float(koers)))
 
@@ -324,4 +362,22 @@ def _fx_prijzen_serie(valuta, verversen=True):
 
     if cache is not None:
         cache[fx_pair] = (reeks, verversen)
+    _meld_fx_reeks(valuta, fx_pair, reeks)
     return reeks
+
+
+def _meld_fx_reeks(valuta, fx_pair, reeks):
+    """Diagnostiek-melding (categorie Wisselkoersen) over een net opgehaalde
+    FX-reeks, sleutel = FX-paar. Alleen melden, verandert niets aan de reeks."""
+    geldig = reeks.dropna()
+    if geldig.empty:
+        meld(CATEGORIE_WISSELKOERSEN, FOUT,
+             f"{valuta} -> EUR: geen koersdata van Yahoo ({fx_pair}); posities in {valuta} "
+             f"kunnen verkeerd gewaardeerd zijn.",
+             sleutel=fx_pair)
+        return
+    vanaf = pd.Timestamp(geldig.index.min()).strftime("%Y-%m-%d")
+    bron = _fx_bron(fx_pair)
+    tekst = f"{valuta} -> EUR via Yahoo ({fx_pair}): {len(geldig)} koersen, vanaf {vanaf}"
+    tekst += f"; {bron}." if bron else "."
+    meld(CATEGORIE_WISSELKOERSEN, GOED, tekst, sleutel=fx_pair)

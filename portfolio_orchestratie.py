@@ -23,6 +23,7 @@ except ImportError:
 
 from db import get_db_connection, get_laatste_prijs_update
 from debug_utils import meet_tijd
+from diagnostiek import haal_meldingen, meldingen_sinds, meld_opnieuw
 from transactie_utils import _is_corporate_action_row
 from prijzen import get_prices
 from portfolio_calc import (
@@ -82,8 +83,13 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
         with _basis_cache_lock:
             cached = _basis_cache.get(code)
         if cached and (nu - cached["op"]) < _BASIS_CACHE_TTL_SECONDEN:
+            # De code die de Diagnostiek-meldingen maakt (get_prices()) wordt
+            # bij een hit overgeslagen -- de bij de miss bewaarde meldingen
+            # opnieuw doorgeven, zodat ook deze request ze meestuurt.
+            meld_opnieuw(cached.get("diagnostiek"))
             return cached["naam"], cached["transacties_df"], cached["price_data"]
 
+    meldingen_voor = haal_meldingen()
     with meet_tijd(f"basis_ophalen_db (code={code})"):
         conn = get_db_connection()
         cur = conn.cursor()
@@ -120,7 +126,10 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
         price_data = get_prices(tickers, start_date, verversen=verversen) if tickers else pd.DataFrame()
 
     with _basis_cache_lock:
-        _basis_cache[code] = {"naam": naam, "transacties_df": transacties_df, "price_data": price_data, "op": nu}
+        _basis_cache[code] = {
+            "naam": naam, "transacties_df": transacties_df, "price_data": price_data, "op": nu,
+            "diagnostiek": meldingen_sinds(meldingen_voor),
+        }
 
     return naam, transacties_df, price_data
 

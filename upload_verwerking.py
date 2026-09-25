@@ -14,6 +14,7 @@ import openpyxl
 from flask import request
 
 from debug_utils import dprint, meet_tijd
+from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP
 from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
     find_ticker_met_snelle_prijscheck,
@@ -42,6 +43,9 @@ WAARDE_KOLOM = "Waarde EUR"
 # EUR-genoteerde rijen. Zelfde beschikbaarheids-check-patroon als
 # KOSTEN_KOLOM/WAARDE_KOLOM.
 WISSELKOERS_KOLOM = "Wisselkoers"
+
+# Diagnostiek-sleutel voor de Excel-wisselkoersmelding (één melding per upload).
+DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS = "excel_wisselkoers"
 
 
 def _normaliseer_tijd(waarde):
@@ -93,10 +97,23 @@ def _normaliseer_transactie_kolommen(df):
                 f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
                 f"_koers_eur={rij['_koers_eur']:.4f}"
             )
+        aantal_met_wisselkoers = int(heeft_wisselkoers.sum())
+        if aantal_met_wisselkoers > 0:
+            meld(CATEGORIE_WISSELKOERSEN, GOED,
+                 f"Wisselkoers uit Excel gebruikt voor {aantal_met_wisselkoers} van {len(df)} transacties.",
+                 sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
+        else:
+            meld(CATEGORIE_WISSELKOERSEN, INFO,
+                 f"Kolom '{WISSELKOERS_KOLOM}' aanwezig, maar geen enkele transactie gebruikte een wisselkoers.",
+                 sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
     else:
         df["_koers_eur"] = df["Koers"].astype(float)
         dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden - "
                f"koers-kolom blijft ongewijzigd (aanname: al EUR)")
+        meld(CATEGORIE_WISSELKOERSEN, LET_OP,
+             f"Kolom '{WISSELKOERS_KOLOM}' ontbreekt in het Excel-bestand: koersen zijn ongewijzigd "
+             f"overgenomen (aanname: alles in EUR).",
+             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
     return df
 
 

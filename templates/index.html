@@ -99,6 +99,7 @@
             <button class="menuBtn" data-view="instellingen">Instellingen</button>
             <button class="menuBtn subMenuBtn" data-view="instellingen-bijnamen">Bijnamen</button>
             <button class="menuBtn subMenuBtn" data-view="instellingen-ticker">Ticker-zekerheid</button>
+            <button class="menuBtn subMenuBtn" data-view="instellingen-diagnostiek">Diagnostiek</button>
         </div>
 
         <div class="content">
@@ -185,6 +186,14 @@
             <p id="instellingenMsg" style="display: none; color: #2c7a4b; font-size: 0.9em;"></p>
             <div id="instellingenSectie" style="display: none;"></div>
             <div id="instellingenTickerSectie" style="display: none;"></div>
+            <div id="instellingenDiagnostiekSectie" style="display: none;">
+                <div class="labelRij diagnostiekToelichting">
+                    <p>Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. Excel-meldingen verschijnen alleen direct na een upload.</p>
+                    <span class="infoTip" data-label="Diagnostiek">Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
+                </div>
+                <p id="diagnostiekTeller" class="diagnostiekTeller"></p>
+                <div id="diagnostiekLijst"></div>
+            </div>
             <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
             <p id="verrijkingLaadt" style="display: none; color: #999; font-size: 0.9em;">Bezig met laden...</p>
             <div id="verrijkingFout" style="display: none;">
@@ -195,6 +204,7 @@
     </div>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/diagnostiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/infotip.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
