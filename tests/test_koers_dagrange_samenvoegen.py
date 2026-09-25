@@ -1,7 +1,6 @@
 """
 Unit tests voor het samenvoegen van de slotkoers- en dagrange-download tot
-één yf.download()-call (zie CLAUDE.md/opdracht_slotkoers_dagrange_
-samenvoegen.md).
+één yf.download()-call.
 
 Achtergrond: vergelijk_prijs_op_datum() deed voorheen, in het pad waar de
 prijs nog niet gecached is, twee losse yf.download()-aanroepen voor exact

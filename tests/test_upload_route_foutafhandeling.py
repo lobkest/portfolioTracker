@@ -1,14 +1,13 @@
 """
 Route-level tests voor /upload (niet_opslaan-pad) en
-/api/ticker-zekerheid-check -- dekt het Statistieken-incident van
-2026-08-31 (zie CLAUDE.md): een 'niet opslaan'-analyse van een grotere
+/api/ticker-zekerheid-check (zie CLAUDE.md: Yahoo en tickers): een 'niet opslaan'-analyse van een grotere
 portfolio liep vast doordat de dure, prijs-geverifieerde ticker-check altijd
 synchroon voor de volle portfolio draaide (zie
 tests/test_niet_opslaan_performance.py voor de kwantitatieve bevestiging
 daarvan), zonder dat de gebruiker een foutmelding te zien kreeg.
 
 Raakt de echte database aan, want app.py roept init_db() op moduleniveau
-aan (buiten if __name__ == '__main__', zie CLAUDE.md) -- 'import app' zou
+aan (buiten if __name__ == '__main__', zie CLAUDE.md: Tech stack en omgeving) -- 'import app' zou
 zonder DATABASE_URL dus al bij de IMPORT crashen. Daarom (net als
 tests/test_dividend_db.py) overgeslagen zonder DATABASE_URL, met de import
 van 'app' pas binnen setUp() van elke (dan overgeslagen) testklasse, nooit
@@ -68,7 +67,7 @@ BASIS_RESULTAAT = {
 
 @unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
-    """Regressietest voor het incident: het 'niet opslaan'-pad mag de dure,
+    """Regressietest: het 'niet opslaan'-pad mag de dure,
     prijs-geverifieerde check niet meer synchroon voor de volle portfolio
     aanroepen (zie de niet_opslaan-tak in _upload_impl())."""
 

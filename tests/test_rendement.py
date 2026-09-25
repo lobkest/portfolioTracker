@@ -1,7 +1,6 @@
 """
-Unit tests voor de rendementsberekeningen achter het Statistieken-tabblad
-(analysis.py). Gebruikt Python's ingebouwde unittest-module (dit project
-had nog geen testsuite/pytest, zie CLAUDE.md "Open aandachtspunten").
+Unit tests voor de rendementsberekeningen achter het Statistieken-tabblad.
+Gebruikt Python's ingebouwde unittest-module (zie CLAUDE.md: Tests).
 
 Draait geheel offline: geen database, geen yfinance-calls — alle geteste
 functies zijn pure functies (getallen/DataFrames in, getallen uit).
@@ -273,7 +272,7 @@ class TestJarenOverzicht(unittest.TestCase):
 
     def test_winst_berekening_ongewijzigd_door_eerste_datum_begrenzing(self):
         # Puur regressie tegen het per ongeluk stukmaken van de al-correcte
-        # euro-berekening (zie "voorbeeld uit opdracht" in TestJaarRendement)
+        # euro-berekening (zie test_voorbeeld_uit_opdracht in TestJaarRendement)
         # terwijl dagen_verstreken/pct_van_jaar wordt gefixed.
         index = pd.date_range("2025-02-16", "2025-12-31", freq="D")
         resultaat = pd.DataFrame({
@@ -291,8 +290,7 @@ class TestJarenOverzicht(unittest.TestCase):
 class TestTotaleTransactiekosten(unittest.TestCase):
     """Dekt de bug waarbij de kolom 'Transactiekosten en/of kosten van
     derden EUR' wel in het Excel-bestand stond, maar nergens werd
-    opgepikt/gesommeerd (zie opdracht 'transactiekosten worden niet
-    gevonden')."""
+    opgepikt/gesommeerd."""
 
     def test_som_van_bekende_kosten_als_positief_bedrag(self):
         # brondata is negatief (kosten worden afgeboekt), UI moet een

@@ -1,8 +1,7 @@
 """
 Unit tests voor het verrijken van alternatieve tickerkandidaten op de
 Ticker-zekerheid-pagina (ticker_zekerheid._verzamel_extra_kandidaten /
-verifieer_ticker_met_prijs) -- zie CLAUDE.md/opdracht_alternatieve_
-kandidaten_dagrange.md.
+verifieer_ticker_met_prijs).
 
 Achtergrond: de "Alternatieve kandidaten"-tabel op de Ticker-zekerheid-
 pagina toonde niets zodra de oorspronkelijke zoekopdracht die de gekozen
@@ -253,8 +252,7 @@ class TestZekerGeenExtraZoekopdracht(unittest.TestCase):
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertEqual(resultaat["alternatieven"], [])
         # debug-info moet expliciet tonen dat _verrijk_met_openfigi_kandidaten()
-        # hier NIET draaide (zekere match) -- zie CLAUDE.md-opdracht "OpenFIGI-
-        # kandidaten zichtbaar maken".
+        # hier NIET draaide (zekere match).
         self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
 
 
@@ -296,8 +294,7 @@ class TestVerrijkMetOpenfigiKandidaten(unittest.TestCase):
         self.assertEqual(mock_search.call_count, 2)  # 1 call per unieke nieuwe root, niet per OpenFIGI-resultaat
         self.assertEqual([a["symbol"] for a in resultaat], ["BESTAAND.MU", "ROOT1.AS"])
 
-        # debug-info (zie CLAUDE.md-opdracht "OpenFIGI-kandidaten zichtbaar
-        # maken"): alle unieke roots, welke als nieuw golden, en de ruwe
+        # debug-info: alle unieke roots, welke als nieuw golden, en de ruwe
         # Yahoo-zoekresultaten per nieuwe root (vóór filtering op bekende
         # symbolen -- 'ROOT1' leverde een dubbel symbool en 'ROOT2' leverde
         # alleen een al-bekend symbool, dat moet hier toch nog zichtbaar zijn).
@@ -333,7 +330,7 @@ class TestOpenfigiKandidatenIntegratieMetVerificatie(unittest.TestCase):
     """Integratietest: verifieer_ticker_met_prijs() moet OpenFIGI-roots die
     nog niet in de (al gevulde) Yahoo-kandidatenlijst zitten alsnog laten
     doorzoeken en meenemen in de uiteindelijke 'alternatieven' -- het
-    AEX-fonds-scenario uit de opdracht (Yahoo's productnaam-zoekindex vindt
+    AEX-fonds-scenario (Yahoo's productnaam-zoekindex vindt
     weinig, OpenFIGI kent de notering wel)."""
 
     def setUp(self):
@@ -400,7 +397,7 @@ class TestOpenfigiKandidatenIntegratieMetVerificatie(unittest.TestCase):
         self.assertEqual(resultaat["aanbevolen_alternatief"], "AEXF.AS")
 
         # debug-info moet laten zien dát de functie draaide en wat ze deed --
-        # het doel van de opdracht ("kan ik zien of dit iets doet").
+        # daar is het debug-veld voor.
         debug = resultaat["openfigi_kandidaten_debug"]
         self.assertTrue(debug["aangeroepen"])
         self.assertEqual(debug["roots"], ["TDT", "AEXFND"])

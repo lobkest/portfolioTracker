@@ -11,7 +11,7 @@ verkoopkoers=None, rendement_pct=-100%).
 
 Fix: een 'tijd'-kolom (TIME) erbij, en overal waar transacties chronologisch
 verwerkt worden een gecombineerde datum+tijd-sortering via
-analysis._sorteer_chronologisch() i.p.v. losse sort_values("datum").
+_sorteer_chronologisch() i.p.v. losse sort_values("datum").
 
 Draait geheel offline: geen database, geen yfinance-calls.
 """
@@ -66,8 +66,8 @@ class TestSorteerChronologisch(unittest.TestCase):
 
 class TestHoldingsEnGeslotenSameDayVolgorde(unittest.TestCase):
     """Reproductie van het exacte productiescenario (ISIN IE00BKM4GZ66,
-    beurswissel TDG->EAM op 17-06-2026), zie opdracht 'verkoopkoers
-    onbekend bij same-day transacties'."""
+    beurswissel TDG->EAM op 17-06-2026): verkoopkoers onbekend bij
+    same-day transacties."""
 
     def _rij(self, tijd, aantal, totaal_eur, ticker, beurs, datum="2026-06-17"):
         return {
@@ -197,9 +197,8 @@ class TestComputePerTickerSameDayVolgorde(unittest.TestCase):
         # 12 gekocht, diezelfde dag 12 verkocht -> volledig gesloten positie.
         # compute_per_ticker() gebruikt sinds de GAK-gebaseerde kostenbasis
         # (i.p.v. cumulatieve netto-cashflow) 0 als "geinvesteerd" na een
-        # volledige verkoop, niet het gerealiseerde resultaat (2.27) -- zie
-        # instructiedocument "gedeeltelijke verkopen correct verwerken",
-        # sectie 3 ("neveneffect (gewenst)"). Bevestigt vooral dat de
+        # volledige verkoop, niet het gerealiseerde resultaat (2.27; een gewenst
+        # neveneffect van de GAK-methode). Bevestigt vooral dat de
         # same-day-sortering (verkooprij vóór kooprij in de invoer) hier
         # geen negatieve/foutieve kostenbasis oplevert.
         self.assertAlmostEqual(result["IS3N.DE"]["geinvesteerd"][-1], 0.0, places=2)

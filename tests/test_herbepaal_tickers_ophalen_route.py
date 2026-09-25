@@ -2,8 +2,7 @@
 Unit tests voor het "ticker-informatie opnieuw bepalen"-vinkje bij het
 ophalen van een portfolio via code (GET /api/portfolio/<code>?herbepaal_
 alle_tickers=true) -- hergebruikt dezelfde backfill_verouderde_tickers(
-code, forceer=...) als de upload-flow (zie CLAUDE.md/opdracht "vinkje
-ticker-informatie opnieuw bepalen ... ook bij Ophalen met code").
+code, forceer=...) als de upload-flow.
 
 Uitgezocht vóór deze wijziging: backfill_verouderde_tickers() werd bij het
 ophalen via code NOOIT aangeroepen -- alleen bij /upload naar een
@@ -12,7 +11,7 @@ tickers). Zonder de nieuwe parameter blijft dat exact zo; met de parameter
 komt er een expliciete, opt-in aanroep bij.
 
 Raakt de echte database aan via 'import app' (init_db() draait bij import,
-zie CLAUDE.md) -- daarom overgeslagen zonder DATABASE_URL, net als
+zie CLAUDE.md: Tech stack en omgeving) -- daarom overgeslagen zonder DATABASE_URL, net als
 tests/test_gefaseerd_laden.py. build_portfolio_response() en
 backfill_verouderde_tickers() worden gemockt, dus geen echte portfolio
 nodig en geen Yahoo-calls.

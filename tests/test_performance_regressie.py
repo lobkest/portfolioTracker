@@ -1,7 +1,7 @@
 """
 Golden-master-regressietests voor de performance-fix van
 compute_value_over_time() / compute_per_ticker() /
-compute_per_ticker_koers_en_aankopen() (analysis.py): de trage
+compute_per_ticker_koers_en_aankopen(): de trage
 price_data.loc[date, ticker]-scalar-lookups in de dag-loops zijn vervangen
 door dict/numpy-array-toegang die vooraf wordt opgebouwd. De rekenlogica
 zelf (GAK, crop-range, spike-detector) is bewust ONGEWIJZIGD -- deze tests

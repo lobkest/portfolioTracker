@@ -1,6 +1,6 @@
 """
 Unit tests voor de fix "GAK gebruikt verkeerde kolom (Totaal EUR i.p.v.
-Waarde EUR)" (zie CLAUDE.md): de aankoop-kant van de GAK-berekening moet
+Waarde EUR)" (zie CLAUDE.md: Data en rekenen): de aankoop-kant van de GAK-berekening moet
 uitgaan van de kale Waarde EUR (aantal x koers, zonder AutoFX/
 transactiekosten), niet van Totaal EUR (dat kosten meetelt en de GAK
 structureel te hoog maakt). Reproduceert de EMIM-casus uit een echte

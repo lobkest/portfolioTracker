@@ -3,7 +3,7 @@ Unit + route-tests voor Opdracht 2: NON TRADEABLE-/corporate-action-rijen
 mogen nooit als eigen "positie" in de ticker-analyse verschijnen, ook niet
 als zo'n rij toevallig NIET op beurs "DEG" staat (zoals bij BYD).
 
-Achtergrond: analysis._is_corporate_action_row() (beurs == "DEG" OF "NON
+Achtergrond: _is_corporate_action_row() (beurs == "DEG" OF "NON
 TRADEABLE" in product) was de volledige, correcte check, maar
 find_ticker_detailed() had een eigen, onvolledige inline-versie
 (uitsluitend beurs == "DEG") en de Ticker-zekerheid-routes filterden

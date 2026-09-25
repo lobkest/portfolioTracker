@@ -4,10 +4,10 @@ is gesplitst in analyze_transacties_kern() (Home/Rendement/Per-aandeel/
 Statistieken -- alles wat de /upload- en /api/portfolio/<code>-routes nu
 standaard teruggeven) en analyze_transacties_verrijking() (Verdeling/Land/
 Sector/Bedrijven/ETF-overlap -- lui opgevraagd via /api/portfolio/<code>/
-verrijking). Zie CLAUDE.md / opdracht_gefaseerd_laden.md.
+verrijking). Zie CLAUDE.md: Flows.
 
 Raakt de echte database aan via 'import app' (init_db() draait bij import,
-zie CLAUDE.md) -- daarom, net als tests/test_upload_route_foutafhandeling.py,
+zie CLAUDE.md: Tech stack en omgeving) -- daarom, net als tests/test_upload_route_foutafhandeling.py,
 overgeslagen zonder DATABASE_URL. classify_tickers/land-sector/ETF-holdings-
 functies worden gemockt zodat er verder geen yfinance-calls plaatsvinden.
 """

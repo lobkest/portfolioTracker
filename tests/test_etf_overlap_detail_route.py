@@ -1,7 +1,6 @@
 """
 Route-level tests voor /api/etf-overlap-detail -- de holdings-detailtabel
-achter een geklikte percentage-cel op het ETF-overlap-tabblad (zie opdracht
-"klikbaar overlap-percentage"). Los van een portfolio-code (werkt ticker-op-
+achter een geklikte percentage-cel op het ETF-overlap-tabblad. Los van een portfolio-code (werkt ticker-op-
 ticker, ook voor de 'niet opslaan'-analyse), dus geen setUp/tearDown-rijen
 in de database nodig -- alleen bereken_etf_overlap_detail() wordt gemockt.
 

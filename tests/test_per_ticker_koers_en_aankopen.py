@@ -1,5 +1,5 @@
 """
-Unit tests voor compute_per_ticker_koers_en_aankopen() (analysis.py), t.b.v.
+Unit tests voor compute_per_ticker_koers_en_aankopen(), t.b.v.
 het "Per aandeel aankoop"-tabblad: kale koers per aandeel over tijd, het
 aantal aangehouden aandelen over tijd, en apart de datums van aankopen en
 verkopen (elk in hun eigen lijst, niet gemengd).
@@ -119,7 +119,7 @@ class TestPerTickerKoersEnAankopen(unittest.TestCase):
         self.assertEqual(aankoop_result["X"]["labels"], waarde_result["X"]["labels"])
 
     def test_aankoop_voor_start_van_koersdata_valt_buiten_crop_range(self):
-        # Zeldzaam edge-geval (zie opdracht): de aankoop ligt vóór de
+        # Zeldzaam edge-geval: de aankoop ligt vóór de
         # eerste beschikbare koersdatum, dus de "1 dag ervoor erbij"-buffer
         # (die start_pos op 0 capt) haalt 'm niet meer binnen de crop-range.
         # aankoop_datums wordt dan leeg -- geen crash, gewoon geen

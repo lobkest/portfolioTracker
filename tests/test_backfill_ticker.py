@@ -166,7 +166,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
 @unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestBackfillMetForceerVlag(unittest.TestCase):
     """Vinkje "ticker-informatie opnieuw bepalen" op het uploadscherm (zie
-    app.py/_upload_impl, CLAUDE.md): forceer=True overroept de prijsprobleem-
+    app.py/_upload_impl, CLAUDE.md: Flows): forceer=True overroept de prijsprobleem-
     check hierboven en herzoekt ALTIJD, ook zonder gedetecteerd probleem.
     forceer=False (standaard) blijft exact het hierboven al geteste gedrag."""
 

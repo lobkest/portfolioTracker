@@ -1,7 +1,7 @@
 """
 Unit tests voor de basis-vorm van ticker_zekerheid.basis_ticker_zekerheid_
 parallel() -- de goedkope, NIET-prijsgeverifieerde ticker-zekerheid die het
-'niet opslaan'-pad in app.py sinds het Statistieken-incident van 2026-08-31
+'niet opslaan'-pad in app.py (zie CLAUDE.md: Yahoo en tickers)
 standaard gebruikt i.p.v. altijd de dure verifieer_tickers_met_prijs_
 parallel() voor de volle portfolio te draaien. Hier steeds met 1 positie;
 volgorde bij meerdere posities staat in test_snelle_prijscheck.py. Puur:

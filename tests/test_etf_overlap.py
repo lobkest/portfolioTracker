@@ -1,6 +1,6 @@
 """
-Unit tests voor analysis.bereken_etf_overlap() -- de portfolio-overlap-
-matrix tussen aangehouden ETF's (zie CLAUDE.md "ETF-overlap").
+Unit tests voor bereken_etf_overlap() -- de portfolio-overlap-
+matrix tussen aangehouden ETF's.
 
 Draait geheel offline: is_etf_map wordt direct meegegeven en get_etf_holdings
 wordt gemockt, dus geen echte yfinance/database-calls nodig.
@@ -83,8 +83,7 @@ class TestBerekenEtfOverlap(unittest.TestCase):
 
 class TestBerekenEtfOverlapDetail(unittest.TestCase):
     """Unit tests voor bereken_etf_overlap_detail() -- de holdings-lijst
-    achter een geklikte percentage-cel op het ETF-overlap-tabblad (zie
-    opdracht "klikbaar overlap-percentage"). Draait geheel offline: zelfde
+    achter een geklikte percentage-cel op het ETF-overlap-tabblad. Draait geheel offline: zelfde
     get_etf_holdings-mockpatroon als TestBerekenEtfOverlap hierboven."""
 
     def test_gedeelde_en_eigen_holdings_beide_kanten_gevuld(self):

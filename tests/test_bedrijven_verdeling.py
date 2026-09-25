@@ -1,7 +1,7 @@
 """
-Unit tests voor analysis.bereken_bedrijven_verdeling() en de bijbehorende
+Unit tests voor bereken_bedrijven_verdeling() en de bijbehorende
 bedrijfsnaam-normalisatie (_normaliseer_bedrijfsnaam, BEDRIJF_NAAM_OVERRIDES)
--- zie CLAUDE.md "Top 10 bedrijven".
+-- zie CLAUDE.md: Data en rekenen.
 
 Draait geheel offline: is_etf_map wordt direct meegegeven en get_etf_holdings
 wordt gemockt (zelfde patroon als tests/test_snelle_prijscheck.py), dus geen

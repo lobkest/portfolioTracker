@@ -1,7 +1,5 @@
 """
-Unit tests voor de per-request memoization van _fx_prijzen_serie() (zie
-CLAUDE.md, performance-meting: FX-prijzenreeks memoizen per request +
-geheugenmeting).
+Unit tests voor de per-request memoization van _fx_prijzen_serie().
 
 Achtergrond: ticker_waarschuwingen_voor_transacties() draait sinds kort bij
 ELK bezoek aan een opgeslagen portfolio en roept per unieke ticker

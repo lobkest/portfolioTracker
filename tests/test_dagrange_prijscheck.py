@@ -2,7 +2,7 @@
 Unit tests voor de High/Low-dagrange op de Ticker-zekerheid-pagina
 (ticker_zekerheid.vergelijk_prijs_op_datum's 'binnen_dagrange'-veld, en de twee
 samenvattende waarschuwingsmeldingen die er voortaan op leunen i.p.v. op de
-%-afwijkingsdrempel -- zie CLAUDE.md/opdracht_high_low_dagrange.md).
+%-afwijkingsdrempel).
 
 Draait geheel offline: get_cached_prijscheck/_haal_koers_en_dagrange_op/
 save_prijscheck worden gemockt (net als tests/test_ticker_verificatie.py),
@@ -34,8 +34,7 @@ from ticker_prijscheck import DAGRANGE_TOLERANTIE
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
 # blijven -- _openfigi_root_matches() geeft dan None terug (geen oordeel).
 #
-# Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix (zie
-# CLAUDE.md/opdracht_alternatieve_kandidaten_dagrange.md) doet
+# Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix doet
 # verifieer_ticker_met_prijs() een extra zoekopdracht zodra een ticker
 # degradeert naar "onzeker" mét een lege alternatieven-lijst -- precies het
 # scenario in TestMeldingGebruiktDagrangeNietAfwijking hieronder. Module-breed
@@ -189,7 +188,7 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
 )
 class TestBackfillHighLowDoUpdate(unittest.TestCase):
     """Regressietest voor het bekende ON CONFLICT DO NOTHING-patroon (zie
-    CLAUDE.md, dividenden.dividend_id): een hernieuwde save_prijscheck-
+    CLAUDE.md: DeGiro-bestanden, save_dividenden()): een hernieuwde save_prijscheck-
     aanroep met nieuwe high/low moet een bestaande NULL-rij overschrijven,
     niet stilzwijgend negeren."""
 

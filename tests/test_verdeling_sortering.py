@@ -1,6 +1,6 @@
 """
-Unit tests voor analysis._sorteer_verdeling_groot_naar_klein() en
-analysis._sorteer_tickers_voor_dropdown() -- resp. het taartdiagram op het
+Unit tests voor _sorteer_verdeling_groot_naar_klein() en
+_sorteer_tickers_voor_dropdown() -- resp. het taartdiagram op het
 Verdeling-tabblad en de dropdown op 'Per aandeel'/'Per aandeel aankoop'
 aflopend (groot naar klein) laten ogen i.p.v. de alfabetische/chronologische
 volgorde die respectievelijk pandas' groupby en de transactie-volgorde

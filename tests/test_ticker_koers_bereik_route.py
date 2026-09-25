@@ -6,7 +6,7 @@ crop van per_ticker_aankoop, zonder de hoofd-payload aan te raken.
 
 Raakt de echte database aan (net als tests/test_ticker_zekerheid_positie_
 route.py), want app.py roept init_db() op moduleniveau aan. Mockt
-analysis.get_prices (via app_module.get_prices) zodat er geen echte
+get_prices (via app_module.get_prices) zodat er geen echte
 yfinance-calls gebeuren.
 """
 import os

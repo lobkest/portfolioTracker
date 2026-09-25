@@ -1,6 +1,6 @@
 """
 Unit tests voor ticker_zekerheid.haal_openfigi_resultaten() — EXPERIMENTEEL/
-DIAGNOSTISCH paneel op de Ticker-zekerheid-pagina (zie CLAUDE.md), inmiddels
+DIAGNOSTISCH paneel op de Ticker-zekerheid-pagina (zie CLAUDE.md: Yahoo en tickers), inmiddels
 aangevuld met een permanente DB-cache (openfigi_cache). Draait geheel
 offline: ticker_zekerheid.requests.post EN de cache-functies (get_cached_openfigi/
 save_openfigi) worden gemockt, dus geen echte OpenFIGI-netwerk-calls en geen
@@ -236,7 +236,7 @@ class TestFindTickerMetSnellePrijscheckOpenfigiIntegratie(unittest.TestCase):
     """Integratietest: een positie waarvan de prijscontrole GEEN afwijking
     laat zien, maar waarvan OpenFIGI een niet-matchende resultatenlijst
     teruggeeft, moet alsnog als 'onzeker' eindigen met een waarschuwing --
-    het VWCE.AS-geval uit de opdracht (mild geen prijsprobleem, maar de
+    het VWCE.AS-geval (mild geen prijsprobleem, maar de
     ticker-root zelf komt niet voor bij OpenFIGI voor deze ISIN)."""
 
     def test_root_niet_bekend_degradeert_zekere_match_naar_onzeker(self):

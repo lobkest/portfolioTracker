@@ -190,7 +190,7 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` staat 
 | `db.py`, `debug_utils.py`, `portfolio_admin.py`, `transactie_utils.py`, `yahoo_client.py` | *(geen)* — het zijn de "bladeren" van de boom |
 
 Er zijn geen circulaire imports; dat is precies waarom `transactie_utils.py` en `yahoo_client.py` als losse, afhankelijkheidsloze
-modules bestaan (zie de docstrings bovenin die bestanden).
+modules bestaan: helpers die meerdere domeinmodules nodig hebben, zouden anders een import in een kring opleveren.
 
 ### De vier "soorten" code, kort
 
@@ -267,7 +267,7 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 
 ### 2.4 Kern versus verrijking
 
-De dashboardgegevens zijn in twee delen gesplitst zodat de Home-pagina snel klaar is. De reden staat in de docstrings: classificatie
+De dashboardgegevens zijn in twee delen gesplitst zodat de Home-pagina snel klaar is (zie ook CLAUDE.md, Flows): classificatie
 en land/sector/holdings-opzoekingen zijn het netwerk-zware deel, dat bij een nieuw portfolio met koude cache de meeste tijd kost.
 
 | | **Kern** — `analyze_transacties_kern()` | **Verrijking** — `analyze_transacties_verrijking()` |
@@ -283,7 +283,8 @@ Wat `analyze_transacties_kern()` intern doet, in volgorde: (1) split-correctie +
 `compute_per_ticker_koers_en_aankopen()`; (4) ticker- en echte-namen-dicts; (5) `ticker_waarschuwingen_voor_transacties()`;
 (6) `bereken_dividend_samenvatting(code)` (alleen als er een code is) voor "dividend per ticker"; (7) `bereken_statistieken()`; (8) alles
 in één dict gieten. Let op: bij "Niet opslaan" draait `analyze_transacties_verrijking()` daarna nóg een keer split-correctie +
-`get_prices()` (een warme cache-hit, maar dubbel werk — dat staat ook zo in de docstring).
+`get_prices()` (een warme cache-hit, maar dubbel werk). Bij opslaan en ophalen gebeurt dat niet: dan geeft `build_portfolio_response()`
+de al opgehaalde koersen door via `prijs_data_al_klaar`.
 
 ### 2.5 De "basis" en de korte in-process cache
 
@@ -394,7 +395,6 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
   importeert, maar het is verwarrend bij zoeken.
 - Alle routes worden door de frontend gebruikt; de oude alles-in-één-route `GET /api/portfolio/<code>/ticker-zekerheid` en `/dbtest` zijn verwijderd
   (vervangen door `/ticker-zekerheid/lijst` + `/ticker-zekerheid/positie`).
-- Een aantal docstrings verwijst nog naar het oude `analysis.py` (zie [Afwijkingen](#afwijkingen-claudemd-versus-de-code)).
 
 ---
 
@@ -425,7 +425,7 @@ Constanten: `KOSTEN_KOLOM` (`"Transactiekosten en/of kosten van derden EUR"`), `
 - `_insert_nieuwe_transacties()` heeft `except Exception: pass` — een mislukte rij (bv. door een ontbrekende ticker in de dict) verdwijnt zonder melding. De teruggegeven teller telt ook rijen die door `ON CONFLICT` genegeerd werden, en `_upload_impl()` gebruikt hem niet.
 - `_bepaal_order_ids()`: klopt het aantal gevonden rijen niet met `len(df)`, dan wordt **de hele** `Order ID`-kolom `None` en krijgt elke rij een synthetische ID.
 - `_verwerk_dividend_bestand_indien_aanwezig()` importeert `request` uit Flask — deze module is daardoor niet buiten een request te draaien voor dit ene stuk.
-- De docstrings nummeren de stappen "Taak 1/6 ... 6/6"; dat zijn dezelfde stappen als in hoofdstuk 2.
+- De taakfuncties volgen dezelfde stappen als in hoofdstuk 2; `_upload_impl()` in `app.py` roept ze in die volgorde aan.
 
 ---
 
@@ -480,7 +480,8 @@ deelverzameling-voorwaarden voldoet.
 | `_is_corporate_action_row()` | `True` als `beurs == "DEG"` (hoofdletters, gestript) of `"NON TRADEABLE"` in de productnaam: de boekingsrijen die DeGiro voor splits e.d. maakt | `compute_split_adjusted_shares()`, `_ticker_zekerheid_groepen()`, `_bouw_xirr_cashflows()`, `bereken_twr()`, `find_ticker_detailed()` |
 | `_sorteer_chronologisch()` | sorteert op datum **plus tijd** (stabiele mergesort); rijen zonder tijd tellen als 00:00:00 | `compute_value_over_time()`, `compute_per_ticker()`, `compute_per_ticker_koers_en_aankopen()`, `bereken_holdings_en_gesloten()` |
 
-**Waarom `_sorteer_chronologisch()` bestaat:** de database sorteert niet; een verkoop vóór de koop van dezelfde dag verwerken gaf een "onbekende" verkoopkoers (zie de docstring).
+**Waarom `_sorteer_chronologisch()` bestaat:** de database sorteert niet, en `datum` is alleen een DATE (het tijdstip staat in `tijd`). Een verkoop vóór de koop van
+dezelfde dag verwerken gaf een "onbekende" verkoopkoers op Statistieken. Een ontbrekende tijd telt als 00:00:00; mergesort houdt de volgorde daarbinnen stabiel.
 
 ---
 
@@ -938,7 +939,6 @@ Hoofdstuk 4 beschrijft de tabellen; hier alleen de functies.
 - `CACHE_GELDIGHEID = "30 days"` geldt voor `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings` en `ticker_splits`.
 - `save_dividenden()` en `save_prijscheck()` zijn **upserts** (`DO UPDATE`), `save_prices()` is `DO NOTHING` en `upsert_prices()` is `DO UPDATE`: kies bewust welke je nodig hebt.
 - `wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij, verhuist dan transacties/dividenden en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
-- Sommige docstrings verwijzen nog naar `analysis.py`.
 
 ## 4. Database
 
@@ -1352,7 +1352,7 @@ en er kwam een hint "Klik op een vakje om de vergelijking te zien." op het ETF-o
 | **FX-anker** | Vaste startdatum (2005-01-01) voor de FX-koersreeks, zodat de cache na de eerste keer altijd "ver genoeg terug" is. | `FX_ANKER_DATUM` |
 | **Wisselkoers / `_koers_eur`** | DeGiro's eigen omrekenkoers per transactie; `koers / wisselkoers` wordt als EUR-koers opgeslagen. | `_normaliseer_transactie_kolommen()` |
 | **Totaal EUR vs Waarde EUR** | `totaal_eur` bevat AutoFX en transactiekosten; `waarde_eur` is aantal × koers zonder kosten. GAK en kostprijs gebruiken `waarde_eur`. | `transacties`-tabel |
-| **AutoFX** | DeGiro's automatische valutaconversie bij een niet-EUR-transactie (kosten zitten in `totaal_eur`). | commentaar in `portfolio_calc.py` |
+| **AutoFX** | DeGiro's automatische valutaconversie bij een niet-EUR-transactie (kosten zitten in `totaal_eur`). | `transacties.totaal_eur`; zie CLAUDE.md, Data en rekenen |
 | **`provider_csv` / `yfinance_top10`** | Herkomst van ETF-holdings: volledige lijst van de aanbieder, of Yahoo's top 10 (dekking ~35–40% voor brede fondsen). | `etf_holdings.bron`, `get_etf_holdings()` |
 | **Unknown / Overig / Europe** | Land- en sectorbuckets: niet-gedekt of onbekend; landen onder 0,5%; en de samenvoeging van Europese landen. | `portfolio_verdeling.py` |
 | **ETF-overlap** | Voor twee ETF's: Σ min(gewicht) over gedeelde bedrijven (genormaliseerde naam). | `bereken_etf_overlap()` |
@@ -1382,7 +1382,8 @@ Van eenvoudig naar complex. Bij elke stap: wat te lezen, en een vraag of oefenin
 | 13 | `static/js/app.js` in deze volgorde: `toonDashboard()`, `wisselView()`/`pasViewToe()`, `updateChart()`, `toonPortfolio()`, `laadVerrijking()`, tenslotte `toonInstellingenTicker()` | De grootste file; lees hem via de datastroom, niet van boven naar beneden. | Voeg op papier een tab "Notities" toe met de stappen uit 8.1. Welke bestanden raak je? |
 | 14 | `static/css/style.css` en `static/js/infotip.js` | Uiterlijk en gedrag van de kleine onderdelen. | Wat verandert er onder `@media (max-width: 768px)` aan het menu? Hoe werkt de (i)-knop met toetsenbord, muis en tik? |
 
-Tip: gebruik bij het lezen de tabellen in hoofdstuk 3 als kaart en zoek in de code op de naam van de functie. Veel functies hebben een docstring die het waarom uitlegt; lees die eerst.
+Tip: gebruik bij het lezen de tabellen in hoofdstuk 3 als kaart en zoek in de code op de naam van de functie. De docstrings en comments
+in de code zijn bewust kort; het waarom van valkuilen staat in CLAUDE.md ("Achtergrond en eigenaardigheden") en de details staan in dit document.
 
 ## Afwijkingen: CLAUDE.md versus de code
 
@@ -1412,8 +1413,6 @@ herschreven tot een korte, zelfstandige regelset; de gedetailleerde beschrijving
 
 **Nog niet in scope (bewust niet aangepakt)**
 
-- **`README.md`** toont nog `analysis.py`, `class_degiro.py` en `trading_degiro.py` in zijn eigen bestandsstructuur, en "~300+"
-  Python-tests (er zijn er 511, plus 89 JS). `README.md` viel buiten deze opdracht en is dus nog niet bijgewerkt.
 - **`.gitignore` bevat `CLAUDE.md`** — bewust: CLAUDE.md is een lokaal bestand (instructies voor Claude Code) en staat daarom
   niet in `git ls-files`. Git kan het dus ook niet herstellen; maak zelf een kopie vóór grote wijzigingen.
 
@@ -1421,9 +1420,8 @@ herschreven tot een korte, zelfstandige regelset; de gedetailleerde beschrijving
 
 Bij het bijwerken zijn de verwarrende `analysis.py`-verwijzingen (die naar niet-bestaande functies/modules wezen, niet naar de
 huidige module) rechtgezet: 9 regels in `app.py`/`db.py`/`portfolio_orchestratie.py`/`ticker_classificatie.py`/
-`transactie_utils.py` en alle 9 in `static/js/app.js`. Wat overblijft (in vrijwel elke domeinmodule) zijn bewuste
-historische notities in de vorm "Losgetrokken uit `analysis.py`" — sinds 2026-09-25 zonder de toevoeging "ongewijzigd overgenomen",
-want meerdere van die modules zijn sindsdien wel gewijzigd.
+`transactie_utils.py` en alle 9 in `static/js/app.js`. Bij de commentaar-opruimronde zijn ook de historische notities
+"Losgetrokken uit `analysis.py`" uit alle modules verwijderd, en daarna ook de vermeldingen van `analysis.py` in de test-docstrings.
 
 ## Onzekerheden en open vragen
 

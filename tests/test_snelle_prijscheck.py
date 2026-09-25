@@ -312,7 +312,7 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
 
 class TestBekendeTickerSlaatZoekopdrachtOver(unittest.TestCase):
     """Vinkje "ticker-informatie opnieuw bepalen" op het uploadscherm (zie
-    app.py/_upload_impl, CLAUDE.md): geeft de aanroeper een al bekende
+    app.py/_upload_impl, CLAUDE.md: Flows): geeft de aanroeper een al bekende
     ticker mee (vinkje UIT + positie al eerder opgelost), dan slaat
     find_ticker_met_snelle_prijscheck() de dure, onvoorwaardelijke
     yahooquery-zoekopdracht in find_ticker_detailed() over. Zonder

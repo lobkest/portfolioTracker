@@ -1,5 +1,5 @@
 """
-Unit tests voor bereken_rendement_over_tijd() (analysis.py) — het "XIRR &
+Unit tests voor bereken_rendement_over_tijd() — het "XIRR &
 rendement"-tabblad: rendement% en XIRR% op meerdere momenten in de tijd
 i.p.v. alleen het eindcijfer zoals op Statistieken.
 

@@ -1,5 +1,5 @@
 """
-Unit tests voor de dagrange-bewuste escalatiepoort (opdracht A).
+Unit tests voor de dagrange-bewuste escalatiepoort.
 
 Achtergrond: find_ticker_met_snelle_prijscheck() (stap 1) escaleerde alleen
 naar de duurdere steekproef/alternatieven-check bij een ruwe %-afwijking
@@ -57,7 +57,7 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
         # BYD-achtig geval: afwijking maar 3.7% (< 6%-drempel), maar WEL
         # buiten de dagrange -- moet nu escaleren voorbij stap 1. Stap 3
         # (kandidaten doorrekenen) blijft ongewijzigd gated op > 10%
-        # (buiten scope van deze opdracht), dus die wordt hier bewust NIET
+        # (hier niet getest), dus die wordt hier bewust NIET
         # bereikt met 3.7% -- de escalatie voorbij stap 1 (zekerheid wordt
         # "onzeker", i.p.v. de vroege "OK"-return die basis ongemoeid laat)
         # is het bewijs dat de dagrange-bewuste poort werkt.

@@ -1,5 +1,5 @@
 """
-Unit tests voor het "nog_in_bezit"-veld op compute_per_ticker() (analysis.py),
+Unit tests voor het "nog_in_bezit"-veld op compute_per_ticker(),
 dat de frontend gebruikt om " (oud)" achter een niet meer aangehouden positie
 te tonen in de dropdown van het Per-aandeel-tabblad (zie static/js/app.js,
 ververAandeelSelect()).

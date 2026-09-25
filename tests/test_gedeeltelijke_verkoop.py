@@ -1,8 +1,7 @@
 """
 Unit tests voor gedeeltelijke verkopen: het "deels_verkocht"-veld op
 bereken_holdings_en_gesloten() en de evenredige daling van "geinvesteerd"
-in compute_per_ticker() (analysis.py). Zie instructiedocument
-"gedeeltelijke verkopen correct verwerken".
+in compute_per_ticker().
 
 Draait geheel offline: geen database, geen yfinance-calls.
 """

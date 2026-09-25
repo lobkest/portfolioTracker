@@ -8,8 +8,7 @@ juiste aantal aandelen toonde. Root cause: get_prices() controleerde alleen
 MIN(datum) per ticker (gaat de cache ver genoeg terug), nooit MAX(datum)
 (is de cache nog actueel). Zie prijzen.get_prices().
 
-Uitgebreid met de fix "koersen bij élke portfolio-opening verversen" (zie
-CLAUDE.md): een cache-rij van "vandaag" werd voorheen pas ververst als de
+Uitgebreid met de fix "koersen bij élke portfolio-opening verversen": een cache-rij van "vandaag" werd voorheen pas ververst als de
 cache >4 dagen achterliep -- een tijdens handelstijd opgehaalde, nog
 niet-definitieve koers bleef daardoor de rest van de dag (en bij elke latere
 opening diezelfde dag) ongewijzigd staan, ook na beurssluiting. get_prices()

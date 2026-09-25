@@ -1,9 +1,9 @@
 """
 Unit test voor db.upsert_prices() -- t.b.v. de fix "koersen bij élke
-portfolio-opening verversen" (zie CLAUDE.md). save_prices() gebruikt
+portfolio-opening verversen". save_prices() gebruikt
 ON CONFLICT ... DO NOTHING (juist voor historische koersen, die nooit meer
 veranderen); upsert_prices() moet voor de dagverse-koers-refresh in
-get_prices() (analysis.py) juist WEL overschrijven (DO UPDATE), anders
+get_prices() (prijzen.py) juist WEL overschrijven (DO UPDATE), anders
 blijft een eerder op dezelfde dag gecachete (mogelijk tussentijdse) koers
 voor de rest van de dag stilzwijgend staan.
 

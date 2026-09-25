@@ -1,14 +1,13 @@
 """
 Unit tests voor de gedeelde, kort-levende _basis_cache in app.py
-(_haal_portfolio_basis()/_wis_portfolio_basis_cache()) -- zie opdracht
-"bottleneck zichtbaar maken + dubbele database-fetches wegwerken". Zonder
+(_haal_portfolio_basis()/_wis_portfolio_basis_cache()). Zonder
 deze cache haalden build_portfolio_response(), portfolio_verrijking() en
 _ticker_zekerheid_groepen() elk apart dezelfde transacties op en herhaalden
 compute_split_adjusted_shares()/get_prices() vanaf nul binnen hetzelfde
 portfolio-bezoek.
 
 Raakt de echte database aan via 'import app' (init_db() draait bij import,
-zie CLAUDE.md) -- daarom, net als tests/test_gefaseerd_laden.py, overgeslagen
+zie CLAUDE.md: Tech stack en omgeving) -- daarom, net als tests/test_gefaseerd_laden.py, overgeslagen
 zonder DATABASE_URL. get_db_connection wordt gemockt zodat er geen echte
 queries lopen; ticker=None in de nep-transactierij zorgt dat get_prices()
 nooit wordt aangeroepen (lege tickerlijst), dus ook geen yfinance-calls.

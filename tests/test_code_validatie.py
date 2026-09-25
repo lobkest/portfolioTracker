@@ -1,4 +1,4 @@
-"""Pure validatietest voor is_geldige_code() (analysis.py) -- geen DB nodig.
+"""Pure validatietest voor is_geldige_code() -- geen DB nodig.
 Gebruikt bij het aanmaken van een nieuwe code (generate_code) en bij het
 zelf kiezen van een nieuwe code via "Code wijzigen" op Instellingen."""
 import os

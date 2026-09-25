@@ -1,6 +1,6 @@
 """
 Route-level test voor de nieuwe per-positie ticker-zekerheid-route
-(/api/portfolio/<code>/ticker-zekerheid/positie) -- opdracht: grote
+(/api/portfolio/<code>/ticker-zekerheid/positie). Aanleiding: grote
 portfolio's liepen vast op /api/portfolio/<code>/ticker-zekerheid (inmiddels
 verwijderd) omdat die
 route moet wachten tot ALLE posities klaar zijn (verifieer_tickers_met_

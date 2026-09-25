@@ -1,8 +1,8 @@
 """
-Bevestigt de hypothese achter het Statistieken-incident van 2026-08-31 (zie
-CLAUDE.md): een 'niet opslaan'-analyse van een grotere portfolio bleef
-hangen zonder foutmelding. verifieer_tickers_met_prijs_parallel()'s eigen
-docstring noemt al ~84s sequentieel voor 12 posities met een warme cache --
+Bevestigt waarom 'niet opslaan' alleen de lichte ticker-check draait (zie
+CLAUDE.md: Yahoo en tickers): een 'niet opslaan'-analyse van een grotere portfolio bleef
+hangen zonder foutmelding. docs/CODE_OVERZICHT.md (6.2)
+noemt al ~84s sequentieel voor 12 posities met een warme cache --
 ruim boven de standaard gunicorn-timeout van 30s. Deze tests maken dat
 kwantitatief en reproduceerbaar (offline, met een kunstmatige vertraging
 i.p.v. echte Yahoo-calls) voor een iets grotere, realistischere portfolio:

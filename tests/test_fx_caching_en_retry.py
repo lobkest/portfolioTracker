@@ -1,7 +1,5 @@
 """
-Unit tests voor de FX-caching-fix en de gedeelde rate-limit-retry-helper
-(zie CLAUDE.md, performance-meting upload/analyse-flow -> opdracht
-FX-caching + retry/backoff-consolidatie).
+Unit tests voor de FX-caching en de gedeelde rate-limit-retry-helper.
 
 Achtergrond: _fx_koers_op_datum() (gebruikt door vergelijk_prijs_op_datum
 tijdens ticker-resolutie) en _converteer_naar_eur() (gebruikt door

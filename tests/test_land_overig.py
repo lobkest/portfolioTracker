@@ -1,6 +1,6 @@
 """
 Unit tests voor het samenvoegen van kleine landen tot "Overig" op het
-Land-tabblad (analysis._voeg_kleine_landen_samen / LAND_OVERIG_DREMPEL).
+Land-tabblad (_voeg_kleine_landen_samen / LAND_OVERIG_DREMPEL).
 
 Draait geheel offline: pure functie op een handgemaakt land->bedrag-dict,
 geen database of yfinance-calls nodig.

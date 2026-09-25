@@ -1,10 +1,10 @@
 """
-Unit tests voor de dividend-verwerking (analysis.verwerk_rekeningoverzicht_df).
+Unit tests voor de dividend-verwerking (verwerk_rekeningoverzicht_df).
 
 Draait geheel offline: geen Excel-bestand, geen database — de tests bouwen
 een kleine, handgemaakte DataFrame die exact de kolomvorm nabootst die
 verwerk_rekeningoverzicht() na het inlezen/hernoemen van een echt DEGIRO-
-rekeningoverzicht doorgeeft (zie analysis.py: Mutatie -> valuta_mutatie,
+rekeningoverzicht doorgeeft (zie verwerk_rekeningoverzicht(): Mutatie -> valuta_mutatie,
 Unnamed: 8 -> mutatie).
 """
 import sys
@@ -81,7 +81,7 @@ class TestDividendValutaconversie(unittest.TestCase):
 
 class TestDividendCorrectie(unittest.TestCase):
     def test_correctierijen_worden_genet_niet_apart_geteld(self):
-        # Precies het patroon uit de opdracht: +0.96 / +0.96 / -1.92 / +0.96
+        # Het patroon uit de praktijk: +0.96 / +0.96 / -1.92 / +0.96
         # USD op dezelfde datum/product -> netto 0.96 USD, GEEN 4 losse
         # uitkeringen. Gekoppeld aan een conversie die €0,87 opleverde.
         df = _df([
@@ -100,7 +100,7 @@ class TestDividendCorrectie(unittest.TestCase):
 
 class TestDividendGepooldeConversie(unittest.TestCase):
     def test_twee_dividenden_zelfde_dag_gepoold_in_een_conversie(self):
-        # Precies het Vanguard-voorbeeld uit de opdracht (2025-10-02/03):
+        # Vanguard-voorbeeld uit de praktijk (2025-10-02/03):
         # twee ETF-dividenden dezelfde dag/valuta, DeGiro wisselt ze samen
         # in ÉÉN conversie ($18.37 + $4.23 = $22.60 -> €19.24). De 1-op-1
         # match (per ISIN) vindt niets; STAP A (pooling) moet dit alsnog
@@ -144,7 +144,7 @@ class TestDividendGepooldeConversie(unittest.TestCase):
 
 class TestDividendHerinvestering(unittest.TestCase):
     def test_dividend_herinvestering_wordt_meegeteld(self):
-        # BYD-voorbeeld uit de opdracht (2025-08-04): het volledige bruto
+        # BYD-voorbeeld uit de praktijk (2025-08-04): het volledige bruto
         # dividend wordt automatisch herbelegd (Dividend Herinvestering
         # heft het Dividend-bedrag exact op), alleen de belasting is echt
         # cash afgeschreven. netto_ruw moet dus (10.47 - 10.47) - 1.05 =
@@ -177,7 +177,7 @@ class TestDividendHerinvestering(unittest.TestCase):
 
 class TestDividendConversieRichting(unittest.TestCase):
     def test_eur_naar_vreemd_conversie_wordt_herkend(self):
-        # Het BYD-belasting-voorbeeld uit de opdracht: Debitering is EUR,
+        # Het BYD-belasting-voorbeeld uit de praktijk: Debitering is EUR,
         # Creditering is de vreemde valuta (DeGiro wisselt EUR náár HKD om
         # de belasting te dekken) — het omgekeerde van de normale richting.
         df = _df([

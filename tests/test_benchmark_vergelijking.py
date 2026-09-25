@@ -1,7 +1,7 @@
 """
-Unit tests voor bereken_benchmark_vergelijking() (analysis.py) — de
-"Vergelijk met..."-optie op het Rendement-tabblad (zie CLAUDE.md,
-BENCHMARK_TICKERS). Simuleert dezelfde cashflows als de echte portfolio in
+Unit tests voor bereken_benchmark_vergelijking() — de
+"Vergelijk met..."-optie op het Rendement-tabblad (zie
+BENCHMARK_TICKERS in statistieken.py). Simuleert dezelfde cashflows als de echte portfolio in
 een benchmark-ticker in plaats van de eigen posities.
 
 Draait geheel offline: geen database, geen yfinance-calls — de benchmark-

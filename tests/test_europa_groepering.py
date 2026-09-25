@@ -1,6 +1,6 @@
 """
 Unit tests voor de "Europese landen samenvoegen"-toggle op het Land-tabblad
-(analysis._groepeer_europa_samen, EUROPESE_LANDEN, en de interactie met de
+(_groepeer_europa_samen, EUROPESE_LANDEN, en de interactie met de
 bestaande <0.5% "Overig"-samenvoeging in _voeg_kleine_landen_samen).
 
 Draait geheel offline: pure functies op handgemaakte land->bedrag-dicts,

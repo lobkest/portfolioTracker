@@ -44,8 +44,7 @@ from ticker_prijscheck import _cumulatieve_split_factor
 # op "geen resultaten" gepatcht zodat deze tests offline en ongewijzigd
 # blijven -- _openfigi_root_matches() geeft dan None terug (geen oordeel).
 #
-# Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix (zie
-# CLAUDE.md/opdracht_alternatieve_kandidaten_dagrange.md) doet
+# Idem voor _yahoo_search(): sinds de _verzamel_extra_kandidaten()-fix doet
 # verifieer_ticker_met_prijs() een extra zoekopdracht zodra een ticker
 # degradeert naar "onzeker" mét een lege alternatieven-lijst (bv.
 # TestZekerheidOordeelMetMildeAfwijking's 71.3%-waarschuwingsgeval hieronder).
@@ -120,7 +119,7 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
 
         # Generieke placeholder-tickers (AAA/ALT1-5), geen echt fonds of
         # aandeel -- classify_ticker() zou anders de echte database aanraken
-        # (KeyError: 'DATABASE_URL' zonder .env, zie CLAUDE.md).
+        # (KeyError: 'DATABASE_URL' zonder .env, zie CLAUDE.md: Tests).
         classify_patch = patch.object(ticker_zekerheid, "classify_ticker", return_value=False)
         classify_patch.start()
         self.addCleanup(classify_patch.stop)
@@ -298,8 +297,7 @@ class TestValutaConversie(unittest.TestCase):
     puur de ontbrekende EUR/USD-omrekening was."""
 
     def _mock_omgeving(self, yahoo_koers, valuta, fx_koers, fx_faalt=False):
-        # FX-koers wordt sinds de FX-caching-fix (zie CLAUDE.md, performance-
-        # meting upload/analyse-flow) niet meer via een losse slotkoers-download
+        # FX-koers wordt sinds de FX-caching niet meer via een losse slotkoers-download
         # opgehaald maar via _fx_koers_op_datum (op zijn beurt gecached via
         # _fx_prijzen_serie/get_prices) -- dus die wordt nu los gemockt,
         # i.p.v. de gecombineerde slotkoers+dagrange-fetch op de FX-ticker-
@@ -374,8 +372,7 @@ class TestValutaConversie(unittest.TestCase):
         """vergelijk_prijs_op_datum vergelijkt altijd tegen een HISTORISCHE
         transactiedatum -- een verse FX-koers van 'vandaag' is daarvoor
         nooit relevant, dus geeft dit onvoorwaardelijk verversen=False door
-        aan _fx_koers_op_datum() (zie ticker_zekerheid.py, opdracht 'FX-koers in
-        prijscheck-stap niet onnodig verversen')."""
+        aan _fx_koers_op_datum()."""
         with self._mock_omgeving(yahoo_koers=82.23, valuta="USD", fx_koers=0.8311):
             with patch.object(ticker_prijscheck, "_fx_koers_op_datum", return_value=0.8311) as mock_fx:
                 vergelijk_prijs_op_datum("NFLX", date(2024, 3, 1), 68.38)

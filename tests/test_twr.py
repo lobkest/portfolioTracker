@@ -1,5 +1,5 @@
 """
-Unit tests voor bereken_twr() (analysis.py) — Time-Weighted Return, de
+Unit tests voor bereken_twr() — Time-Weighted Return, de
 rendementsmaat die (anders dan XIRR) niet vertekend wordt door de TIMING
 van stortingen/onttrekkingen.
 
