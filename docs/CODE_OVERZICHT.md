@@ -215,7 +215,7 @@ uploadForm submit
                                └─ _upload_impl()
                                     ├─ Excel → df              (upload_verwerking)
                                     ├─ niet_opslaan?  ──ja──►  ticker-resolutie → analyze_transacties()  ─► JSON
-                                    └─ nee: order-ids → code → tickers → INSERT → backfills
+                                    └─ nee: order-ids → code → tickers → INSERT → ticker-backfill
                                             → build_portfolio_response(code)  ────────────────► JSON (kern)
 toonDashboard(data)  ◄───────────────────────────────────────────────────────────────────────────┘
   └─ laadVerrijking(code) ──► GET /api/portfolio/<code>/verrijking  → analyze_transacties_verrijking ─► JSON
@@ -254,16 +254,15 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 |---|---|---|---|
 | B1 | `upload_verwerking.py` → `_bepaal_order_ids(bestand1, df)` | Leest het Excel-bestand **nog een keer** met `openpyxl` en zoekt per rij de cel die op een UUID lijkt (36 tekens, 4 streepjes). Reden: in het DeGiro-bestand staat de kop "Order ID" door samengevoegde cellen één kolom verschoven ten opzichte van de waarden, dus pandas vindt ze niet. Rijen zonder Order ID krijgen een **synthetische ID**: `"SYN-"` + eerste 16 tekens van de MD5 over `Datum\|Tijd\|Product\|ISIN\|Aantal\|Totaal EUR`, plus een volgnummer voor identieke rijen. | `df` → `df` + kolom `Order ID` |
 | B2 | `app.py` → `get_db_connection()` | Opent één verbinding + cursor voor de volgende stappen. | |
-| B3 | `upload_verwerking.py` → `_vind_of_maak_portfolio_code(cur, df, naam)` | Roept `find_matching_code()` (in `portfolio_admin.py`) aan: die vergelijkt de set Order ID's van deze upload met de set van **elk** bestaand portfolio. Is een bestaande set een deelverzameling van de nieuwe → dat is een update van hetzelfde portfolio (de ontbrekende ID's zijn de nieuwe rijen). Is de nieuwe set een deelverzameling van de bestaande → niets nieuws. Geen match → `generate_code(cur)` maakt een nieuwe, nog niet gebruikte 3-letter-code en er komt een rij in `portfolios`. Bij een match en een ingevulde `naam` wordt de naam bijgewerkt. | `df` → `(code, match_code, rows_to_insert, rows_bestaand)` |
+| B3 | `upload_verwerking.py` → `_vind_of_maak_portfolio_code(cur, df, naam)` | Roept `find_matching_code()` (in `portfolio_admin.py`) aan: die vergelijkt de set Order ID's van deze upload met de set van **elk** bestaand portfolio. Is een bestaande set een deelverzameling van de nieuwe → dat is een update van hetzelfde portfolio (de ontbrekende ID's zijn de nieuwe rijen). Is de nieuwe set een deelverzameling van de bestaande → niets nieuws. Geen match → `generate_code(cur)` maakt een nieuwe, nog niet gebruikte 3-letter-code en er komt een rij in `portfolios`. Bij een match en een ingevulde `naam` wordt de naam bijgewerkt. | `df` → `(code, match_code, rows_to_insert)` |
 | B4 | `upload_verwerking.py` → `_ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)` | Alleen voor de **nieuwe** rijen. Haalt (tenzij het vinkje aan staat) de al bekende tickers van deze code uit `transacties` op en geeft die door als `bekende_tickers`, zodat de dure yahooquery-zoekopdracht voor bekende posities wordt overgeslagen. Roept `vind_tickers_met_snelle_prijscheck_parallel()` aan (12 threads). | → dict `{(isin, beurs): ticker}` |
 | B5 | `upload_verwerking.py` → `_insert_nieuwe_transacties()` | `INSERT ... ON CONFLICT (code, order_id) DO NOTHING` per rij. **Let op:** een `except Exception: pass` slikt elke fout per rij stilzwijgend in. | rijen → `transacties` |
 | B6 | `app.py` → `conn.commit()` | Maakt de inserts definitief. | |
-| B7 | `upload_verwerking.py` → `_backfill_bestaande_rijen(code, rows_bestaand)` | Alleen als er rijen zijn die al bestonden: vult `transactiekosten`, `waarde_eur` en `tijd` aan **waar die nog NULL zijn** (via `backfill_transactiekosten()`, `backfill_waarde_eur()`, `backfill_tijd()` in `db.py`). Zie [hoofdstuk 4](#4-database). | |
-| B8 | `ticker_zekerheid.py` → `backfill_verouderde_tickers(code, forceer)` | Alleen bij een **bestaande** code (`match_code`): herbeoordeelt de opgeslagen tickers. Overschrijft alleen als de oude ticker een prijsprobleem heeft en de nieuwe kandidaat niet (of altijd herzoeken bij `forceer=True`, het vinkje). | |
-| B9 | `upload_verwerking.py` → `_verwerk_dividend_bestand_indien_aanwezig(code)` | Is er een `bestand2`: `verwerk_rekeningoverzicht()` (in `dividend.py`) → lijst dividendrecords → `save_dividenden()` (upsert in `dividenden`). | Excel → records → DB |
-| B10 | `portfolio_orchestratie.py` → `_wis_portfolio_basis_cache(code)` | Cache leegmaken ná alle mutaties hierboven, zodat het volgende stuk verse data ziet. | |
-| B11 | `portfolio_orchestratie.py` → `build_portfolio_response(code)` | Haalt de "basis" op (zie 2.5) en roept `analyze_transacties_kern()` aan. Levert de **kern** (zonder verrijking). | code → dict |
-| B12 | `app.py` → `_upload_impl()` | `log_yahoo_call_samenvatting()` en `jsonify(...)`. | dict → JSON |
+| B7 | `ticker_zekerheid.py` → `backfill_verouderde_tickers(code, forceer)` | Alleen bij een **bestaande** code (`match_code`): herbeoordeelt de opgeslagen tickers. Overschrijft alleen als de oude ticker een prijsprobleem heeft en de nieuwe kandidaat niet (of altijd herzoeken bij `forceer=True`, het vinkje). | |
+| B8 | `upload_verwerking.py` → `_verwerk_dividend_bestand_indien_aanwezig(code)` | Is er een `bestand2`: `verwerk_rekeningoverzicht()` (in `dividend.py`) → lijst dividendrecords → `save_dividenden()` (upsert in `dividenden`). | Excel → records → DB |
+| B9 | `portfolio_orchestratie.py` → `_wis_portfolio_basis_cache(code)` | Cache leegmaken ná alle mutaties hierboven, zodat het volgende stuk verse data ziet. | |
+| B10 | `portfolio_orchestratie.py` → `build_portfolio_response(code)` | Haalt de "basis" op (zie 2.5) en roept `analyze_transacties_kern()` aan. Levert de **kern** (zonder verrijking). | code → dict |
+| B11 | `app.py` → `_upload_impl()` | `log_yahoo_call_samenvatting()` en `jsonify(...)`. | dict → JSON |
 
 ### 2.4 Kern versus verrijking
 
@@ -403,7 +402,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 ### `upload_verwerking.py` — taakfuncties achter `/upload`
 
 **Verantwoordelijkheid:** Excel inlezen, kolommen normaliseren, tickers oplossen (twee paden), Order ID's bepalen, portfolio-code zoeken/maken,
-inserten, backfillen en het dividendbestand verwerken. `_upload_impl()` in `app.py` roept ze in volgorde aan (zie hoofdstuk 2).
+inserten en het dividendbestand verwerken. `_upload_impl()` in `app.py` roept ze in volgorde aan (zie hoofdstuk 2).
 
 Constanten: `KOSTEN_KOLOM` (`"Transactiekosten en/of kosten van derden EUR"`), `WAARDE_KOLOM` (`"Waarde EUR"`), `WISSELKOERS_KOLOM` (`"Wisselkoers"`).
 
@@ -411,15 +410,14 @@ Constanten: `KOSTEN_KOLOM` (`"Transactiekosten en/of kosten van derden EUR"`), `
 |---|---|---|---|
 | `_lees_transacties_excel()` | Excel → DataFrame, kolommen strippen, `Datum` parsen (`dayfirst=True`) | bestandsobject → DataFrame | `_upload_impl()` |
 | `_normaliseer_transactie_kolommen()` | voegt `_kosten_eur`, `_waarde_eur`, `_koers_eur` toe | DataFrame → DataFrame | `_upload_impl()` |
-| `_normaliseer_tijd()` | maakt van een tijdcel (string, `time` of `datetime`) een `"HH:MM:SS"`-string voor een Postgres-`TIME` | cel → tekst of `None` | `_insert_nieuwe_transacties()`, `_backfill_bestaande_rijen()` |
+| `_normaliseer_tijd()` | maakt van een tijdcel (string, `time` of `datetime`) een `"HH:MM:SS"`-string voor een Postgres-`TIME` | cel → tekst of `None` | `_insert_nieuwe_transacties()` |
 | `_log_valuta_kolom_naast_koers()` | debug-onderzoek: logt de kolom direct rechts van `Koers` | DataFrame → (alleen logging) | `_upload_impl()`, `_ticker_resolutie_niet_opslaan_pad()` |
 | `_ticker_resolutie_niet_opslaan_pad()` | lichte parallelle ticker-zekerheid per (ISIN, Beurs) | DataFrame → `(dict, lijst, lijst)` | `_upload_impl()` |
 | `_bouw_transacties_df_niet_opslaan()` | bouwt een DataFrame in dezelfde vorm als uit de database | DataFrame + dict → DataFrame | `_upload_impl()` |
 | `_bepaal_order_ids()` | Order ID's via `openpyxl`, synthetische ID's voor rijen zonder | bestand + DataFrame → DataFrame | `_upload_impl()` |
-| `_vind_of_maak_portfolio_code()` | bestaande code zoeken (`find_matching_code()`) of nieuwe maken (`generate_code()`) | cursor, DataFrame, naam → `(code, match_code, rows_to_insert, rows_bestaand)` | `_upload_impl()` |
+| `_vind_of_maak_portfolio_code()` | bestaande code zoeken (`find_matching_code()`) of nieuwe maken (`generate_code()`) | cursor, DataFrame, naam → `(code, match_code, rows_to_insert)` | `_upload_impl()` |
 | `_ticker_resolutie_opslaan_pad()` | tickers voor de nieuwe rijen, met hergebruik van bekende tickers | cursor, code, DataFrame, vlag → dict | `_upload_impl()` |
 | `_insert_nieuwe_transacties()` | `INSERT ... ON CONFLICT (code, order_id) DO NOTHING` per rij | rijen → aantal ingevoegd | `_upload_impl()` |
-| `_backfill_bestaande_rijen()` | vult `transactiekosten`, `waarde_eur`, `tijd` aan waar NULL | code, DataFrame → drie tellers | `_upload_impl()` |
 | `_verwerk_dividend_bestand_indien_aanwezig()` | leest `request.files["bestand2"]`, slaat dividenden op | code → (schrijft naar DB) | `_upload_impl()` |
 
 **Bijzonderheden en valkuilen**
@@ -853,7 +851,6 @@ Hoofdstuk 4 beschrijft de tabellen; hier alleen de functies.
 | Prijscheck/splits/OpenFIGI | `get_cached_prijscheck()`, `save_prijscheck()`, `get_cached_splits()`, `save_splits()`, `get_cached_openfigi()`, `save_openfigi()` | `vergelijk_prijs_op_datum()`, `_haal_splits_op()`, `haal_openfigi_resultaten()` |
 | Koersen (`prijzen`) | `save_prices()`, `upsert_prices()`, `get_laatste_prijs_update()` | `get_prices()`, `analyze_transacties_kern()` |
 | Portfolio beheren | `delete_portfolio()`, `wijzig_portfolio_code()` | `verwijder_portfolio()`, `wijzig_code()` |
-| Backfills | `backfill_transactiekosten()`, `backfill_waarde_eur()`, `backfill_tijd()` | `_backfill_bestaande_rijen()` |
 | Dividend | `save_dividenden()`, `get_dividenden()` | `_verwerk_dividend_bestand_indien_aanwezig()`, `bereken_dividend_samenvatting()` |
 | Transactieoverzicht | `get_transacties_overzicht()` | `transacties_overzicht()` |
 
@@ -903,7 +900,7 @@ Lezen: `generate_code()` (bestaat de code al?), `_haal_portfolio_basis()`, `_laa
 | `order_id` | TEXT | echte UUID of synthetische `SYN-...` |
 | | `UNIQUE (code, order_id)` | voorkomt dubbele rijen bij herhaalde upload |
 
-Schrijven: `_insert_nieuwe_transacties()` (INSERT); `backfill_transactiekosten()`, `backfill_waarde_eur()`, `backfill_tijd()` (UPDATE alleen waar NULL); `backfill_verouderde_tickers()`
+Schrijven: `_insert_nieuwe_transacties()` (INSERT); `backfill_verouderde_tickers()`
 (UPDATE `ticker`); `set_bijnaam()`/`reset_bijnaam()` (UPDATE `product`); `wijzig_portfolio_code()` (UPDATE `code`); `delete_portfolio()`.
 Lezen: `_haal_portfolio_basis()`, `_laad_transacties_en_resultaat()`, `get_order_id_sets()`, `_ticker_resolutie_opslaan_pad()`, `backfill_verouderde_tickers()`,
 `bereken_dividend_samenvatting()`, `get_transacties_overzicht()`.
@@ -953,15 +950,15 @@ Naast de database bestaan er drie **in-process** caches: `_basis_cache` (20 s, `
 
 ### 4.4 Backfill-mechanismen
 
-"Backfill" betekent hier: een waarde die in een bestaande rij nog `NULL` (of verouderd) is, alsnog invullen. Er zijn drie verschillende mechanismen:
+"Backfill" betekent hier: een waarde die in een bestaande rij nog `NULL` (of verouderd) is, alsnog invullen. Er zijn twee mechanismen:
 
-1. **Data-backfill via een herhaalde upload** (`transactiekosten`, `waarde_eur`, `tijd`): bij een upload naar een bestaande code zijn de al bekende Order ID's `rows_bestaand`;
-   `_backfill_bestaande_rijen()` roept `backfill_transactiekosten()`, `backfill_waarde_eur()` en `backfill_tijd()` aan. Elke doet `UPDATE ... WHERE code = ... AND order_id = ... AND <kolom> IS NULL`:
-   **een bekende waarde wordt nooit overschreven**, en `None`-waarden uit het Excel-bestand worden overgeslagen. Het werkt dus alleen als dezelfde Order ID's terugkomen.
-   Zolang `waarde_eur` nog `NULL` is, valt de GAK-berekening terug op `totaal_eur`.
-2. **Ticker-backfill**: `backfill_verouderde_tickers()` (bij upload naar een bestaande code of bij "ophalen met code" met het vinkje) herbeoordeelt de opgeslagen tickers; zie hoofdstuk 3.
-3. **"Self-healing" bij lezen** (geen apart commando): `_ticker_details_met_cache()` (stale `ticker_info`), `vergelijk_prijs_op_datum()` (mist high/low → aanvullen), `get_etf_holdings()` (upgrade van
+1. **Ticker-backfill**: `backfill_verouderde_tickers()` (bij upload naar een bestaande code of bij "ophalen met code" met het vinkje) herbeoordeelt de opgeslagen tickers; zie hoofdstuk 3.
+2. **"Self-healing" bij lezen** (geen apart commando): `_ticker_details_met_cache()` (stale `ticker_info`), `vergelijk_prijs_op_datum()` (mist high/low → aanvullen), `get_etf_holdings()` (upgrade van
    `yfinance_top10` naar `provider_csv`), `get_prices()` (cache begint te laat → opnieuw downloaden) en `save_dividenden()` als upsert (een herberekening overschrijft een oude `NULL`-rij; met `DO NOTHING` bleef een foute rij voor altijd staan).
+
+**Geen data-backfill voor `transacties`:** een upload naar een bestaande code voegt alleen nieuwe Order ID's in (`ON CONFLICT (code, order_id) DO NOTHING`).
+Staat `transactiekosten`, `waarde_eur` of `tijd` in een al opgeslagen rij op `NULL`, dan wordt die bij een latere upload **niet** meer aangevuld.
+Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploaden. Zolang `waarde_eur` `NULL` is, valt de GAK-berekening terug op `totaal_eur`.
 
 **Let op bij tests:** een deel van de tests werkt met een **echte database** (zie hoofdstuk 7) en gebruikt eigen test-codes (zoals `TESTDIV`); er is geen aparte testdatabase.
 
@@ -1077,7 +1074,7 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 51 bestanden `tests/test_*.py` met samen 406 `def test_...`-methodes (geteld op 2026-09-21). Geen `tests/__init__.py`; elk bestand zet zelf
+- **Python:** `unittest` (geen pytest), 49 bestanden `tests/test_*.py` met samen 398 `def test_...`-methodes (geteld op 2026-09-25). Geen `tests/__init__.py`; elk bestand zet zelf
   `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt.
 - **JavaScript:** 4 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-21 slaagden alle 73 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`).
@@ -1101,7 +1098,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonde
 | `ticker_zekerheid.py` | `test_snelle_prijscheck.py` (23), `test_escalatiepoort_dagrange.py` (5), `test_automatische_ticker_correctie.py` (3), `test_alternatieve_kandidaten.py` (11), `test_basis_ticker_zekerheid.py` (4), `test_niet_opslaan_performance.py` (2), `test_backfill_ticker.py` (11, **[DB]**) |
 | `etf_holdings_provider.py` | `test_etf_holdings_bron.py` (26) |
 | `portfolio_admin.py` | `test_code_validatie.py` (5) |
-| `db.py` (echte database) | `test_tijd_backfill_db.py` (4), `test_transactiekosten_db.py` (4), `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_laatste_prijs_update.py` (3) — allemaal **[DB]** |
+| `db.py` (echte database) | `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_laatste_prijs_update.py` (3) — allemaal **[DB]** |
 | Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | `test_upload_route_foutafhandeling.py` (5), `test_basis_cache.py` (3), `test_gefaseerd_laden.py` (4), `test_herbepaal_tickers_ophalen_route.py` (4), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (4), `test_ticker_zekerheid_positie_route.py` (4), `test_corporate_action_filtering.py` (7) — allemaal **[DB]** |
 | JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js` |
 
@@ -1158,20 +1155,18 @@ Uitgangspunt: een tabblad is een knop in het menu + een sectie in de HTML + een 
 4. Controleer of de nieuwe sleutel **JSON-veilig** is: `NaN` wordt door Flask als het ongeldige token `NaN` geserialiseerd en breekt `response.json()` in de browser (zie het commentaar in `compute_per_ticker_koers_en_aankopen()`; gebruik `pd.notna()` en geef `None`).
 5. Rekenen met bedragen uit Postgres: cast `NUMERIC` (Decimal) expliciet naar `float`.
 
-### 8.3 Een nieuwe kolom in `transacties` toevoegen (inclusief backfill)
+### 8.3 Een nieuwe kolom in `transacties` toevoegen
 
-Voorbeeld uit de code: `waarde_eur`. Hetzelfde pad volgden `transactiekosten` en `tijd`. Neem ze als sjabloon, inclusief hun tests (`tests/test_transactiekosten_db.py`, `tests/test_tijd_backfill_db.py`).
+Voorbeeld uit de code: `waarde_eur`. Hetzelfde pad volgden `transactiekosten` en `tijd`.
 
 1. **`db.py`, `init_db()`:** voeg de kolom toe (achteraan de kolomlijst) in `CREATE TABLE transacties`. Let op: `CREATE TABLE IF NOT EXISTS` raakt een al bestaande tabel niet aan — voeg de kolom in de bestaande Neon-database dus eenmalig met de hand toe (bv. `ALTER TABLE transacties ADD COLUMN <kolom> <type>;` in Neon's SQL-editor).
-2. **`db.py`:** schrijf `backfill_<kolom>(code, order_id_waarden)` naar het model van `backfill_waarde_eur()`: `UPDATE ... WHERE code = %s AND order_id = %s AND <kolom> IS NULL` (nooit een bekende waarde overschrijven).
-3. **`upload_verwerking.py`:**
+2. **`upload_verwerking.py`:**
    - lees de Excel-kolom in `_normaliseer_transactie_kolommen()` (met een nette fallback als de kolom in dit DeGiro-formaat ontbreekt) en gebruik een constante zoals `WAARDE_KOLOM`;
    - neem hem op in de `INSERT` van `_insert_nieuwe_transacties()` (kolomlijst **en** `VALUES`-plaatsaanduiding **en** parameters);
-   - neem hem op in `_backfill_bestaande_rijen()` (importeer je nieuwe `backfill_...`);
    - neem hem op in `_bouw_transacties_df_niet_opslaan()` zodat "niet opslaan" dezelfde kolommen heeft.
-4. **`portfolio_orchestratie.py`:** voeg de kolom toe aan de `SELECT` **en** aan de `columns=[...]` in **zowel** `_haal_portfolio_basis()` **als** `_laad_transacties_en_resultaat()` (twee kopieën); cast `NUMERIC` naar `float` waar nodig.
-5. **Tonen?** Dan ook `get_transacties_overzicht()` in `db.py`, `TRANSACTIES_KOLOMMEN`/`renderTransactiesTabel()` in `app.js` en `VERGELIJKERS` in `transacties.js`.
-6. **Tests + herupload:** test de backfill met een eigen test-code; na het uitrollen moet je gebruiker dezelfde Excel opnieuw uploaden om oude rijen te vullen (de backfill werkt via de Order ID's).
+3. **`portfolio_orchestratie.py`:** voeg de kolom toe aan de `SELECT` **en** aan de `columns=[...]` in **zowel** `_haal_portfolio_basis()` **als** `_laad_transacties_en_resultaat()` (twee kopieën); cast `NUMERIC` naar `float` waar nodig.
+4. **Tonen?** Dan ook `get_transacties_overzicht()` in `db.py`, `TRANSACTIES_KOLOMMEN`/`renderTransactiesTabel()` in `app.js` en `VERGELIJKERS` in `transacties.js`.
+5. **Tests + bestaande data:** test de nieuwe kolom met een eigen test-code. Al opgeslagen rijen krijgen de kolom niet vanzelf gevuld (er is geen data-backfill, zie 4.4): portfolio verwijderen en opnieuw uploaden.
 
 ### 8.4 Een ticker-probleem oplossen
 
@@ -1255,7 +1250,7 @@ en er kwam een hint "Klik op een vakje om de vergelijking te zien." op het ETF-o
 | **Kern / verrijking** | De snelle helft van de dashboard-respons (koersen en berekeningen) versus de netwerk-zware helft (verdeling, land, sector, bedrijven, overlap), die lui wordt opgehaald. | `analyze_transacties_kern()`, `analyze_transacties_verrijking()` |
 | **Basis** | `(naam, transacties_df, price_data)`, 20 s gecachet, gedeeld door meerdere requests van één bezoek. | `_haal_portfolio_basis()` |
 | **Niet opslaan** | Analyse zonder database en zonder code; kern en verrijking komen in één antwoord. | `analyze_transacties()` |
-| **Backfill** | Een later toegevoegde kolom of waarde voor bestaande rijen alsnog invullen (nooit een bekende waarde overschrijven). | `db.backfill_*`, `backfill_verouderde_tickers()` |
+| **Backfill** | Een verouderde waarde in bestaande rijen alsnog corrigeren (hier: opgeslagen tickers). | `backfill_verouderde_tickers()` |
 | **`missing` / `stale`** | In `get_prices()`: `missing` = ticker niet (genoeg) in de cache → volledig downloaden; `stale` = wel gecachet maar verouderd → incrementeel bijwerken. | `get_prices()` |
 | **`verversen`** | Parameter van `get_prices()`: `False` slaat het incrementeel verversen over (bijnaam/code wijzigen). | `get_prices()` |
 | **FX-anker** | Vaste startdatum (2005-01-01) voor de FX-koersreeks, zodat de cache na de eerste keer altijd "ver genoeg terug" is. | `FX_ANKER_DATUM` |

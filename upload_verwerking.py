@@ -19,7 +19,7 @@ from ticker_zekerheid import (
     find_ticker_met_snelle_prijscheck,
 )
 from portfolio_admin import find_matching_code, generate_code
-from db import backfill_transactiekosten, backfill_waarde_eur, backfill_tijd, save_dividenden
+from db import save_dividenden
 from dividend import verwerk_rekeningoverzicht
 
 # Kolomnaam exact zoals DeGiro 'm in het transactiebestand zet (na
@@ -222,9 +222,7 @@ def _bepaal_order_ids(bestand1, df):
 def _vind_of_maak_portfolio_code(cur, df, naam):
     """Zoekt een bestaande portfolio die dezelfde persoon vertegenwoordigt
     (via Order ID-overlap, zie find_matching_code) of maakt een nieuwe code
-    aan. Geeft (code, match_code, rows_to_insert, rows_bestaand) terug --
-    rows_bestaand zijn rijen die al bestonden maar mogelijk nog een
-    backfill nodig hebben (zie _backfill_bestaande_rijen)."""
+    aan. Geeft (code, match_code, rows_to_insert) terug."""
     new_order_ids = set(df["Order ID"])
     match_code, missing_ids = find_matching_code(cur, new_order_ids)
 
@@ -233,14 +231,12 @@ def _vind_of_maak_portfolio_code(cur, df, naam):
         if naam:
             cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
         rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
-        rows_bestaand = df[~df["Order ID"].isin(missing_ids)]
     else:
         code = generate_code(cur)
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam or None))
         rows_to_insert = df
-        rows_bestaand = df.iloc[0:0]
 
-    return code, match_code, rows_to_insert, rows_bestaand
+    return code, match_code, rows_to_insert
 
 
 def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers):
@@ -291,7 +287,7 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
 
 
 def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
-    """Taak 5/6 (DB-insert, deel a): voegt nieuwe transactierijen in;
+    """Taak 5/6 (DB-insert): voegt nieuwe transactierijen in;
     ON CONFLICT DO NOTHING negeert rijen die (op order_id) al bestaan.
     Geeft het aantal succesvol ingevoegde rijen terug."""
     ingevoegd = 0
@@ -315,33 +311,6 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
         except Exception as e:
             pass
     return ingevoegd
-
-
-def _backfill_bestaande_rijen(code, rows_bestaand):
-    """Taak 5/6 (DB-insert, deel b): backfillt transactiekosten/waarde_eur/
-    tijd voor rijen die al bestonden maar deze velden nog niet hadden
-    (kolommen kwamen later bij, zie CLAUDE.md/db.py). Geeft (aantal
-    kosten-backfills, aantal waarde-backfills, aantal tijd-backfills)
-    terug."""
-    order_id_kosten = [
-        (row["Order ID"], float(row["_kosten_eur"]) if pd.notna(row["_kosten_eur"]) else None)
-        for _, row in rows_bestaand.iterrows()
-    ]
-    gebackfilld = backfill_transactiekosten(code, order_id_kosten)
-
-    order_id_waarde = [
-        (row["Order ID"], float(row["_waarde_eur"]) if pd.notna(row["_waarde_eur"]) else None)
-        for _, row in rows_bestaand.iterrows()
-    ]
-    waarde_gebackfilld = backfill_waarde_eur(code, order_id_waarde)
-
-    order_id_tijd = [
-        (row["Order ID"], _normaliseer_tijd(row["Tijd"]))
-        for _, row in rows_bestaand.iterrows()
-    ]
-    tijd_gebackfilld = backfill_tijd(code, order_id_tijd)
-
-    return gebackfilld, waarde_gebackfilld, tijd_gebackfilld
 
 
 def _verwerk_dividend_bestand_indien_aanwezig(code):

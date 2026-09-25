@@ -13,7 +13,7 @@ from portfolio_admin import is_geldige_code, CODE_LENGTH
 from upload_verwerking import (
     _lees_transacties_excel, _normaliseer_transactie_kolommen, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _bepaal_order_ids, _vind_of_maak_portfolio_code,
-    _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties, _backfill_bestaande_rijen,
+    _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
     _verwerk_dividend_bestand_indien_aanwezig, _log_valuta_kolom_naast_koers,
 )
 from portfolio_orchestratie import (
@@ -128,7 +128,7 @@ def _upload_impl():
     conn = get_db_connection()
     cur = conn.cursor()
 
-    code, match_code, rows_to_insert, rows_bestaand = _vind_of_maak_portfolio_code(cur, df, naam)
+    code, match_code, rows_to_insert = _vind_of_maak_portfolio_code(cur, df, naam)
 
     if not rows_to_insert.empty:
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen — zie de
@@ -153,10 +153,6 @@ def _upload_impl():
     conn.commit()
     cur.close()
     conn.close()
-
-    if not rows_bestaand.empty:
-        with meet_tijd(f"db_backfill_kosten_en_tijd ({len(rows_bestaand)} rij(en))"):
-            _backfill_bestaande_rijen(code, rows_bestaand)
 
     if match_code:
         # Alleen zinvol bij een upload naar een BESTAANDE portfolio: een
