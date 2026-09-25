@@ -34,12 +34,20 @@
                 <span class="infoTip" data-label="Transacties-export">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</span>
             </div>
             <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
+            <div class="bestandKeuze" id="bestand1Keuze" hidden>
+                <span class="bestandKeuzeNaam" id="bestand1Naam"></span>
+                <button type="button" class="bestandWisKnop" id="bestand1WisKnop" aria-label="Transactiebestand verwijderen">&times;</button>
+            </div>
 
             <div class="labelRij">
                 <label for="bestand2">Rekeningoverzicht (optioneel)</label>
                 <span class="infoTip" data-label="Rekeningoverzicht">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</span>
             </div>
             <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
+            <div class="bestandKeuze" id="bestand2Keuze" hidden>
+                <span class="bestandKeuzeNaam" id="bestand2Naam"></span>
+                <button type="button" class="bestandWisKnop" id="bestand2WisKnop" aria-label="Rekeningoverzicht verwijderen">&times;</button>
+            </div>
 
             <label class="checkboxLabel"><input type="checkbox" id="nietOpslaan" name="niet_opslaan"> Niet opslaan (eenmalige analyse, er wordt niets bewaard)</label>
 
@@ -190,6 +198,7 @@
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/infotip.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bestandskeuze.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>

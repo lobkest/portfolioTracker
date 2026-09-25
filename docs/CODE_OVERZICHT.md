@@ -410,7 +410,6 @@ Constanten: `KOSTEN_KOLOM` (`"Transactiekosten en/of kosten van derden EUR"`), `
 | `_lees_transacties_excel()` | Excel → DataFrame, kolommen strippen, `Datum` parsen (`dayfirst=True`) | bestandsobject → DataFrame | `_upload_impl()` |
 | `_normaliseer_transactie_kolommen()` | voegt `_kosten_eur`, `_waarde_eur`, `_koers_eur` toe | DataFrame → DataFrame | `_upload_impl()` |
 | `_normaliseer_tijd()` | maakt van een tijdcel (string, `time` of `datetime`) een `"HH:MM:SS"`-string voor een Postgres-`TIME` | cel → tekst of `None` | `_insert_nieuwe_transacties()` |
-| `_log_valuta_kolom_naast_koers()` | debug-onderzoek: logt de kolom direct rechts van `Koers` | DataFrame → (alleen logging) | `_upload_impl()`, `_ticker_resolutie_niet_opslaan_pad()` |
 | `_ticker_resolutie_niet_opslaan_pad()` | lichte parallelle ticker-zekerheid per (ISIN, Beurs) | DataFrame → `(dict, lijst, lijst)` | `_upload_impl()` |
 | `_bouw_transacties_df_niet_opslaan()` | bouwt een DataFrame in dezelfde vorm als uit de database | DataFrame + dict → DataFrame | `_upload_impl()` |
 | `_bepaal_order_ids()` | Order ID's via `openpyxl`, synthetische ID's voor rijen zonder | bestand + DataFrame → DataFrame | `_upload_impl()` |
@@ -633,6 +632,7 @@ Constanten: `LAND_OVERIG_DREMPEL`, `LAND_STAAF_TOP_N = 10`, `EUROPESE_LANDEN` (f
 |---|---|---|---|
 | `get_prices()` | koersen (EUR) ophalen: uit cache, nieuwe tickers volledig downloaden, verouderde incrementeel verversen | `tickers, start_date, verversen=True` → DataFrame (index = datum, kolommen = tickers) | `_haal_portfolio_basis()`, `_laad_transacties_en_resultaat()`, `analyze_transacties_kern()`, `analyze_transacties_verrijking()`, `benchmark_vergelijking()`, `ticker_koers_bereik()`, `_fx_prijzen_serie()` |
 | `_converteer_naar_eur()` | rekent `raw[t]` in-place om voor tickers in USD, GBP of GBp (pence, gedeeld door 100) | `raw, tickers, verversen` → — | `get_prices()` |
+| `_haal_valuta_op()` | noteringsvaluta van een ticker via `yf.Ticker(t).info["currency"]`; mislukte opvraging of geen valuta → `"EUR"` met een `[koersen] WARN`-print; een valuta zonder FX-paar (bv. CHF) wordt teruggegeven, ook met een `WARN` | ticker → valutacode | `_converteer_naar_eur()` |
 | `_fx_prijzen_serie()` | FX-koersreeks (bv. `USDEUR=X`) vanaf `FX_ANKER_DATUM`, via dezelfde cache; gememoized per request op Flask's `g`; één lock per FX-paar | `valuta, verversen` → Series (leeg bij onbekende valuta) | `_converteer_naar_eur()`, `_fx_koers_op_datum()` |
 
 Constanten: `FX_PAAR_PER_VALUTA` (`USD`→`USDEUR=X`, `GBP` en `GBp`→`GBPEUR=X`), `FX_ANKER_DATUM = 2005-01-01`, `DREMPEL_HERGEBRUIK_KOERS` (2 minuten), `_fx_serie_locks`.
@@ -649,8 +649,8 @@ Constanten: `FX_PAAR_PER_VALUTA` (`USD`→`USDEUR=X`, `GBP` en `GBp`→`GBPEUR=X
 
 - `yf.download(..., auto_adjust=True)`: de koersen zijn gecorrigeerd voor splits én dividend, en historische rijen worden bij `save_prices()` nooit overschreven. Of dat na een latere dividenduitkering
   merkbaar inconsistent wordt, kon ik niet uit de code afleiden: **onzeker**.
-- `_converteer_naar_eur()` doet per te downloaden ticker een `yf.Ticker(t).info.get("currency")`-call, zonder retry en zonder cache; bij een fout wordt aangenomen dat de valuta EUR is. Alleen USD/GBP/GBp
-  worden omgerekend — een ticker in een andere valuta zou als EUR behandeld worden.
+- `_converteer_naar_eur()` doet per te downloaden ticker een `yf.Ticker(t).info.get("currency")`-call (via `_haal_valuta_op()`), zonder retry en zonder cache; bij een fout of een ontbrekende valuta wordt EUR aangenomen. Alleen USD/GBP/GBp
+  worden omgerekend — een ticker in een andere valuta wordt als EUR behandeld. In al die gevallen verschijnt een `[koersen] WARN`-regel in de terminal (altijd, ook met `DEBUG = False`), zodat een mogelijk verkeerde koers terug te vinden is.
 - `FX_ANKER_DATUM` moet **na** Yahoo's echte eerste datum van elk FX-paar liggen, anders ziet `get_prices()` de cache steeds als "te kort" en downloadt hij elke keer opnieuw (uitleg in het commentaar bij de constante).
 - `verversen=False` (gebruikt bij bijnaam/code wijzigen) slaat de incrementele verversing over; nog niet gecachte tickers worden altijd gedownload.
 
@@ -727,7 +727,8 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 - Drie niveaus: afwijking < 2% → `ok`; 2–6% → `mild` (telt niet als probleem); ≥ 6% → `waarschuwing`. `match` is `False` alleen bij `waarschuwing`.
 - Waarom de split-correctie nodig is: `auto_adjust=True` geeft historische koersen op de *huidige* aandelenbasis, terwijl DeGiro de destijds werkelijke prijs vermeldt.
 - De cache `ticker_prijscheck` is **permanent** en cachet ook mislukte lookups (`yahoo_slotkoers = NULL`); een rij zonder high/low wordt bij een volgend gebruik aangevuld.
-- Geen FX-koers beschikbaar (andere valuta dan USD/GBP/GBp) → geen vergelijking (`match = None`), bewust geen rauwe vergelijking tussen verschillende valuta.
+- Geen FX-koers beschikbaar (andere valuta dan USD/GBP/GBp) → geen vergelijking (`match = None`), bewust geen rauwe vergelijking tussen verschillende valuta. Dit print een `[prijscheck] WARN`-regel.
+- Valuta onbekend (`None` in `ticker_info`) → de Yahoo-koers wordt als EUR behandeld, met een `[prijscheck] WARN`-regel.
 
 ---
 
@@ -1054,7 +1055,7 @@ Bij Verdeling/Land/Sector/Bedrijven/ETF-overlap begint elke `toon...()` met `too
 | **Yahoo — `yf.download`** (yfinance) | historische dagkoersen van alle tickers en FX-paren | `get_prices()` via `download_met_retry()` in `yahoo_client.py` | 3 pogingen, **vaste** 5 s wachttijd, op elke fout; daarna een lege `Series` | tabel `prijzen` |
 | **Yahoo — `yf.download`** (slotkoers, high, low) | prijsvergelijking voor de ticker-zekerheid | `_haal_koers_en_dagrange_op()`, `_haal_dagrange_op()` in `ticker_prijscheck.py` | `_met_rate_limit_retry()`: 3 pogingen, 8 s en 16 s wachten, alleen bij rate-limit-achtige fouten | tabel `ticker_prijscheck` (permanent) |
 | **Yahoo — `yf.Ticker(t).info`** | ETF-of-aandeel, land, sector, valuta, beurs, fondsfamilie, categorie | `_fetch_yf_info()` in `ticker_classificatie.py` | `_met_rate_limit_retry()` (zoals hierboven) | `ticker_info`, `ticker_land_sector` |
-| **Yahoo — `yf.Ticker(t).info`** (alleen `currency`) | bepalen of een koers omgerekend moet worden | `_converteer_naar_eur()` in `prijzen.py` | **geen retry, geen cache**; bij een fout wordt "EUR" aangenomen | — |
+| **Yahoo — `yf.Ticker(t).info`** (alleen `currency`) | bepalen of een koers omgerekend moet worden | `_haal_valuta_op()` (via `_converteer_naar_eur()`) in `prijzen.py` | **geen retry, geen cache**; bij een fout wordt "EUR" aangenomen, met een `[koersen] WARN`-print | — |
 | **Yahoo — `funds_data`** (`sector_weightings`, `top_holdings`, `fund_overview`) | sectorverdeling en top-10 van ETF's; categorie als fallback | `get_etf_sector_verdeling()`, `get_etf_holdings()`, `_classify_ticker_uncached()` | **geen retry**: een fout geeft een lege uitkomst (die niet gecachet wordt) | `etf_sector_verdeling`, `etf_holdings` (30 dagen) |
 | **Yahoo — `yf.Ticker(t).splits`** | splitsgeschiedenis voor de prijscontrole | `_haal_splits_op()` in `ticker_prijscheck.py` | **geen retry**; bij een fout `{}` en niet cachen | `ticker_splits` (30 dagen) |
 | **yahooquery — `search`** | ticker zoeken op productnaam, ISIN of OpenFIGI-root | `_yahoo_search()` in `ticker_matching.py` | **geen retry**; fouten geven `[]` | **geen** (bewust niet: elke upload zoekt live, tenzij `bekende_ticker` de zoekopdracht overslaat) |
@@ -1081,13 +1082,13 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 52 bestanden `tests/test_*.py` met samen 428 `def test_...`-methodes (geteld op 2026-09-25, na de opruimronde). Geen `tests/__init__.py`; elk bestand zet zelf
+- **Python:** `unittest` (geen pytest), 53 bestanden `tests/test_*.py` met samen 433 `def test_...`-methodes (geteld op 2026-09-25, na de opruimronde en `test_valuta_waarschuwing.py`). Geen `tests/__init__.py`; elk bestand zet zelf
   `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt.
 - **JavaScript:** 4 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-25 slaagden alle 73 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`).
   `test_menu.js` leest daarnaast `style.css` en `index.html` als tekst om mobiele CSS-regels te bewaken.
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
-- **Wat ik zelf gedaan heb:** op 2026-09-25 de JS-tests (73 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (zodat `.env` niet wordt ingelezen): 428 tests, waarvan 373 uitgevoerd en geslaagd en 55 overgeslagen. De 36 database-vrije bestanden (336 tests) draaien volledig; de 16 **[DB]**-bestanden (92 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
+- **Wat ik zelf gedaan heb:** op 2026-09-25 de JS-tests (73 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (zodat `.env` niet wordt ingelezen): 433 tests, waarvan 378 uitgevoerd en geslaagd en 55 overgeslagen. De 37 database-vrije bestanden (341 tests) draaien volledig; de 16 **[DB]**-bestanden (92 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
 
 ### 7.2 Welk testbestand hoort bij welke module
 
@@ -1099,7 +1100,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonde
 | `portfolio_calc.py` | `test_nog_in_bezit.py` (4), `test_per_ticker_koers_en_aankopen.py` (10), `test_holdings_op_datums.py` (11), `test_performance_regressie.py` (3, golden master) |
 | `dividend.py` | `test_dividend.py` (14, database-vrij; o.a. het `herinvesteerd`-veld in `lijst`) |
 | `portfolio_verdeling.py` | `test_bedrijven_verdeling.py` (10), `test_etf_overlap.py` (7), `test_europa_groepering.py` (11), `test_land_overig.py` (8), `test_land_sector_per_bron.py` (3), `test_land_staaf_top_n.py` (12), `test_verdeling_samenvatting.py` (8), `test_verdeling_sortering.py` (5) |
-| `prijzen.py`, `yahoo_client.py`, `ticker_classificatie.py` | `test_koersen_cache.py` (7), `test_fx_caching_en_retry.py` (13), `test_fx_serie_memoization.py` (7), `test_prijzen_upsert.py` (2) |
+| `prijzen.py`, `yahoo_client.py`, `ticker_classificatie.py` | `test_koersen_cache.py` (7), `test_fx_caching_en_retry.py` (13), `test_fx_serie_memoization.py` (7), `test_prijzen_upsert.py` (2), `test_valuta_waarschuwing.py` (5) |
 | `ticker_matching.py` | `test_ticker_zoeken.py` (10), `test_beurs_map_tdg.py` (3), `test_openfigi.py` (27, ook `ticker_zekerheid`) |
 | `ticker_prijscheck.py` | `test_koers_dagrange_samenvoegen.py` (5), `test_dagrange_prijscheck.py` (7, deels **[DB]**), `test_ticker_verificatie.py` (22, deels **[DB]**) |
 | `ticker_zekerheid.py` | `test_snelle_prijscheck.py` (23), `test_escalatiepoort_dagrange.py` (5), `test_automatische_ticker_correctie.py` (3), `test_alternatieve_kandidaten.py` (11), `test_basis_ticker_zekerheid.py` (4, via `basis_ticker_zekerheid_parallel()`), `test_niet_opslaan_performance.py` (2), `test_backfill_ticker.py` (11, **[DB]**) |
@@ -1188,8 +1189,8 @@ Symptomen: een waarschuwingsbanner bovenaan ("koers wijkt af van Yahoo"), een po
    - `MANUAL_TICKER_OVERRIDES["NAAM-PREFIX"]` — alleen als fallback ná een mislukte zoekopdracht.
 3. **Beurscode niet herkend?** Voeg de DeGiro-beurscode toe aan `BEURS_MAP` in `ticker_matching.py` (zonder vermelding is `targets` leeg en komt er nooit een "zekere" beurs-match).
 4. **Al opgeslagen tickers herberekenen:** upload het bestand opnieuw met het vinkje "Ticker-informatie voor alle posities opnieuw bepalen", of gebruik hetzelfde vinkje bij "Ophalen met code" (`backfill_verouderde_tickers(code, forceer=True)`). Zonder vinkje herzoekt de backfill alleen posities met een prijsprobleem.
-5. **Koers zelf fout (niet de ticker)?** Kijk of de valuta USD/GBP/GBp is; andere valuta's worden in `_converteer_naar_eur()` en `_fx_koers_op_datum()` niet omgerekend. Bij een split: `compute_split_adjusted_shares()` (waardereeks) en `_cumulatieve_split_factor()` (prijscheck).
-6. **Logs lezen:** `[ticker]` (met `WARN` bij een blinde fallback), `[prijscheck-debug]`, `[alternatieven-debug]`, `[timing]`-regels (`DEBUG = True` in `debug_utils.py`). Wil je dieper kijken, voeg dan tijdelijk een eigen `dprint` toe (en haal die daarna weer weg).
+5. **Koers zelf fout (niet de ticker)?** Kijk of de valuta USD/GBP/GBp is; andere valuta's worden in `_converteer_naar_eur()` en `_fx_koers_op_datum()` niet omgerekend (zoek in de terminal naar `[koersen] WARN` en `[prijscheck] WARN`). Bij een split: `compute_split_adjusted_shares()` (waardereeks) en `_cumulatieve_split_factor()` (prijscheck).
+6. **Logs lezen:** `[ticker]` (met `WARN` bij een blinde fallback), `[koersen] WARN`/`[prijscheck] WARN` (valuta onbekend of niet omgerekend), `[prijscheck-debug]`, `[alternatieven-debug]`, `[timing]`-regels (`DEBUG = True` in `debug_utils.py`). Wil je dieper kijken, voeg dan tijdelijk een eigen `dprint` toe (en haal die daarna weer weg).
 7. **Snelste handmatige fix in de data** (aan je eigen risico, controleer eerst met een `SELECT` met dezelfde `WHERE`): `UPDATE transacties SET ticker = ... WHERE code = ... AND isin = ... AND beurs = ...`, gevolgd door een verse portfolio-opening (de basis-cache van 20 s verloopt vanzelf).
 
 ### 8.5 Een ETF toevoegen aan `ETF_HOLDINGS_BRON`
@@ -1326,7 +1327,7 @@ herschreven tot een korte, zelfstandige regelset; de gedetailleerde beschrijving
 **Nog niet in scope (bewust niet aangepakt)**
 
 - **`README.md`** toont nog `analysis.py`, `class_degiro.py` en `trading_degiro.py` in zijn eigen bestandsstructuur, en "~300+"
-  Python-tests (er zijn er 428, plus 73 JS). `README.md` viel buiten deze opdracht en is dus nog niet bijgewerkt.
+  Python-tests (er zijn er 433, plus 73 JS). `README.md` viel buiten deze opdracht en is dus nog niet bijgewerkt.
 - **`.gitignore` bevat `CLAUDE.md`** — bewust: CLAUDE.md is een lokaal bestand (instructies voor Claude Code) en staat daarom
   niet in `git ls-files`. Git kan het dus ook niet herstellen; maak zelf een kopie vóór grote wijzigingen.
 
@@ -1350,6 +1351,6 @@ Dingen die ik niet met zekerheid uit de code kon vaststellen, of waar mijn besch
 5. **Yahoo-timeouts:** er staat nergens een expliciete timeout op yfinance-calls; wat yfinance zelf doet, weet ik niet.
 6. **Hoe DeGiro's exportformaat precies is:** kolomnamen (`Waarde EUR`, `Wisselkoers`, de lange kostenkolom), positie-afhankelijke hernoemingen in het rekeningoverzicht (`Unnamed: 8`/`10`) en het Order-ID-gedrag beschrijf ik zoals de code ze verwacht, niet zoals DeGiro ze nu levert.
 7. **Diepte van mijn lezing:** de Python-modules heb ik volledig gelezen. `app.js` (circa 4000 regels) heb ik gelezen via de datastroom en de belangrijkste functies; enkele opmaakfuncties (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`,
-   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (52 bestanden, 428 tests op 2026-09-25, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
+   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (53 bestanden, 433 tests op 2026-09-25, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
 8. **Niet uitgevoerd:** de database-delen van de **[DB]**-Python-tests (16 bestanden, ze raken de echte database) en de app zelf. Wel gedraaid: de JS-tests (73 geslaagd) en de Python-suite zonder database (373 geslaagd, 55 overgeslagen, 2026-09-25).
 9. **Mermaid-diagram:** ik heb het niet kunnen renderen; de syntax is met zorg geschreven maar niet visueel gecontroleerd.

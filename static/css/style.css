@@ -126,6 +126,48 @@ button:hover {
     background-color: #235f3b;
 }
 
+/* Rij "gekozen bestand + x-knop" onder een bestandsveld op de startpagina
+   (zie koppelBestandWisKnop() in app.js). */
+.bestandKeuze {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+/* Zonder deze regel wint display: flex hierboven van het hidden-attribuut. */
+.bestandKeuze[hidden] {
+    display: none;
+}
+
+.bestandKeuzeNaam {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Zelfde vorm als .infoTipKnop (groene rand, rond, transparant). */
+.bestandWisKnop {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid #2c7a4b;
+    border-radius: 50%;
+    background: transparent;
+    color: #2c7a4b;
+    font-size: 20px;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.bestandWisKnop:hover {
+    background-color: #2c7a4b;
+    color: white;
+}
+
 .checkboxLabel {
     font-weight: normal;
     display: flex;
@@ -444,6 +486,12 @@ button:hover {
     input,
     button {
         min-height: 44px;
+    }
+
+    /* Rond tikvlak van 44x44 (min-height hierboven regelt alleen de hoogte). */
+    .bestandWisKnop {
+        width: 44px;
+        height: 44px;
     }
 
     /* iOS Safari zoomt automatisch in op een veld met font-size < 16px

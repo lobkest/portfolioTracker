@@ -44,29 +44,6 @@ WAARDE_KOLOM = "Waarde EUR"
 WISSELKOERS_KOLOM = "Wisselkoers"
 
 
-def _log_valuta_kolom_naast_koers(df):
-    """Debug-onderzoek (TTWO-valuta-hypothese): checkt
-    of er in het ingelezen Excel-bestand een aparte valuta-kolom direct
-    rechts van 'Koers' staat, en logt per unieke (ISIN, Beurs)-combinatie
-    welke kolom dat is en wat erin staat -- puur constaterend, geen aanname
-    vooraf over de inhoud."""
-    kolommen = df.columns.tolist()
-    if "Koers" not in kolommen:
-        dprint(f"[valuta-onderzoek] kolom 'Koers' niet gevonden, kolommen={kolommen}")
-        return
-    idx = kolommen.index("Koers")
-    if idx + 1 >= len(kolommen):
-        dprint(f"[valuta-onderzoek] geen kolom rechts van 'Koers', kolommen={kolommen}")
-        return
-    valuta_kolom = kolommen[idx + 1]
-    for (isin_val, beurs_val), groep in df.groupby(["ISIN", "Beurs"]):
-        dprint(
-            f"[valuta-onderzoek] ISIN={isin_val} Beurs={beurs_val}: "
-            f"kolom rechts van 'Koers' = '{valuta_kolom}', "
-            f"waarden={groep[valuta_kolom].unique().tolist()}"
-        )
-
-
 def _normaliseer_tijd(waarde):
     """Zet de 'Tijd'-kolom uit het transactiebestand om naar een string die
     Postgres' TIME-kolom kan opslaan. Pandas/openpyxl kan een tijdcel als
@@ -128,12 +105,9 @@ def _ticker_resolutie_niet_opslaan_pad(df):
     ticker-zekerheid per (ISIN, Beurs)-groep -- zie de uitgebreide toelichting
     in _upload_impl() voor waarom dit bewust de goedkope variant is (geen
     volledige verifieer_tickers_met_prijs_parallel(), zie CLAUDE.md,
-    Statistieken-incident 2026-08-31). Geeft (ticker_by_isin_beurs,
-    ticker_zekerheid, ticker_posities_ruw) terug."""
+    Statistieken-incident 2026-08-31) """
     groepen = list(df.groupby(["ISIN", "Beurs"]))
     namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
-
-    _log_valuta_kolom_naast_koers(df)
 
     with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(groepen)} positie(s))"):
         posities_voor_check = [

@@ -14,7 +14,7 @@ from upload_verwerking import (
     _lees_transacties_excel, _normaliseer_transactie_kolommen, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _bepaal_order_ids, _vind_of_maak_portfolio_code,
     _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
-    _verwerk_dividend_bestand_indien_aanwezig, _log_valuta_kolom_naast_koers,
+    _verwerk_dividend_bestand_indien_aanwezig,
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
@@ -68,12 +68,8 @@ def _upload_impl():
         df = _normaliseer_transactie_kolommen(df)
 
     niet_opslaan = request.form.get("niet_opslaan") == "on"
-    # "Ticker-informatie voor alle posities opnieuw bepalen"-vinkje (zie
-    # templates/index.html): staat dit UIT (standaard), dan slaat de
-    # ticker-resolutie hieronder de dure/onvoorwaardelijke yahooquery-
-    # zoekopdracht over voor posities die al eerder zijn opgelost -- zie
-    # CLAUDE.md/opdracht "vinkje ticker-informatie opnieuw bepalen".
     herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
+    
     if niet_opslaan:
         # Per (ISIN, Beurs) resolven, niet per ISIN alleen: dezelfde ISIN kan
         # op meerdere beurzen genoteerd staan (bv. een fonds met een
@@ -129,8 +125,6 @@ def _upload_impl():
         # portfolio_orchestratie.py) bij elk bezoek hergebruikt. PARALLEL over de groepen — zie de
         # 'niet_opslaan'-tak hierboven voor de reden (koude-cache-
         # timeoutrisico bij veel unieke tickers).
-        _log_valuta_kolom_naast_koers(rows_to_insert)
-
         with meet_tijd("ticker_resolutie"):
             ticker_by_isin_beurs = _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)
 

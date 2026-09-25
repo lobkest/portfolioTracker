@@ -250,12 +250,17 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     yahoo_koers_eur = yahoo_koers
     high_eur, low_eur = high, low
     fx_koers = None
+    if valuta is None:
+        print(f"[prijscheck] WARN '{ticker}' op {datum}: valuta onbekend - "
+              f"Yahoo-koers NIET omgerekend, aanname EUR")
     if valuta not in (None, "EUR"):
         # Deze vergelijking is altijd tegen een HISTORISCHE transactiedatum
         # -- een verse FX-koers van vandaag is hier nooit relevant, dus
         # onvoorwaardelijk verversen=False (zie _fx_prijzen_serie()).
         fx_koers = _fx_koers_op_datum(valuta, datum, verversen=False)
         if fx_koers is None:
+            print(f"[prijscheck] WARN '{ticker}' op {datum}: geen FX-koers voor valuta "
+                  f"'{valuta}' - geen prijsvergelijking mogelijk")
             # Geen betrouwbare EUR-vergelijking mogelijk (net zo'n signaal
             # als "geen koersdata" hierboven) -- NIET stilzwijgend de rauwe,
             # niet-vergelijkbare bedragen tegen elkaar afzetten, dat zou een

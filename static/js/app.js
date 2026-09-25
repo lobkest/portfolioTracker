@@ -3838,6 +3838,54 @@ document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () =
     pasMenuStatusToe(menuOpenStatusNaViewKeuze());
 });
 
+// Rij "gekozen bestand + x-knop" onder een bestandsveld. De x-knop zet
+// input.value = "" zodat het bestand echt niet meegestuurd wordt; daarna
+// gelden weer de gewone regels (`required` op bestand1, formData.delete
+// voor een leeg bestand2). Door de echte reset gaat `change` ook weer af als
+// je daarna hetzelfde bestand opnieuw kiest. Geeft de update-functie terug,
+// zodat de rij ook buiten een `change` (reset, terug naar de startpagina)
+// gelijkgetrokken kan worden met wat er echt in de input zit.
+function koppelBestandWisKnop(inputId) {
+    const input = document.getElementById(inputId);
+    const rij = document.getElementById(`${inputId}Keuze`);
+    const naam = document.getElementById(`${inputId}Naam`);
+    const wisKnop = document.getElementById(`${inputId}WisKnop`);
+
+    function werkBij() {
+        const namen = Array.from(input.files || [], (f) => f.name);
+        const weergave = bestandSelectieWeergave(namen);
+        naam.textContent = weergave.tekst;
+        naam.title = weergave.tekst;
+        rij.hidden = !weergave.zichtbaar;
+    }
+
+    input.addEventListener("change", werkBij);
+    wisKnop.addEventListener("click", () => {
+        input.value = "";
+        werkBij();
+        // De knop verdwijnt; zet de focus terug op het veld zodat een
+        // toetsenbordgebruiker niet "nergens" uitkomt.
+        input.focus();
+    });
+    werkBij();
+    return werkBij;
+}
+
+const bestandKeuzeBijwerkers = ["bestand1", "bestand2"].map(koppelBestandWisKnop);
+
+function werkBestandKeuzesBij() {
+    bestandKeuzeBijwerkers.forEach((werkBij) => werkBij());
+}
+
+// Bij form.reset() gaat geen `change` af, en de inputs zijn pas ná het
+// reset-event leeg -> bijwerken in de volgende tick.
+document.getElementById("uploadForm").addEventListener("reset", () => {
+    setTimeout(werkBestandKeuzesBij, 0);
+});
+// Terug via de browser-terugknop (bfcache): de browser kan de inputs dan
+// anders gevuld/leeg teruggeven dan de rij laat zien.
+window.addEventListener("pageshow", werkBestandKeuzesBij);
+
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     e.preventDefault();
     document.getElementById("errorMsg").textContent = "";
@@ -3903,6 +3951,7 @@ function gaTerugNaarUpload() {
     pasMenuStatusToe(menuOpenStatusNaViewKeuze());
     document.getElementById("dashboardSection").style.display = "none";
     document.getElementById("uploadSection").style.display = "block";
+    werkBestandKeuzesBij();
 }
 
 document.getElementById("terugKnop").addEventListener("click", gaTerugNaarUpload);
@@ -3920,6 +3969,7 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
             pasMenuStatusToe(menuOpenStatusNaViewKeuze());
             document.getElementById("dashboardSection").style.display = "none";
             document.getElementById("uploadSection").style.display = "block";
+            werkBestandKeuzesBij();
             alert("Portfolio verwijderd.");
         } else {
             alert("Verwijderen is niet gelukt, probeer het later opnieuw.");

@@ -47,6 +47,28 @@ FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
 DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
 
 
+def _haal_valuta_op(t):
+    """Vraagt de noteringsvaluta van ticker t op bij Yahoo. Lukt dat niet, of
+    geeft Yahoo geen valuta, dan wordt "EUR" aangenomen (koers blijft
+    ongewijzigd) -- met een WARN-print, zodat een mogelijk verkeerde koers
+    in de terminal terug te vinden is. Ook een valuta zonder FX-paar in
+    FX_PAAR_PER_VALUTA (bv. CHF) krijgt een WARN: die wordt niet omgerekend."""
+    try:
+        _tel_yahoo_call("yf.Ticker.info(currency)")
+        currency = yf.Ticker(t).info.get("currency")
+    except Exception as e:
+        print(f"[koersen] WARN {t}: valuta opvragen bij Yahoo mislukt ({e!a}) - "
+              f"koers NIET omgerekend, aanname EUR")
+        return "EUR"
+    if not currency:
+        print(f"[koersen] WARN {t}: Yahoo geeft geen valuta - koers NIET omgerekend, aanname EUR")
+        return "EUR"
+    if currency != "EUR" and currency not in FX_PAAR_PER_VALUTA:
+        print(f"[koersen] WARN {t}: valuta '{currency}' wordt niet ondersteund - "
+              f"koers NIET omgerekend, telt mee alsof het EUR is")
+    return currency
+
+
 def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
     """Past USD/GBP/GBp -> EUR-conversie toe op raw[t] voor elke t in
     tickers_kolommen, in-place. FX-reeks komt uit _fx_prijzen_serie()
@@ -61,11 +83,7 @@ def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
     for t in tickers_kolommen:
         if t not in raw.columns:
             continue
-        try:
-            _tel_yahoo_call("yf.Ticker.info(currency)")
-            currency = yf.Ticker(t).info.get("currency")
-        except Exception:
-            currency = "EUR"
+        currency = _haal_valuta_op(t)
         if currency in ("USD", "GBP", "GBp"):
             fx = _fx_prijzen_serie(currency, verversen=verversen)
             fx = fx.reindex(raw.index).ffill()
