@@ -23,7 +23,7 @@ from portfolio_admin import find_matching_code, generate_code
 from db import save_dividenden
 from dividend import verwerk_rekeningoverzicht
 
-
+# excel kolommen namen handmatig neergezet
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
 WAARDE_KOLOM = "Waarde EUR"
 WISSELKOERS_KOLOM = "Wisselkoers"
