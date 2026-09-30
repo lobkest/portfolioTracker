@@ -6,12 +6,10 @@ synchroon voor de volle portfolio draaide (zie
 tests/test_niet_opslaan_performance.py voor de kwantitatieve bevestiging
 daarvan), zonder dat de gebruiker een foutmelding te zien kreeg.
 
-Raakt de echte database aan, want app.py roept init_db() op moduleniveau
-aan (buiten if __name__ == '__main__', zie CLAUDE.md: Tech stack en omgeving) -- 'import app' zou
-zonder DATABASE_URL dus al bij de IMPORT crashen. Daarom (net als
-tests/test_dividend_db.py) overgeslagen zonder DATABASE_URL, met de import
-van 'app' pas binnen setUp() van elke (dan overgeslagen) testklasse, nooit
-op moduleniveau.
+app.py draait init_db() alleen als DATABASE_URL is ingesteld, dus
+'import app' werkt zonder database. TestNietOpslaanGebruiktGoedkopeTickerMatch
+wordt zonder DATABASE_URL nog overgeslagen: portfolio_orchestratie.get_prices()
+is daar niet gemockt en raakt de koerscache en Yahoo.
 """
 import os
 import sys
@@ -99,7 +97,6 @@ class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
         self.assertEqual(len(data["ticker_posities_ruw"]), 5)
 
 
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestUploadGeeftNetteFoutrespons(unittest.TestCase):
     """Opdracht 3: een onverwachte fout tijdens de analyse mag nooit een
     kale crash of hangende request opleveren -- altijd een nette JSON-
@@ -129,7 +126,6 @@ class TestUploadGeeftNetteFoutrespons(unittest.TestCase):
         self.assertTrue(data["error"])
 
 
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestTickerZekerheidCheckEndpoint(unittest.TestCase):
     """De losse, door de gebruiker aangevraagde uitgebreide check voor een
     'niet opslaan'-analyse (zie toonInstellingenTickerBasis() in app.js)."""

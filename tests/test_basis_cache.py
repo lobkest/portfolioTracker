@@ -6,10 +6,8 @@ _ticker_zekerheid_groepen() elk apart dezelfde transacties op en herhaalden
 compute_split_adjusted_shares()/get_prices() vanaf nul binnen hetzelfde
 portfolio-bezoek.
 
-Raakt de echte database aan via 'import app' (init_db() draait bij import,
-zie CLAUDE.md: Tech stack en omgeving) -- daarom, net als tests/test_gefaseerd_laden.py, overgeslagen
-zonder DATABASE_URL. get_db_connection wordt gemockt zodat er geen echte
-queries lopen; ticker=None in de nep-transactierij zorgt dat get_prices()
+get_db_connection wordt gemockt en app.py draait init_db() alleen als
+DATABASE_URL is ingesteld, dus geen echte database nodig; ticker=None in de nep-transactierij zorgt dat get_prices()
 nooit wordt aangeroepen (lege tickerlijst), dus ook geen yfinance-calls.
 """
 import os
@@ -17,16 +15,7 @@ import sys
 import unittest
 from unittest.mock import patch, MagicMock
 
-from dotenv import load_dotenv
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-load_dotenv()
-
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
 
 # Fictieve code die door geen enkele andere test gebruikt wordt, zodat deze
 # test zijn eigen _basis_cache-entry heeft en niets van andere tests raakt.
@@ -50,7 +39,6 @@ def _fake_conn():
     return conn
 
 
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestBasisCache(unittest.TestCase):
     def setUp(self):
         import app as app_module

@@ -7,8 +7,8 @@ tests van bereken_benchmark_vergelijking zelf, die hier niet herhaald worden.
 
 Mockt _laad_transacties_en_resultaat en get_prices (zelfde patroon als
 tests/test_ticker_koers_bereik_route.py), dus geen echte DB-rijen of
-yfinance-calls nodig -- wel importeert app.py init_db() op moduleniveau,
-vandaar de DATABASE_URL-skip-guard.
+yfinance-calls nodig; app.py draait init_db() alleen als DATABASE_URL is
+ingesteld.
 """
 import os
 import sys
@@ -16,19 +16,10 @@ import unittest
 from unittest.mock import patch
 
 import pandas as pd
-from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-load_dotenv()
 
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
-
-
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestBenchmarkVergelijkingEigenTicker(unittest.TestCase):
     TEST_CODE = "TESTBV"
 

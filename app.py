@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, render_template, request, jsonify
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code, get_transacties_overzicht
@@ -29,7 +31,9 @@ from portfolio_verdeling import bereken_etf_overlap_detail
 from portfolio_calc import holdings_op_datums
 
 app = Flask(__name__)
-init_db()
+# Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
+if os.environ.get("DATABASE_URL"):
+    init_db()
 
 
 @app.route("/")

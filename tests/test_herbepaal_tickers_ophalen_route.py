@@ -10,30 +10,18 @@ bestaande code (build_portfolio_response() leest alleen de al opgeslagen
 tickers). Zonder de nieuwe parameter blijft dat exact zo; met de parameter
 komt er een expliciete, opt-in aanroep bij.
 
-Raakt de echte database aan via 'import app' (init_db() draait bij import,
-zie CLAUDE.md: Tech stack en omgeving) -- daarom overgeslagen zonder DATABASE_URL, net als
-tests/test_gefaseerd_laden.py. build_portfolio_response() en
-backfill_verouderde_tickers() worden gemockt, dus geen echte portfolio
-nodig en geen Yahoo-calls.
+build_portfolio_response() en backfill_verouderde_tickers() worden gemockt
+en app.py draait init_db() alleen als DATABASE_URL is ingesteld, dus geen
+echte database nodig en geen Yahoo-calls.
 """
 import os
 import sys
 import unittest
 from unittest.mock import patch
 
-from dotenv import load_dotenv
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-load_dotenv()
 
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
-
-
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestHerbepaalAlleTickersBijOphalen(unittest.TestCase):
     def setUp(self):
         import app as app_module

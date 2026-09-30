@@ -4,27 +4,17 @@ achter een geklikte percentage-cel op het ETF-overlap-tabblad. Los van een portf
 ticker, ook voor de 'niet opslaan'-analyse), dus geen setUp/tearDown-rijen
 in de database nodig -- alleen bereken_etf_overlap_detail() wordt gemockt.
 
-Raakt de echte database niet aan voor de berekening zelf, maar importeert
-wel app.py (init_db() draait bij import), net als de andere route-tests.
+Geen echte database nodig: app.py draait init_db() alleen als DATABASE_URL
+is ingesteld.
 """
 import os
 import sys
 import unittest
 from unittest.mock import patch
 
-from dotenv import load_dotenv
-
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-load_dotenv()
 
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
-
-
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
 class TestEtfOverlapDetailRoute(unittest.TestCase):
     def setUp(self):
         import app as app_module

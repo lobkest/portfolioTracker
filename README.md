@@ -33,7 +33,7 @@ uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt 
   vanilla JS in `static/js/` (geen framework), Chart.js (incl. zoom/pan-,
   datalabels- en annotation-plugin)
 - **Hosting**: Render, gunicorn als productieserver
-- **Tests**: Python `unittest` (ruim 400 tests) + JS-tests via `node --test`,
+- **Tests**: Python `unittest` (ruim 500 tests) + JS-tests via `node --test`,
   draait automatisch via GitHub Actions bij elke push
 - **Ticker-validatie**: prijsvergelijking met Yahoo's historische koersen,
   plus OpenFIGI als extra ISIN-gebaseerd signaal bovenop yahooquery
@@ -56,14 +56,16 @@ portfolioTracker/
 ├── ticker_zekerheid.py         → zekerheidsoordeel per ticker
 ├── ticker_classificatie.py     → ETF/aandeel, land/sector/holdings
 ├── etf_holdings_provider.py    → volledige holdings bij de fondsprovider
+├── diagnostiek.py              → Diagnostiek-meldingen per request
 ├── yahoo_client.py, portfolio_admin.py, transactie_utils.py, debug_utils.py
 ├── requirements.txt
 ├── .env                        → omgevingsvariabelen (niet in git)
 ├── templates/index.html        → enige pagina, SPA
 ├── static/
 │   ├── css/style.css
-│   ├── js/                     → app.js + kleine pure modules (prognose,
-│   │                              transacties, bedrijven, menu, infotip)
+│   ├── js/                     → app.js + kleine modules (prognose,
+│   │                              transacties, bedrijven, menu, bestandskeuze,
+│   │                              diagnostiek, infotip)
 │   └── favicon/                → favicon + PWA-manifest
 ├── tests/                      → unittest-suite + JS-tests
 ├── docs/CODE_OVERZICHT.md      → uitgebreid code-overzicht (architectuur, flows)
