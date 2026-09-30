@@ -48,6 +48,27 @@
         return true;
     }
 
+    const ECHTE_KLOK = { setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: id => clearTimeout(id) };
+
+    // Eerst uitfaden, dan pasToe(view). Komt er een wissel binnen terwijl de vorige nog wacht, dan wordt
+    // die geannuleerd en de nieuwe direct toegepast: anders past de oude timer later een eerder tabblad toe.
+    function maakTabWisselaar(pasToe, startFade, fadeMs, klok = ECHTE_KLOK) {
+        let timer = null;
+        return function wissel(view) {
+            if (timer !== null) {
+                klok.clearTimeout(timer);
+                timer = null;
+                pasToe(view);
+                return;
+            }
+            startFade();
+            timer = klok.setTimeout(() => {
+                timer = null;
+                pasToe(view);
+            }, fadeMs);
+        };
+    }
+
     // Vaste tekst per sleutel: de query zelf komt nooit op de pagina. Onbekende sleutel: null.
     function startMeldingTekst(sleutel) {
         return Object.hasOwn(START_MELDING_TEKSTEN, sleutel) ? START_MELDING_TEKSTEN[sleutel] : null;
@@ -57,7 +78,7 @@
         START_PAD, ANALYSE_PAD, STANDAARD_VIEW, MELDING_PARAM,
         MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
         VEREIST_CODE_JA, VEREIST_CODE_NEE,
-        portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, startMeldingTekst,
+        portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, maakTabWisselaar, startMeldingTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

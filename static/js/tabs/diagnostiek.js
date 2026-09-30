@@ -1,10 +1,15 @@
 // Tabblad Instellingen > Diagnostiek: meldingen van deze laadbeurt. Tellen en groeperen staat in diagnostiek.js.
 
-// Gereset in toonDashboard(); bijnaam/code wijzigen laat de meldingen staan.
+// Gereset bij een nieuwe portfolio; bijnaam/code wijzigen laat de meldingen staan.
 let diagnostiekMeldingen = [];
 // Open/dicht-keuze van de gebruiker per categorie (overschrijft de
 // standaard uit categorieStandaardOpen tot een nieuwe upload/code).
 let diagnostiekOpenKeuze = new Map();
+
+function resetDiagnostiek() {
+    diagnostiekMeldingen = [];
+    diagnostiekOpenKeuze = new Map();
+}
 
 function voegDiagnostiekToe(data) {
     diagnostiekMeldingen = voegMeldingenSamen(diagnostiekMeldingen, data && data.diagnostiek);

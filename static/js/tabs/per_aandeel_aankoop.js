@@ -3,6 +3,10 @@
 // Per ticker: welke "meer historie"-knoppen niets meer opleveren.
 let meerHistorieUitgeput = {};
 
+function resetPerAandeelAankoop() {
+    meerHistorieUitgeput = {};
+}
+
 // Ook gebruikt voor de dummy-legenda-datasets.
 const AANKOOP_KLEUR = "#2c7a4b";
 const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als de foutmeldingen en verwijderPortfolioBtn

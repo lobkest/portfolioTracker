@@ -64,10 +64,10 @@ function toonEtfDrilldown(ticker) {
 
     const brontekst = document.getElementById("etfDrilldownBron");
     if (info.land_bron === "provider_csv") {
-        brontekst.className = "positief";
+        brontekst.className = "drilldownBron positief";
         brontekst.textContent = "Land: op basis van de volledige holdings-lijst van de fondsprovider.";
     } else {
-        brontekst.className = "grijsTekst";
+        brontekst.className = "drilldownBron grijsTekst";
         brontekst.textContent = "Land: op basis van top-10-holdings (beperkte dekking) — grotendeels \"Unknown\".";
     }
 

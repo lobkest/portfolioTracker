@@ -18,15 +18,12 @@ window.addEventListener("orientationchange", () => {
 // Gelijk aan de transitieduur van .content in style.css.
 const TAB_FADE_MS = 90;
 
-function wisselView(view) {
-    const content = document.querySelector(".content");
-    if (content.classList.contains("tabWisselt")) { // Bij snel doorklikken de wachttijd overslaan.
-        pasViewToe(view);
-        return;
-    }
-    content.classList.add("tabWisselt");
-    setTimeout(() => pasViewToe(view), TAB_FADE_MS);
-}
+// pasViewToe() haalt de class tabWisselt weer weg.
+const wisselView = maakTabWisselaar(
+    pasViewToe,
+    () => document.querySelector(".content").classList.add("tabWisselt"),
+    TAB_FADE_MS,
+);
 
 // Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
 const VIEWS_MET_CODE = ["instellingen", "instellingen-bijnamen", "dividend", "transacties"];
@@ -101,21 +98,13 @@ function pasViewToe(view) {
     content.classList.remove("tabWisselt");
 }
 
+// Wist per tab-bestand de toestand van de vorige portfolio (zie CLAUDE.md: Frontend).
+const RESET_PER_TAB = [resetDiagnostiek, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties];
+
 function toonDashboard(data) {
     huidigeData = data;
-    // Nieuwe upload of andere code: meldingen van de vorige laadbeurt wissen.
-    diagnostiekMeldingen = [];
-    diagnostiekOpenKeuze = new Map();
+    RESET_PER_TAB.forEach(reset => reset());
     voegDiagnostiekToe(data);
-    // State van de vorige portfolio wissen (zie CLAUDE.md: Frontend).
-    prognoseResultaat = null;
-    benchmarkVergelijkingData = null;
-    eigenAandeelVergelijkingData = null;
-    meerHistorieUitgeput = {};
-    transactiesRuweLijst = null;
-    Object.assign(transactiesStaat, { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1 });
-    document.getElementById("benchmarkSelect").value = "";
-    document.getElementById("eigenAandeelSelect").innerHTML = '<option value="">Geen</option>';
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
 

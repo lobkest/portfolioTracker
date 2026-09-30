@@ -1,4 +1,4 @@
-// Controleert de script-tags in de templates tegen de bestanden in static/js.
+// Controleert de script- en stylesheet-tags in de templates tegen de bestanden in static/, en de reset-lijst in app.js.
 //   node --test tests/test_scripts.js
 "use strict";
 
@@ -72,5 +72,52 @@ test("portfolio.html laadt app.js als laatste, na gedeeld/ en tabs/", () => {
 test("de startpagina laadt geen dashboard-scripts", () => {
     for (const script of PAGINAS["start.html"]) {
         assert.ok(!script.startsWith("tabs/") && !script.startsWith("gedeeld/") && script !== "app.js", script);
+    }
+});
+
+// Tabbladen met toestand die bewust over portfolio's heen blijft staan (een weergavekeuze, geen data).
+const BEWUST_ZONDER_RESET = {
+    "land_sector.js": "taart/staaf-keuze",
+    "bedrijven.js": "gekozen top-N; de grafiek wordt bij elk tekenen opnieuw gemaakt",
+};
+
+function leesTabs() {
+    return bestandenIn("tabs").map(pad => ({ naam: path.basename(pad), code: fs.readFileSync(path.join(JS_MAP, pad), "utf8") }));
+}
+
+function resetLijst() {
+    const appJs = fs.readFileSync(path.join(JS_MAP, "app.js"), "utf8");
+    const blok = appJs.match(/const RESET_PER_TAB = \[([^\]]*)\]/);
+    assert.ok(blok, "RESET_PER_TAB niet gevonden in app.js");
+    return blok[1].split(",").map(naam => naam.trim()).filter(Boolean);
+}
+
+test("RESET_PER_TAB: elke genoemde functie bestaat in precies één tab-bestand, zonder parameters", () => {
+    const tabs = leesTabs();
+    for (const naam of resetLijst()) {
+        const bestanden = tabs.filter(t => t.code.includes(`\nfunction ${naam}() {`));
+        assert.equal(bestanden.length, 1, naam);
+    }
+});
+
+test("RESET_PER_TAB: elk tab-bestand met eigen toestand heeft een reset in de lijst (of staat bewust apart)", () => {
+    const lijst = resetLijst();
+    for (const { naam, code } of leesTabs()) {
+        const resets = [...code.matchAll(/^function (reset\w+)\(\) \{/gm)].map(m => m[1]);
+        for (const reset of resets) assert.ok(lijst.includes(reset), `${reset} (${naam}) ontbreekt in RESET_PER_TAB`);
+        const heeftToestand = /^let \w+/m.test(code);
+        if (!heeftToestand || Object.hasOwn(BEWUST_ZONDER_RESET, naam)) continue;
+        assert.ok(resets.length > 0, `${naam} heeft toestand maar geen reset-functie`);
+    }
+});
+
+test("elk gelinkt CSS-bestand bestaat; basis.html (dus elke pagina) linkt er minstens één", () => {
+    for (const template of ["basis.html", "start.html", "portfolio.html"]) {
+        const html = fs.readFileSync(path.join(BASIS, "templates", template), "utf8");
+        const links = [...html.matchAll(/<link rel="stylesheet" href="\{\{ url_for\('static', filename='([^']+)'\) \}\}">/g)].map(m => m[1]);
+        for (const bestand of links) assert.ok(fs.existsSync(path.join(BASIS, "static", bestand)), `${bestand} (in ${template}) bestaat niet`);
+        const alleLinks = [...html.matchAll(/<link rel="stylesheet"/g)].length;
+        assert.equal(links.length, alleLinks, `${template}: stylesheet zonder url_for`);
+        if (template === "basis.html") assert.ok(links.length > 0, "basis.html linkt geen CSS");
     }
 });

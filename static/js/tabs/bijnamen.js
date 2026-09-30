@@ -19,12 +19,12 @@ async function slaBijnaamOp(ticker, bijnaam) {
         toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
         laadVerrijking(huidigeData.code);
         const msg = document.getElementById("instellingenMsg");
-        msg.className = "positief";
+        msg.className = "melding positief";
         msg.textContent = "Bijnaam opgeslagen.";
         msg.style.display = "block";
     } catch (e) {
         const msg = document.getElementById("instellingenMsg");
-        msg.className = "foutTekst";
+        msg.className = "melding foutTekst";
         msg.textContent = "Bijnaam opslaan mislukt. Probeer het opnieuw.";
         msg.style.display = "block";
     } finally {
@@ -52,7 +52,7 @@ async function resetBijnaam(ticker) {
         laadVerrijking(huidigeData.code);
     } catch (e) {
         const msg = document.getElementById("instellingenMsg");
-        msg.className = "foutTekst";
+        msg.className = "melding foutTekst";
         msg.textContent = "Bijnaam resetten mislukt. Probeer het opnieuw.";
         msg.style.display = "block";
     } finally {

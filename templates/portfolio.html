@@ -13,7 +13,7 @@
 
 {% block inhoud %}
     <div class="container" id="laadFout" hidden>
-        <p style="color: #9C0006;">Het ophalen van deze portfolio duurde te lang of is mislukt.</p>
+        <p class="foutTekst">Het ophalen van deze portfolio duurde te lang of is mislukt.</p>
         <button id="laadOpnieuwBtn" type="button">Opnieuw proberen</button>
         <p><a href="/">Terug naar de startpagina</a></p>
     </div>
@@ -45,19 +45,19 @@
         </div>
 
         <div class="content">
-            <div id="tickerWaarschuwingBanner" style="display: none; background: #fff3cd; color: #664d03; border: 1px solid #ffe69c; border-radius: 4px; padding: 10px 14px; margin-bottom: 15px;">
+            <div id="tickerWaarschuwingBanner" class="waarschuwingBanner" style="display: none;">
                 <span id="tickerWaarschuwingTekst"></span>
-                <button id="tickerWaarschuwingKnop" type="button" style="margin-left: 10px;">Naar Ticker-zekerheid</button>
+                <button id="tickerWaarschuwingKnop" type="button" class="margeLinks10">Naar Ticker-zekerheid</button>
             </div>
 
             <!-- Gedeeld door meerdere tabbladen, daarom boven de tabblad-blokken. -->
-            <p id="instellingenMsg" class="positief" data-verberg-buiten="instellingen-bijnamen" style="display: none; font-size: 0.9em;"></p>
-            <select id="aandeelSelect" data-views="peraandeel peraandeelaankoop" style="display: none; margin-bottom: 15px;"></select>
-            <button id="weergaveToggleBtn" data-views="land sector" style="display: none; margin-top: 0; margin-bottom: 10px;">Wissel weergave (taart/staaf)</button>
+            <p id="instellingenMsg" class="melding positief" data-verberg-buiten="instellingen-bijnamen" style="display: none;"></p>
+            <select id="aandeelSelect" class="margeOnder15" data-views="peraandeel peraandeelaankoop" style="display: none;"></select>
+            <button id="weergaveToggleBtn" class="margeBoven0 margeOnder10" data-views="land sector" style="display: none;">Wissel weergave (taart/staaf)</button>
 
             <!-- De ene gedeelde grafiek: plaatsGrafiek() verhuist dit blok naar het data-grafiek-plek van het tabblad. -->
             <div id="chartWrapper" style="display: none;">
-                <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
+                <button id="resetZoomBtn" class="margeOnder10">Zoom resetten</button>
                 <div class="chart-wrapper">
                     <canvas id="rendementChart"></canvas>
                 </div>
@@ -67,12 +67,12 @@
                 <p id="codeText" data-vereist-code="ja">Code: <strong id="dashCode"></strong> — bewaar deze om later terug te komen.</p>
                 <p id="nietOpgeslagenText" data-vereist-code="nee">Niet opgeslagen — deze analyse is eenmalig, er is geen code en niets is bewaard.</p>
                 <div id="homeTotalenSectie"></div>
-                <p id="laatstBijgewerktText" class="kleineMelding" data-verberg-buiten="portfolio" style="display: none; margin-bottom: 15px;"></p>
+                <p id="laatstBijgewerktText" class="kleineMelding margeOnder15" data-verberg-buiten="portfolio" style="display: none;"></p>
                 <div data-grafiek-plek data-zoombaar></div>
             </div>
 
             <div id="tab-rendement" data-views="rendement" style="display: none;">
-                <label id="benchmarkSelectWrapper" data-vereist-code="ja" style="margin-bottom: 15px;">
+                <label id="benchmarkSelectWrapper" class="margeOnder15" data-vereist-code="ja">
                     Vergelijk met benchmark:
                     <select id="benchmarkSelect">
                         <option value="">Geen</option>
@@ -82,7 +82,7 @@
                     </select>
                 </label>
                 <p id="benchmarkMelding" class="kleineMelding" data-verberg-buiten="rendement" style="display: none;"></p>
-                <label id="eigenAandeelSelectWrapper" data-vereist-code="ja" style="margin-bottom: 15px;">
+                <label id="eigenAandeelSelectWrapper" class="margeOnder15" data-vereist-code="ja">
                     Vergelijk met eigen aandeel al in portefeuille:
                     <select id="eigenAandeelSelect">
                         <option value="">Geen</option>
@@ -94,16 +94,16 @@
 
             <div id="tab-peraandeel" data-views="peraandeel" style="display: none;">
                 <div data-grafiek-plek data-zoombaar></div>
-                <div id="etfDrilldown" data-verberg-buiten="peraandeel" style="display: none; margin-top: 20px;">
+                <div id="etfDrilldown" class="margeBoven20" data-verberg-buiten="peraandeel" style="display: none;">
                     <div class="sectieTitel">Land- en sectorverdeling van deze ETF</div>
-                    <div id="etfDrilldownBron" style="font-size: 0.8em; margin-bottom: 10px;"></div>
-                    <div id="etfDrilldownLijsten" style="display: flex; gap: 40px;"></div>
+                    <div id="etfDrilldownBron" class="drilldownBron"></div>
+                    <div id="etfDrilldownLijsten" class="drilldownLijsten"></div>
                 </div>
             </div>
 
             <div id="tab-peraandeelaankoop" data-views="peraandeelaankoop" style="display: none;">
-                <p id="peraandeelAankoopTitel" data-verberg-buiten="peraandeelaankoop" style="display: none; font-weight: bold; margin-bottom: 10px;"></p>
-                <div id="meerHistorieKnoppen" data-verberg-buiten="peraandeelaankoop" style="display: none; margin-bottom: 10px; gap: 8px; flex-wrap: wrap; align-items: center;">
+                <p id="peraandeelAankoopTitel" class="vet margeOnder10" data-verberg-buiten="peraandeelaankoop" style="display: none;"></p>
+                <div id="meerHistorieKnoppen" class="knoppenRij" data-verberg-buiten="peraandeelaankoop" style="display: none;">
                     <button id="meerHistorie6mBtn" type="button" data-periode="6m">+6 maanden</button>
                     <button id="meerHistorie1jBtn" type="button" data-periode="1j">+1 jaar</button>
                     <button id="meerHistorie3jBtn" type="button" data-periode="3j">+3 jaar</button>
@@ -121,7 +121,7 @@
             <div id="tab-land" data-views="land" style="display: none;">
                 <p id="landDekkingTekst" class="kleineMelding" data-verberg-buiten="land" style="display: none;"></p>
                 <div data-grafiek-plek></div>
-                <label id="europaCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel" style="display: none; margin-top: 10px;">
+                <label id="europaCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel margeBoven10" style="display: none;">
                     <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
                 </label>
             </div>
@@ -131,7 +131,7 @@
             </div>
 
             <div id="tab-bedrijven" data-views="bedrijven" style="display: none;">
-                <div id="bedrijvenSectie" style="display: none; margin-bottom: 10px;">
+                <div id="bedrijvenSectie" class="margeOnder10" style="display: none;">
                     <p id="bedrijvenDekkingTekst" class="kleineMelding"></p>
                     <div id="bedrijvenTopNKeuze"></div>
                 </div>
@@ -142,17 +142,17 @@
 
             <div id="tab-etfoverlap" data-views="etfoverlap" style="display: none;">
                 <div id="etfOverlapSectie" style="display: none;">
-                    <details class="uitlegBox" style="margin-bottom: 12px;">
-                        <summary style="cursor: pointer; font-weight: bold; color: #333;">Wat betekent dit?</summary>
-                        <p style="margin: 8px 0 6px 0;">Het <strong>overlap-percentage</strong> tussen twee ETF's is het deel van je portefeuille dat "dubbel" belegd is: dezelfde onderliggende bedrijven die in beide fondsen voorkomen.</p>
-                        <p style="margin: 0 0 6px 0;">Berekening: voor elk bedrijf dat in beide ETF's zit, telt het laagste van de twee gewichten mee (bv. Apple 7% in ETF A en 4% in ETF B telt voor 4%). Deze minima worden opgeteld tot het overlap-percentage. Bedrijven die maar in één van de twee ETF's zitten, tellen niet mee.</p>
-                        <p style="margin: 0;">Een hoog percentage betekent dat de twee ETF's veel dezelfde bedrijven bevatten en dus minder spreiding opleveren dan je van twee losse fondsen zou verwachten. Bij minder dan 2 aangehouden ETF's wordt er geen matrix getoond.</p>
+                    <details class="uitlegBox margeOnder12">
+                        <summary>Wat betekent dit?</summary>
+                        <p>Het <strong>overlap-percentage</strong> tussen twee ETF's is het deel van je portefeuille dat "dubbel" belegd is: dezelfde onderliggende bedrijven die in beide fondsen voorkomen.</p>
+                        <p>Berekening: voor elk bedrijf dat in beide ETF's zit, telt het laagste van de twee gewichten mee (bv. Apple 7% in ETF A en 4% in ETF B telt voor 4%). Deze minima worden opgeteld tot het overlap-percentage. Bedrijven die maar in één van de twee ETF's zitten, tellen niet mee.</p>
+                        <p>Een hoog percentage betekent dat de twee ETF's veel dezelfde bedrijven bevatten en dus minder spreiding opleveren dan je van twee losse fondsen zou verwachten. Bij minder dan 2 aangehouden ETF's wordt er geen matrix getoond.</p>
                     </details>
                     <p id="etfOverlapTeWeinig" class="grijsTekst" hidden>Minimaal 2 aangehouden ETF's nodig om overlap te berekenen.</p>
                     <div id="etfOverlapMatrixBlok" hidden>
                         <div id="etfOverlapMatrix" class="tabelWrapper"></div>
-                        <p class="kleineMelding" style="margin-top: 8px;">Klik op een vakje om de vergelijking te zien.</p>
-                        <div id="etfOverlapDetailContainer" style="margin-top: 16px;"></div>
+                        <p class="kleineMelding margeBoven8">Klik op een vakje om de vergelijking te zien.</p>
+                        <div id="etfOverlapDetailContainer" class="margeBoven16"></div>
                     </div>
                 </div>
             </div>
@@ -161,18 +161,18 @@
                 <p id="statistiekenGeen" class="grijsTekst" hidden>Geen statistieken beschikbaar voor deze portfolio.</p>
                 <div id="statistiekenInhoud" hidden>
                     <div id="statistiekenTotalen"></div>
-                    <h3 style="margin-bottom: 6px;">Posities</h3>
+                    <h3 class="margeOnder6">Posities</h3>
                     <div id="statistiekenPosities"></div>
                     <h3 class="sectieKop">Verkochte posities</h3>
                     <div id="statistiekenGesloten"></div>
                     <h3 class="sectieKop">Rendement per jaar</h3>
                     <div id="statistiekenJaren"></div>
-                    <h3 style="margin: 24px 0 0 0;">Samengesteld rendement</h3>
+                    <h3 class="margeBoven24 margeOnder0">Samengesteld rendement</h3>
                     <div id="statistiekenGeavanceerd"></div>
-                    <div class="uitlegBox" style="margin-top: 8px;">
-                        <p style="margin: 0 0 6px 0;"><strong>XIRR</strong> is de eerlijkste rendementsmaatstaf hierboven — die houdt (anders dan de andere percentages) rekening met WANNEER je geld hebt ingelegd, in plaats van alleen met hoeveel.</p>
-                        <p style="margin: 0 0 6px 0;"><strong>Jaarrendement</strong> (per jaar, en het gemiddelde daarvan) wordt gedeeld door het bedrag dat dát jaar ingezet was (startwaarde + dat jaar ingelegd) — niet door het totaal over alle jaren. Dit is, net als het totaalrendement, een simpele ratio zonder tijdweging.</p>
-                        <p style="margin: 0;"><strong>TWR</strong> (time-weighted return) sluit — anders dan XIRR — het effect van WANNEER je stort juist helemaal uit, door elke periode los te rendementeren en die aan elkaar te koppelen. Handig om je eigen beleggingskeuzes te beoordelen los van je stortingsgedrag; reageert daardoor niet extreem vlak na een storting zoals XIRR dat wel doet.</p>
+                    <div class="uitlegBox margeBoven8">
+                        <p><strong>XIRR</strong> is de eerlijkste rendementsmaatstaf hierboven — die houdt (anders dan de andere percentages) rekening met WANNEER je geld hebt ingelegd, in plaats van alleen met hoeveel.</p>
+                        <p><strong>Jaarrendement</strong> (per jaar, en het gemiddelde daarvan) wordt gedeeld door het bedrag dat dát jaar ingezet was (startwaarde + dat jaar ingelegd) — niet door het totaal over alle jaren. Dit is, net als het totaalrendement, een simpele ratio zonder tijdweging.</p>
+                        <p><strong>TWR</strong> (time-weighted return) sluit — anders dan XIRR — het effect van WANNEER je stort juist helemaal uit, door elke periode los te rendementeren en die aan elkaar te koppelen. Handig om je eigen beleggingskeuzes te beoordelen los van je stortingsgedrag; reageert daardoor niet extreem vlak na een storting zoals XIRR dat wel doet.</p>
                     </div>
                 </div>
             </div>
@@ -183,7 +183,7 @@
                 <p id="transactiesFout" class="foutTekst" hidden>Kon transacties niet ophalen.</p>
                 <p id="transactiesLeeg" class="grijsTekst" hidden>Geen transacties beschikbaar.</p>
                 <div id="transactiesInhoud" hidden>
-                    <label style="display: inline-block; margin-top: 0; margin-bottom: 10px; font-weight: normal;">
+                    <label class="inlineLabel">
                         Rijen per pagina:
                         <select id="transactiesPaginaGrootte">
                             <option value="25">25</option>
@@ -202,8 +202,8 @@
 
             <div id="tab-prognose" data-views="prognose" style="display: none;">
                 <div data-grafiek-plek data-zoombaar></div>
-                <p style="color: #666; font-size: 0.9em; margin-top: 0;">Projectie op basis van je huidige portfoliowaarde en -geschiedenis, aangevuld met instelbare aannames voor de toekomst. Rendement wordt maandelijks samengesteld; inleg wordt telkens ná de groei van die periode toegevoegd.</p>
-                <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 10px;">
+                <p class="prognoseUitleg">Projectie op basis van je huidige portfoliowaarde en -geschiedenis, aangevuld met instelbare aannames voor de toekomst. Rendement wordt maandelijks samengesteld; inleg wordt telkens ná de groei van die periode toegevoegd.</p>
+                <div class="prognoseVelden">
                     <div class="prognoseVeld">
                         <label for="prognoseJaren">Aantal jaren vooruit</label>
                         <input type="number" id="prognoseJaren" min="0" max="100" step="1">
@@ -229,10 +229,10 @@
                         <input type="number" id="prognoseMaandelijks" min="0" step="10">
                     </div>
                 </div>
-                <button id="prognoseBerekenBtn" type="button" style="margin-top: 14px;">Bereken</button>
-                <p id="prognoseFoutmelding" class="foutTekst" style="display: none; font-size: 0.9em; margin-top: 10px;"></p>
-                <p id="prognoseWaarschuwing" style="display: none; color: #a66a00; font-size: 0.9em; margin-top: 10px;"></p>
-                <p style="color: #888; font-size: 0.8em; margin-top: 10px;">Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).</p>
+                <button id="prognoseBerekenBtn" type="button" class="margeBoven14">Bereken</button>
+                <p id="prognoseFoutmelding" class="foutTekst prognoseMelding" style="display: none;"></p>
+                <p id="prognoseWaarschuwing" class="waarschuwingTekst prognoseMelding" style="display: none;"></p>
+                <p class="prognoseVoetnoot">Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).</p>
             </div>
 
             <div id="tab-dividend" data-views="dividend" style="display: none;">
@@ -242,12 +242,12 @@
                     <p>Dividendgegevens niet beschikbaar — upload eerst je Account-overzicht (Excel) om dit te kunnen zien.</p>
                     <button id="dividendNaarUploadBtn" type="button">Terug naar upload</button>
                 </div>
-                <div id="dividendStatsSectie" style="margin-bottom: 20px;" hidden>
-                    <div id="dividendTotaal" style="font-size: 1.8em; font-weight: bold; color: #2c7a4b;"></div>
+                <div id="dividendStatsSectie" class="margeOnder20" hidden>
+                    <div id="dividendTotaal" class="dividendTotaal"></div>
                     <div id="dividendPerTicker"></div>
                 </div>
                 <div data-grafiek-plek data-zoombaar></div>
-                <div id="dividendUitkeringenSectie" style="margin-top: 20px;" hidden>
+                <div id="dividendUitkeringenSectie" class="margeBoven20" hidden>
                     <h3>Alle uitkeringen</h3>
                     <div id="dividendUitkeringenTabel" class="scrollbareTabel"></div>
                 </div>
@@ -255,10 +255,10 @@
 
             <div id="tab-instellingen" data-views="instellingen" style="display: none;">
                 <p>Wil je stoppen met deze portfolio? Je kunt alle opgeslagen data (transacties en code) permanent uit de database verwijderen.</p>
-                <button id="verwijderPortfolioBtn" style="background-color: #9C0006;">Verwijder mijn data uit de database</button>
+                <button id="verwijderPortfolioBtn" class="gevaarKnop">Verwijder mijn data uit de database</button>
 
-                <p style="margin-top: 24px;">Wil je een andere, zelfgekozen code voor deze portfolio? De huidige code en alle gekoppelde data blijven behouden, alleen de code zelf wijzigt.</p>
-                <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{{ code_lengte }}" style="text-transform: uppercase;">
+                <p class="margeBoven24">Wil je een andere, zelfgekozen code voor deze portfolio? De huidige code en alle gekoppelde data blijven behouden, alleen de code zelf wijzigt.</p>
+                <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{{ code_lengte }}" class="hoofdletters">
                 <button id="wijzigCodeBtn">Code wijzigen</button>
             </div>
 
@@ -284,9 +284,9 @@
 
             <!-- Gedeelde meldingen van de verrijking-tabbladen, daarom onder de tabblad-blokken. -->
             <p id="geenData" data-verberg-buiten="verdeling land sector bedrijven" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
-            <p id="verrijkingLaadt" data-verberg-buiten="verdeling land sector bedrijven etfoverlap" style="display: none; color: #999; font-size: 0.9em;">Bezig met laden...</p>
+            <p id="verrijkingLaadt" class="melding gedempt" data-verberg-buiten="verdeling land sector bedrijven etfoverlap" style="display: none;">Bezig met laden...</p>
             <div id="verrijkingFout" data-verberg-buiten="verdeling land sector bedrijven etfoverlap" style="display: none;">
-                <p class="foutTekst" style="font-size: 0.9em;">⚠️ Ophalen duurde te lang of is mislukt.</p>
+                <p class="foutTekst melding">⚠️ Ophalen duurde te lang of is mislukt.</p>
                 <button id="verrijkingOpnieuwBtn">Opnieuw proberen</button>
             </div>
         </div>

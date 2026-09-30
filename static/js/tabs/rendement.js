@@ -4,6 +4,13 @@ let benchmarkVergelijkingData = null;
 // Los van de benchmark: beide vergelijkingslijnen kunnen tegelijk zichtbaar zijn.
 let eigenAandeelVergelijkingData = null;
 
+function resetRendement() {
+    benchmarkVergelijkingData = null;
+    eigenAandeelVergelijkingData = null;
+    document.getElementById("benchmarkSelect").value = "";
+    document.getElementById("eigenAandeelSelect").innerHTML = '<option value="">Geen</option>';
+}
+
 function toonRendement() {
     const d = huidigeData.chart_data;
     const datasets = [{ label: "Rendement (€)", data: d.rendement, borderColor: "#2c7a4b" }];

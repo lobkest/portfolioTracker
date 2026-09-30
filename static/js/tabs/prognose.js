@@ -4,6 +4,11 @@
 let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 };
 let prognoseResultaat = null;
 
+// De invoer blijft bewust staan; alleen het resultaat hoort bij de vorige portfolio.
+function resetPrognose() {
+    prognoseResultaat = null;
+}
+
 const PROGNOSE_VELD_IDS = {
     jaren: "prognoseJaren",
     rendement: "prognoseRendement",

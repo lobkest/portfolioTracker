@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const {
     STANDAARD_VIEW, MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
     VEREIST_CODE_JA, VEREIST_CODE_NEE,
-    portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, startMeldingTekst,
+    portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, maakTabWisselaar, startMeldingTekst,
 } = require("../static/js/navigatie.js");
 
 const VIEWS = ["portfolio", "rendement", "xirr-rendement", "instellingen-ticker"];
@@ -233,6 +233,67 @@ test("portfolio.html: de toestand- en prognose-id's uit de tabblad-scripts besta
         assert.ok(gevonden.length > 0, naam);
         for (const id of gevonden) assert.ok(ids.has(id), `${id} uit ${naam} ontbreekt in portfolio.html`);
     }
+});
+
+// Nepklok: timers gaan pas af bij loopAf(), zodat de volgorde van wissels vastligt.
+function maakNepklok() {
+    const timers = new Map();
+    let volgnummer = 0;
+    return {
+        setTimeout: (fn, ms) => { timers.set(++volgnummer, { fn, ms }); return volgnummer; },
+        clearTimeout: id => { timers.delete(id); },
+        loopAf: () => { const lopend = [...timers.values()]; timers.clear(); lopend.forEach(t => t.fn()); },
+        aantal: () => timers.size,
+        wachttijden: () => [...timers.values()].map(t => t.ms),
+    };
+}
+
+function maakWisselProef() {
+    const klok = maakNepklok();
+    const toegepast = [];
+    let fades = 0;
+    const wissel = maakTabWisselaar(view => toegepast.push(view), () => { fades += 1; }, 90, klok);
+    return { klok, toegepast, wissel, fades: () => fades };
+}
+
+test("maakTabWisselaar: eerst uitfaden, pas na de wachttijd toepassen", () => {
+    const { klok, toegepast, wissel, fades } = maakWisselProef();
+    wissel("rendement");
+    assert.equal(fades(), 1);
+    assert.deepEqual(toegepast, []);
+    assert.deepEqual(klok.wachttijden(), [90]);
+    klok.loopAf();
+    assert.deepEqual(toegepast, ["rendement"]);
+});
+
+test("maakTabWisselaar: een tweede wissel tijdens het wachten wint, de oude timer vuurt niet meer", () => {
+    const { klok, toegepast, wissel, fades } = maakWisselProef();
+    wissel("rendement");
+    wissel("dividend");
+    assert.deepEqual(toegepast, ["dividend"]);
+    assert.equal(klok.aantal(), 0);
+    klok.loopAf();
+    assert.deepEqual(toegepast, ["dividend"]);
+    assert.equal(fades(), 1);
+});
+
+test("maakTabWisselaar: snel doorklikken eindigt altijd op het laatst gekozen tabblad", () => {
+    const { klok, toegepast, wissel } = maakWisselProef();
+    for (const view of ["rendement", "land", "sector", "dividend", "prognose", "portfolio"]) wissel(view);
+    klok.loopAf();
+    assert.equal(toegepast.at(-1), "portfolio");
+    assert.equal(klok.aantal(), 0);
+});
+
+test("maakTabWisselaar: na een afgeronde wissel fadet de volgende weer eerst", () => {
+    const { klok, toegepast, wissel, fades } = maakWisselProef();
+    wissel("rendement");
+    klok.loopAf();
+    wissel("land");
+    assert.equal(fades(), 2);
+    assert.deepEqual(toegepast, ["rendement"]);
+    klok.loopAf();
+    assert.deepEqual(toegepast, ["rendement", "land"]);
 });
 
 test("startMeldingTekst: elke bekende sleutel heeft een tekst", () => {

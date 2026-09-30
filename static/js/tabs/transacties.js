@@ -5,6 +5,12 @@ let transactiesRuweLijst = null;
 // Bewaard tussen tabwissels; maakSorteerbareTabel() werkt dit object bij.
 const transactiesStaat = { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1, paginaGrootte: 25 };
 
+// Rijen per pagina blijft staan: dat is een voorkeur, geen toestand van de portfolio.
+function resetTransacties() {
+    transactiesRuweLijst = null;
+    Object.assign(transactiesStaat, { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1 });
+}
+
 const TRANSACTIES_TOESTANDEN = ["transactiesLaden", "transactiesFout", "transactiesLeeg", "transactiesInhoud"];
 
 // De sleutels zijn de kolomnamen van sorteerTransacties() (transacties.js).

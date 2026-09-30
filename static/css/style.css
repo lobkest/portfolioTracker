@@ -1,6 +1,51 @@
+/* Inhoud, in de volgorde van portfolio.html:
+   1. Basis: reset, elementen, [hidden]
+   2. Layout en menu
+   3. Gedeelde componenten: tekst, formulieren, grafiek, tabellen, badges, tegels
+   4. Per tabblad (menuvolgorde)
+   5. Hulpklassen die moeten winnen: kleuren en marges (daarom na 3 en 4)
+   6. Mobiel
+*/
+
+/* --- 1. Basis: reset, elementen, [hidden] --- */
+
 * {
     box-sizing: border-box;
 }
+
+/* Een eigen display-regel (label, flex) wint anders van het hidden-attribuut. */
+[hidden] {
+    display: none !important;
+}
+
+label {
+    display: block;
+    margin-top: 15px;
+    font-weight: bold;
+}
+
+input {
+    width: 100%;
+    padding: 8px;
+    margin-top: 5px;
+    box-sizing: border-box;
+}
+
+button {
+    margin-top: 20px;
+    padding: 10px 20px;
+    background-color: #2c7a4b;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+button:hover {
+    background-color: #235f3b;
+}
+
+/* --- 2. Layout en menu --- */
 
 body {
     font-family: Arial, sans-serif;
@@ -63,10 +108,91 @@ body {
     display: none;
 }
 
-/* Een eigen display-regel (label, flex) wint anders van het hidden-attribuut. */
-[hidden] {
-    display: none !important;
+.menuBtn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: none;
+    border: none;
+    padding: 10px 8px;
+    margin: 2px 0;
+    cursor: pointer;
+    border-radius: 4px;
+    color: #333;
 }
+
+.menuBtn:hover {
+    background-color: #eee;
+}
+
+/* De terug-link oogt als de knoppen eromheen (een <button> erft de paginafont niet). */
+a.menuBtn {
+    text-decoration: none;
+    font-size: 13.3333px;
+}
+
+.menuBtn.actief {
+    background-color: #2c7a4b;
+    color: white;
+}
+
+.subMenuBtn {
+    padding-left: 22px;
+    font-size: 0.9em;
+    color: #666;
+}
+
+.waarschuwingBanner {
+    background: #fff3cd;
+    color: #664d03;
+    border: 1px solid #ffe69c;
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin-bottom: 15px;
+}
+
+.laadOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.4);
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+}
+
+/* display: flex hierboven wint anders van het hidden-attribuut. */
+.laadOverlay[hidden] {
+    display: none;
+}
+
+.laadSpinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid rgba(255, 255, 255, 0.35);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: laadSpinnerDraaien 0.8s linear infinite;
+}
+
+.laadOverlayTekst {
+    color: #fff;
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+@keyframes laadSpinnerDraaien {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* --- 3. Gedeelde componenten: tekst, formulieren, grafiek, tabellen, badges, tegels --- */
 
 .kleineMelding {
     font-size: 0.85em;
@@ -81,12 +207,17 @@ body {
     color: #9C0006;
 }
 
-.uitlegBox {
+.melding {
+    font-size: 0.9em;
+}
+
+.waarschuwingTekst {
+    color: #a66a00;
+}
+
+.kleinLabel {
     font-size: 0.85em;
     color: #666;
-    background: #f4f4f4;
-    border-radius: 4px;
-    padding: 10px 14px;
 }
 
 .sectieTitel {
@@ -98,20 +229,202 @@ body {
     margin: 24px 0 6px 0;
 }
 
-.compacteTabel {
-    font-size: 0.9em;
-    border-collapse: collapse;
+.uitlegBox {
+    font-size: 0.85em;
+    color: #666;
+    background: #f4f4f4;
+    border-radius: 4px;
+    padding: 10px 14px;
+}
+
+.uitlegBox summary {
+    cursor: pointer;
+    font-weight: bold;
+    color: #333;
+}
+
+.uitlegBox p {
+    margin: 0 0 6px 0;
+}
+
+.uitlegBox summary + p {
     margin-top: 8px;
 }
 
-.compacteTabel th,
-.compacteTabel td {
-    text-align: left;
-    padding: 3px 20px 3px 0;
+.uitlegBox p:last-child {
+    margin: 0;
 }
 
-.compacteTabel th {
-    border-bottom: 1px solid #ddd;
+.checkboxLabel {
+    font-weight: normal;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.checkboxLabel input[type="checkbox"] {
+    width: auto;
+    margin-top: 0;
+}
+
+.inlineLabel {
+    display: inline-block;
+    margin-top: 0;
+    margin-bottom: 10px;
+    font-weight: normal;
+}
+
+.hoofdletters {
+    text-transform: uppercase;
+}
+
+/* :hover erbij, anders wint button:hover (groen) van deze klasse. */
+.gevaarKnop,
+.gevaarKnop:hover {
+    background-color: #9C0006;
+}
+
+.knoppenRij {
+    margin-bottom: 10px;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+/* Label + i-icoontje op één rij. De tooltip positioneert t.o.v. deze rij
+   (left/right: 0), dus is nooit breder dan het formulier en valt nooit
+   buiten het scherm, ook niet op ~375px. Zie static/js/infotip.js. */
+.labelRij {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 15px;
+}
+
+.labelRij > label {
+    margin-top: 0;
+    min-width: 0;
+}
+
+.infoTipKnop {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    min-height: 24px; /* overschrijft button { min-height: 44px } in de mobiele media query */
+    margin: 0;
+    padding: 0;
+    border: 1px solid #2c7a4b;
+    border-radius: 50%;
+    background: transparent;
+    color: #2c7a4b;
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-weight: bold;
+    font-size: 14px;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.infoTipKnop:hover,
+.infoTip.open .infoTipKnop {
+    background-color: #2c7a4b;
+    color: white;
+}
+
+.infoTipKnop:focus-visible {
+    outline: 2px solid #2c7a4b;
+    outline-offset: 2px;
+}
+
+.infoTipTekst {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 20;
+    margin-top: 4px;
+    padding: 8px 10px;
+    background: #eaf4ee;
+    color: #333;
+    border: 1px solid #2c7a4b;
+    border-radius: 4px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    font-size: 0.85em;
+    font-weight: normal;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.infoTip.open .infoTipTekst {
+    display: block;
+}
+
+/* Rij "gekozen bestand + x-knop" onder een bestandsveld op de startpagina
+   (zie koppelBestandWisKnop() in start.js). */
+.bestandKeuze {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+/* Zonder deze regel wint display: flex hierboven van het hidden-attribuut. */
+.bestandKeuze[hidden] {
+    display: none;
+}
+
+.bestandKeuzeNaam {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Zelfde vorm als .infoTipKnop (groene rand, rond, transparant). */
+.bestandWisKnop {
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid #2c7a4b;
+    border-radius: 50%;
+    background: transparent;
+    color: #2c7a4b;
+    font-size: 20px;
+    line-height: 1;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.bestandWisKnop:hover {
+    background-color: #2c7a4b;
+    color: white;
+}
+
+.chart-wrapper {
+    height: 400px;
+}
+
+/* Zoom/pan-plugin handelt touch-gestures op de grafiek zelf af; voorkomt
+   dat de browser pinch/scroll doorgeeft aan de pagina. */
+#rendementChart {
+    touch-action: none;
+}
+
+/* Brede tabellen (o.a. Posities, Rendement per jaar) scrollen zelf horizontaal
+   i.p.v. de hele pagina breder te maken op smalle schermen. */
+.tabelWrapper {
+    overflow-x: auto;
+    max-width: 100%;
+}
+
+/* Scrollcontainer voor lange tabellen (bv. alle dividenduitkeringen) zodat
+   de pagina niet eindeloos lang wordt bij tientallen rijen. */
+.scrollbareTabel {
+    max-height: 420px;
+    overflow-y: auto;
 }
 
 /* Tabellen uit maakSorteerbareTabel(). */
@@ -141,10 +454,6 @@ body {
     color: #333;
 }
 
-.overlapBeide {
-    background-color: rgba(44, 122, 75, 0.15);
-}
-
 .paginaNavigatie {
     display: flex;
     flex-wrap: wrap;
@@ -157,9 +466,33 @@ body {
     font-weight: bold;
 }
 
-.kleinLabel {
+.compacteTabel {
+    font-size: 0.9em;
+    border-collapse: collapse;
+    margin-top: 8px;
+}
+
+.compacteTabel th,
+.compacteTabel td {
+    text-align: left;
+    padding: 3px 20px 3px 0;
+}
+
+.compacteTabel th {
+    border-bottom: 1px solid #ddd;
+}
+
+/* Klein label in een tabelcel, zelfde vorm als de "Deels verkocht"/
+   "Gesloten"-badge op Statistieken. Gebruikt voor "herinvesteerd" in de
+   dividend-uitkeringenlijst. */
+.badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 2px 8px;
+    border-radius: 10px;
     font-size: 0.85em;
-    color: #666;
+    font-weight: bold;
+    white-space: nowrap;
 }
 
 .tegelRij {
@@ -183,6 +516,18 @@ body {
     color: #333;
 }
 
+/* --- 4. Per tabblad (menuvolgorde) --- */
+
+.drilldownBron {
+    font-size: 0.8em;
+    margin-bottom: 10px;
+}
+
+.drilldownLijsten {
+    display: flex;
+    gap: 40px;
+}
+
 .verdelingLijst {
     min-width: 180px;
 }
@@ -196,17 +541,50 @@ body {
     font-size: 0.9em;
 }
 
-.bijnaamRij {
-    margin-bottom: 12px;
+/* Keuzeknoppen (Top-bedrijven: 10 / 20 / 50): zelfde groentint en radius als
+   de gewone knoppen; de actieve is gevuld, de rest omlijnd. */
+.topNRij {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 0.9em;
 }
 
-.bijnaamRij input {
-    width: 300px;
-    margin-right: 8px;
+.topNRij input[type="number"] {
+    width: 90px;
+    margin-top: 0;
 }
 
-.bijnaamReset {
-    margin-left: 6px;
+.keuzeKnop {
+    margin-top: 0;
+    padding: 6px 14px;
+    background-color: white;
+    color: #2c7a4b;
+    border: 1px solid #2c7a4b;
+}
+
+.keuzeKnop:hover:not(:disabled) {
+    background-color: #eaf4ee;
+}
+
+.keuzeKnop.actief,
+.keuzeKnop.actief:hover {
+    background-color: #2c7a4b;
+    color: white;
+}
+
+.keuzeKnop:disabled,
+.keuzeKnop:disabled:hover {
+    background-color: white;
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+/* Geen zoom/pan op Top-bedrijven: vegen over de (hoge) grafiek scrolt de pagina. */
+#bedrijvenChart {
+    touch-action: pan-y;
 }
 
 /* ETF-overlap: matrix van ETF x ETF. */
@@ -240,6 +618,83 @@ body {
 
 .overlapMatrix td.klikbaar {
     cursor: pointer;
+}
+
+.overlapBeide {
+    background-color: rgba(44, 122, 75, 0.15);
+}
+
+/* Badge als enige inhoud van een cel (Statistieken > Verkochte posities). */
+.badgeLos {
+    margin-left: 0;
+    white-space: normal;
+}
+
+.badgeDeelsVerkocht {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.badgeGesloten {
+    background: #e2e3e5;
+    color: #383d41;
+}
+
+.prognoseUitleg {
+    color: #666;
+    font-size: 0.9em;
+    margin-top: 0;
+}
+
+.prognoseVelden {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 10px;
+}
+
+.prognoseVeld {
+    width: 170px;
+}
+
+.prognoseVeld label {
+    margin-top: 0;
+    font-size: 0.85em;
+}
+
+.prognoseMelding {
+    font-size: 0.9em;
+    margin-top: 10px;
+}
+
+.prognoseVoetnoot {
+    color: #888;
+    font-size: 0.8em;
+    margin-top: 10px;
+}
+
+.dividendTotaal {
+    font-size: 1.8em;
+    font-weight: bold;
+    color: #2c7a4b;
+}
+
+.badgeHerinvesteerd {
+    background: #d4edda;
+    color: #155724;
+}
+
+.bijnaamRij {
+    margin-bottom: 12px;
+}
+
+.bijnaamRij input {
+    width: 300px;
+    margin-right: 8px;
+}
+
+.bijnaamReset {
+    margin-left: 6px;
 }
 
 /* Instellingen > Ticker-zekerheid: één kaart per positie. */
@@ -325,88 +780,6 @@ body {
     padding-left: 10px;
 }
 
-/* Kleurklassen: onder de klassen hierboven, zodat ze hun kleur overschrijven. */
-.positief {
-    color: #2c7a4b;
-}
-
-.negatief {
-    color: #9C0006;
-}
-
-.mild {
-    color: #B8860B;
-}
-
-.gedempt {
-    color: #999;
-}
-
-.vet {
-    font-weight: bold;
-}
-
-.prognoseVeld {
-    width: 170px;
-}
-
-.prognoseVeld label {
-    margin-top: 0;
-    font-size: 0.85em;
-}
-
-/* Brede tabellen (o.a. Posities, Rendement per jaar) scrollen zelf horizontaal
-   i.p.v. de hele pagina breder te maken op smalle schermen. */
-.tabelWrapper {
-    overflow-x: auto;
-    max-width: 100%;
-}
-
-.chart-wrapper {
-    height: 400px;
-}
-
-/* Scrollcontainer voor lange tabellen (bv. alle dividenduitkeringen) zodat
-   de pagina niet eindeloos lang wordt bij tientallen rijen. */
-.scrollbareTabel {
-    max-height: 420px;
-    overflow-y: auto;
-}
-
-/* Klein label in een tabelcel, zelfde vorm als de "Deels verkocht"/
-   "Gesloten"-badge op Statistieken. Gebruikt voor "herinvesteerd" in de
-   dividend-uitkeringenlijst. */
-.badge {
-    display: inline-block;
-    margin-left: 6px;
-    padding: 2px 8px;
-    border-radius: 10px;
-    font-size: 0.85em;
-    font-weight: bold;
-    white-space: nowrap;
-}
-
-.badgeHerinvesteerd {
-    background: #d4edda;
-    color: #155724;
-}
-
-/* Badge als enige inhoud van een cel (Statistieken > Verkochte posities). */
-.badgeLos {
-    margin-left: 0;
-    white-space: normal;
-}
-
-.badgeDeelsVerkocht {
-    background: #fff3cd;
-    color: #856404;
-}
-
-.badgeGesloten {
-    background: #e2e3e5;
-    color: #383d41;
-}
-
 /* Instellingen > Diagnostiek: niveau-labels (tekst + kleur, niet alleen kleur). */
 .diagnostiekToelichting > p {
     margin: 0;
@@ -470,283 +843,59 @@ body {
     color: #155724;
 }
 
-label {
-    display: block;
-    margin-top: 15px;
+/* --- 5. Hulpklassen die moeten winnen: kleuren en marges (daarom na 3 en 4) --- */
+
+/* Kleurklassen: onder de klassen hierboven, zodat ze hun kleur overschrijven. */
+.positief {
+    color: #2c7a4b;
+}
+
+.negatief {
+    color: #9C0006;
+}
+
+.mild {
+    color: #B8860B;
+}
+
+.gedempt {
+    color: #999;
+}
+
+.vet {
     font-weight: bold;
 }
 
-input {
-    width: 100%;
-    padding: 8px;
-    margin-top: 5px;
-    box-sizing: border-box;
-}
+/* Losse marges: onder alle andere regels, zodat ze winnen van een component-klasse. */
+.margeBoven0 { margin-top: 0; }
 
-button {
-    margin-top: 20px;
-    padding: 10px 20px;
-    background-color: #2c7a4b;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-}
+.margeBoven8 { margin-top: 8px; }
 
-button:hover {
-    background-color: #235f3b;
-}
+.margeBoven10 { margin-top: 10px; }
 
-/* Rij "gekozen bestand + x-knop" onder een bestandsveld op de startpagina
-   (zie koppelBestandWisKnop() in start.js). */
-.bestandKeuze {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 6px;
-}
+.margeBoven14 { margin-top: 14px; }
 
-/* Zonder deze regel wint display: flex hierboven van het hidden-attribuut. */
-.bestandKeuze[hidden] {
-    display: none;
-}
+.margeBoven16 { margin-top: 16px; }
 
-.bestandKeuzeNaam {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
+.margeBoven20 { margin-top: 20px; }
 
-/* Zelfde vorm als .infoTipKnop (groene rand, rond, transparant). */
-.bestandWisKnop {
-    flex-shrink: 0;
-    width: 32px;
-    height: 32px;
-    margin: 0;
-    padding: 0;
-    border: 1px solid #2c7a4b;
-    border-radius: 50%;
-    background: transparent;
-    color: #2c7a4b;
-    font-size: 20px;
-    line-height: 1;
-    -webkit-tap-highlight-color: transparent;
-}
+.margeBoven24 { margin-top: 24px; }
 
-.bestandWisKnop:hover {
-    background-color: #2c7a4b;
-    color: white;
-}
+.margeOnder0 { margin-bottom: 0; }
 
-.checkboxLabel {
-    font-weight: normal;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
+.margeOnder6 { margin-bottom: 6px; }
 
-.checkboxLabel input[type="checkbox"] {
-    width: auto;
-    margin-top: 0;
-}
+.margeOnder10 { margin-bottom: 10px; }
 
-/* Label + i-icoontje op één rij. De tooltip positioneert t.o.v. deze rij
-   (left/right: 0), dus is nooit breder dan het formulier en valt nooit
-   buiten het scherm, ook niet op ~375px. Zie static/js/infotip.js. */
-.labelRij {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 15px;
-}
+.margeOnder12 { margin-bottom: 12px; }
 
-.labelRij > label {
-    margin-top: 0;
-    min-width: 0;
-}
+.margeOnder15 { margin-bottom: 15px; }
 
-.infoTipKnop {
-    flex-shrink: 0;
-    width: 24px;
-    height: 24px;
-    min-height: 24px; /* overschrijft button { min-height: 44px } in de mobiele media query */
-    margin: 0;
-    padding: 0;
-    border: 1px solid #2c7a4b;
-    border-radius: 50%;
-    background: transparent;
-    color: #2c7a4b;
-    font-family: Georgia, serif;
-    font-style: italic;
-    font-weight: bold;
-    font-size: 14px;
-    line-height: 1;
-    -webkit-tap-highlight-color: transparent;
-}
+.margeOnder20 { margin-bottom: 20px; }
 
-.infoTipKnop:hover,
-.infoTip.open .infoTipKnop {
-    background-color: #2c7a4b;
-    color: white;
-}
+.margeLinks10 { margin-left: 10px; }
 
-.infoTipKnop:focus-visible {
-    outline: 2px solid #2c7a4b;
-    outline-offset: 2px;
-}
-
-.infoTipTekst {
-    display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    z-index: 20;
-    margin-top: 4px;
-    padding: 8px 10px;
-    background: #eaf4ee;
-    color: #333;
-    border: 1px solid #2c7a4b;
-    border-radius: 4px;
-    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-    font-size: 0.85em;
-    font-weight: normal;
-    line-height: 1.4;
-    overflow-wrap: anywhere;
-}
-
-.infoTip.open .infoTipTekst {
-    display: block;
-}
-
-/* Keuzeknoppen (Top-bedrijven: 10 / 20 / 50): zelfde groentint en radius als
-   de gewone knoppen; de actieve is gevuld, de rest omlijnd. */
-.topNRij {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-    font-size: 0.9em;
-}
-
-.topNRij input[type="number"] {
-    width: 90px;
-    margin-top: 0;
-}
-
-.keuzeKnop {
-    margin-top: 0;
-    padding: 6px 14px;
-    background-color: white;
-    color: #2c7a4b;
-    border: 1px solid #2c7a4b;
-}
-
-.keuzeKnop:hover:not(:disabled) {
-    background-color: #eaf4ee;
-}
-
-.keuzeKnop.actief,
-.keuzeKnop.actief:hover {
-    background-color: #2c7a4b;
-    color: white;
-}
-
-.keuzeKnop:disabled,
-.keuzeKnop:disabled:hover {
-    background-color: white;
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
-.menuBtn {
-    display: block;
-    width: 100%;
-    text-align: left;
-    background: none;
-    border: none;
-    padding: 10px 8px;
-    margin: 2px 0;
-    cursor: pointer;
-    border-radius: 4px;
-    color: #333;
-}
-
-.menuBtn:hover {
-    background-color: #eee;
-}
-
-/* De terug-link oogt als de knoppen eromheen (een <button> erft de paginafont niet). */
-a.menuBtn {
-    text-decoration: none;
-    font-size: 13.3333px;
-}
-
-.menuBtn.actief {
-    background-color: #2c7a4b;
-    color: white;
-}
-
-.subMenuBtn {
-    padding-left: 22px;
-    font-size: 0.9em;
-    color: #666;
-}
-
-.laadOverlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    background-color: rgba(0, 0, 0, 0.4);
-    z-index: 9999;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-}
-
-/* display: flex hierboven wint anders van het hidden-attribuut. */
-.laadOverlay[hidden] {
-    display: none;
-}
-
-.laadSpinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid rgba(255, 255, 255, 0.35);
-    border-top-color: #fff;
-    border-radius: 50%;
-    animation: laadSpinnerDraaien 0.8s linear infinite;
-}
-
-.laadOverlayTekst {
-    color: #fff;
-    font-size: 1.1em;
-    font-weight: bold;
-}
-
-@keyframes laadSpinnerDraaien {
-    to {
-        transform: rotate(360deg);
-    }
-}
-
-/* Zoom/pan-plugin handelt touch-gestures op de grafiek zelf af; voorkomt
-   dat de browser pinch/scroll doorgeeft aan de pagina. */
-#rendementChart {
-    touch-action: none;
-}
-
-/* Geen zoom/pan op Top-bedrijven: vegen over de (hoge) grafiek scrolt de pagina. */
-#bedrijvenChart {
-    touch-action: pan-y;
-}
+/* --- 6. Mobiel --- */
 
 /* De landscape-tak dekt ook telefoon-breedtes tussen 768 en 900px: in
    landscape is de "breedte" van een telefoon net zo groot als anders de

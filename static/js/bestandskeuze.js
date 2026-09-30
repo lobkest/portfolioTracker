@@ -1,4 +1,4 @@
-// Pure logica voor de "gekozen bestand + x-knop"-rij (DOM-kant: koppelBestandWisKnop() in app.js).
+// Pure logica voor de "gekozen bestand + x-knop"-rij (DOM-kant: koppelBestandWisKnop() in start.js).
 
 (function (root) {
     "use strict";

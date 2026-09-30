@@ -42,7 +42,7 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
         });
         const data = await res.json();
         if (!res.ok) {
-            msg.className = "foutTekst";
+            msg.className = "melding foutTekst";
             msg.textContent = data.error || "Code wijzigen mislukt.";
             msg.style.display = "block";
             return;
@@ -53,7 +53,7 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
         document.getElementById("dashCode").textContent = data.code || "";
         history.replaceState(null, "", portfolioPad(data.code) + location.hash);
         input.value = "";
-        msg.className = "positief";
+        msg.className = "melding positief";
         msg.textContent = `Code gewijzigd naar ${data.code} — bewaar deze om later terug te komen.`;
         msg.style.display = "block";
     } finally {
