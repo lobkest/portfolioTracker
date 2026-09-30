@@ -71,15 +71,20 @@ class TestPaginaRoutes(unittest.TestCase):
         # De top-level listeners crashen op een ontbrekend element (getElementById geeft dan null).
         import re
         basis = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        for pad, scripts in (("/", ("start.js", "gedeeld.js")), ("/p/ABC", ("app.js", "gedeeld.js"))):
+        for pad, paginascript in (("/", "start.js"), ("/p/ABC", "app.js")):
             html = self.client.get(pad).get_data(as_text=True)
             ids_html = set(re.findall(r'id="([^"]+)"', html))
+            scripts = re.findall(r'src="/static/js/([^"]+)"', html)
+            self.assertIn(paginascript, scripts, pad)
+            bronnen = {}
             for script in scripts:
-                with open(os.path.join(basis, "static", "js", script), encoding="utf-8") as f:
-                    js = f.read()
+                with open(os.path.join(basis, "static", "js", *script.split("/")), encoding="utf-8") as f:
+                    bronnen[script] = f.read()
+            # Elementen die de JS zelf aanmaakt staan niet in de template.
+            alle_js = "\n".join(bronnen.values())
+            for script, js in bronnen.items():
                 ids_js = set(re.findall(r'getElementById\("([^"]+)"\)', js))
-                # Elementen die de JS zelf aanmaakt staan niet in de template.
-                zelf_gemaakt = {i for i in ids_js if re.search(rf'\.id = "{re.escape(i)}"', js)}
+                zelf_gemaakt = {i for i in ids_js if re.search(rf'\.id = "{re.escape(i)}"', alle_js)}
                 self.assertEqual(ids_js - ids_html - zelf_gemaakt, set(), f"{script} op {pad}")
 
     def test_kleine_letters_redirecten_naar_hoofdletters(self):

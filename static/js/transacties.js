@@ -1,5 +1,5 @@
 // Sorteren en pagineren voor Transacties (zonder DOM, getest onder Node).
-// Eigen kern i.p.v. maakSorteerbareTabel(): sorteren moet over alle pagina's heen.
+// maakSorteerbareTabel() gebruikt dit voor Transacties: sorteren (ook op tekst en datum+tijd) over alle pagina's heen.
 
 (function (root) {
     "use strict";

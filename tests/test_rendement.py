@@ -348,7 +348,7 @@ class TestAllTimeHigh(unittest.TestCase):
 class TestStatistiekenTransactiekosten(unittest.TestCase):
     """bereken_statistieken() levert precies dezelfde totalen-dict die zowel
     het Statistieken-tabblad als het totalenblok op Portfolio-home
-    rechtstreeks renderen (zie app.js toonStatistieken/toonPortfolio) — deze
+    rechtstreeks renderen (zie toonStatistieken/toonPortfolio in static/js/tabs/) — deze
     tests bevestigen dat die ene bron van waarheid het kosten-veld correct
     doorgeeft, zodat de twee weergaven niet uit elkaar kunnen lopen."""
 

@@ -153,7 +153,7 @@ test("valideerPrognoseInvoer: rendement buiten eigen bandbreedte -> waarschuwing
 // geopende portfolio (code "RNA") bleef tonen i.p.v. de actief geladen
 // portfolio: bouwPrognoseGrafiekData nam voorheen zijn brondata uit de
 // globale `huidigeData` i.p.v. als parameter, waardoor een niet-gereset
-// prognoseResultaat in app.js data van de vorige portfolio kon hergebruiken.
+// prognoseResultaat in tabs/prognose.js data van de vorige portfolio kon hergebruiken.
 // Deze tests bewijzen dat de functie zelf zuiver is: ze gebruikt precies de
 // chart_data die wordt meegegeven, nooit een vaste/onthouden waarde.
 const eenvoudigeInvoer = { jaren: 1, rendement: 0, laag: 0, hoog: 0, jaarlijks: 0, maandelijks: 0 };

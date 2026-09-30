@@ -217,13 +217,17 @@ test("portfolio.html: 'laatst bijgewerkt' wordt buiten Portfolio-home verborgen"
 });
 
 // De id's in deze lijsten worden via een variabele opgezocht; test_pagina_routes.py ziet ze daardoor niet.
-test("portfolio.html: de toestand- en prognose-id's uit app.js bestaan", () => {
+test("portfolio.html: de toestand- en prognose-id's uit de tabblad-scripts bestaan", () => {
     const fs = require("node:fs");
     const path = require("node:path");
-    const appJs = fs.readFileSync(path.join(__dirname, "..", "static", "js", "app.js"), "utf8");
+    const jsMap = path.join(__dirname, "..", "static", "js");
+    const alleJs = fs.readdirSync(jsMap, { recursive: true })
+        .filter(naam => naam.endsWith(".js"))
+        .map(naam => fs.readFileSync(path.join(jsMap, naam), "utf8"))
+        .join("\n");
     const ids = new Set(leesPortfolioElementen().map(e => e.attrs.id));
     for (const naam of ["DIVIDEND_TOESTANDEN", "TRANSACTIES_TOESTANDEN", "PROGNOSE_VELD_IDS"]) {
-        const blok = appJs.match(new RegExp(`const ${naam} = [\\[{]([^\\]}]*)[\\]}]`));
+        const blok = alleJs.match(new RegExp(`const ${naam} = [\\[{]([^\\]}]*)[\\]}]`));
         assert.ok(blok, naam);
         const gevonden = [...blok[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
         assert.ok(gevonden.length > 0, naam);

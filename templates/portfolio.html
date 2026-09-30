@@ -51,11 +51,9 @@
             </div>
 
             <!-- Gedeeld door meerdere tabbladen, daarom boven de tabblad-blokken. -->
-            <p id="instellingenMsg" data-verberg-buiten="instellingen-bijnamen" style="display: none; color: #2c7a4b; font-size: 0.9em;"></p>
+            <p id="instellingenMsg" class="positief" data-verberg-buiten="instellingen-bijnamen" style="display: none; font-size: 0.9em;"></p>
             <select id="aandeelSelect" data-views="peraandeel peraandeelaankoop" style="display: none; margin-bottom: 15px;"></select>
-            <div id="landWeergaveOpties" style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-                <button id="weergaveToggleBtn" data-views="land sector" style="display: none; margin-top: 0;">Wissel weergave (taart/staaf)</button>
-            </div>
+            <button id="weergaveToggleBtn" data-views="land sector" style="display: none; margin-top: 0; margin-bottom: 10px;">Wissel weergave (taart/staaf)</button>
 
             <!-- De ene gedeelde grafiek: plaatsGrafiek() verhuist dit blok naar het data-grafiek-plek van het tabblad. -->
             <div id="chartWrapper" style="display: none;">
@@ -192,22 +190,7 @@
                             <option value="50">50</option>
                         </select>
                     </label>
-                    <div class="tabelWrapper">
-                        <table style="font-size: 0.9em; border-collapse: collapse; width: 100%;">
-                            <thead>
-                                <tr id="transactiesKopRij">
-                                    <th class="sorteerKop" data-kolom="datum_tijd">Datum &amp; tijd<span class="sorteerIndicator"></span></th>
-                                    <th class="sorteerKop" data-kolom="product">Product<span class="sorteerIndicator"></span></th>
-                                    <th class="sorteerKop" data-kolom="aantal">Aantal<span class="sorteerIndicator"></span></th>
-                                    <th class="sorteerKop" data-kolom="koers">Koers<span class="sorteerIndicator"></span></th>
-                                    <th class="sorteerKop" data-kolom="totaal_eur">Totaal (EUR)<span class="sorteerIndicator"></span></th>
-                                    <th class="sorteerKop" data-kolom="transactiekosten">Transactiekosten (EUR)<span class="sorteerIndicator"></span></th>
-                                </tr>
-                            </thead>
-                            <tbody id="transactiesRijen"></tbody>
-                        </table>
-                    </div>
-                    <div id="transactiesPaginaNavigatie"></div>
+                    <div id="transactiesTabel"></div>
                 </div>
             </div>
 
@@ -261,16 +244,7 @@
                 </div>
                 <div id="dividendStatsSectie" style="margin-bottom: 20px;" hidden>
                     <div id="dividendTotaal" style="font-size: 1.8em; font-weight: bold; color: #2c7a4b;"></div>
-                    <p id="dividendNogGeen" class="grijsTekst" hidden>Nog geen dividend ontvangen.</p>
-                    <table id="dividendPerTickerTabel" class="compacteTabel" hidden>
-                        <thead>
-                            <tr>
-                                <th>Aandeel/ETF</th>
-                                <th>Netto dividend</th>
-                            </tr>
-                        </thead>
-                        <tbody id="dividendPerTickerRijen"></tbody>
-                    </table>
+                    <div id="dividendPerTicker"></div>
                 </div>
                 <div data-grafiek-plek data-zoombaar></div>
                 <div id="dividendUitkeringenSectie" style="margin-top: 20px;" hidden>
@@ -294,6 +268,8 @@
             </div>
 
             <div id="tab-instellingen-ticker" data-views="instellingen-ticker" style="display: none;">
+                <p data-vereist-code="ja">Hoe zeker is de gevonden ticker per positie? De prijs op een paar transactiedatums wordt vergeleken met de historische Yahoo-koers — dat is een sterker signaal dan alleen de beurs-match.</p>
+                <p data-vereist-code="nee">Dit is de snelle ticker-match, zonder prijsvergelijking (zelfde manier als bij een normale upload). Voor de uitgebreide check — vergelijkt transactieprijzen met Yahoo's historische koersen, een sterker signaal — klik op de knop hieronder. Dat kan bij veel posities een paar seconden tot een halve minuut duren.</p>
                 <div id="instellingenTickerSectie"></div>
             </div>
 
@@ -318,11 +294,33 @@
     {% endblock %}
 
 {% block scripts %}
+    <!-- Volgorde: pure modules, gedeeld/ (hulpfuncties), tabs/ (menuvolgorde), app.js als laatste: die bouwt TOON_PER_VIEW uit de tabs. -->
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
     <script src="{{ url_for('static', filename='js/diagnostiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dividend.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/gedeeld/tegels.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/portfolio.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/rendement.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/per_aandeel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/per_aandeel_aankoop.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/verdeling.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/land_sector.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/bedrijven.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/etf_overlap.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/statistieken.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/transacties.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/xirr_rendement.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/prognose.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/dividend.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/instellingen.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/bijnamen.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/ticker_zekerheid.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/diagnostiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
     {% endblock %}

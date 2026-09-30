@@ -283,7 +283,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     # Alternatieven (extra Yahoo-calls) alleen als de match niet "zeker" is.
     alternatieven = []
     aanbevolen_alternatief = None
-    # __TIJDELIJK, diagnostisch__: samen met maakOpenfigiKandidatenDebugBlok (app.js) verwijderen.
+    # __TIJDELIJK, diagnostisch__: samen met maakOpenfigiKandidatenDebugBlok (tabs/ticker_zekerheid.js) verwijderen.
     openfigi_kandidaten_debug = {
         "aangeroepen": False,
         "reden": "ticker al 'zeker' -- alternatieven worden niet doorgerekend",

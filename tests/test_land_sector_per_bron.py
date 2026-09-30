@@ -2,7 +2,7 @@
 Unit tests voor de land_per_bron_top/sector_per_bron-uitbreiding van
 portfolio_verdeling.compute_land_sector_verdeling() -- de databron voor de gestapelde-
 staafgrafiek-weergave op het Land/Sector-tabblad (toggle in
-static/js/app.js, renderGestapeldeStaafgrafiek).
+static/js/gedeeld/grafiek.js, renderGestapeldeStaafgrafiek).
 
 Draait geheel offline: is_etf_map wordt direct meegegeven; get_etf_sector_verdeling,
 get_etf_holdings en get_land_sector worden gemockt, dus geen echte

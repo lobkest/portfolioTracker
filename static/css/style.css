@@ -98,14 +98,6 @@ body {
     margin: 24px 0 6px 0;
 }
 
-.sorteerKop {
-    text-align: left;
-    padding: 4px 16px 4px 0;
-    border-bottom: 1px solid #ddd;
-    cursor: pointer;
-    user-select: none;
-}
-
 .compacteTabel {
     font-size: 0.9em;
     border-collapse: collapse;
@@ -120,6 +112,238 @@ body {
 
 .compacteTabel th {
     border-bottom: 1px solid #ddd;
+}
+
+/* Tabellen uit maakSorteerbareTabel(). */
+.dataTabel {
+    font-size: 0.9em;
+    border-collapse: collapse;
+    width: 100%;
+}
+
+.dataTabel th {
+    text-align: left;
+    padding: 4px 16px 4px 0;
+    border-bottom: 1px solid #ddd;
+}
+
+.dataTabel td {
+    padding: 4px 16px 4px 0;
+}
+
+.sorteerbaar {
+    cursor: pointer;
+    user-select: none;
+}
+
+.rendementCel {
+    font-weight: bold;
+    color: #333;
+}
+
+.overlapBeide {
+    background-color: rgba(44, 122, 75, 0.15);
+}
+
+.paginaNavigatie {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.paginaNavigatie .actief {
+    font-weight: bold;
+}
+
+.kleinLabel {
+    font-size: 0.85em;
+    color: #666;
+}
+
+.tegelRij {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    margin-bottom: 24px;
+}
+
+.tegelRijCompact {
+    margin: 16px 0 8px 0;
+}
+
+.statTegel {
+    min-width: 160px;
+}
+
+.statWaarde {
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #333;
+}
+
+.verdelingLijst {
+    min-width: 180px;
+}
+
+.verdelingLijst ul {
+    margin: 0;
+    padding-left: 18px;
+}
+
+.verdelingLijst li {
+    font-size: 0.9em;
+}
+
+.bijnaamRij {
+    margin-bottom: 12px;
+}
+
+.bijnaamRij input {
+    width: 300px;
+    margin-right: 8px;
+}
+
+.bijnaamReset {
+    margin-left: 6px;
+}
+
+/* ETF-overlap: matrix van ETF x ETF. */
+.overlapMatrix {
+    border-collapse: collapse;
+    font-size: 0.85em;
+}
+
+.overlapMatrix th {
+    padding: 4px 8px;
+    text-align: center;
+    white-space: nowrap;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.overlapMatrix th.rijKop {
+    text-align: left;
+}
+
+.overlapMatrix td {
+    padding: 4px 8px;
+    text-align: center;
+    border: 1px solid #eee;
+}
+
+.overlapMatrix td.diagonaal {
+    color: #ccc;
+}
+
+.overlapMatrix td.klikbaar {
+    cursor: pointer;
+}
+
+/* Instellingen > Ticker-zekerheid: één kaart per positie. */
+.tickerKaart {
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #eee;
+}
+
+.tickerKaartWaarschuwing {
+    white-space: pre-line; /* de waarschuwing kan uit meerdere regels bestaan */
+    background: #fdecea;
+    color: #9C0006;
+    padding: 8px 10px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 0.9em;
+}
+
+.tickerKop {
+    font-weight: bold;
+    margin-top: 8px;
+}
+
+.tickerRegel {
+    margin-top: 2px;
+}
+
+.tickerNotitie {
+    font-size: 0.85em;
+    color: #999;
+}
+
+.tickerVoetnoot {
+    margin-top: 4px;
+}
+
+.tickerCheckKnop {
+    margin-bottom: 14px;
+}
+
+.kleineTabel {
+    font-size: 0.85em;
+    border-collapse: collapse;
+    margin-top: 4px;
+}
+
+.kleineTabel th {
+    text-align: left;
+    padding: 2px 14px 2px 0;
+    border-bottom: 1px solid #ddd;
+}
+
+.kleineTabel td {
+    padding: 2px 14px 2px 0;
+}
+
+.kleineTabel td.icoonCel {
+    padding: 1px;
+}
+
+.kleineTabel tr.aanbevolen {
+    background: #eaf6ee;
+}
+
+.kleineTabel tr.aanbevolen td:last-child {
+    color: #2c7a4b;
+    font-weight: bold;
+}
+
+.debugBlok {
+    font-size: 0.8em;
+    margin-top: 4px;
+    color: #555;
+}
+
+.debugBlok summary {
+    cursor: pointer;
+}
+
+.debugInhoud {
+    margin-top: 4px;
+    padding-left: 10px;
+}
+
+/* Kleurklassen: onder de klassen hierboven, zodat ze hun kleur overschrijven. */
+.positief {
+    color: #2c7a4b;
+}
+
+.negatief {
+    color: #9C0006;
+}
+
+.mild {
+    color: #B8860B;
+}
+
+.gedempt {
+    color: #999;
+}
+
+.vet {
+    font-weight: bold;
 }
 
 .prognoseVeld {
@@ -165,6 +389,22 @@ body {
 .badgeHerinvesteerd {
     background: #d4edda;
     color: #155724;
+}
+
+/* Badge als enige inhoud van een cel (Statistieken > Verkochte posities). */
+.badgeLos {
+    margin-left: 0;
+    white-space: normal;
+}
+
+.badgeDeelsVerkocht {
+    background: #fff3cd;
+    color: #856404;
+}
+
+.badgeGesloten {
+    background: #e2e3e5;
+    color: #383d41;
 }
 
 /* Instellingen > Diagnostiek: niveau-labels (tekst + kleur, niet alleen kleur). */

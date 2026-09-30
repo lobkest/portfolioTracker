@@ -119,7 +119,7 @@ class TestUploadGeeftNetteFoutrespons(unittest.TestCase):
 
 class TestTickerZekerheidCheckEndpoint(unittest.TestCase):
     """De losse, door de gebruiker aangevraagde uitgebreide check voor een
-    'niet opslaan'-analyse (zie toonInstellingenTickerBasis() in app.js)."""
+    'niet opslaan'-analyse (zie toonInstellingenTickerBasis() in tabs/ticker_zekerheid.js)."""
 
     def setUp(self):
         import app as app_module

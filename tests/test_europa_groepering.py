@@ -120,7 +120,7 @@ class TestEuropaSamenvoegingMetOverigDrempel(unittest.TestCase):
 class TestGroepeerEuropaSamenPerBron(unittest.TestCase):
     """Zelfde toggle, maar dan op de per-bron-uitgesplitste land_per_bron-
     structuur die de gestapelde-staafgrafiek-weergave voedt (zie
-    renderGestapeldeStaafgrafiek in app.js) -- dit was de bug: de toggle
+    renderGestapeldeStaafgrafiek in gedeeld/grafiek.js) -- dit was de bug: de toggle
     werkte al op de taart/platte data ("land"/"land_europa"), maar niet op
     deze per-bron data, waardoor de staafgrafiek alle losse landen bleef
     tonen ook met de toggle aan."""
