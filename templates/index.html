@@ -154,6 +154,10 @@
                 <canvas id="rendementChart"></canvas>
             </div>
 
+            <div id="bedrijvenChartWrapper" class="chart-wrapper" data-verberg-buiten="bedrijven" style="display: none;">
+                <canvas id="bedrijvenChart"></canvas>
+            </div>
+
             <label id="europaCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel" style="display: none; margin-top: 10px;">
                 <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
             </label>
@@ -199,6 +203,11 @@
                 <button id="verrijkingOpnieuwBtn">Opnieuw proberen</button>
             </div>
         </div>
+    </div>
+
+    <div id="laadOverlay" class="laadOverlay" hidden>
+        <div class="laadSpinner"></div>
+        <div id="laadOverlayTekst" class="laadOverlayTekst"></div>
     </div>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>

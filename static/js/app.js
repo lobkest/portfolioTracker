@@ -53,30 +53,20 @@ Chart.register(ChartDataLabels);
 
 // setTimeout: bij orientationchange zijn de nieuwe afmetingen nog niet klaar (mobiele Safari).
 window.addEventListener("orientationchange", () => {
-    setTimeout(() => { if (chart) chart.resize(); }, 200);
+    setTimeout(() => {
+        if (chart) chart.resize();
+        if (bedrijvenChart) bedrijvenChart.resize();
+    }, 200);
 });
 
 // Voorkomt dubbelklikken of wegnavigeren tijdens een serververzoek.
 function toonLaadOverlay(tekst) {
-    verbergLaadOverlay();
-    const overlay = document.createElement("div");
-    overlay.id = "laadOverlay";
-    overlay.className = "laadOverlay";
-    const spinner = document.createElement("div");
-    spinner.className = "laadSpinner";
-    const label = document.createElement("div");
-    label.className = "laadOverlayTekst";
-    label.textContent = tekst;
-    overlay.appendChild(spinner);
-    overlay.appendChild(label);
-    document.body.appendChild(overlay);
+    document.getElementById("laadOverlayTekst").textContent = tekst;
+    document.getElementById("laadOverlay").hidden = false;
 }
 
 function verbergLaadOverlay() {
-    const overlay = document.getElementById("laadOverlay");
-    if (overlay) {
-        overlay.remove();
-    }
+    document.getElementById("laadOverlay").hidden = true;
 }
 
 function formatDatum(isoDatum) {
@@ -800,13 +790,13 @@ const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";
 // Eén staaf per categorie, één dataset per bron. categorieData: {categorie: {bron: waarde}};
 // zonder opts.totaal zijn de waarden al percentages. opts.horizontaal, labelVoorCategorie,
 // tooltipTitel en tooltipFooter gebruikt alleen Top-bedrijven.
-function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
+// Geeft de nieuwe Chart terug (null zonder data); de aanroeper ruimt zijn vorige grafiek zelf op.
+function renderGestapeldeStaafgrafiek(canvasId, categorieData, bronNamen, opts) {
     opts = opts || {};
-    if (chart) chart.destroy();
 
     if (!categorieData || Object.keys(categorieData).length === 0) {
         document.getElementById("geenData").style.display = "block";
-        return;
+        return null;
     }
     document.getElementById("geenData").style.display = "none";
 
@@ -919,7 +909,7 @@ function renderGestapeldeStaafgrafiek(categorieData, bronNamen, opts) {
         chartOpties.scales.x.ticks = { autoSkip: false };
     }
 
-    chart = new Chart(document.getElementById("rendementChart"), {
+    return new Chart(document.getElementById(canvasId), {
         type: "bar",
         data: {
             labels: categorieen.map(c => opts.labelVoorCategorie ? opts.labelVoorCategorie(c) : kortNaam(c, 20)),
@@ -948,7 +938,7 @@ function toonLand() {
         const totaal = Object.values((lsv && lsv.land) || {}).reduce((s, w) => s + w, 0);
         // Top 10 + "Overig" komt al uit de backend (bewust anders dan de taart).
         const perBron = europaCheckbox.checked ? (lsv && lsv.land_per_bron_europa_top) : (lsv && lsv.land_per_bron_top);
-        renderGestapeldeStaafgrafiek(perBron, tickerNamen, { totaal });
+        chart = renderGestapeldeStaafgrafiek("rendementChart", perBron, tickerNamen, { totaal });
     } else {
         // land_europa komt al uit de backend; de toggle kost geen request.
         const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
@@ -979,7 +969,7 @@ function toonSector() {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values((lsv && lsv.sector) || {}).reduce((s, w) => s + w, 0);
-        renderGestapeldeStaafgrafiek(lsv && lsv.sector_per_bron, tickerNamen, { totaal });
+        chart = renderGestapeldeStaafgrafiek("rendementChart", lsv && lsv.sector_per_bron, tickerNamen, { totaal });
     } else {
         toonPlatteVerdeling(lsv && lsv.sector);
     }
@@ -2699,21 +2689,32 @@ function maakTransactiesPaginaNavigatie(totPag) {
 // null = nog niet gekozen (dan top_n_standaard).
 let bedrijvenTopN = null;
 
+// Eigen grafiek op #bedrijvenChart: de hoogte groeit mee met het aantal bedrijven.
+let bedrijvenChart = null;
+
+function wisBedrijvenChart() {
+    if (bedrijvenChart) { bedrijvenChart.destroy(); bedrijvenChart = null; }
+}
+
 function toonBedrijven() {
     const sectie = document.getElementById("bedrijvenSectie");
+    const wrapper = document.getElementById("bedrijvenChartWrapper");
     sectie.innerHTML = "";
     document.getElementById("geenData").style.display = "none";
     if (toonVerrijkingWachtstatusIndienNodig()) {
-        if (chart) chart.destroy();
+        wisBedrijvenChart();
+        wrapper.style.display = "none";
         return;
     }
 
     const data = huidigeData.bedrijven_verdeling;
     if (!data || !data.top || data.top.length === 0) {
         document.getElementById("geenData").style.display = "block";
-        if (chart) chart.destroy();
+        wisBedrijvenChart();
+        wrapper.style.display = "none";
         return;
     }
+    wrapper.style.display = "block";
 
     const dekkingTekst = document.createElement("p");
     dekkingTekst.id = "bedrijvenDekkingTekst";
@@ -2799,11 +2800,9 @@ function tekenBedrijven() {
     const horizontaal = gebruikHorizontaleStaven(n, window.innerWidth);
     const maxTekensPerRegel = horizontaal ? (smalScherm ? 20 : 28) : 14;
     // Liggend: ~36px per bedrijf plus ruimte voor as en legenda; staand: de CSS-hoogte.
-    document.getElementById("chartWrapper").style.height = horizontaal
+    document.getElementById("bedrijvenChartWrapper").style.height = horizontaal
         ? `${Math.max(400, getoond.length * 36 + 140)}px`
         : "";
-    // Geen zoom/pan hier, zodat vegen de pagina scrolt; pasViewToe zet het terug.
-    document.getElementById("rendementChart").style.touchAction = "pan-y";
 
     const bronNamen = {};
     (data.bronnen || []).forEach(b => { bronNamen[b.ticker] = b.naam; });
@@ -2811,7 +2810,8 @@ function tekenBedrijven() {
     const categorieData = {};
     getoond.forEach(entry => { categorieData[entry.bedrijf] = entry.per_bron; });
 
-    renderGestapeldeStaafgrafiek(categorieData, bronNamen, {
+    wisBedrijvenChart();
+    bedrijvenChart = renderGestapeldeStaafgrafiek("bedrijvenChart", categorieData, bronNamen, {
         horizontaal,
         labelVoorCategorie: cat => breekLabelAf(weergaveNaamPerRuw[cat], maxTekensPerRegel),
         tooltipTitel: cat => weergaveNaamPerRuw[cat],
@@ -3270,10 +3270,6 @@ const TOON_PER_VIEW = {
 function pasViewToe(view) {
     const content = document.querySelector(".content");
 
-    // Alleen Top-bedrijven past hoogte/touch-action aan; hier terug naar de CSS-standaard.
-    document.getElementById("chartWrapper").style.height = "";
-    document.getElementById("rendementChart").style.touchAction = "";
-
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker" || view === "instellingen-diagnostiek";
 
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
@@ -3293,7 +3289,7 @@ function pasViewToe(view) {
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
     document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || view === "transacties" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
-    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "etfoverlap" || view === "transacties") ? "none" : "block";
+    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "bedrijven" || view === "etfoverlap" || view === "transacties") ? "none" : "block";
     document.getElementById("laatstBijgewerktText").style.display = "none";
 
     TOON_PER_VIEW[view]?.();
@@ -3535,14 +3531,15 @@ document.getElementById("uploadForm").addEventListener("reset", () => {
 window.addEventListener("pageshow", werkBestandKeuzesBij);
 
 document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    document.getElementById("errorMsg").textContent = "";
-    const formData = new FormData(e.target);
-    // FormData neemt een leeg bestand2 mee; expliciet verwijderen.
+    e.preventDefault(); // voorkom dat de browser het formulier zelf verstuurt
+    document.getElementById("errorMsg").textContent = ""; // reset bij elke nieuwe poging
+    const formData = new FormData(e.target); // alle inputs, inclusief bestanden
+
     const bestand2Input = document.getElementById("bestand2");
-    if (!bestand2Input.files || bestand2Input.files.length === 0) {
-        formData.delete("bestand2");
+    if (!bestand2Input.files || bestand2Input.files.length === 0) { // als er geen bestand is gekozen, verwijderen we het uit de FormData
+        formData.delete("bestand2"); 
     }
+
     toonLaadOverlay("Analyseren...");
     try {
         // Upload krijgt 60 s, iets ruimer dan de standaard 55 s.

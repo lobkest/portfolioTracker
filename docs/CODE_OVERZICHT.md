@@ -1079,6 +1079,7 @@ staaf de totalen op voor het %-label (een lichte afgeleide van al geleverde data
 
 **Waarom één `<canvas>`?** Elke `toon...()`-functie roept eerst `chart.destroy()` aan en maakt daarna een nieuwe `new Chart(...)` op dezelfde canvas. De variabele `chart` (globaal) houdt de huidige grafiek vast.
 Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) verbergen `#chartWrapper`.
+Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedrijvenChartWrapper`, variabele `bedrijvenChart`), omdat de hoogte daar meegroeit met het aantal bedrijven en vegen de pagina moet scrollen (`touch-action: pan-y`). Dat tabblad verbergt `#chartWrapper` dus ook.
 
 ### 5.2 Hoe de data na de upload in de frontend bewaard wordt
 
@@ -1132,7 +1133,7 @@ Bij Verdeling/Land/Sector/Bedrijven/ETF-overlap begint elke `toon...()` met `too
 
 ### 5.5 Foutafhandeling en laadgedrag
 
-- `toonLaadOverlay(tekst)` / `verbergLaadOverlay()`: een volledig scherm-overlay bij acties die merkbaar duren (upload, code ophalen, bijnaam opslaan, benchmark ophalen, verwijderen). Niet gebruikt bij de Prognose (puur client-side).
+- `toonLaadOverlay(tekst)` / `verbergLaadOverlay()`: een volledig scherm-overlay bij acties die merkbaar duren (upload, code ophalen, bijnaam opslaan, benchmark ophalen, verwijderen). De overlay staat als vast element `#laadOverlay` in `templates/index.html`; de functies zetten alleen de tekst en het `hidden`-attribuut (`.laadOverlay[hidden]` in `style.css` is nodig omdat `display: flex` anders wint). Niet gebruikt bij de Prognose (puur client-side).
 - `fetchMetTimeout(url, opties, timeoutMs = 55000)` breekt zelf af en gooit `Error("TIMEOUT")`; de upload gebruikt 60 000 ms. De Ticker-zekerheid-positie-aanroepen gebruiken een eigen `AbortController` van 30 s.
 - De banner `#tickerWaarschuwingBanner` (`toonTickerWaarschuwingBanner()`) toont `ticker_waarschuwingen` bij elk tabblad, met een knop die naar Ticker-zekerheid springt.
 

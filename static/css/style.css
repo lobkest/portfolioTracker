@@ -397,6 +397,11 @@ button:hover {
     gap: 16px;
 }
 
+/* display: flex hierboven wint anders van het hidden-attribuut. */
+.laadOverlay[hidden] {
+    display: none;
+}
+
 .laadSpinner {
     width: 40px;
     height: 40px;
@@ -422,6 +427,11 @@ button:hover {
    dat de browser pinch/scroll doorgeeft aan de pagina. */
 #rendementChart {
     touch-action: none;
+}
+
+/* Geen zoom/pan op Top-bedrijven: vegen over de (hoge) grafiek scrolt de pagina. */
+#bedrijvenChart {
+    touch-action: pan-y;
 }
 
 /* De landscape-tak dekt ook telefoon-breedtes tussen 768 en 900px: in
