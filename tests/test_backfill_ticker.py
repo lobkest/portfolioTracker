@@ -67,7 +67,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
     maar NOOIT als de nieuwe kandidaat zelf ook een probleem heeft, en
     NOOIT als de oude ticker al prima was."""
 
-    CODE = "TBF"
+    CODE = "TESTBF"
 
     def _leeg_op(self):
         from db import get_db_connection

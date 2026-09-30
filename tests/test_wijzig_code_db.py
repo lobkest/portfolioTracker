@@ -22,9 +22,9 @@ except ImportError:
 
 @vereist_database
 class TestWijzigPortfolioCode(unittest.TestCase):
-    OUD = "TSO"
-    NIEUW = "TSN"
-    BESTAAND = "TSB"
+    OUD = "TESTSO"
+    NIEUW = "TESTSN"
+    BESTAAND = "TESTSB"
 
     def _leeg_op(self, code):
         from db import get_db_connection

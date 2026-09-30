@@ -15,7 +15,8 @@ jobs:
     strategy:
       fail-fast: false      # a failure on one OS does not cancel the others
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Geen ubuntu-latest: Ubuntu wordt gedekt door test-db (hele suite met een Postgres-container).
+        os: [windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -50,3 +51,42 @@ jobs:
       # bedrijven.js zijn dependency-vrij en gebruiken Node's ingebouwde testrunner.
       - name: JS unit tests draaien
         run: node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js
+
+  test-db:
+    name: Python + Postgres (ubuntu-latest)
+    runs-on: ubuntu-latest      # service containers bestaan alleen op Linux-runners
+    services:
+      postgres:
+        # Versie gelijk houden aan die van het Neon-project (nog zelf controleren).
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Wegwerpdatabase in de container hierboven, geen secret nodig.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/testdb
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python installeren
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Dependencies installeren
+        run: python -m pip install -r requirements.txt
+
+      # Niet elke database-test importeert app.py, dus init_db() draait anders niet.
+      - name: Schema aanmaken
+        run: python -c "from db import init_db; init_db()"
+
+      - name: Unit tests draaien
+        run: python -m unittest discover -s tests -v

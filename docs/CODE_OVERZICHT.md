@@ -1216,13 +1216,13 @@ python -m unittest discover -s tests -p "test_rendement.py" -v
 node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js
 ```
 
-**Let op — echte database:** de **[DB]**-tests lezen `DATABASE_URL` (ook uit je `.env`, want die bestanden roepen zelf `load_dotenv()` aan) en schrijven met eigen test-codes (zoals `TESTDIV`) in **dezelfde Neon-database** als de app; er is geen aparte testdatabase.
-Ze ruimen na afloop op (`setUp`/`tearDown` verwijderen de test-code), maar draai ze dus bewust. Zonder `DATABASE_URL` worden ze overgeslagen.
+**Let op — echte database:** de **[DB]**-tests (`@vereist_database` uit `tests/db_helper.py`) lezen `DATABASE_URL` (ook uit je `.env`, want `db_helper.py` roept `load_dotenv()` aan) en schrijven lokaal met eigen test-codes (zoals `TESTDIV`) in **dezelfde Neon-database** als de app; lokaal is er geen aparte testdatabase.
+Ze ruimen na afloop op (`setUp`/`tearDown` verwijderen de test-code), maar draai ze dus bewust. Zonder bereikbare database worden ze overgeslagen. In de CI draaien ze wel, in de job `test-db` (zie 7.4).
 
 ### 7.4 CI (GitHub Actions)
 
-`.github/workflows/tests.yml` draait bij **elke push** twee jobs: `test` (Python 3.13, `pip install -r requirements.txt`, `python -m unittest discover -s tests -v`) en `test-js` (Node 20, `node --test ...`).
-In de CI is geen `DATABASE_URL` ingesteld, dus de **[DB]**-tests worden daar overgeslagen: alleen lokaal draai je de volledige suite. De lijst JS-bestanden in het workflowbestand is handmatig; een nieuw `test_*.js` moet je daar zelf aan toevoegen.
+`.github/workflows/tests.yml` draait bij **elke push** drie jobs: `test` (Python 3.13 op Windows en macOS, `pip install -r requirements.txt`, `python -m unittest discover -s tests -v`), `test-db` (Python 3.13 op Ubuntu, met database) en `test-js` (Node 20 op Ubuntu, Windows en macOS, `node --test ...`).
+`test` heeft geen `DATABASE_URL`, dus daar worden de **[DB]**-tests overgeslagen; Ubuntu zit bewust niet in `test`, omdat `test-db` daar al de hele suite draait. `test-db` start een wegwerp-Postgres-container (`postgres:18`), zet `DATABASE_URL` naar die container, maakt het schema aan met een losse stap (`python -c "from db import init_db; init_db()"`) en draait dan de hele Python-suite, **[DB]**-tests inbegrepen. Er gaat geen secret en geen Neon-verbinding mee. De lijst JS-bestanden in het workflowbestand is handmatig; een nieuw `test_*.js` moet je daar zelf aan toevoegen.
 
 ## 8. Waar moet ik zijn als ik ... wil aanpassen?
 

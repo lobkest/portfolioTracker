@@ -89,7 +89,7 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
     TRADEABLE-rij (ook op een niet-DEG-beurs) nooit als eigen positie
     teruggeven."""
 
-    CODE = "TCA"
+    CODE = "TESTCA"
 
     def _leeg_op(self):
         from db import get_db_connection
@@ -102,6 +102,10 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
         conn.close()
 
     def setUp(self):
+        import portfolio_orchestratie
+        portfolio_orchestratie._basis_cache.pop(self.CODE, None)
+        self.addCleanup(portfolio_orchestratie._basis_cache.pop, self.CODE, None)
+
         self._leeg_op()
         from db import get_db_connection
         conn = get_db_connection()

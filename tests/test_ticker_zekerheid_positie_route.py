@@ -138,7 +138,7 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
 
     def test_onbekende_code_geeft_404(self):
         res = self.client.get(
-            "/api/portfolio/ZZZ/ticker-zekerheid/positie",
+            "/api/portfolio/ZZZNIETBESTAAND/ticker-zekerheid/positie",
             query_string={"isin": self.ISIN, "beurs": self.BEURS},
         )
         self.assertEqual(res.status_code, 404)
