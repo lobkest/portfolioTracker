@@ -89,7 +89,7 @@
     }
 
     const exportsObj = {
-        DIAGNOSTIEK_NIVEAUS, DIAGNOSTIEK_NIVEAU_LABEL,
+        DIAGNOSTIEK_NIVEAU_LABEL,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
         hoogsteNiveau, categorieStandaardOpen,
     };

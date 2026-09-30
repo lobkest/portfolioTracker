@@ -47,16 +47,23 @@ class TestPaginaRoutes(unittest.TestCase):
         self.assertNotIn('id="uploadForm"', html)
         self.assertNotIn("start.js", html)
 
+    def test_maxlength_van_nieuwe_code_komt_uit_code_length(self):
+        for pad in ("/p/ABC", "/analyse"):
+            html = self.client.get(pad).get_data(as_text=True)
+            self.assertIn(f'id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{self.app_module.CODE_LENGTH}"', html, pad)
+
     def test_beide_paginas_hebben_de_gedeelde_onderdelen(self):
         for pad in ("/", "/p/ABC", "/analyse"):
             html = self.client.get(pad).get_data(as_text=True)
             self.assertIn('id="laadOverlay"', html, pad)
+            self.assertIn('href="/static/css/style.css"', html, pad)
             for script in ("navigatie.js", "overdracht.js", "gedeeld.js", "infotip.js"):
                 self.assertIn(f'src="/static/js/{script}"', html, pad)
 
     def test_gedeelde_scripts_staan_voor_het_paginascript(self):
         for pad, paginascript in (("/", "start.js"), ("/p/ABC", "app.js")):
             html = self.client.get(pad).get_data(as_text=True)
+            self.assertIn(f'src="/static/js/{paginascript}"', html, pad)
             self.assertLess(html.index("gedeeld.js"), html.index(paginascript), pad)
             self.assertLess(html.index("overdracht.js"), html.index(paginascript), pad)
 
@@ -93,11 +100,6 @@ class TestPaginaRoutes(unittest.TestCase):
         html = res.get_data(as_text=True)
         self.assertIn('data-code=""', html)
         self.assertIn('id="dashboardSection"', html)
-
-    def test_statische_verwijzingen_zijn_absoluut_op_portfolio_pagina(self):
-        html = self.client.get("/p/ABC").get_data(as_text=True)
-        self.assertIn('href="/static/css/style.css"', html)
-        self.assertIn('src="/static/js/app.js"', html)
 
 
 if __name__ == "__main__":

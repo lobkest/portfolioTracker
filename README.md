@@ -29,9 +29,9 @@ uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt 
 - **Rendementsberekening**: pyxirr (XIRR), eigen TWR-implementatie
 - **Database**: PostgreSQL via Neon (serverless, i.v.m. Render's ephemeral
   filesystem)
-- **Frontend**: single-page application — één `templates/index.html` +
-  vanilla JS in `static/js/` (geen framework), Chart.js (incl. zoom/pan-,
-  datalabels- en annotation-plugin)
+- **Frontend**: twee pagina's (startpagina en portfolio-pagina) met Jinja-
+  templates en vanilla JS in `static/js/` (geen framework), Chart.js (incl.
+  zoom/pan-, datalabels- en annotation-plugin)
 - **Hosting**: Render, gunicorn als productieserver
 - **Tests**: Python `unittest` (ruim 500 tests) + JS-tests via `node --test`,
   draait automatisch via GitHub Actions bij elke push
@@ -60,12 +60,17 @@ portfolioTracker/
 ├── yahoo_client.py, portfolio_admin.py, transactie_utils.py, debug_utils.py
 ├── requirements.txt
 ├── .env                        → omgevingsvariabelen (niet in git)
-├── templates/index.html        → enige pagina, SPA
+├── templates/
+│   ├── basis.html              → gedeeld skelet (head, laad-overlay, scripts)
+│   ├── start.html              → startpagina: upload- en code-formulier
+│   └── portfolio.html          → portfolio-pagina: menu + alle tabbladen
 ├── static/
 │   ├── css/style.css
-│   ├── js/                     → app.js + kleine modules (prognose,
-│   │                              transacties, bedrijven, menu, bestandskeuze,
-│   │                              diagnostiek, infotip)
+│   ├── js/                     → start.js (startpagina), app.js (dashboard),
+│   │                              gedeeld.js (beide pagina's) + kleine modules:
+│   │                              navigatie, overdracht, prognose, transacties,
+│   │                              bedrijven, menu, bestandskeuze, diagnostiek,
+│   │                              infotip
 │   └── favicon/                → favicon + PWA-manifest
 ├── tests/                      → unittest-suite + JS-tests
 ├── docs/CODE_OVERZICHT.md      → uitgebreid code-overzicht (architectuur, flows)
@@ -91,11 +96,21 @@ lees dan [`docs/CODE_OVERZICHT.md`](docs/CODE_OVERZICHT.md).
 6. Dashboarddata teruggeven als JSON; het netwerk-zware deel (verdeling,
    land/sector, bedrijven, ETF-overlap) wordt daarna lazy opgehaald
 
-Opties op het startscherm: **Niet opslaan** (eenmalige analyse, er wordt
+Opties op de startpagina: **Niet opslaan** (eenmalige analyse, er wordt
 niets in de database bewaard) en **Ticker-informatie voor alle posities
 opnieuw bepalen**. Een bestaand portfolio haal je op met je code.
 
-**Dashboard (SPA, sidebar-menu, op mobiel een hamburgermenu)**
+**Twee pagina's**
+- **Startpagina** (`/`) — uploaden of een code invoeren.
+- **Portfolio-pagina** (`/p/<code>`) — het dashboard. De code staat in de
+  URL, dus verversen of een bladwijzer opent hetzelfde portfolio opnieuw.
+  Het actieve tabblad staat in de hash (bijv. `/p/ABC#rendement`), zodat ook
+  de terug-knop van de browser per tabblad werkt.
+- Een "Niet opslaan"-analyse staat op `/analyse` en heeft geen code:
+  verversen brengt je terug naar de startpagina.
+
+**Dashboard (alle tabbladen op één pagina, sidebar-menu, op mobiel een
+hamburgermenu)**
 - **Portfolio-home** — waarde vs. geïnvesteerd over tijd, totalen
 - **Rendement** — waarde-min-geïnvesteerd, optioneel vergeleken met een
   benchmark (S&P 500, Nasdaq 100, AEX) of een eigen positie

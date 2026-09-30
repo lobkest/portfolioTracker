@@ -306,7 +306,7 @@ function toonPerAandeel(ticker) {
 
 // Ook gebruikt voor de dummy-legenda-datasets.
 const AANKOOP_KLEUR = "#2c7a4b";
-const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als errorMsg/verwijderPortfolioBtn elders in de app
+const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als de foutmeldingen en verwijderPortfolioBtn
 
 // Eigen Chart i.p.v. updateChart(): twee y-assen en de annotation-plugin.
 function toonPerAandeelAankoop(ticker) {
@@ -1582,6 +1582,9 @@ function toonDiagnostiek() {
     });
 }
 
+const TICKER_POSITIE_TIMEOUT_MS = 30000;
+const TICKER_UITGEBREID_TIMEOUT_MS = 60000;
+
 async function toonInstellingenTicker() {
     // 'Niet opslaan' heeft geen code: toon de lichte check die /upload al meestuurde.
     if (!huidigeData.code) {
@@ -1640,7 +1643,7 @@ async function toonInstellingenTicker() {
         const key = `${p.isin}|${p.beurs}`;
         const kaart = kaarten[key];
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 30000);
+        const timeoutId = setTimeout(() => controller.abort(), TICKER_POSITIE_TIMEOUT_MS);
         try {
             const url = `/api/portfolio/${huidigeData.code}/ticker-zekerheid/positie`
                 + `?isin=${encodeURIComponent(p.isin)}&beurs=${encodeURIComponent(p.beurs)}`;
@@ -1699,7 +1702,7 @@ async function controleerTickerZekerheidUitgebreid(knop, foutEl, lijst) {
     knop.textContent = "Bezig met controleren...";
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
+    const timeoutId = setTimeout(() => controller.abort(), TICKER_UITGEBREID_TIMEOUT_MS);
     try {
         const res = await fetch("/api/ticker-zekerheid-check", {
             method: "POST",
@@ -3211,14 +3214,17 @@ function toonPrognose() {
     }
 }
 
+// Gelijk aan de transitieduur van .content in style.css.
+const TAB_FADE_MS = 90;
+
 function wisselView(view) {
     const content = document.querySelector(".content");
     if (content.classList.contains("tabWisselt")) { // Bij snel doorklikken de wachttijd overslaan.
         pasViewToe(view);
         return;
     }
-    content.classList.add("tabWisselt"); // transitie CSS: opacity 0, transition 0.09s.
-    setTimeout(() => pasViewToe(view), 90); // setTimeout is functie die zegt over 90ms, voer de functie pasViewToe uit. 
+    content.classList.add("tabWisselt");
+    setTimeout(() => pasViewToe(view), TAB_FADE_MS);
 }
 
 // Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').

@@ -1,5 +1,8 @@
 // Startpagina: upload- en code-formulier. Het antwoord gaat via de overdracht mee naar de portfolio-pagina.
 
+// Iets ruimer dan de standaard van fetchMetTimeout().
+const UPLOAD_TIMEOUT_MS = 60000;
+
 const OVERDRACHT_TE_GROOT_TEKST = "Deze analyse is te groot om zonder opslaan te tonen. "
     + "Upload opnieuw zonder het vinkje 'Niet opslaan'.";
 
@@ -83,8 +86,7 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     let navigeert = false;
     toonLaadOverlay("Analyseren...");
     try {
-        // Upload krijgt 60 s, iets ruimer dan de standaard 55 s.
-        const res = await fetchMetTimeout("/upload", { method: "POST", body: formData }, 60000);
+        const res = await fetchMetTimeout("/upload", { method: "POST", body: formData }, UPLOAD_TIMEOUT_MS);
         const data = await res.json();
         if (!res.ok) {
             document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";

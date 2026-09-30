@@ -580,9 +580,8 @@ a.menuBtn {
     }
 
     /* iOS Safari zoomt automatisch in op een veld met font-size < 16px
-       zodra het focus krijgt, en zoomt niet vanzelf terug (zeker niet als
-       het veld daarna verdwijnt, zoals het code-veld na het ophalen). Alleen
-       op mobiel, zodat het desktop-uiterlijk gelijk blijft. */
+       zodra het focus krijgt, en zoomt niet vanzelf terug. Alleen op mobiel,
+       zodat het desktop-uiterlijk gelijk blijft. */
     input,
     select,
     textarea {

@@ -22,7 +22,7 @@
         <button id="hamburgerBtn" class="hamburgerBtn" aria-label="Menu openen" aria-expanded="false">&#9776;</button>
         <div id="menuOverlay" class="menuOverlay"></div>
         <div class="sidebar" id="sidebarMenu">
-            <a id="terugKnop" class="menuBtn" href="/">&larr; Nieuwe upload</a>
+            <a class="menuBtn" href="/">&larr; Nieuwe upload</a>
             <hr>
             <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
             <button class="menuBtn" data-view="rendement">Rendement</button>
@@ -125,7 +125,7 @@
                 <button id="verwijderPortfolioBtn" style="background-color: #9C0006;">Verwijder mijn data uit de database</button>
 
                 <p style="margin-top: 24px;">Wil je een andere, zelfgekozen code voor deze portfolio? De huidige code en alle gekoppelde data blijven behouden, alleen de code zelf wijzigt.</p>
-                <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="3" style="text-transform: uppercase;">
+                <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{{ code_lengte }}" style="text-transform: uppercase;">
                 <button id="wijzigCodeBtn">Code wijzigen</button>
             </div>
 

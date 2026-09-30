@@ -53,12 +53,12 @@ def portfolio_pagina(code):
         return redirect(url_for("home", melding=MELDING_ONGELDIGE_CODE))
     if code != genormaliseerd:
         return redirect(url_for("portfolio_pagina", code=genormaliseerd))
-    return render_template("portfolio.html", code=genormaliseerd)
+    return render_template("portfolio.html", code=genormaliseerd, code_lengte=CODE_LENGTH)
 
 
 @app.route("/analyse")
 def analyse_pagina():
-    return render_template("portfolio.html")
+    return render_template("portfolio.html", code_lengte=CODE_LENGTH)
 
 @app.route("/upload", methods=["POST"])
 def upload():
