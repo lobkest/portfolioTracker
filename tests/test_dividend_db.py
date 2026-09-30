@@ -21,12 +21,13 @@ from datetime import date
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
 
-@unittest.skipUnless(
-    os.environ.get("DATABASE_URL"),
-    "DATABASE_URL niet ingesteld -- deze test raakt een echte database aan en wordt overgeslagen "
-    "(bv. in CI zonder databasetoegang; draait lokaal wel via de .env)",
-)
+
+@vereist_database
 class TestDividendOpslaanEnOphalen(unittest.TestCase):
     TEST_CODE = "TESTDIV"
 

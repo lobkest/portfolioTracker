@@ -23,6 +23,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
+
 import ticker_zekerheid
 import ticker_prijscheck
 from ticker_zekerheid import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
@@ -181,11 +186,7 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
         self.assertNotIn("wijkt meer dan", resultaat["waarschuwing"])  # oude %-drempel-formulering weg
 
 
-@unittest.skipUnless(
-    os.environ.get("DATABASE_URL"),
-    "DATABASE_URL niet ingesteld -- deze test raakt de ticker_prijscheck-tabel in de echte database aan "
-    "(bv. in CI zonder databasetoegang; draait lokaal wel via de .env)",
-)
+@vereist_database
 class TestBackfillHighLowDoUpdate(unittest.TestCase):
     """Regressietest voor het bekende ON CONFLICT DO NOTHING-patroon (zie
     CLAUDE.md: DeGiro-bestanden, save_dividenden()): een hernieuwde save_prijscheck-

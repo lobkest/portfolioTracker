@@ -25,11 +25,13 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
-from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-load_dotenv()
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
 
 import ticker_matching
 from ticker_matching import find_ticker_detailed
@@ -81,13 +83,7 @@ class TestFindTickerDetailedFiltertCorporateActionRijen(unittest.TestCase):
         self.assertEqual(resultaat["alternatieven"], [])
 
 
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
-
-
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+@vereist_database
 class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
     """GET /api/portfolio/<code>/ticker-zekerheid/lijst mag een NON
     TRADEABLE-rij (ook op een niet-DEG-beurs) nooit als eigen positie

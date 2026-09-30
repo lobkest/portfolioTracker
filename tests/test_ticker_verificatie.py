@@ -33,6 +33,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
+
 import ticker_zekerheid
 import ticker_prijscheck
 from ticker_zekerheid import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, BEURS_MAP
@@ -170,11 +175,7 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
         self.assertEqual(call_count["ALT1"], 1)
 
 
-@unittest.skipUnless(
-    os.environ.get("DATABASE_URL"),
-    "DATABASE_URL niet ingesteld -- deze test raakt de ticker_prijscheck-cache in de echte database aan "
-    "(bv. in CI zonder databasetoegang; draait lokaal wel via de .env)",
-)
+@vereist_database
 class TestPrijscheckCache(unittest.TestCase):
     """Spoor 2: een (ticker, datum)-combinatie die al in ticker_prijscheck
     staat mag geen nieuwe Yahoo-aanroep (_haal_koers_en_dagrange_op)

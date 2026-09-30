@@ -22,11 +22,13 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
-from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-load_dotenv()
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
 
 import ticker_zekerheid
 
@@ -50,13 +52,7 @@ def tearDownModule():
     _openfigi_patcher.stop()
 
 
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
-
-
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+@vereist_database
 class TestTickerZekerheidPositieRoute(unittest.TestCase):
     TEST_CODE = "TESTPOS"
     ISIN = "US0378331005"
@@ -148,7 +144,7 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
         self.assertEqual(res.status_code, 404)
 
 
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+@vereist_database
 class TestTickerZekerheidLijstRoute(unittest.TestCase):
     """De lichte lijst-route mag geen prijscontrole doen -- alleen isin/
     beurs/naam per positie, zodat dit vrijwel instant is."""

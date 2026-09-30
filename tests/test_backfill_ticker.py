@@ -20,11 +20,13 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
-from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-load_dotenv()
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
 
 import ticker_zekerheid
 from ticker_zekerheid import _ticker_heeft_prijsprobleem, backfill_verouderde_tickers
@@ -58,13 +60,7 @@ class TestTickerHeeftPrijsprobleem(unittest.TestCase):
         self.assertFalse(_ticker_heeft_prijsprobleem("AAPL", []))
 
 
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test raakt een echte database aan en wordt overgeslagen "
-    "(bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
-
-
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+@vereist_database
 class TestBackfillVerouderdeTickers(unittest.TestCase):
     """Reproductie van het G2X.MU-geval: een al opgeslagen ticker zonder
     koersdata moet vervangen worden door een werkende kandidaat (GDX.L),
@@ -163,7 +159,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         self.assertEqual(gecorrigeerd, 0)
 
 
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+@vereist_database
 class TestBackfillMetForceerVlag(unittest.TestCase):
     """Vinkje "ticker-informatie opnieuw bepalen" op het uploadscherm (zie
     app.py/_upload_impl, CLAUDE.md: Flows): forceer=True overroept de prijsprobleem-

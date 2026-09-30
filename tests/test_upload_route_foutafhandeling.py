@@ -18,22 +18,13 @@ from io import BytesIO
 from unittest.mock import patch
 
 import pandas as pd
-from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# db.py laadt .env ook zelf, maar pas bij de import van app.py binnen setUp()
-# -- te laat voor de skipUnless-decorators hieronder, die al bij het
-# IMPORTEREN van dit testbestand geëvalueerd worden. Zonder deze eigen
-# load_dotenv() zou DATABASE_URL hier nog leeg zijn wanneer dit bestand als
-# eerste (of enige) module geïmporteerd wordt, en zouden deze tests dus ten
-# onrechte overgeslagen worden ondanks een geldige lokale .env.
-load_dotenv()
-
-SKIP_REDEN = (
-    "DATABASE_URL niet ingesteld -- deze test importeert app.py (init_db() draait bij import) en wordt "
-    "overgeslagen (bv. in CI zonder databasetoegang; draait lokaal wel via de .env)"
-)
+try:
+    from db_helper import vereist_database
+except ImportError:
+    from tests.db_helper import vereist_database
 
 
 def _maak_transacties_excel(n_posities=5):
@@ -63,7 +54,7 @@ BASIS_RESULTAAT = {
 }
 
 
-@unittest.skipUnless(os.environ.get("DATABASE_URL"), SKIP_REDEN)
+@vereist_database
 class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
     """Regressietest: het 'niet opslaan'-pad mag de dure,
     prijs-geverifieerde check niet meer synchroon voor de volle portfolio
