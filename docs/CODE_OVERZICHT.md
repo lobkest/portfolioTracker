@@ -1,10 +1,9 @@
 # Code-overzicht — Portfolio Dashboard (portfolioTracker)
 
-> Geschreven op 2026-09-21, laatst bijgewerkt op 2026-09-25 (na de opruimronde: dode code, test-only velden en uitgecommentarieerde prints weg),
-> op basis van de code in de werkmap (laatste commit `28fb85d`, "cleaner", plus de nog niet gecommitte opruimwijzigingen).
+> Laatst gecontroleerd tegen de code op 2026-09-30 (commit `ad391b8`).
 > Alles hieronder is uit de bronbestanden gelezen, niet uit CLAUDE.md overgenomen. Waar ik iets niet zeker
-> kon vaststellen staat het woord **onzeker**. Waar CLAUDE.md en de code verschillen, staat dat onderaan
-> bij [Afwijkingen](#afwijkingen-claudemd-versus-de-code).
+> kon vaststellen staat het woord **onzeker**. Hoe CLAUDE.md en de code zich tot elkaar verhouden, staat onderaan
+> bij [Stand van zaken](#stand-van-zaken-claudemd-en-de-code).
 
 ## Inhoud
 
@@ -17,8 +16,8 @@
 7. [Tests](#7-tests)
 8. [Waar moet ik zijn als ik ... wil aanpassen?](#8-waar-moet-ik-zijn-als-ik--wil-aanpassen)
 9. [Woordenlijst](#9-woordenlijst)
-10. [Aanbevolen leesvolgorde](#10-aanbevolen-leesvolgorde)
-11. [Afwijkingen: CLAUDE.md versus de code](#afwijkingen-claudemd-versus-de-code)
+10. [Leesgids: van full-stack-basis naar deze code](#10-leesgids-van-full-stack-basis-naar-deze-code)
+11. [Stand van zaken: CLAUDE.md en de code](#stand-van-zaken-claudemd-en-de-code)
 12. [Onzekerheden en open vragen](#onzekerheden-en-open-vragen)
 
 ---
@@ -42,7 +41,7 @@ Je kunt ook **"Niet opslaan"** kiezen: dan wordt er niets in de database bewaard
 
 | Wat | Waar | Toelichting |
 |---|---|---|
-| Ingangspunt | `app.py` | Bevat `app = Flask(__name__)` (regel 27). Dit `app`-object is wat een WSGI-server nodig heeft. |
+| Ingangspunt | `app.py` | Bevat `app = Flask(__name__)` (regel 33). Dit `app`-object is wat een WSGI-server nodig heeft. |
 | Database initialiseren | `app.py` regel 36: `init_db()` | Staat **op moduleniveau** (dus bij het *importeren* van `app.py`, niet in `if __name__ == "__main__"`), achter `if os.environ.get("DATABASE_URL")`. Daardoor draait het onder gunicorn, en in een test die `app` importeert alleen als `DATABASE_URL` is ingesteld. |
 | Lokaal draaien | `python app.py` | Onderaan `app.py`: `app.run(debug=True)`. Alleen bedoeld voor lokaal. |
 | Configuratie | `.env` met `DATABASE_URL` | `db.py` roept `load_dotenv()` aan; `get_db_connection()` doet `psycopg2.connect(os.environ["DATABASE_URL"])`. Zonder `DATABASE_URL` slaat `app.py` `init_db()` over; pas de eerste echte databasecall crasht dan met een `KeyError`. |
@@ -56,14 +55,14 @@ Wat `init_db()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF
 ### Hoe de modules elkaar aanroepen
 
 Lagen (van boven naar beneden): **browser → routes → orkestratie → analyse/ticker-logica → data/infra → extern**.
-Pijlen betekenen "importeert" (en dus "roept aan"). `debug_utils.py` (alleen `dprint()`/`meet_tijd()`) is weggelaten uit
-het diagram omdat bijna elke module het importeert; de exacte importlijst per module staat in de tabel eronder.
+Pijlen betekenen "importeert" (en dus "roept aan"). `debug_utils.py` (alleen `dprint()`/`meet_tijd()`) en `diagnostiek.py` (meldingen
+per laadbeurt) zijn weggelaten uit het diagram omdat veel modules ze importeren; de exacte importlijst per module staat in de tabel eronder.
 
 ```mermaid
 flowchart LR
     subgraph FE["Browser"]
         HTML["templates/index.html"]
-        JS["static/js/<br/>app.js, menu.js, prognose.js,<br/>transacties.js, bedrijven.js, infotip.js"]
+        JS["static/js/<br/>app.js, menu.js, prognose.js,<br/>transacties.js, bedrijven.js, infotip.js,<br/>diagnostiek.js, bestandskeuze.js"]
     end
 
     subgraph ROUTES["Routes"]
@@ -170,14 +169,14 @@ flowchart LR
 
 Als je Markdown-preview geen Mermaid toont: GitHub rendert dit blok wel.
 
-Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` staat erbij):
+Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `diagnostiek` staan erbij):
 
 | Module | Importeert van andere projectmodules |
 |---|---|
-| `app.py` | `db`, `debug_utils`, `dividend`, `portfolio_admin`, `portfolio_calc`, `portfolio_orchestratie`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_zekerheid`, `upload_verwerking`, `yahoo_client` |
-| `upload_verwerking.py` | `db`, `debug_utils`, `dividend`, `portfolio_admin`, `ticker_zekerheid` |
-| `portfolio_orchestratie.py` | `db`, `debug_utils`, `dividend`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_utils` |
-| `portfolio_calc.py` | `debug_utils`, `transactie_utils` |
+| `app.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `portfolio_calc`, `portfolio_orchestratie`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_zekerheid`, `upload_verwerking`, `yahoo_client` |
+| `upload_verwerking.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `ticker_zekerheid`, `transactie_utils` |
+| `portfolio_orchestratie.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_utils` |
+| `portfolio_calc.py` | `debug_utils`, `diagnostiek`, `transactie_utils` |
 | `statistieken.py` | `transactie_utils` |
 | `portfolio_verdeling.py` | `ticker_classificatie` |
 | `dividend.py` | `db` |
@@ -185,12 +184,13 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` staat 
 | `ticker_prijscheck.py` | `db`, `debug_utils`, `prijzen`, `ticker_classificatie`, `yahoo_client` |
 | `ticker_matching.py` | `db`, `debug_utils`, `transactie_utils`, `yahoo_client` |
 | `ticker_classificatie.py` | `db`, `debug_utils`, `etf_holdings_provider`, `yahoo_client` |
-| `prijzen.py` | `db`, `debug_utils`, `yahoo_client` |
+| `prijzen.py` | `db`, `debug_utils`, `diagnostiek`, `yahoo_client` |
 | `etf_holdings_provider.py` | `debug_utils` |
-| `db.py`, `debug_utils.py`, `portfolio_admin.py`, `transactie_utils.py`, `yahoo_client.py` | *(geen)* — het zijn de "bladeren" van de boom |
+| `debug_utils.py`, `yahoo_client.py` | `diagnostiek` |
+| `db.py`, `diagnostiek.py`, `portfolio_admin.py`, `transactie_utils.py` | *(geen)* — het zijn de "bladeren" van de boom |
 
-Er zijn geen circulaire imports; dat is precies waarom `transactie_utils.py` en `yahoo_client.py` als losse, afhankelijkheidsloze
-modules bestaan: helpers die meerdere domeinmodules nodig hebben, zouden anders een import in een kring opleveren.
+Er zijn geen circulaire imports; dat is precies waarom `transactie_utils.py` en `yahoo_client.py` als losse modules bestaan, die
+zelf hooguit `diagnostiek` importeren: helpers die meerdere domeinmodules nodig hebben, zouden anders een import in een kring opleveren.
 
 ### De vier "soorten" code, kort
 
@@ -330,7 +330,7 @@ bijgehaald, tenzij dezelfde ticker minder dan 2 minuten eerder al is ververst (`
 
 ## 3. Per Python-module
 
-18 Python-modules (zonder tests), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
+19 Python-modules (zonder tests), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
 De kolom **"Aangeroepen door"** is met een script uit de code afgeleid (een AST-doorloop van alle `.py`-bestanden); "—" betekent: geen
 aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, via een dict of via HTTP gebruikt — dat staat erbij).
 
@@ -393,8 +393,8 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 - Er is **geen authenticatie of gebruikersbegrip**: wie een code kent, kan alles lezen, wijzigen en met de `DELETE`-route verwijderen.
 - De route-functie `dividend()` heeft dezelfde naam als de module `dividend.py`. Dat werkt omdat `app.py` alleen losse functies uit die module
   importeert, maar het is verwarrend bij zoeken.
-- Alle routes worden door de frontend gebruikt; de oude alles-in-één-route `GET /api/portfolio/<code>/ticker-zekerheid` en `/dbtest` zijn verwijderd
-  (vervangen door `/ticker-zekerheid/lijst` + `/ticker-zekerheid/positie`).
+- Alle routes worden door de frontend gebruikt. Ticker-zekerheid gaat in twee stappen: `/ticker-zekerheid/lijst` (snel) en daarna per positie
+  `/ticker-zekerheid/positie`, zodat geen enkel request lang genoeg duurt voor de gunicorn-timeout.
 
 ---
 
@@ -489,7 +489,7 @@ dezelfde dag verwerken gaf een "onbekende" verkoopkoers op Statistieken. Een ont
 
 `DEBUG = True` (bovenin), `dprint()` (print alleen als `DEBUG`) en `meet_tijd(label)` (contextmanager die `[timing] label: 0.42s` print). Alles staat standaard
 **aan**, dus ook productie print de `dprint`-regels. Alle geprinte vaste tekst is ASCII (`WARN`/`OK` i.p.v. emoji), zodat een Windows-console met cp1252
-niet crasht. Uitgecommentarieerde prints bestaan niet meer: wat niet gelogd hoeft te worden, is verwijderd.
+niet crasht. Er staan geen uitgecommentarieerde prints in de code: wat niet gelogd hoeft te worden, staat er niet.
 
 ---
 
@@ -583,8 +583,9 @@ niets gelogd).
 - De crop-range per ticker: begint 1 dag vóór de eerste activiteit, eindigt 1 dag ná de laatste als de positie niet meer wordt aangehouden. "Nog in bezit" is bepaald
   op het **aandelenaantal** (`abs(holdings) > 1e-6`), niet op `geinvesteerd` (dat blijft na een winstgevende verkoop > 0). De crop-range telt ook datums met "activiteit" mee, zodat een koop + volledige
   verkoop op één dag (aantal per saldo 0) toch zichtbaar blijft. `compute_per_ticker_koers_en_aankopen()` gebruikt dezelfde crop-logica (bewust gekopieerd, niet gedeeld).
-- **Onzeker:** ik vond geen unit test die `compute_split_adjusted_shares()` zelf met een getal doorrekent (de tests geven `adj_aantal` als invoer of mocken de
-  functie). Of de detectie voor alle DeGiro-variantexports werkt, kan ik dus niet uit de code alleen afleiden.
+- `compute_split_adjusted_shares()` wordt met één getalvoorbeeld getest (`tests/test_diagnostiek_laden.py`: 10 stuks + 30 nieuwe → factor 4); de meeste
+  andere tests geven `adj_aantal` als invoer of mocken de functie. **Onzeker:** of de detectie voor alle DeGiro-variantexports werkt, is niet uit de code
+  alleen af te leiden.
 
 ---
 
@@ -911,7 +912,7 @@ Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMAT
 - Land via ISIN-prefix is het land van registratie, niet waar het bedrijf actief is (bv. een Britse ISIN voor het Zuid-Afrikaanse AngloGold Ashanti).
 - Voor iShares/blackrock.com-URL's mag **geen `asOfDate`** in de URL (een datum die niet exact klopt geeft een lege CSV, geen fout).
 - VWCE.AS en VUSA.AS (Vanguard) staan er bewust niet in: de Vanguard-download loopt via een GraphQL-API; ze vallen terug op `yfinance_top10`.
-  Er is daarom ook geen Vanguard-parser (meer); `_PROVIDER_PARSERS` kent alleen `"ishares"` en `"vaneck"`.
+  Er is daarom ook geen Vanguard-parser; `_PROVIDER_PARSERS` kent alleen `"ishares"` en `"vaneck"`.
 
 ---
 
@@ -1047,26 +1048,28 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 | Bestand | Rol |
 |---|---|
 | `templates/index.html` | De **enige pagina**. Twee grote blokken: `#uploadSection` (upload- en code-formulier) en `#dashboardSection` (zijmenu + `.content`). Alle tabblad-secties staan er al in als verborgen `<div>`'s (`#statistiekenSectie`, `#transactiesSectie`, `#etfOverlapSectie`, `#prognoseSectie`, ...). Eén gedeelde `<canvas id="rendementChart">` in `#chartWrapper` dient voor **alle** grafiek-tabbladen. |
-| `static/js/app.js` | Vrijwel alle logica (~4000 regels): globale toestand, `fetch()`-aanroepen, tekenen van grafieken en tabellen, navigatie, event-handlers. |
+| `static/js/app.js` | Vrijwel alle logica (~3700 regels): globale toestand, `fetch()`-aanroepen, tekenen van grafieken en tabellen, navigatie, event-handlers. |
 | `static/js/prognose.js` | Rekenkern van het Prognose-tabblad: `berekenPrognose()` (gebruikt `berekenPrognosePad()`, `berekenGeinvesteerdPad()` en `maandRenteVanJaarPct()`), `valideerPrognoseInvoer()`, `genereerToekomstDatums()` en `bouwPrognoseGrafiekData()`. Puur JS, geen DOM. Maandrente = `(1 + jaarrendement)^(1/12) − 1`; inleg komt na de groei van die maand erbij. |
 | `static/js/menu.js` | Twee kleine pure functies voor het hamburgermenu: `volgendeMenuOpenStatus()`, `menuOpenStatusNaViewKeuze()`. |
 | `static/js/transacties.js` | Sorteren en pagineren voor het Transacties-tabblad: `sorteerTransacties()`, `totaalPaginas()`, `pagineer()`. |
 | `static/js/bedrijven.js` | Pure logica voor het Top-N-bedrijven-tabblad: `maakBedrijfsnaamLeesbaar()` en `maakUniekeWeergaveNamen()` (nettere namen, **alleen voor weergave**; de ruwe naam blijft de sleutel), `breekLabelAf()`, `effectieveTopN()`, `kiesTopN()`, `snijTopBedrijven()` (lijst inkorten tot N en het restant herberekenen), `gebruikHorizontaleStaven()`, `bedrijvenTitel()` en de constante `BEDRIJVEN_TOP_N_KNOPPEN`. |
+| `static/js/diagnostiek.js` | Pure logica voor Instellingen → Diagnostiek: `voegMeldingenSamen()` (nieuwste wint per categorie + sleutel), `telPerNiveau()`, `groepeerPerCategorie()`, `diagnostiekTellerTekst()`, `hoogsteNiveau()`, `categorieStandaardOpen()`. Het tekenen zelf gebeurt in `toonDiagnostiek()` in `app.js`. |
+| `static/js/bestandskeuze.js` | Eén pure functie `bestandSelectieWeergave()`: welke tekst de rij "gekozen bestand + x-knop" onder een bestandsveld toont. De DOM-kant is `koppelBestandWisKnop()` in `app.js`. |
 | `static/js/infotip.js` | Bouwt van `<span class="infoTip">` een (i)-knop met tooltip (`initInfoTips()`, start vanzelf bij `DOMContentLoaded`). Raakt de DOM, heeft geen exports en (nog) geen test. |
 | `static/css/style.css` | Opmaak; onder `@media (max-width: 768px)` (en liggend tot 900 px) wordt het zijmenu een uitschuifbaar paneel met hamburgerknop. `.badge` (+ kleurvariant `.badgeHerinvesteerd`) is het kleine label in een tabelcel; de "Deels verkocht"/"Gesloten"-badge op Statistieken heeft dezelfde vorm maar gebruikt nog inline stijlen. Er is geen dark mode. |
 
 **Laadvolgorde in `index.html`:** eerst de externe bibliotheken van cdnjs (Chart.js 4.4.0, hammer.js 2.0.8, chartjs-plugin-zoom 2.0.1, chartjs-plugin-datalabels 2.2.0,
-chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1), dan `prognose.js`, `menu.js`, `bedrijven.js`, `infotip.js`, `transacties.js` en als laatste `app.js`.
+chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1), dan `prognose.js`, `menu.js`, `diagnostiek.js`, `bedrijven.js`, `infotip.js`, `transacties.js`, `bestandskeuze.js` en als laatste `app.js`.
 Ze zijn gewone `<script>`-tags, geen ES-modules.
 
-**Het "pure module"-patroon.** `prognose.js`, `menu.js`, `transacties.js` en `bedrijven.js` zijn een IIFE `(function (root) { ... })(window of globalThis)` die aan het eind ofwel
+**Het "pure module"-patroon.** `prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `diagnostiek.js` en `bestandskeuze.js` zijn een IIFE `(function (root) { ... })(window of globalThis)` die aan het eind ofwel
 `module.exports` zet (onder Node, voor de tests) ofwel `Object.assign(root, exportsObj)` (in de browser). Daardoor worden hun functies gewone **globale functies** waar `app.js` ze
 zonder `import` kan aanroepen — en tegelijk zijn ze met `node --test` te testen zonder browser. Zo'n bestand raakt bewust geen DOM aan.
 
 **Rekenen in Python, tonen in JS.** Financiële en inhoudelijke berekeningen (sommen, percentages, rendement, aggregaties, top-N + Overig) horen in de backend en
-worden met Python-unittests getest; de frontend doet formatteren, sorteren, kleuren en grafiekconfiguratie. Zo zijn o.a. de ETF/aandeel-verhouding
+worden met Python-unittests getest; de frontend doet formatteren, sorteren, kleuren en grafiekconfiguratie. Zo komen o.a. de ETF/aandeel-verhouding
 (`verdeling_samenvatting`), `nog_in_bezit` op `per_ticker_aankoop`, de `holdings` van `/ticker-koers-bereik` en de top-10 + Overig van de Land-staaf
-(`land_per_bron_top`) uit `app.js` naar de backend verplaatst. Drie bewuste uitzonderingen: `prognose.js` (puur, getest, werkt op gebruikersinvoer, geen
+(`land_per_bron_top`) kant-en-klaar uit de backend. Drie bewuste uitzonderingen: `prognose.js` (puur, getest, werkt op gebruikersinvoer, geen
 netwerkaanroep nodig) en `snijTopBedrijven()` in `bedrijven.js`, die `overigPct` herberekent zodat de top-N zonder request te kiezen is (afwijking t.o.v. de
 backend hooguit ±0,01% door afronding). En de derde: `renderGestapeldeStaafgrafiek()` voegt bronnen onder `BRON_OVERIG_DREMPEL` (0,5%)
 samen tot "Overige bronnen" — dat ruimt alleen de legenda op en verandert de data niet (de staafhoogtes blijven gelijk). Daarnaast telt die functie per
@@ -1081,8 +1084,9 @@ Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) 
   bijnaam/reset/wijzig-code — zo verdwijnen de al opgehaalde verrijkingsvelden niet.
 - Er wordt **niets** in `localStorage`/`sessionStorage` bewaard (geen enkel gebruik in de JS-bestanden gevonden). Pagina verversen betekent dus terug naar het uploadscherm; met je code haal je alles weer op.
 - Overige toestand in `app.js`: `chart`, `verrijkingStatus` (`null`/`"laden"`/`"fout"`/`"klaar"`), `prognoseInvoer` en `prognoseResultaat`, `benchmarkVergelijkingData` en `eigenAandeelVergelijkingData`,
-  `transactiesRuweLijst` met sorteer- en paginatoestand, `landSectorWeergave` (`"taart"`/`"staaf"`), `meerHistorieUitgeput`, `menuOpen` en `bedrijvenTopN`.
-- `toonDashboard()` **reset** de toestand die bij één portfolio hoort (prognose, benchmarkkeuzes, meer-historie-knoppen, transactielijst), zodat niets van een vorige portfolio blijft hangen.
+  `transactiesRuweLijst` met sorteer- en paginatoestand, `landSectorWeergave` (`"taart"`/`"staaf"`), `meerHistorieUitgeput`, `menuOpen`, `bedrijvenTopN`, en
+  `diagnostiekMeldingen` + `diagnostiekOpenKeuze` (de meldingen van de laatste laadbeurt en welke categorieën je zelf open/dicht hebt gezet).
+- `toonDashboard()` **reset** de toestand die bij één portfolio hoort (prognose, benchmarkkeuzes, meer-historie-knoppen, transactielijst, diagnostiek), zodat niets van een vorige portfolio blijft hangen.
 
 ### 5.3 Navigatie en menu
 
@@ -1115,6 +1119,7 @@ Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) 
 | Instellingen (`instellingen`) | *(geen toon-functie; statische sectie `#instellingenHoofdSectie`)* | `DELETE /api/portfolio/<code>`; `POST .../wijzig-code` | twee formulier-achtige knoppen: data verwijderen, code wijzigen |
 | Bijnamen (`instellingen-bijnamen`) | `toonInstellingen()`; `slaBijnaamOp()`, `resetBijnaam()` | `huidigeData.tickers`; `POST .../bijnaam` en `.../reset-bijnaam` | invoerrij per ticker |
 | Ticker-zekerheid (`instellingen-ticker`) | `toonInstellingenTicker()` (opgeslagen) of `toonInstellingenTickerBasis()` (niet opslaan) | `GET .../ticker-zekerheid/lijst`, dan per positie `GET .../ticker-zekerheid/positie` (maximaal 4 tegelijk, `voerMetConcurrencyLimietUit()`, 30 s per aanroep); bij "niet opslaan" `huidigeData.ticker_zekerheid` en `POST /api/ticker-zekerheid-check` | kaarten per positie (`maakTickerZekerheidKaart()`, `maakPrijscontroleTabel()`, `maakAlternatievenTabel()`, ...) |
+| Diagnostiek (`instellingen-diagnostiek`) | `toonDiagnostiek()` | **geen eigen API**: de `diagnostiek`-sleutel uit de antwoorden van upload, ophalen en `/verrijking`, verzameld in `diagnostiekMeldingen` | teller + één inklapbaar `<details>`-blok per categorie (zie `diagnostiek.py` in hoofdstuk 3) |
 
 Bij Verdeling/Land/Sector/Bedrijven/ETF-overlap begint elke `toon...()` met `toonVerrijkingWachtstatusIndienNodig()`: staat `verrijkingStatus` op `"laden"` of `"fout"`, dan wordt "Bezig met laden..." resp. een foutmelding met "Opnieuw proberen"-knop
 (`#verrijkingOpnieuwBtn` → `laadVerrijking()`) getoond en stopt de functie.
@@ -1167,17 +1172,17 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 56 bestanden `tests/test_*.py` met samen 511 `def test_...`-methodes (geteld op 2026-09-25, na de Diagnostiek-uitbreiding). Geen `tests/__init__.py`; elk bestand zet zelf
+- **Python:** `unittest` (geen pytest), 57 bestanden `tests/test_*.py` met samen 519 `def test_...`-methodes (geteld op 2026-09-30). Geen `tests/__init__.py`; elk bestand zet zelf
   `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt.
-- **JavaScript:** 6 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-25 slaagden alle 89 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 4, `test_diagnostiek.js` 12).
+- **JavaScript:** 6 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-30 slaagden alle 89 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 4, `test_diagnostiek.js` 12).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `bestandskeuze.js`, `diagnostiek.js`).
   `test_menu.js` leest daarnaast `style.css` en `index.html` als tekst om mobiele CSS-regels te bewaken.
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
-- **Wat ik zelf gedaan heb:** op 2026-09-25 (na de Diagnostiek-uitbreiding) de JS-tests (89 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (in Git Bash, zodat `.env` niet wordt ingelezen; in cmd werkt dat niet, zie 7.3): 511 tests, waarvan 456 uitgevoerd en geslaagd en 55 overgeslagen. De 40 database-vrije bestanden (419 tests) draaien volledig; de 16 **[DB]**-bestanden (92 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
+- **Wat ik zelf gedaan heb:** op 2026-09-30 de JS-tests (89 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (in Git Bash, zodat `.env` niet wordt ingelezen; in cmd werkt dat niet, zie 7.3): 519 tests, waarvan 481 uitgevoerd en geslaagd en 38 overgeslagen. De 45 database-vrije bestanden (440 tests) draaien volledig; de 12 **[DB]**-bestanden (79 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
 
 ### 7.2 Welk testbestand hoort bij welke module
 
-Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonder bereikbare lokale database (localhost/127.0.0.1), omdat het de echte database aanraakt (direct, of via een functie die niet gemockt is). Alleen `app.py` importeren is geen reden meer: `init_db()` draait alleen met `DATABASE_URL`.
+Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonder bereikbare lokale database (localhost/127.0.0.1), omdat het de echte database aanraakt (direct, of via een functie die niet gemockt is). Alleen `app.py` importeren is geen reden om over te slaan: `init_db()` draait alleen met `DATABASE_URL`.
 
 | Module | Testbestanden |
 |---|---|
@@ -1193,10 +1198,11 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonde
 | `etf_holdings_provider.py` | `test_etf_holdings_bron.py` (26) |
 | `portfolio_admin.py` | `test_code_validatie.py` (5) |
 | `db.py` (echte database) | `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_laatste_prijs_update.py` (3) — allemaal **[DB]** |
+| `tests/db_helper.py` (de skip-decorator zelf) | `test_db_helper.py` (8, database-vrij: alleen localhost/127.0.0.1 toegestaan, Neon-URL geweigerd vóór een verbindingspoging) |
 | Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | database-vrij: `test_basis_cache.py` (3), `test_herbepaal_tickers_ophalen_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (4); `test_upload_route_foutafhandeling.py` (5, deels **[DB]**); **[DB]**: `test_gefaseerd_laden.py` (4), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_ticker_zekerheid_positie_route.py` (4), `test_corporate_action_filtering.py` (7) |
 | JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js`, `test_bestandskeuze.js`, `test_diagnostiek.js` |
 
-**Niet (direct) getest, voor zover ik zag:** `dprint()` in `debug_utils.py` (`meet_tijd()` wel, via `test_diagnostiek_laden.py`), `infotip.js` en `app.js` als geheel. `compute_split_adjusted_shares()` heeft sinds `test_diagnostiek_laden.py` één test met een echt getal (factor 4).
+**Niet (direct) getest, voor zover ik zag:** `dprint()` in `debug_utils.py` (`meet_tijd()` wel, via `test_diagnostiek_laden.py`), `infotip.js` en `app.js` als geheel. `compute_split_adjusted_shares()` heeft één test met een echt getal (factor 4, in `test_diagnostiek_laden.py`).
 
 ### 7.3 Draaien
 
@@ -1296,30 +1302,27 @@ Symptomen: een waarschuwingsbanner bovenaan ("koers wijkt af van Yahoo"), een po
 5. Je hoeft de cache niet te legen: `get_etf_holdings()` probeert een verse `yfinance_top10`-cache alsnog te upgraden naar `provider_csv` zodra er een provider-URL bekend is.
 6. Test: zie `tests/test_etf_holdings_bron.py` als voorbeeld. Vanguard-ETF's (VWCE.AS, VUSA.AS) horen er bewust niet in.
 
-### 8.6 De kleine UI-aanpassingen van de laatste tijd, als voorbeeld
+### 8.6 Voorbeeld: kleine UI-wijzigingen
 
-Beide zaten in commit `584e224` ("small fixes", 2026-09-21). Dat commit raakte 9 bestanden; hier alleen wat bij deze twee wijzigingen hoorde.
+Twee soorten kleine wijzigingen, en welke bestanden je daarvoor raakt.
 
-**Het Land-vinkje ("Europese landen samenvoegen") verplaatsen**
+**Een element verplaatsen, zoals het Land-vinkje ("Europese landen samenvoegen")**
 
-| Bestand | Wat er gebeurde |
+| Bestand | Wat je aanpast |
 |---|---|
-| `templates/index.html` | Het blok `<label id="europaCheckboxWrapper">` verhuisde van binnen `#landWeergaveOpties` (naast de weergave-knop) naar direct onder `#chartWrapper`. |
-| `static/js/app.js` | **Niet nodig** voor de verplaatsing zelf: `toonLand()` zoekt het element op `id` (`europaCheckboxWrapper`, `europaCheckbox`), dus zolang de id's gelijk blijven werkt de JS ongewijzigd. |
+| `templates/index.html` | Het blok `<label id="europaCheckboxWrapper">` staat direct onder `#chartWrapper`; verplaatsen = dit blok elders in de HTML zetten. |
+| `static/js/app.js` | **Niets**: `toonLand()` zoekt het element op `id` (`europaCheckboxWrapper`, `europaCheckbox`), dus zolang de id's gelijk blijven werkt de JS ongewijzigd. |
 
-Les: verplaats je een element **zonder de id te wijzigen**, dan blijft de HTML-wijziging genoeg.
+Les: verplaats je een element **zonder de id te wijzigen**, dan is de HTML-wijziging genoeg.
 
-**Hulptekst-icoontjes (i) in plaats van vaste hulptekst**
+**Een hulptekst-icoontje (i) toevoegen**
 
-| Bestand | Wat er gebeurde |
+| Bestand | Wat je aanpast |
 |---|---|
-| `templates/index.html` | De `<p class="hint">…</p>` onder een label werd `<div class="labelRij"><label>…</label><span class="infoTip" data-label="…">uitlegtekst</span></div>`; plus een `<script src=".../infotip.js">`-regel. |
-| `static/js/infotip.js` | **Nieuw bestand**: bouwt van elke `.infoTip` een (i)-knop met tooltip (hover, focus, tik; Escape en klik buiten sluiten). |
-| `static/css/style.css` | `.hint` weg; nieuw: `.labelRij`, `.infoTipKnop`, `.infoTipTekst`, `.infoTip.open .infoTipTekst`. |
-| Tests | Geen: `infotip.js` heeft geen test en de CI draait er geen JS-test voor. |
-
-Ander werk in dezelfde commit: de knop "Bereken per dag" is verwijderd (`index.html`, `app.js`, `app.py`, `statistieken.py`, `tests/test_rendement_over_tijd.py`); in het Transacties-tabblad zijn de kolommen Datum en Tijd samengevoegd tot "Datum & tijd" (`transacties.js`, `app.js`, `tests/test_transacties.js`);
-en er kwam een hint "Klik op een vakje om de vergelijking te zien." op het ETF-overlap-tabblad (`app.js`).
+| `templates/index.html` | Zet naast het label een `<span class="infoTip" data-label="…">uitlegtekst</span>`, samen in een `<div class="labelRij">`. `infotip.js` wordt al geladen. |
+| `static/js/infotip.js` | **Niets**: bouwt bij het laden van elke `.infoTip` een (i)-knop met tooltip (hover, focus, tik; Escape en klik buiten sluiten). |
+| `static/css/style.css` | Niets, tenzij je de opmaak wilt veranderen: `.labelRij`, `.infoTipKnop`, `.infoTipTekst`, `.infoTip.open .infoTipTekst`. |
+| Tests | Geen: `infotip.js` raakt de DOM en heeft geen test. |
 
 **Vuistregel uit deze voorbeelden:** puur visuele wijziging = `index.html` (structuur) en `style.css` (uiterlijk); gedrag = `app.js` of een eigen `static/js/*.js`; verandert een JSON-vorm, dan ook de bijbehorende Python-functie én de test.
 
@@ -1365,67 +1368,412 @@ en er kwam een hint "Klik op een vakje om de vergelijking te zien." op het ETF-o
 | **`dprint` / `meet_tijd`** | Debug-print en tijdmeting (`[timing]`). | `debug_utils.py` |
 | **Neon / Render / gunicorn** | Neon = gehoste PostgreSQL; Render = de hostingdienst; gunicorn = de WSGI-server waarmee Flask in productie draait. | buiten de code (zie hoofdstuk 1) |
 
-## 10. Aanbevolen leesvolgorde
+## 10. Leesgids: van full-stack-basis naar deze code
 
-Van eenvoudig naar complex. Bij elke stap: wat te lezen, en een vraag of oefening waarvan het antwoord in de code (of de bijbehorende tests) staat.
+Dit hoofdstuk heeft twee delen. [10.1](#101-hoe-werkt-een-full-stack-webapp-en-hoe-hangt-dat-samen-in-dit-project) legt uit hoe een full-stack webapp in
+elkaar zit, telkens met een bestand of functie uit dit project als voorbeeld. [10.2](#102-leesvolgorde-in-14-stappen) is een leesvolgorde door de
+code, van eenvoudig naar complex.
 
-| # | Lees | Waarom nu | Vraag of oefening |
-|---|---|---|---|
-| 1 | `debug_utils.py`, `transactie_utils.py`, `portfolio_admin.py` | Klein, geen afhankelijkheden; je ziet de stijl van het project. | Wat gebeurt er in `_sorteer_chronologisch()` met een rij zonder tijd? Bedenk drie ongeldige codes voor `is_geldige_code()` en kijk in `tests/test_code_validatie.py` of ze al getest worden. |
-| 2 | `db.py`: eerst `init_db()`, dan één `get_cached_*`/`save_*`-paar | Het datamodel is de ruggengraat. | Wat gebeurt er met een al bestaande tabel als je een kolom aan zijn `CREATE TABLE IF NOT EXISTS` toevoegt? Wat is het verschil tussen `save_prices()` en `upsert_prices()`? Welke tabellen zijn na `delete_portfolio()` nog gevuld? |
-| 3 | `static/js/menu.js`, `static/js/prognose.js`, `tests/test_menu.js`, `tests/test_prognose.js`; draai `node --test` | Pure JS, geen DOM: de makkelijkste ingang tot de frontend. | Waarom `Math.pow(1 + r/100, 1/12) - 1` als maandrente? Controleer met de hand dat 12 maanden bij 10% jaarrendement weer 10% geeft. |
-| 4 | `templates/index.html` (alleen doorbladeren) en de routelijst in hoofdstuk 3 → `app.py` | Je ziet welke schermen en routes er zijn. | Welke routes doen zelf SQL of validatie in plaats van alleen een orkestratiefunctie aan te roepen (vergelijk met de bijzonderheden bij `app.py`)? |
-| 5 | `upload_verwerking.py` + `find_matching_code()` in `portfolio_admin.py` | De ingang van alle data. | Wat gebeurt er als je dezelfde Excel twee keer uploadt? En bij een upload met 5 nieuwe en zonder 2 oude transacties (denk aan de twee deelverzameling-regels)? |
-| 6 | `portfolio_orchestratie.py`: `_haal_portfolio_basis()`, `analyze_transacties_kern()`, `analyze_transacties_verrijking()` | Hier zie je hoe alles aan elkaar hangt. | Teken op papier welke functies `analyze_transacties_kern()` aanroept en welke JSON-sleutels eruit komen. Waarom bestaat `_wis_portfolio_basis_cache()`? |
-| 7 | `statistieken.py` met `tests/test_rendement.py` en `tests/test_twr.py` | Pure functies: rekenen kun je controleren. | Reken na: 10 stuks à €10 gekocht, 4 verkocht à €20. Wat zijn GAK, kostenbasis van de rest en het gerealiseerde resultaat? (Antwoord volgt uit `bereken_holdings_en_gesloten()`.) |
-| 8 | `portfolio_calc.py` met `tests/test_nog_in_bezit.py`, `tests/test_per_ticker_koers_en_aankopen.py` | De tijdreeksen achter de grafieken. | Waarom wordt "nog in bezit" bepaald op het aantal en niet op `geinvesteerd`? Waarom kan de Home-"geïnvesteerd" afwijken van de som van de per-aandeel-lijnen? |
-| 9 | `prijzen.py` en `yahoo_client.py`, met `tests/test_koersen_cache.py`, `tests/test_fx_caching_en_retry.py` | Alles hangt aan koersen. | Wanneer wordt een ticker `missing`, wanneer `stale`? Waarom staat `FX_ANKER_DATUM` op 2005-01-01? Waarom bestaan er twee retry-functies? |
-| 10 | `dividend.py` met `tests/test_dividend.py` | Een compleet, afgerond stukje domeinlogica met veel randgevallen. | Waarom mag je een dividendrij niet koppelen op `Valutadatum`? Bedenk zelf een voorbeeld met twee dividenden in één conversie en volg `verwerk_rekeningoverzicht_df()` (STAP A). |
-| 11 | `ticker_classificatie.py`, `etf_holdings_provider.py`, `portfolio_verdeling.py` | De verrijking: hoe land/sector/overlap ontstaan. | Hoe komt `"Unknown"` in de landverdeling? Wat gebeurt er als de provider-download mislukt? Waarom is de landverdeling van VWCE.AS grotendeels `Unknown`? |
-| 12 | `ticker_matching.py` → `ticker_prijscheck.py` → `ticker_zekerheid.py`, met `tests/test_ticker_zoeken.py` en `tests/test_snelle_prijscheck.py` | Het ingewikkeldste deel; nu heb je de bouwstenen. | Een positie heeft op de laatste datum 8% afwijking, maar de koers valt binnen de dagrange (± 5%). Escaleert `find_ticker_met_snelle_prijscheck()`? (Kijk naar `_prijscheck_is_probleem()`.) |
-| 13 | `static/js/app.js` in deze volgorde: `toonDashboard()`, `wisselView()`/`pasViewToe()`, `updateChart()`, `toonPortfolio()`, `laadVerrijking()`, tenslotte `toonInstellingenTicker()` | De grootste file; lees hem via de datastroom, niet van boven naar beneden. | Voeg op papier een tab "Notities" toe met de stappen uit 8.1. Welke bestanden raak je? |
-| 14 | `static/css/style.css` en `static/js/infotip.js` | Uiterlijk en gedrag van de kleine onderdelen. | Wat verandert er onder `@media (max-width: 768px)` aan het menu? Hoe werkt de (i)-knop met toetsenbord, muis en tik? |
+### 10.1 Hoe werkt een full-stack webapp (en hoe hangt dat samen in dit project)
 
-Tip: gebruik bij het lezen de tabellen in hoofdstuk 3 als kaart en zoek in de code op de naam van de functie. De docstrings en comments
-in de code zijn bewust kort; het waarom van valkuilen staat in CLAUDE.md ("Achtergrond en eigenaardigheden") en de details staan in dit document.
+#### Frontend en backend
 
-## Afwijkingen: CLAUDE.md versus de code
+Een webapp bestaat uit twee programma's die met elkaar praten:
 
-CLAUDE.md is op 2026-09-22 gesynchroniseerd met deze analyse (toen nog met een eigen wijzigingslog, die bij de herschrijving vervallen is): de ETF-tellers, database-
-kolommen, ticker-zekerheid-route-beschrijving, bestandsstructuur, legacy-verwijzing, `instance/`-notitie, all-time-high-omschrijving,
-de opmerking over routes met eigen SQL, en de eerder ontbrekende tabbladen/features (Rendement-vergelijkingen, XIRR & rendement/TWR,
-Per aandeel aankoop, Top-N bedrijven, ETF-overlap-detail, Transacties, Prognose, Instellingen "Code wijzigen", Statistieken
-"Verkochte posities", ticker-zekerheid-escalatietrapje, hamburgermenu, infotips, `fetchMetTimeout()`) zijn er nu in verwerkt.
-Ook zijn de meest verwarrende `analysis.py`-verwijzingen in de code zelf (die naar niet-bestaande functies/modules wezen)
-rechtgezet — zie hieronder.
+- De **frontend** draait in de browser van de gebruiker: `templates/index.html`, `static/css/style.css` en de bestanden in `static/js/`. De browser
+  downloadt ze één keer en voert ze daarna zelf uit.
+- De **backend** draait op een server (hier: Render): `app.py` en alle andere `.py`-bestanden. De backend leest de database, praat met Yahoo en
+  rekent.
+- De **database** (PostgreSQL bij Neon) is een derde, aparte server. Alleen de backend praat ermee, nooit de browser.
 
-Op 2026-09-25 opnieuw gesynchroniseerd: in CLAUDE.md de `[dividend-debug]`-logging (stond toen uitgecommentarieerd; inmiddels verwijderd), de
-pycountry-toelichting (de Vanguard-parser wordt door geen ETF gebruikt), de emoji-crashlijst en de rate-limit-functies;
-in dit document regelnummers, "Top N bedrijven", de lezers van `portfolios`/`transacties` (`_laad_split_gecorrigeerde_transacties()`)
-en de JSON-velden die de frontend niet leest. In de code zelf zijn verouderde locaties in commentaar/docstrings rechtgezet
-(o.a. `analyze_transacties()` "in app.py", `KOSTEN_KOLOM` "in app.py") en verwijzingen naar niet-bestaande `opdracht_*.md`-bestanden en
-CLAUDE.md-secties verwijderd.
+Full stack betekent: je werkt aan alle lagen tegelijk.
 
-Later op 2026-09-25, na de opruimronde: verwijderd uit de code en dus ook uit dit document zijn `find_ticker()`,
-`_haal_slotkoers_op()`, de Vanguard-parser (`_parse_vanguard_holdings()`/`_regio_naar_land()`), `debug_position()`,
-`test_holdings_url()`, de routes `/dbtest` en `GET /api/portfolio/<code>/ticker-zekerheid`, de alleen-door-tests-gebruikte
-`bereken_holdings_gak()`, `basis_ticker_zekerheid()` en `_openfigi_root_bekend()`, de ongelezen JSON-velden (`land_per_bron`,
-`land_per_bron_europa`, `verdeling_samenvatting.etf_waarde`/`aandeel_waarde`, `bedrijven.top[].totaal_pct`, `basis_alleen`,
-`automatisch_gecorrigeerd_van`) en alle uitgecommentarieerde prints. Geprinte tekst is ASCII (`WARN`/`OK`), dus de
-`PYTHONUTF8=1`-workaround is niet meer nodig. Nieuw: het "herinvesteerd"-label in de dividend-uitkeringenlijst. CLAUDE.md is
-herschreven tot een korte, zelfstandige regelset; de gedetailleerde beschrijving staat alleen nog hier.
+#### HTML, CSS en JavaScript, en waarom dit een single-page application is
 
-**Nog niet in scope (bewust niet aangepakt)**
+- **HTML** is de structuur: welke knoppen, formulieren en vakken er zijn (`templates/index.html`).
+- **CSS** is het uiterlijk: kleuren, afstanden, en hoe het menu op een telefoon een uitschuifpaneel wordt (`static/css/style.css`).
+- **JavaScript** is het gedrag: wat er gebeurt als je klikt, data ophalen, grafieken tekenen (`static/js/`).
 
-- **`.gitignore` bevat `CLAUDE.md`** — bewust: CLAUDE.md is een lokaal bestand (instructies voor Claude Code) en staat daarom
-  niet in `git ls-files`. Git kan het dus ook niet herstellen; maak zelf een kopie vóór grote wijzigingen.
+Dit project is een **single-page application (SPA)**: er is maar één HTML-pagina. Alle tabbladen staan er al in als verborgen `<div>`'s
+(`#statistiekenSectie`, `#transactiesSectie`, ...). Klik je in het menu, dan roept `app.js` `wisselView(view)` aan, en die roept `pasViewToe(view)` aan.
+`pasViewToe()` zet bij de ene sectie `style.display = "block"` en bij de andere `"none"`, en tekent de inhoud met een `toon...()`-functie. De browser
+laadt dus geen nieuwe pagina: dat voelt sneller en de opgehaalde data (`huidigeData`) blijft in het geheugen staan. Keerzijde: verversen
+(F5) gooit dat geheugen weg en je staat weer op het uploadscherm; met je code haal je alles terug.
 
-**Verouderde verwijzingen in de code zelf — grotendeels opgeruimd**
+Het deel van de browser dat de pagina als boom van elementen bijhoudt, heet de **DOM**. `document.getElementById(...)` en `.style.display` zijn
+DOM-aanroepen.
 
-Bij het bijwerken zijn de verwarrende `analysis.py`-verwijzingen (die naar niet-bestaande functies/modules wezen, niet naar de
-huidige module) rechtgezet: 9 regels in `app.py`/`db.py`/`portfolio_orchestratie.py`/`ticker_classificatie.py`/
-`transactie_utils.py` en alle 9 in `static/js/app.js`. Bij de commentaar-opruimronde zijn ook de historische notities
-"Losgetrokken uit `analysis.py`" uit alle modules verwijderd, en daarna ook de vermeldingen van `analysis.py` in de test-docstrings.
+#### API en routes: hoe de browser de server aanroept
+
+De frontend vraagt data op met een **request** (verzoek) aan een **URL**; de backend stuurt een **response** (antwoord) terug. Het afgesproken
+geheel van URL's en antwoorden heet de **API**. Een **route** is één zo'n URL in de backend, gekoppeld aan een Python-functie.
+
+Het request heeft een **HTTP-methode**. De belangrijkste hier: `GET` (iets ophalen, verandert niets) en `POST` (iets insturen of wijzigen). Dit
+project gebruikt daarnaast één keer `DELETE` (portfolio verwijderen).
+
+Het antwoord is bijna altijd **JSON**: tekst in de vorm van JavaScript-objecten (`{"beschikbaar": true, "totaal_netto": 123.45}`). Python maakt
+er met `jsonify()` JSON van; JavaScript maakt er met `res.json()` weer een object van.
+
+Voorbeeld: het Dividend-tabblad. In `app.py`:
+
+```python
+@app.route("/api/portfolio/<code>/dividend")
+def dividend(code):
+    ...
+    samenvatting = bereken_dividend_samenvatting(code)
+    if samenvatting is None:
+        return jsonify({"beschikbaar": False})
+    samenvatting["beschikbaar"] = True
+    return jsonify(samenvatting)
+```
+
+En in `static/js/app.js`, in `toonDividend()`:
+
+```javascript
+res = await fetch(`/api/portfolio/${huidigeData.code}/dividend`);
+data = await res.json();
+```
+
+`fetch()` doet standaard een `GET`. De upload is een `POST`: het formulier gaat als `FormData` (met het Excel-bestand erin) mee in
+`fetchMetTimeout("/upload", { method: "POST", body: formData }, 60000)`, en in `app.py` staat `@app.route("/upload", methods=["POST"])`.
+
+Een route heet ook wel **endpoint**. Hoofdstuk 3 heeft de volledige lijst.
+
+#### Flask: wat een route-functie doet, en waarom `app.py` dun is
+
+**Flask** is de Python-bibliotheek die de routes regelt. `@app.route(...)` boven een functie zegt: "roep deze functie aan als er een request voor
+deze URL binnenkomt". De functie leest wat er meekomt (`request.files`, `request.args`, stukken van de URL zoals `<code>`), doet haar werk en
+geeft een response terug (`jsonify(...)`, eventueel met een statuscode zoals `404`).
+
+`app.py` is bewust **dun**: de route-functies roepen vooral functies uit andere modules aan. De echte logica staat in bijvoorbeeld
+`statistieken.py` of `dividend.py`. Voordelen: die modules zijn te testen zonder een webserver, en een route blijft kort genoeg om in één
+oogopslag te lezen. Een laag die meerdere taakfuncties achter elkaar aanroept, heet **orkestratie** (`portfolio_orchestratie.py`,
+`upload_verwerking.py`).
+
+#### Database: PostgreSQL bij Neon
+
+**PostgreSQL** is een relationele database: tabellen met rijen en kolommen, die je met **SQL** bevraagt (`SELECT ... FROM transacties WHERE code = %s`).
+**Neon** host die database in de cloud. De backend verbindt ermee via `psycopg2` en de `DATABASE_URL` (`get_db_connection()` in `db.py`).
+Er is geen **ORM** (een laag die tabellen als Python-klassen verpakt); de SQL staat gewoon in de code.
+
+`init_db()` in `db.py` maakt alle tabellen aan met `CREATE TABLE IF NOT EXISTS`: bestaat de tabel al, dan gebeurt er niets. Daarom is het veilig
+om het bij elke start te draaien, maar voegt het ook geen nieuwe kolom toe aan een bestaande tabel (zie 8.3).
+
+Er zijn twee soorten tabellen (hoofdstuk 4):
+
+- **Gebruikersdata**: `portfolios`, `transacties`, `dividenden`. Van jou, en weg als je je portfolio verwijdert.
+- **Cachetabellen**: `prijzen`, `ticker_info`, `etf_holdings`, enz. Een **cache** is een bewaarde kopie van iets dat duur is om op te halen. Hier:
+  antwoorden van Yahoo en de ETF-aanbieders. Ze zijn anoniem (geen code erin) en blijven staan.
+
+#### Externe bronnen: waarom alles gecachet wordt
+
+De backend haalt data bij andere diensten: Yahoo Finance (via de bibliotheken `yfinance` en `yahooquery`), OpenFIGI en de sites van iShares en
+VanEck (hoofdstuk 6). Elke zo'n **netwerkcall** duurt tientallen tot honderden milliseconden, kan mislukken, en Yahoo weigert je tijdelijk
+(**rate limit**) als je te veel tegelijk vraagt. Daarom:
+
+- worden antwoorden bewaard in de cachetabellen, zodat de volgende keer de database genoeg is;
+- probeert `yahoo_client.py` een mislukte call opnieuw (**retry**) met een wachttijd ertussen;
+- draaien veel calls tegelijk in een **thread pool** (`ThreadPoolExecutor`), maar met een maximum aantal tegelijk.
+
+#### Gefaseerd laden: kern en verrijking
+
+Op Render draait de app onder **gunicorn**. Die breekt een request af dat te lang duurt (standaard na 30 seconden; wat er op Render is ingesteld, is
+**onzeker**). Het netwerk-zware deel van het dashboard (verdeling, land, sector, bedrijven, overlap) kan bij een koude cache langer duren. Daarom is het
+dashboard in twee requests gesplitst (2.4):
+
+1. de **kern** (koersen en berekeningen) komt direct mee met `/upload` of `GET /api/portfolio/<code>`;
+2. de **verrijking** haalt `laadVerrijking()` daarna op de achtergrond op via `GET /api/portfolio/<code>/verrijking`.
+
+Zo staat de Home-grafiek er snel, en vult de rest zich later aan. Hetzelfde idee zit achter de losse "luie" endpoints (rendement-over-tijd,
+dividend, transacties, ...): alleen ophalen als je dat tabblad opent.
+
+#### Pure functies tegenover code met DOM, netwerk of database
+
+Een **pure functie** krijgt invoer, geeft uitvoer, en doet verder niets: geen database, geen netwerk, geen DOM, geen globale toestand. Dezelfde
+invoer geeft altijd dezelfde uitvoer. Voorbeelden: `bereken_xirr()` en `bereken_holdings_en_gesloten()` in `statistieken.py`, of `berekenPrognose()` in `prognose.js`.
+
+Pure functies zijn makkelijk te testen: je geeft een met de hand na te rekenen voorbeeld mee en vergelijkt de uitkomst. Daarom staat het rekenwerk
+in pure Python-functies (zie "Rekenen in Python, tonen in JS" in 5.1), en doet `app.js` vooral tonen.
+
+In de frontend geldt hetzelfde: `prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `diagnostiek.js` en `bestandskeuze.js` raken de DOM
+niet aan. Door het IIFE-patroon (5.1) werken ze zowel in de browser als in **Node.js** (JavaScript buiten de browser), dus kun je ze testen zonder
+browser. `app.js` en `infotip.js` raken de DOM wel aan en hebben geen tests.
+
+#### Tests en CI
+
+- **Python**: `unittest` (ingebouwd in Python), bestanden `tests/test_*.py`. Een test roept een functie aan en controleert de uitkomst met
+  `self.assertEqual(...)` e.d.
+- **JavaScript**: Node's ingebouwde testrunner (`node --test`), bestanden `tests/test_*.js`.
+- **Mocken**: in een test een echte functie (bijvoorbeeld een Yahoo-call) vervangen door een nepversie met een vast antwoord, zodat de test
+  snel en voorspelbaar is.
+- **CI** (continuous integration): bij elke `git push` draait GitHub Actions automatisch alle tests (`.github/workflows/tests.yml`, zie 7.4). Je
+  ziet op GitHub een groen vinkje of een rood kruis.
+
+De meeste tests draaien **zonder database**: dat is sneller, en lokaal deelt dit project de database met productie. Tests die toch een database
+nodig hebben (`@vereist_database`) draaien alleen tegen een wegwerpdatabase op localhost (de CI-job `test-db`), nooit tegen Neon.
+
+#### Deployment: lokaal en op Render
+
+- **Lokaal**: `python app.py` start Flask's eigen ontwikkelserver (`app.run(debug=True)` onderaan `app.py`). Handig tijdens het bouwen, niet voor
+  productie.
+- **Render**: draait de app met **gunicorn**, een WSGI-server die meerdere requests tegelijk aankan. **WSGI** is de standaardafspraak tussen een
+  Python-webapp en de server die hem draait; het `app`-object in `app.py` is wat gunicorn nodig heeft. Het startcommando staat niet in de repo
+  (**onzeker**; vermoedelijk `gunicorn app:app` in het Render-dashboard).
+- **Instellingen**: lokaal staan geheime waarden als `DATABASE_URL` in `.env` (staat in `.gitignore`, dus niet op GitHub); `load_dotenv()` in `db.py`
+  leest ze in als **omgevingsvariabelen**. Op Render vul je dezelfde variabelen in het dashboard in. De code leest ze in beide gevallen met
+  `os.environ[...]`.
+- Een nieuwe versie online zetten = `git push`; Render bouwt en start dan opnieuw.
+
+#### De datastroom in één schema
+
+Van Excel-upload tot grafiek (tak "opslaan", zie hoofdstuk 2 voor alle stappen):
+
+```mermaid
+flowchart TD
+    XL["Excel-bestand van DeGiro"] --> FORM["app.js: submit-handler van uploadForm<br/>FormData + fetchMetTimeout()"]
+    FORM -- "POST /upload" --> UP["app.py: upload() → _upload_impl()"]
+    UP --> UV["upload_verwerking.py<br/>Excel inlezen, Order ID's, code zoeken/maken,<br/>tickers, _insert_nieuwe_transacties()"]
+    UV -- "INSERT" --> DB[("Neon PostgreSQL<br/>transacties, portfolios")]
+    UP --> BPR["portfolio_orchestratie.py<br/>build_portfolio_response()"]
+    DB -- "SELECT" --> BASIS["_haal_portfolio_basis()<br/>+ get_prices() (prijzen.py)"]
+    BPR --> BASIS
+    BASIS --> KERN["analyze_transacties_kern()<br/>portfolio_calc.py, statistieken.py"]
+    KERN -- "JSON (kern)" --> TD["app.js: toonDashboard()"]
+    TD --> TP["toonPortfolio() → updateChart()"]
+    TP --> CH["Chart.js-grafiek op canvas rendementChart"]
+    TD -. "daarna: GET /api/portfolio/CODE/verrijking" .-> VER["laadVerrijking()<br/>→ analyze_transacties_verrijking()"]
+```
+
+#### Woordenlijst (techniek)
+
+Hoofdstuk 9 bevat de woorden uit het domein (GAK, XIRR, ticker, ...). Hieronder de technische termen.
+
+| Term | Betekenis in dit project |
+|---|---|
+| **Frontend / backend** | Code in de browser (`templates/`, `static/`) / code op de server (`*.py`). |
+| **Request / response** | Een verzoek van de browser aan de server / het antwoord daarop. |
+| **Route / endpoint** | Een URL in `app.py` met een Python-functie erachter, bv. `/api/portfolio/<code>/dividend`. |
+| **API** | Het geheel van routes en de vorm van hun antwoorden. |
+| **HTTP-methode** | `GET` (ophalen), `POST` (insturen/wijzigen), `DELETE` (verwijderen). |
+| **JSON** | Tekstformaat voor data tussen backend en frontend; `jsonify()` in Python, `res.json()` in JS. |
+| **`fetch()`** | De JS-functie waarmee `app.js` een request doet. |
+| **SPA** | Single-page application: één HTML-pagina, tabbladen wisselen via `pasViewToe()`. |
+| **DOM** | De boom van HTML-elementen die JS kan lezen en aanpassen. |
+| **Flask** | De Python-webbibliotheek achter `app.py`. |
+| **WSGI / gunicorn** | De afspraak tussen een Python-webapp en de server / de server die de app op Render draait. |
+| **Orkestratie** | Code die taakfuncties in de juiste volgorde aanroept (`_upload_impl()`, `build_portfolio_response()`). |
+| **Pure functie** | Invoer → uitvoer, zonder database, netwerk, DOM of globale toestand. |
+| **IIFE** | Een functie die zichzelf direct uitvoert; het patroon waarmee de pure JS-modules zowel in de browser als in Node werken. |
+| **SQL** | De taal waarmee je de database bevraagt en wijzigt. |
+| **ORM** | Een laag die tabellen als klassen verpakt; wordt **niet** gebruikt, de SQL staat in de code. |
+| **Primary key / UNIQUE** | Kolom(men) die een rij uniek maken; `UNIQUE (code, order_id)` voorkomt dubbele transacties. |
+| **Cache** | Bewaarde kopie van iets dat duur is om op te halen: cachetabellen in Neon, `_basis_cache` in het geheugen. |
+| **Upsert** | Invoegen, of bijwerken als de rij al bestaat (`ON CONFLICT ... DO UPDATE`); bv. `save_dividenden()`. |
+| **Rate limit** | Een externe dienst die tijdelijk weigert omdat je te veel vraagt. |
+| **Retry / backoff** | Een mislukte call opnieuw proberen / met steeds langere wachttijd. |
+| **Thread / thread pool** | Parallelle uitvoering binnen één proces / een vast aantal threads dat taken deelt (`ThreadPoolExecutor`). |
+| **Timeout** | Maximale wachttijd waarna een call of request wordt afgebroken (`fetchMetTimeout()`, gunicorn). |
+| **Omgevingsvariabele / `.env`** | Instelling buiten de code (`DATABASE_URL`); lokaal uit `.env`, op Render uit het dashboard. |
+| **unittest / `node --test`** | De testframeworks voor Python / JavaScript. |
+| **Mock** | Nepversie van een functie in een test, met een vast antwoord. |
+| **CI / GitHub Actions** | Automatisch testen bij elke push / de dienst van GitHub die dat doet. |
+
+### 10.2 Leesvolgorde in 14 stappen
+
+Van eenvoudig naar complex. Elke stap bouwt voort op de vorige. Bij "Zo lees je het" staat steeds een testbestand: tests zijn de kortste beschrijving
+van wat een functie hoort te doen.
+
+#### Stap 1 — Kleine helpers
+
+- **Lees:** `debug_utils.py`, `transactie_utils.py`, `portfolio_admin.py`.
+- **Wat doen deze bestanden:** `debug_utils.py` print logregels (`dprint()`) en meet hoe lang een stap duurt (`meet_tijd()`). `transactie_utils.py` herkent
+  DeGiro's boekingsrijen voor splits (`_is_corporate_action_row()`) en zet transacties op datum én tijd op volgorde (`_sorteer_chronologisch()`).
+  `portfolio_admin.py` maakt en controleert de 3-letter-codes en zoekt bij een upload het bijbehorende portfolio.
+- **Waar in de stack:** backend, hulpfuncties.
+- **Waarom nu:** korte bestanden die bijna niets anders importeren; je leert de schrijfstijl van het project kennen zonder de rest te hoeven snappen.
+- **Wat je hier leert:** kleine, herbruikbare helpers; waarom je die in een apart bestand zet (geen circulaire imports); reguliere expressies (`is_geldige_code()`).
+- **Zo lees je het:** begin met `is_geldige_code()` en open `tests/test_code_validatie.py` ernaast. Lees daarna `_sorteer_chronologisch()` met
+  `tests/test_chronologische_sortering.py`.
+
+#### Stap 2 — Het datamodel
+
+- **Lees:** `db.py`: eerst `init_db()`, dan één `get_cached_*`/`save_*`-paar (bv. `get_cached_land_sector()` en `save_land_sector()`), dan `save_prices()` en `upsert_prices()`.
+- **Wat doen deze bestanden:** `db.py` opent de verbinding met de database, maakt alle tabellen aan en bevat de functies die caches lezen en schrijven.
+  Het is de plek waar Python en PostgreSQL elkaar raken.
+- **Waar in de stack:** backend, database.
+- **Waarom nu:** alle andere modules lezen of schrijven deze tabellen; als je weet wat er bewaard wordt, begrijp je de rest sneller.
+- **Wat je hier leert:** hoe een tabel met primary key en `UNIQUE` eruitziet; het verschil tussen gebruikersdata en een cachetabel; `ON CONFLICT DO NOTHING`
+  tegenover een upsert (`DO UPDATE`).
+- **Zo lees je het:** leg `init_db()` naast de tabellen in hoofdstuk 4. Vergelijk `save_prices()` met `upsert_prices()`; `tests/test_prijzen_upsert.py` bewaakt dat
+  `upsert_prices()` echt `DO UPDATE` gebruikt.
+
+#### Stap 3 — Pure JavaScript
+
+- **Lees:** `static/js/menu.js`, `static/js/prognose.js`, met `tests/test_menu.js` en `tests/test_prognose.js`. Als extra: `bestandskeuze.js` en `diagnostiek.js`.
+- **Wat doen deze bestanden:** `menu.js` bepaalt of het hamburgermenu open of dicht moet. `prognose.js` rekent uit hoe je vermogen kan groeien bij een
+  gekozen rendement en inleg. Geen van beide raakt de pagina zelf aan; `app.js` gebruikt hun uitkomst.
+- **Waar in de stack:** frontend, logica.
+- **Waarom nu:** de makkelijkste ingang tot de frontend: puur rekenwerk, zonder DOM of netwerk, en je kunt de tests meteen zelf draaien.
+- **Wat je hier leert:** wat een pure functie is; het IIFE-patroon waarmee één bestand in de browser én in Node werkt; hoe een JS-test eruitziet.
+- **Zo lees je het:** begin onderaan elk bestand (`exportsObj`) om te zien wat het naar buiten geeft. Lees dan `maandRenteVanJaarPct()` en
+  `berekenPrognosePad()` met de eerste tests in `tests/test_prognose.js` (bv. "10% rendement, start 1000 → 1100"). Draai
+  `node --test tests/test_prognose.js tests/test_menu.js`.
+
+#### Stap 4 — De pagina en de routes
+
+- **Lees:** `templates/index.html` (alleen doorbladeren), de routetabel in hoofdstuk 3, dan `app.py`.
+- **Wat doen deze bestanden:** `index.html` bevat alle schermen tegelijk: het upload-formulier, het menu en een verborgen sectie per tabblad.
+  `app.py` definieert de 17 routes: welke URL's de browser kan aanroepen en welke functie antwoordt.
+- **Waar in de stack:** frontend-structuur en de API-laag van de backend.
+- **Waarom nu:** met deze twee bestanden heb je de plattegrond: welke schermen er zijn en welke vragen de frontend aan de backend kan stellen.
+- **Wat je hier leert:** hoe de browser de server aanroept (route, methode, JSON); waarom routes dun zijn; hoe een foutantwoord eruitziet (statuscode 404/500).
+- **Zo lees je het:** zoek in `index.html` de `data-view`-knoppen en de bijbehorende `...Sectie`-div's. Lees in `app.py` eerst `api_portfolio()` (kort), dan
+  `upload()` en `_upload_impl()`. `tests/test_upload_route_foutafhandeling.py` laat zien wat er gebeurt als er iets misgaat.
+
+#### Stap 5 — De ingang van alle data: de upload
+
+- **Lees:** `upload_verwerking.py` en `find_matching_code()` in `portfolio_admin.py`.
+- **Wat doen deze bestanden:** `upload_verwerking.py` leest het Excel-bestand, maakt de kolommen netjes, zoekt de Order ID's, bepaalt of dit een nieuw of
+  bestaand portfolio is, zoekt tickers en schrijft de nieuwe rijen in de database. `find_matching_code()` herkent een bestaand portfolio aan
+  overlappende Order ID's.
+- **Waar in de stack:** backend, orkestratie en data-invoer.
+- **Waarom nu:** alles wat het dashboard later toont, komt hier binnen; de rest van de code gaat ervan uit dat deze stap goed ging.
+- **Wat je hier leert:** een bestandsupload verwerken met pandas; idempotent inserten (twee keer hetzelfde uploaden geeft geen dubbele rijen, dankzij
+  `UNIQUE` + `ON CONFLICT`); waarom echte data eigenaardigheden heeft (de verschoven Order ID-kolom).
+- **Zo lees je het:** volg de tabel in 2.1 en 2.3 stap voor stap mee in de code. `tests/test_diagnostiek_upload.py` test `_bepaal_order_ids()` en het opslaan
+  met kleine voorbeeldtabellen.
+
+#### Stap 6 — Hoe alles aan elkaar hangt
+
+- **Lees:** `portfolio_orchestratie.py`: `_haal_portfolio_basis()`, `analyze_transacties_kern()`, `analyze_transacties_verrijking()`. Daarna `diagnostiek.py`.
+- **Wat doen deze bestanden:** `portfolio_orchestratie.py` haalt transacties en koersen op en roept de rekenmodules aan om er één JSON-antwoord van te
+  maken, in twee delen (kern en verrijking). `diagnostiek.py` verzamelt tijdens één request meldingen over wat er goed of mis ging.
+- **Waar in de stack:** backend, orkestratie.
+- **Waarom nu:** na de invoer (stap 5) zie je hier hoe die data wordt omgezet in wat de frontend krijgt; de rekenmodules uit de volgende stappen worden
+  hier aangeroepen.
+- **Wat je hier leert:** orkestratie; een korte in-process cache (`_basis_cache`, 20 s) en waarom je die moet legen na een wijziging
+  (`_wis_portfolio_basis_cache()`); toestand die maar één request leeft (Flask's `g` in `diagnostiek.py`).
+- **Zo lees je het:** noteer welke functies `analyze_transacties_kern()` aanroept en welke sleutels het teruggegeven dict heeft; vergelijk met de tabel in
+  2.4. `tests/test_basis_cache.py` laat zien wanneer de cache wel en niet wordt gebruikt.
+
+#### Stap 7 — Rekenen: rendement, XIRR, TWR en GAK
+
+- **Lees:** `statistieken.py`, met `tests/test_rendement.py` en `tests/test_twr.py`.
+- **Wat doen deze bestanden:** `statistieken.py` berekent alle cijfers van het Statistieken-tabblad: rendement, XIRR, TWR, gemiddelde aankoopkoers (GAK),
+  gesloten posities en het jaaroverzicht. Het zijn pure functies: getallen en tabellen erin, getallen eruit.
+- **Waar in de stack:** backend, logica.
+- **Waarom nu:** je kent nu de vorm van de data (stap 2 en 6); hier zie je wat ermee berekend wordt, en je kunt elke uitkomst met de hand controleren.
+- **Wat je hier leert:** financiële berekeningen als pure, geteste functies; testen met met de hand na te rekenen voorbeelden.
+- **Zo lees je het:** begin met `bereken_totaal_rendement()` en `bereken_positie_rendement()` (een paar regels). Lees dan `bereken_holdings_en_gesloten()`
+  samen met de GAK-tests in `tests/test_rendement.py` (o.a. het splitvoorbeeld: 10 × €10, dan −10 en +20 → GAK €5). De woordenlijst in hoofdstuk 9 legt
+  GAK, XIRR en TWR uit.
+
+#### Stap 8 — Tijdreeksen achter de grafieken
+
+- **Lees:** `portfolio_calc.py`, met `tests/test_nog_in_bezit.py` en `tests/test_per_ticker_koers_en_aankopen.py`.
+- **Wat doen deze bestanden:** `portfolio_calc.py` rekent per dag uit hoeveel je portfolio waard was en hoeveel je had ingelegd, in totaal en per aandeel.
+  Het corrigeert ook oude aantallen voor aandelensplitsingen. Dit zijn de lijnen in de grafieken van Home en Per aandeel.
+- **Waar in de stack:** backend, logica.
+- **Waarom nu:** na de losse cijfers (stap 7) zie je hoe dezelfde transacties een reeks per dag worden.
+- **Wat je hier leert:** werken met pandas-tijdreeksen; waarom "geïnvesteerd" twee betekenissen heeft (zie de valkuil bij `portfolio_calc.py`); waarom
+  "nog in bezit" op aantal stuks wordt bepaald.
+- **Zo lees je het:** lees `compute_value_over_time()` eerst, dan `compute_per_ticker()`. De tests in `tests/test_nog_in_bezit.py` tonen het randgeval van
+  een volledig verkochte positie.
+
+#### Stap 9 — Koersen en valuta
+
+- **Lees:** `prijzen.py` en `yahoo_client.py`, met `tests/test_koersen_cache.py` en `tests/test_fx_caching_en_retry.py`.
+- **Wat doen deze bestanden:** `prijzen.py` levert de dagkoersen in euro: uit de `prijzen`-tabel als die er al zijn, anders van Yahoo, en rekent dollars en
+  ponden om. `yahoo_client.py` telt Yahoo-calls en probeert mislukte calls opnieuw.
+- **Waar in de stack:** backend, data en externe bron.
+- **Waarom nu:** stap 7 en 8 rekenen met koersen; hier zie je waar die vandaan komen.
+- **Wat je hier leert:** hoe een cache-tabel werkt (eerst kijken wat je al hebt, alleen het ontbrekende downloaden); incrementeel verversen; retry en backoff;
+  waarom er twee retry-varianten zijn.
+- **Zo lees je het:** volg de vijf stappen onder "De logica van `get_prices()`" in hoofdstuk 3 in de code. Kijk daarna in `tests/test_koersen_cache.py` wanneer
+  een ticker `missing` of `stale` is, en in `tests/test_fx_caching_en_retry.py` hoe de FX-reeks vanaf `FX_ANKER_DATUM` gecachet, ververst en
+  bij een fout opnieuw geprobeerd wordt.
+
+#### Stap 10 — Dividend: een afgerond stuk domeinlogica
+
+- **Lees:** `dividend.py`, met `tests/test_dividend.py`.
+- **Wat doen deze bestanden:** `dividend.py` leest het rekeningoverzicht van DeGiro, zoekt per dividenduitkering het echte bedrag in euro (via de
+  bijbehorende valutaconversie) en vat alle dividenden samen voor het Dividend-tabblad.
+- **Waar in de stack:** backend, logica en data.
+- **Waarom nu:** een compleet onderdeel met een duidelijk begin (Excel) en eind (JSON), dat je los van de rest kunt begrijpen.
+- **Wat je hier leert:** omgaan met rommelige echte data (samengevoegde kolomkoppen, gepoolde conversies); liever `None` dan een gok; een upsert om oude,
+  foute rijen te kunnen overschrijven.
+- **Zo lees je het:** lees eerst `verwerk_rekeningoverzicht()` (inlezen), dan `verwerk_rekeningoverzicht_df()` (het rekenwerk). In `tests/test_dividend.py` volg je
+  eerst `test_usd_dividend_gebruikt_gekoppelde_valuta_creditering` (één uitkering, één conversie) en daarna
+  `test_twee_dividenden_zelfde_dag_gepoold_in_een_conversie`.
+
+#### Stap 11 — De verrijking: land, sector, bedrijven, overlap
+
+- **Lees:** `ticker_classificatie.py`, `etf_holdings_provider.py`, `portfolio_verdeling.py`.
+- **Wat doen deze bestanden:** `ticker_classificatie.py` bepaalt of een ticker een ETF of aandeel is en zoekt land, sector en holdings op (met cache).
+  `etf_holdings_provider.py` downloadt de volledige holdingslijst bij iShares en VanEck. `portfolio_verdeling.py` telt dat alles op tot de verdelingen per
+  land, sector en bedrijf, en de overlap tussen ETF's.
+- **Waar in de stack:** backend, logica en externe bronnen.
+- **Waarom nu:** dit is de "verrijking" uit stap 6; met de koerslogica van stap 9 in je hoofd is het cachepatroon herkenbaar.
+- **Wat je hier leert:** een externe bron met een terugvaloptie (aanbieder → Yahoo top-10 → `"Unknown"`); parallel een cache opwarmen; aggregeren met een
+  "Overig"-bucket.
+- **Zo lees je het:** begin bij `compute_land_sector_verdeling()` en volg de aanroepen naar `get_etf_holdings()` en `fetch_provider_holdings()`.
+  `tests/test_etf_holdings_bron.py` laat de parsers werken op kleine voorbeeldgegevens (ook met een verkeerde `locale`); `tests/test_land_overig.py` en `tests/test_etf_overlap.py` tonen de
+  optelregels.
+
+#### Stap 12 — Ticker-matching en -controle
+
+- **Lees:** `ticker_matching.py` → `ticker_prijscheck.py` → `ticker_zekerheid.py`, met `tests/test_ticker_zoeken.py` en `tests/test_snelle_prijscheck.py`.
+- **Wat doen deze bestanden:** `ticker_matching.py` zoekt bij een DeGiro-product de Yahoo-ticker. `ticker_prijscheck.py` vergelijkt Yahoo's koers met de
+  prijs die je bij DeGiro betaalde. `ticker_zekerheid.py` combineert die twee tot een oordeel ("zeker", "onzeker") en vervangt een foute ticker soms
+  automatisch.
+- **Waar in de stack:** backend, logica en externe bronnen.
+- **Waarom nu:** het ingewikkeldste deel; het gebruikt koersen (stap 9), classificatie (stap 11) en threads. Nu heb je alle bouwstenen.
+- **Wat je hier leert:** een beslisboom met escalatie (eerst goedkoop controleren, pas bij twijfel duur); parallel werk met een thread pool; hoe je een
+  onbetrouwbare externe bron met een tweede signaal (prijs, OpenFIGI) controleert.
+- **Zo lees je het:** begin bij `find_ticker_detailed()` (de volgorde staat in hoofdstuk 3), dan `vergelijk_prijs_op_datum()` en `_prijscheck_is_probleem()`, en
+  tot slot het escalatietrapje in `find_ticker_met_snelle_prijscheck()`. `tests/test_snelle_prijscheck.py` laat de treden zien;
+  `tests/test_escalatiepoort_dagrange.py` toont wanneer er wel en niet geëscaleerd wordt.
+
+#### Stap 13 — De frontend: `app.js`
+
+- **Lees:** `static/js/app.js` in deze volgorde: `toonDashboard()`, `wisselView()`/`pasViewToe()`, `updateChart()`, `toonPortfolio()`, `laadVerrijking()`,
+  tenslotte `toonInstellingenTicker()`.
+- **Wat doen deze bestanden:** `app.js` is alles wat de gebruiker ziet en doet: formulieren versturen, data ophalen met `fetch()`, tabbladen wisselen en
+  grafieken en tabellen tekenen met Chart.js.
+- **Waar in de stack:** frontend, gedrag.
+- **Waarom nu:** het grootste bestand (~3700 regels); met de backend in je hoofd herken je elke JSON-sleutel die het gebruikt.
+- **Wat je hier leert:** event-gestuurd programmeren (code die reageert op klikken); asynchrone code (`async`/`await`); globale toestand bijhouden en resetten;
+  hoe je gelijktijdige requests begrenst (`voerMetConcurrencyLimietUit()`).
+- **Zo lees je het:** lees via de datastroom, niet van boven naar beneden: volg één klik van menuknop tot grafiek. Gebruik de tabel in 5.4 als index.
+  Voor een nieuw tabblad staat het stappenplan in 8.1.
+
+#### Stap 14 — Uiterlijk en kleine onderdelen
+
+- **Lees:** `static/css/style.css` en `static/js/infotip.js`.
+- **Wat doen deze bestanden:** `style.css` bepaalt hoe alles eruitziet, en maakt van het zijmenu op een smal scherm een uitschuifpaneel. `infotip.js` maakt
+  van elke `<span class="infoTip">` een (i)-knop met uitleg.
+- **Waar in de stack:** frontend, uiterlijk en gedrag.
+- **Waarom nu:** los van de rest te begrijpen; nuttig zodra je zelf iets aan de pagina wilt veranderen.
+- **Wat je hier leert:** responsive design met `@media`-regels; een component dat met muis, toetsenbord én tik werkt (toegankelijkheid).
+- **Zo lees je het:** zoek in `style.css` op `@media (max-width: 768px)` en kijk wat er met `#sidebarMenu` gebeurt. `tests/test_menu.js` controleert een paar
+  van die mobiele regels door `style.css` en `index.html` als tekst te lezen. Lees in `infotip.js` de event-listeners van onder naar boven.
+
+### 10.3 Tip
+
+Gebruik bij het lezen de tabellen in hoofdstuk 3 als kaart en zoek in de code op de naam van de functie. Weet je niet wat een functie hoort te doen,
+open dan eerst het testbestand uit 7.2: een test is een klein, concreet voorbeeld van verwacht gedrag. De docstrings en comments in de code zijn bewust
+kort; het waarom van valkuilen staat in CLAUDE.md ("Achtergrond en eigenaardigheden") en de details staan in dit document. Onbekende woorden: de
+technische termen staan in 10.1, de domeintermen in hoofdstuk 9.
+
+## Stand van zaken: CLAUDE.md en de code
+
+Gecontroleerd op 2026-09-30 (commit `ad391b8`): CLAUDE.md en de code komen overeen. CLAUDE.md is bewust een korte regelset voor Claude Code; de
+uitgebreide beschrijving staat alleen in dit document.
+
+**Bewust anders**
+
+- **`.gitignore` bevat `CLAUDE.md`**: CLAUDE.md is een lokaal bestand en staat daarom niet in git. Git kan het dus ook niet herstellen; maak zelf een kopie
+  vóór grote wijzigingen.
 
 ## Onzekerheden en open vragen
 
@@ -1433,12 +1781,12 @@ Dingen die ik niet met zekerheid uit de code kon vaststellen, of waar mijn besch
 
 1. **Productie-opstart:** het gunicorn-startcommando, het aantal workers en de timeout staan niet in de repo. `gunicorn app:app` is een aanname op grond van de bestandsnaam.
 2. **Split-detectie:** `compute_split_adjusted_shares()` schaalt op basis van *positieve* corporate-action-rijen. In `tests/test_rendement.py` is het voorbeeld-splitpatroon voor de GAK juist een *negatieve* DEG-rij (−10) plus een conversierij (+20).
-   Of de schaling voor dat patroon iets doet of wordt overgeslagen, kan ik niet uit de code alleen afleiden; er is geen unit test met een getalvoorbeeld voor deze functie.
+   Of de schaling voor dat patroon iets doet of wordt overgeslagen, kan ik niet uit de code alleen afleiden; de enige getaltest (`test_diagnostiek_laden.py`, factor 4) gebruikt een positieve corporate-action-rij.
 3. **`auto_adjust=True` en de `prijzen`-cache:** koersen zijn dividend- en splitgecorrigeerd op het moment van downloaden, en historische rijen worden nooit overschreven. Of dat na latere dividenden zichtbaar inconsistent wordt, weet ik niet.
 4. **Valuta's:** alleen USD, GBP en GBp worden naar EUR omgerekend. Wat er in de praktijk met een ticker in een andere valuta gebeurt (vermoedelijk: behandeld als EUR), heb ik niet getest.
 5. **Yahoo-timeouts:** er staat nergens een expliciete timeout op yfinance-calls; wat yfinance zelf doet, weet ik niet.
 6. **Hoe DeGiro's exportformaat precies is:** kolomnamen (`Waarde EUR`, `Wisselkoers`, de lange kostenkolom), positie-afhankelijke hernoemingen in het rekeningoverzicht (`Unnamed: 8`/`10`) en het Order-ID-gedrag beschrijf ik zoals de code ze verwacht, niet zoals DeGiro ze nu levert.
-7. **Diepte van mijn lezing:** de Python-modules heb ik volledig gelezen. `app.js` (circa 4000 regels) heb ik gelezen via de datastroom en de belangrijkste functies; enkele opmaakfuncties (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`,
-   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (56 bestanden, 511 tests op 2026-09-25, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
-8. **Niet uitgevoerd:** de database-delen van de **[DB]**-Python-tests (16 bestanden, ze raken de echte database) en de app zelf. Wel gedraaid: de JS-tests (73 geslaagd) en de Python-suite zonder database (373 geslaagd, 55 overgeslagen, 2026-09-25).
+7. **Diepte van mijn lezing:** de Python-modules heb ik volledig gelezen. `app.js` (circa 3700 regels) heb ik gelezen via de datastroom en de belangrijkste functies; enkele opmaakfuncties (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`,
+   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (57 bestanden, 519 tests op 2026-09-30, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
+8. **Niet uitgevoerd:** de database-delen van de **[DB]**-Python-tests (12 bestanden, ze hebben een lokale database nodig) en de app zelf. Wel gedraaid: de JS-tests (89 geslaagd) en de Python-suite zonder database (481 geslaagd, 38 overgeslagen, 2026-09-30).
 9. **Mermaid-diagram:** ik heb het niet kunnen renderen; de syntax is met zorg geschreven maar niet visueel gecontroleerd.

@@ -31,6 +31,7 @@ from portfolio_verdeling import bereken_etf_overlap_detail
 from portfolio_calc import holdings_op_datums
 
 app = Flask(__name__)
+
 # Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
 if os.environ.get("DATABASE_URL"):
     init_db()
