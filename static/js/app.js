@@ -3270,27 +3270,23 @@ function gaNaarView(view) {
 function pasViewToe(view) {
     const content = document.querySelector(".content");
 
-    const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker" || view === "instellingen-diagnostiek";
-
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
         btn.classList.toggle("actief", btn.dataset.view === view);
     }); // Menu-knoppen: actief voor de huidige view
 
     // data-views: zichtbaar op deze tabbladen; data-verberg-buiten: de toon-functie zet het zelf aan als dat nodig is.
     document.querySelectorAll("[data-views]").forEach(el => {
-        el.style.display = el.dataset.views.split(" ").includes(view) ? "block" : "none";
+        el.style.display = viewInLijst(el.dataset.views, view) ? "block" : "none";
     });
     document.querySelectorAll("[data-verberg-buiten]").forEach(el => {
-        if (!el.dataset.verbergBuiten.split(" ").includes(view)) el.style.display = "none";
+        if (!viewInLijst(el.dataset.verbergBuiten, view)) el.style.display = "none";
     });
 
     document.getElementById("benchmarkSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("eigenAandeelSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
-    document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || view === "transacties" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
-    document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "bedrijven" || view === "etfoverlap" || view === "transacties") ? "none" : "block";
-    document.getElementById("laatstBijgewerktText").style.display = "none";
+    if (view === "xirr-rendement" && !huidigeData.code) document.getElementById("resetZoomBtn").style.display = "none";
 
     TOON_PER_VIEW[view]?.();
 

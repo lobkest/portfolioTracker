@@ -54,7 +54,7 @@
             </div>
 
             <div id="homeTotalenSectie" data-views="portfolio" style="display: none;"></div>
-            <p id="laatstBijgewerktText" style="display: none; font-size: 0.85em; color: #888; margin-bottom: 15px;"></p>
+            <p id="laatstBijgewerktText" data-verberg-buiten="portfolio" style="display: none; font-size: 0.85em; color: #888; margin-bottom: 15px;"></p>
 
             <select id="aandeelSelect" data-views="peraandeel peraandeelaankoop" style="display: none; margin-bottom: 15px;"></select>
             <label id="benchmarkSelectWrapper" style="display: none; margin-bottom: 15px;">
@@ -74,7 +74,7 @@
                 </select>
             </label>
             <p id="eigenAandeelMelding" data-verberg-buiten="rendement" style="display: none; font-size: 0.85em; color: #888;"></p>
-            <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
+            <button id="resetZoomBtn" data-views="portfolio rendement peraandeel peraandeelaankoop xirr-rendement prognose dividend" style="margin-bottom: 10px;">Zoom resetten</button>
             <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
             <p id="landDekkingTekst" data-verberg-buiten="land" style="display: none; font-size: 0.85em; color: #888;"></p>
             <div id="landWeergaveOpties" style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
@@ -94,7 +94,7 @@
                 <span id="meerHistorieMsg" style="display: none; font-size: 0.85em; color: #888;"></span>
             </div>
 
-            <div id="chartWrapper" class="chart-wrapper">
+            <div id="chartWrapper" class="chart-wrapper" data-views="portfolio rendement peraandeel peraandeelaankoop verdeling land sector xirr-rendement prognose dividend">
                 <canvas id="rendementChart"></canvas>
             </div>
 

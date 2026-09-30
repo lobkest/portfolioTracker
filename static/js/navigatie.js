@@ -32,6 +32,11 @@
         return geldigeViews.includes(view) ? view : STANDAARD_VIEW;
     }
 
+    // Voor data-views en data-verberg-buiten: tabbladnamen gescheiden door spaties.
+    function viewInLijst(lijst, view) {
+        return (lijst || "").split(" ").includes(view);
+    }
+
     // Vaste tekst per sleutel: de query zelf komt nooit op de pagina. Onbekende sleutel: null.
     function startMeldingTekst(sleutel) {
         return Object.hasOwn(START_MELDING_TEKSTEN, sleutel) ? START_MELDING_TEKSTEN[sleutel] : null;
@@ -40,7 +45,7 @@
     const exportsObj = {
         START_PAD, ANALYSE_PAD, STANDAARD_VIEW, MELDING_PARAM,
         MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
-        portfolioPad, startPadMetMelding, viewUitHash, startMeldingTekst,
+        portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, startMeldingTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {
