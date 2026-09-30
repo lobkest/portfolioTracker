@@ -3,7 +3,7 @@ import pandas as pd
 
 from debug_utils import dprint
 from diagnostiek import meld, CATEGORIE_SPLITS, INFO, LET_OP
-from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
+from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl
 
 
 def compute_split_adjusted_shares(transacties_df):
@@ -68,7 +68,7 @@ def compute_split_adjusted_shares(transacties_df):
             factor_bepaald = True
             conv_datum_tekst = pd.Timestamp(conv_date).strftime("%Y-%m-%d")
             meld(CATEGORIE_SPLITS, INFO,
-                 f"Split voor {product_naam} ({isin}) op {conv_datum_tekst}: factor {ratio:.4f}.",
+                 f"Split voor {product_naam} ({isin}) op {formatteer_datum_nl(conv_date)}: factor {ratio:.4f}.",
                  sleutel=f"split:{isin}:{conv_datum_tekst}")
 
         if not factor_bepaald:

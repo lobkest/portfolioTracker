@@ -8,6 +8,11 @@ def _is_corporate_action_row(row):
     return beurs == "DEG" or "NON TRADEABLE" in product
 
 
+def formatteer_datum_nl(datum):
+    """Datum (date, Timestamp of ISO-string) als dd-mm-jjjj voor tekst die de gebruiker ziet."""
+    return pd.Timestamp(datum).strftime("%d-%m-%Y")
+
+
 def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
     """Ontbrekende tijd telt als 00:00; mergesort houdt de volgorde daarbinnen stabiel."""
     if tijd_kolom not in df.columns:

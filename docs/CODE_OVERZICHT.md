@@ -1,6 +1,6 @@
 # Code-overzicht — Portfolio Dashboard (portfolioTracker)
 
-> Laatst gecontroleerd tegen de code op 2026-09-30 (commit `ad391b8`).
+> Laatst gecontroleerd tegen de code op 30-09-2026 (commit `ad391b8`).
 > Alles hieronder is uit de bronbestanden gelezen, niet uit CLAUDE.md overgenomen. Waar ik iets niet zeker
 > kon vaststellen staat het woord **onzeker**. Hoe CLAUDE.md en de code zich tot elkaar verhouden, staat onderaan
 > bij [Stand van zaken](#stand-van-zaken-claudemd-en-de-code).
@@ -144,6 +144,7 @@ flowchart LR
     ZEK --> PCHK
     ZEK --> CLASS
     ZEK --> DB
+    ZEK --> UTIL
     PCHK --> PRIJ
     PCHK --> CLASS
     PCHK --> YC
@@ -180,7 +181,7 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `di
 | `statistieken.py` | `transactie_utils` |
 | `portfolio_verdeling.py` | `ticker_classificatie` |
 | `dividend.py` | `db` |
-| `ticker_zekerheid.py` | `db`, `debug_utils`, `ticker_classificatie`, `ticker_matching`, `ticker_prijscheck` |
+| `ticker_zekerheid.py` | `db`, `debug_utils`, `ticker_classificatie`, `ticker_matching`, `ticker_prijscheck`, `transactie_utils` |
 | `ticker_prijscheck.py` | `db`, `debug_utils`, `prijzen`, `ticker_classificatie`, `yahoo_client` |
 | `ticker_matching.py` | `db`, `debug_utils`, `transactie_utils`, `yahoo_client` |
 | `ticker_classificatie.py` | `db`, `debug_utils`, `etf_holdings_provider`, `yahoo_client` |
@@ -471,14 +472,15 @@ deelverzameling-voorwaarden voldoet.
 
 ---
 
-### `transactie_utils.py` — twee kleine gedeelde helpers
+### `transactie_utils.py` — drie kleine gedeelde helpers
 
-**Verantwoordelijkheid:** twee functies op ruwe transactierijen, zonder DB/netwerk, gebruikt door meerdere modules (daarom een eigen bestand: anders circulaire imports).
+**Verantwoordelijkheid:** drie functies op ruwe transactierijen en datums, zonder DB/netwerk, gebruikt door meerdere modules (daarom een eigen bestand: anders circulaire imports).
 
 | Functie | Wat | Aangeroepen door |
 |---|---|---|
 | `_is_corporate_action_row()` | `True` als `beurs == "DEG"` (hoofdletters, gestript) of `"NON TRADEABLE"` in de productnaam: de boekingsrijen die DeGiro voor splits e.d. maakt | `compute_split_adjusted_shares()`, `_ticker_zekerheid_groepen()`, `_bouw_xirr_cashflows()`, `bereken_twr()`, `find_ticker_detailed()` |
 | `_sorteer_chronologisch()` | sorteert op datum **plus tijd** (stabiele mergesort); rijen zonder tijd tellen als 00:00:00 | `compute_value_over_time()`, `compute_per_ticker()`, `compute_per_ticker_koers_en_aankopen()`, `bereken_holdings_en_gesloten()` |
+| `formatteer_datum_nl()` | datum (date, Timestamp of ISO-string) als `dd-mm-jjjj` voor meldingen die de gebruiker ziet | `compute_split_adjusted_shares()`, `_meld_dividend_records()`, de prijswaarschuwingen in `ticker_zekerheid.py` |
 
 **Waarom `_sorteer_chronologisch()` bestaat:** de database sorteert niet, en `datum` is alleen een DATE (het tijdstip staat in `tijd`). Een verkoop vóór de koop van
 dezelfde dag verwerken gaf een "onbekende" verkoopkoers op Statistieken. Een ontbrekende tijd telt als 00:00:00; mergesort houdt de volgorde daarbinnen stabiel.
@@ -627,7 +629,7 @@ Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", 
 - **TWR**: de cashflow telt mee in de noemer van de sub-periode die op die datum eindigt; corporate-action-rijen tellen niet als cashflow; sub-periodes
   met een noemer ≈ 0 (vóór de eerste aankoop) worden overgeslagen. XIRR is volgorde-onafhankelijk; alleen de GAK-boekhouding hangt van de verwerkingsvolgorde af.
 - **Benchmark-vergelijking**: dezelfde cashflows (datum, bedrag) worden in de benchmark gestoken. De benchmarks zijn accumulerende UCITS-ETF's in EUR (geen
-  dividend-boekhouding nodig). IAEA.AS (AEX) heeft pas koersen vanaf 2020-07-29; begint een benchmark later dan de eerste cashflow, dan begint de reeks later en is
+  dividend-boekhouding nodig). IAEA.AS (AEX) heeft pas koersen vanaf 29-07-2020; begint een benchmark later dan de eerste cashflow, dan begint de reeks later en is
   `onvolledige_dekking` `True`.
 
 ---
@@ -705,7 +707,7 @@ Constanten: `LAND_OVERIG_DREMPEL`, `LAND_STAAF_TOP_N = 10`, `EUROPESE_LANDEN` (f
 | `_haal_valuta_op()` | noteringsvaluta van een ticker via `yf.Ticker(t).info["currency"]`; mislukte opvraging of geen valuta → `"EUR"` met een `[koersen] WARN`-print; een valuta zonder FX-paar (bv. CHF) wordt teruggegeven, ook met een `WARN` | ticker → valutacode | `_converteer_naar_eur()` |
 | `_fx_prijzen_serie()` | FX-koersreeks (bv. `USDEUR=X`) vanaf `FX_ANKER_DATUM`, via dezelfde cache; gememoized per request op Flask's `g`; één lock per FX-paar | `valuta, verversen` → Series (leeg bij onbekende valuta) | `_converteer_naar_eur()`, `_fx_koers_op_datum()` |
 
-Constanten: `FX_PAAR_PER_VALUTA` (`USD`→`USDEUR=X`, `GBP` en `GBp`→`GBPEUR=X`), `FX_ANKER_DATUM = 2005-01-01`, `DREMPEL_HERGEBRUIK_KOERS` (2 minuten), `_fx_serie_locks`.
+Constanten: `FX_PAAR_PER_VALUTA` (`USD`→`USDEUR=X`, `GBP` en `GBp`→`GBPEUR=X`), `FX_ANKER_DATUM = pd.Timestamp("2005-01-01")`, `DREMPEL_HERGEBRUIK_KOERS` (2 minuten), `_fx_serie_locks`.
 
 **De logica van `get_prices()`:**
 
@@ -721,7 +723,7 @@ Constanten: `FX_PAAR_PER_VALUTA` (`USD`→`USDEUR=X`, `GBP` en `GBp`→`GBPEUR=X
   merkbaar inconsistent wordt, kon ik niet uit de code afleiden: **onzeker**.
 - `_converteer_naar_eur()` doet per te downloaden ticker een `yf.Ticker(t).info.get("currency")`-call (via `_haal_valuta_op()`), zonder retry en zonder cache; bij een fout of een ontbrekende valuta wordt EUR aangenomen. Alleen USD/GBP/GBp
   worden omgerekend — een ticker in een andere valuta wordt als EUR behandeld. In al die gevallen verschijnt een `[koersen] WARN`-regel in de terminal (altijd, ook met `DEBUG = False`), zodat een mogelijk verkeerde koers terug te vinden is.
-- `FX_ANKER_DATUM` moet **na** Yahoo's echte eerste datum van elk FX-paar liggen, anders ziet `get_prices()` de cache steeds als "te kort" en downloadt hij elke keer opnieuw. Getest: USDEUR=X begint op 2003-12-01, GBPEUR=X op 2003-09-17. Het is een vaste datum (niet per aanroep), omdat
+- `FX_ANKER_DATUM` moet **na** Yahoo's echte eerste datum van elk FX-paar liggen, anders ziet `get_prices()` de cache steeds als "te kort" en downloadt hij elke keer opnieuw. Getest: USDEUR=X begint op 01-12-2003, GBPEUR=X op 17-09-2003. Het is een vaste datum (niet per aanroep), omdat
   `get_prices()` een cache tot 5 dagen na de startdatum al goed genoeg vindt; voor een punt-in-tijd-FX-lookup kan dat een andere handelsdag opleveren.
 - De FX-memo op `g` onthoudt ook met welke `verversen`-waarde hij gevuld is: een memo met `verversen=False` (prijscheck tegen een historische datum)
   mag een latere aanroep met `verversen=True` (actuele koersen omrekenen) in hetzelfde request niet blokkeren. Er is bewust geen module-brede cache:
@@ -1092,8 +1094,12 @@ Tabbladen zonder grafiek (Statistieken, Transacties, ETF-overlap, Instellingen) 
 
 1. Elke menuknop is `<button class="menuBtn" data-view="...">`. `subMenuBtn` is alleen een inspringing in de CSS; het is dezelfde soort knop.
 2. Klik → `wisselView(view)` → korte fade (class `tabWisselt`, 90 ms) → **`pasViewToe(view)`**.
-3. `pasViewToe()` doet twee dingen: (a) een lange reeks `style.display`-regels om precies de elementen van dat tabblad te tonen (zoomknop, dropdowns, secties, canvas-wrapper, ...) en (b) de bijbehorende
-   `toon...()`-functie aanroepen (zie de tabel hieronder). **Wie een tabblad toevoegt, moet beide aanpassen.**
+3. `pasViewToe()` doet twee dingen:
+   (a) **Zichtbaarheid.** Welke elementen bij welk tabblad horen, staat in de HTML zelf, met twee attributen (meerdere views gescheiden door spaties):
+   - `data-views="dividend"`: zichtbaar op precies deze tabbladen, verborgen op alle andere (de secties, `aandeelSelect`, `weergaveToggleBtn`).
+   - `data-verberg-buiten="land"`: buiten deze tabbladen verborgen; óp het tabblad beslist de `toon...()`-functie zelf of het verschijnt (meldingen, `geenData`, `verrijkingLaadt`/`verrijkingFout`, de Europa-checkbox, ...).
+   Twee lusjes (`querySelectorAll("[data-views]")` en `"[data-verberg-buiten]"`) handelen dat af. Alleen elementen die van meer afhangen dan het tabblad hebben nog een eigen regel: `benchmarkSelectWrapper`, `eigenAandeelSelectWrapper`, `codeText`, `nietOpgeslagenText` (hangen af van `huidigeData.code`), `resetZoomBtn` en `chartWrapper` (uitzonderingslijsten) en `laatstBijgewerktText` (altijd eerst verborgen).
+   (b) **Tekenen.** Het object `TOON_PER_VIEW` koppelt elke view aan zijn `toon...()`-functie (zie de tabel hieronder); `TOON_PER_VIEW[view]?.()` roept hem aan (`?.` = alleen als er een functie is; `instellingen` heeft er geen).
 4. Hamburgermenu (mobiel): `pasMenuStatusToe(open)` toggelt de classes `open` op `#sidebarMenu` en `#menuOverlay`, plus `menuOpen` op `document.body` (CSS-scroll-lock op de achtergrond zolang het menu open staat, zie `style.css`); de nieuwe stand komt uit `volgendeMenuOpenStatus()` en na een tabkeuze uit `menuOpenStatusNaViewKeuze()` (altijd `false`). Een `matchMedia("(max-width: 768px)")`-listener hertekent het Top-N-bedrijven-tabblad (staand/liggend, zie `tekenBedrijven()`) bij het kantelen van het scherm of een venster-formaatwijziging over dat breakpoint heen, als dat tabblad open staat.
 5. Bij een "niet opslaan"-analyse (`data.code` is leeg) verbergt `toonDashboard()` de menuknoppen Instellingen, Bijnamen, Dividend en Transacties.
 6. "Terug naar upload": `gaTerugNaarUpload()` verbergt `#dashboardSection` en toont `#uploadSection`.
@@ -1172,13 +1178,13 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 57 bestanden `tests/test_*.py` met samen 519 `def test_...`-methodes (geteld op 2026-09-30). Geen `tests/__init__.py`; elk bestand zet zelf
+- **Python:** `unittest` (geen pytest), 57 bestanden `tests/test_*.py` met samen 519 `def test_...`-methodes (geteld op 30-09-2026). Geen `tests/__init__.py`; elk bestand zet zelf
   `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt.
-- **JavaScript:** 6 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 2026-09-30 slaagden alle 89 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 4, `test_diagnostiek.js` 12).
+- **JavaScript:** 6 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 30-09-2026 slaagden alle 89 tests (`test_prognose.js` 21, `test_menu.js` 8, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 4, `test_diagnostiek.js` 12).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `bestandskeuze.js`, `diagnostiek.js`).
   `test_menu.js` leest daarnaast `style.css` en `index.html` als tekst om mobiele CSS-regels te bewaken.
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
-- **Wat ik zelf gedaan heb:** op 2026-09-30 de JS-tests (89 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (in Git Bash, zodat `.env` niet wordt ingelezen; in cmd werkt dat niet, zie 7.3): 519 tests, waarvan 481 uitgevoerd en geslaagd en 38 overgeslagen. De 45 database-vrije bestanden (440 tests) draaien volledig; de 12 **[DB]**-bestanden (79 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
+- **Wat ik zelf gedaan heb:** op 30-09-2026 de JS-tests (89 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (in Git Bash, zodat `.env` niet wordt ingelezen; in cmd werkt dat niet, zie 7.3): 519 tests, waarvan 481 uitgevoerd en geslaagd en 38 overgeslagen. De 45 database-vrije bestanden (440 tests) draaien volledig; de 12 **[DB]**-bestanden (79 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
 
 ### 7.2 Welk testbestand hoort bij welke module
 
@@ -1240,10 +1246,9 @@ Ze schrijven met eigen test-codes (zoals `TESTDIV`, nooit 3 hoofdletters) en rui
 
 Uitgangspunt: een tabblad is een knop in het menu + een sectie in de HTML + een `toon...()`-functie + eventueel een API-route. Volgorde:
 
-1. **`templates/index.html`:** voeg een `<button class="menuBtn" data-view="mijnview">Mijn tab</button>` toe in `#sidebarMenu` (gebruik `subMenuBtn` voor een submenu-inspringing). Voeg in `.content` een `<div id="mijnviewSectie" style="display: none;"></div>` toe
-   (of hergebruik `#chartWrapper` als je een grafiek wilt).
-2. **`static/js/app.js`, `pasViewToe(view)`:** neem je view op in de `display`-regels die bepalen wat zichtbaar is — minimaal de `display` van je eigen sectie, en controleer de regels voor `resetZoomBtn` en `chartWrapper` (die hebben expliciete lijsten van
-   views) en de reset-blokken onderaan (`if (view !== "...")`) als je eigen hulpelementen hebt. Voeg dan `else if (view === "mijnview") toonMijnView();` toe aan de aanroepketen.
+1. **`templates/index.html`:** voeg een `<button class="menuBtn" data-view="mijnview">Mijn tab</button>` toe in `#sidebarMenu` (gebruik `subMenuBtn` voor een submenu-inspringing). Voeg in `.content` een `<div id="mijnviewSectie" data-views="mijnview" style="display: none;"></div>` toe
+   (of hergebruik `#chartWrapper` als je een grafiek wilt). Eigen meldingen of hulpelementen die je tabblad zelf aan/uit zet, krijgen `data-verberg-buiten="mijnview"`.
+2. **`static/js/app.js`:** voeg `"mijnview": toonMijnView,` toe aan `TOON_PER_VIEW`. Controleer in `pasViewToe(view)` de regels voor `resetZoomBtn` en `chartWrapper`: die hebben expliciete lijsten van views waar ze verborgen zijn.
 3. **Schrijf een `toon...()`-functie** in `app.js` (hieronder `toonMijnView()` genoemd: een verzonnen voorbeeldnaam, die bestaat dus niet). Patroon: data uit `huidigeData` lezen, of een lazy `fetch()` (zie `toonDividend()` of `toonTransacties()`); voor verrijkingsdata begin je met `toonVerrijkingWachtstatusIndienNodig()`.
    Voor een grafiek: `updateChart(labels, datasets)` (lijn) of een eigen `new Chart(...)` op `#rendementChart` na `if (chart) chart.destroy()`.
 4. **Alleen voor opgeslagen portfolio's?** Voeg dan in `toonDashboard()` een regel toe die de menuknop verbergt als `data.code` leeg is (zoals bij Dividend en Transacties), en vang `!huidigeData.code` af in je `toon`-functie.
@@ -1356,7 +1361,7 @@ Les: verplaats je een element **zonder de id te wijzigen**, dan is de HTML-wijzi
 | **Backfill** | Een verouderde waarde in bestaande rijen alsnog corrigeren (hier: opgeslagen tickers). | `backfill_verouderde_tickers()` |
 | **`missing` / `stale`** | In `get_prices()`: `missing` = ticker niet (genoeg) in de cache → volledig downloaden; `stale` = wel gecachet maar verouderd → incrementeel bijwerken. | `get_prices()` |
 | **`verversen`** | Parameter van `get_prices()`: `False` slaat het incrementeel verversen over (bijnaam/code wijzigen). | `get_prices()` |
-| **FX-anker** | Vaste startdatum (2005-01-01) voor de FX-koersreeks, zodat de cache na de eerste keer altijd "ver genoeg terug" is. | `FX_ANKER_DATUM` |
+| **FX-anker** | Vaste startdatum (01-01-2005) voor de FX-koersreeks, zodat de cache na de eerste keer altijd "ver genoeg terug" is. | `FX_ANKER_DATUM` |
 | **Wisselkoers / `_koers_eur`** | DeGiro's eigen omrekenkoers per transactie; `koers / wisselkoers` wordt als EUR-koers opgeslagen. | `_normaliseer_transactie_kolommen()` |
 | **Totaal EUR vs Waarde EUR** | `totaal_eur` bevat AutoFX en transactiekosten; `waarde_eur` is aantal × koers zonder kosten. GAK en kostprijs gebruiken `waarde_eur`. | `transacties`-tabel |
 | **AutoFX** | DeGiro's automatische valutaconversie bij een niet-EUR-transactie (kosten zitten in `totaal_eur`). | `transacties.totaal_eur`; zie CLAUDE.md, Data en rekenen |
@@ -1767,7 +1772,7 @@ technische termen staan in 10.1, de domeintermen in hoofdstuk 9.
 
 ## Stand van zaken: CLAUDE.md en de code
 
-Gecontroleerd op 2026-09-30 (commit `ad391b8`): CLAUDE.md en de code komen overeen. CLAUDE.md is bewust een korte regelset voor Claude Code; de
+Gecontroleerd op 30-09-2026 (commit `ad391b8`): CLAUDE.md en de code komen overeen. CLAUDE.md is bewust een korte regelset voor Claude Code; de
 uitgebreide beschrijving staat alleen in dit document.
 
 **Bewust anders**
@@ -1787,6 +1792,6 @@ Dingen die ik niet met zekerheid uit de code kon vaststellen, of waar mijn besch
 5. **Yahoo-timeouts:** er staat nergens een expliciete timeout op yfinance-calls; wat yfinance zelf doet, weet ik niet.
 6. **Hoe DeGiro's exportformaat precies is:** kolomnamen (`Waarde EUR`, `Wisselkoers`, de lange kostenkolom), positie-afhankelijke hernoemingen in het rekeningoverzicht (`Unnamed: 8`/`10`) en het Order-ID-gedrag beschrijf ik zoals de code ze verwacht, niet zoals DeGiro ze nu levert.
 7. **Diepte van mijn lezing:** de Python-modules heb ik volledig gelezen. `app.js` (circa 3700 regels) heb ik gelezen via de datastroom en de belangrijkste functies; enkele opmaakfuncties (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`,
-   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (57 bestanden, 519 tests op 2026-09-30, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
-8. **Niet uitgevoerd:** de database-delen van de **[DB]**-Python-tests (12 bestanden, ze hebben een lokale database nodig) en de app zelf. Wel gedraaid: de JS-tests (89 geslaagd) en de Python-suite zonder database (481 geslaagd, 38 overgeslagen, 2026-09-30).
+   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `renderPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (57 bestanden, 519 tests op 30-09-2026, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
+8. **Niet uitgevoerd:** de database-delen van de **[DB]**-Python-tests (12 bestanden, ze hebben een lokale database nodig) en de app zelf. Wel gedraaid: de JS-tests (89 geslaagd) en de Python-suite zonder database (481 geslaagd, 38 overgeslagen, 30-09-2026).
 9. **Mermaid-diagram:** ik heb het niet kunnen renderen; de syntax is met zorg geschreven maar niet visueel gecontroleerd.

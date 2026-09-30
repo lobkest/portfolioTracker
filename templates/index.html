@@ -109,10 +109,10 @@
                 <button id="tickerWaarschuwingKnop" type="button" style="margin-left: 10px;">Naar Ticker-zekerheid</button>
             </div>
 
-            <div id="homeTotalenSectie" style="display: none;"></div>
+            <div id="homeTotalenSectie" data-views="portfolio" style="display: none;"></div>
             <p id="laatstBijgewerktText" style="display: none; font-size: 0.85em; color: #888; margin-bottom: 15px;"></p>
 
-            <select id="aandeelSelect" style="display: none; margin-bottom: 15px;"></select>
+            <select id="aandeelSelect" data-views="peraandeel peraandeelaankoop" style="display: none; margin-bottom: 15px;"></select>
             <label id="benchmarkSelectWrapper" style="display: none; margin-bottom: 15px;">
                 Vergelijk met benchmark:
                 <select id="benchmarkSelect">
@@ -122,27 +122,27 @@
                     <option value="AEX">AEX</option>
                 </select>
             </label>
-            <p id="benchmarkMelding" style="display: none; font-size: 0.85em; color: #888;"></p>
+            <p id="benchmarkMelding" data-verberg-buiten="rendement" style="display: none; font-size: 0.85em; color: #888;"></p>
             <label id="eigenAandeelSelectWrapper" style="display: none; margin-bottom: 15px;">
                 Vergelijk met eigen aandeel al in portefeuille:
                 <select id="eigenAandeelSelect">
                     <option value="">Geen</option>
                 </select>
             </label>
-            <p id="eigenAandeelMelding" style="display: none; font-size: 0.85em; color: #888;"></p>
+            <p id="eigenAandeelMelding" data-verberg-buiten="rendement" style="display: none; font-size: 0.85em; color: #888;"></p>
             <button id="resetZoomBtn" style="margin-bottom: 10px;">Zoom resetten</button>
-            <p id="verdelingTekst" style="display: none;"></p>
-            <p id="landDekkingTekst" style="display: none; font-size: 0.85em; color: #888;"></p>
+            <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
+            <p id="landDekkingTekst" data-verberg-buiten="land" style="display: none; font-size: 0.85em; color: #888;"></p>
             <div id="landWeergaveOpties" style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-                <button id="weergaveToggleBtn" style="display: none; margin-top: 0;">Wissel weergave (taart/staaf)</button>
+                <button id="weergaveToggleBtn" data-views="land sector" style="display: none; margin-top: 0;">Wissel weergave (taart/staaf)</button>
             </div>
 
-            <div id="dividendStatsSectie" style="display: none; margin-bottom: 20px;"></div>
-            <div id="bedrijvenSectie" style="display: none; margin-bottom: 10px;"></div>
+            <div id="dividendStatsSectie" data-views="dividend" style="display: none; margin-bottom: 20px;"></div>
+            <div id="bedrijvenSectie" data-views="bedrijven" style="display: none; margin-bottom: 10px;"></div>
 
-            <p id="peraandeelAankoopTitel" style="display: none; font-weight: bold; margin-bottom: 10px;"></p>
+            <p id="peraandeelAankoopTitel" data-verberg-buiten="peraandeelaankoop" style="display: none; font-weight: bold; margin-bottom: 10px;"></p>
 
-            <div id="meerHistorieKnoppen" style="display: none; margin-bottom: 10px; gap: 8px; flex-wrap: wrap; align-items: center;">
+            <div id="meerHistorieKnoppen" data-verberg-buiten="peraandeelaankoop" style="display: none; margin-bottom: 10px; gap: 8px; flex-wrap: wrap; align-items: center;">
                 <button id="meerHistorie6mBtn" type="button" data-periode="6m">+6 maanden</button>
                 <button id="meerHistorie1jBtn" type="button" data-periode="1j">+1 jaar</button>
                 <button id="meerHistorie3jBtn" type="button" data-periode="3j">+3 jaar</button>
@@ -154,25 +154,25 @@
                 <canvas id="rendementChart"></canvas>
             </div>
 
-            <label id="europaCheckboxWrapper" class="checkboxLabel" style="display: none; margin-top: 10px;">
+            <label id="europaCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel" style="display: none; margin-top: 10px;">
                 <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
             </label>
 
-            <div id="dividendUitkeringenSectie" style="display: none; margin-top: 20px;"></div>
+            <div id="dividendUitkeringenSectie" data-views="dividend" style="display: none; margin-top: 20px;"></div>
 
-            <div id="statistiekenSectie" style="display: none;"></div>
+            <div id="statistiekenSectie" data-views="statistieken" style="display: none;"></div>
 
-            <div id="transactiesSectie" style="display: none;"></div>
+            <div id="transactiesSectie" data-views="transacties" style="display: none;"></div>
 
-            <div id="etfOverlapSectie" style="display: none;"></div>
+            <div id="etfOverlapSectie" data-views="etfoverlap" style="display: none;"></div>
 
-            <div id="prognoseSectie" style="display: none;"></div>
+            <div id="prognoseSectie" data-views="prognose" style="display: none;"></div>
 
-            <div id="etfDrilldown" style="display: none; margin-top: 20px;"></div>
+            <div id="etfDrilldown" data-verberg-buiten="peraandeel" style="display: none; margin-top: 20px;"></div>
 
-            <p id="xirrRendementMsg" style="display: none;"></p>
+            <p id="xirrRendementMsg" data-verberg-buiten="xirr-rendement" style="display: none;"></p>
 
-            <div id="instellingenHoofdSectie" style="display: none;">
+            <div id="instellingenHoofdSectie" data-views="instellingen" style="display: none;">
                 <p>Wil je stoppen met deze portfolio? Je kunt alle opgeslagen data (transacties en code) permanent uit de database verwijderen.</p>
                 <button id="verwijderPortfolioBtn" style="background-color: #9C0006;">Verwijder mijn data uit de database</button>
 
@@ -181,10 +181,10 @@
                 <button id="wijzigCodeBtn">Code wijzigen</button>
             </div>
 
-            <p id="instellingenMsg" style="display: none; color: #2c7a4b; font-size: 0.9em;"></p>
-            <div id="instellingenSectie" style="display: none;"></div>
-            <div id="instellingenTickerSectie" style="display: none;"></div>
-            <div id="instellingenDiagnostiekSectie" style="display: none;">
+            <p id="instellingenMsg" data-verberg-buiten="instellingen-bijnamen" style="display: none; color: #2c7a4b; font-size: 0.9em;"></p>
+            <div id="instellingenSectie" data-views="instellingen-bijnamen" style="display: none;"></div>
+            <div id="instellingenTickerSectie" data-views="instellingen-ticker" style="display: none;"></div>
+            <div id="instellingenDiagnostiekSectie" data-views="instellingen-diagnostiek" style="display: none;">
                 <div class="labelRij diagnostiekToelichting">
                     <p>Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. Excel-meldingen verschijnen alleen direct na een upload.</p>
                     <span class="infoTip" data-label="Diagnostiek">Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
@@ -192,9 +192,9 @@
                 <p id="diagnostiekTeller" class="diagnostiekTeller"></p>
                 <div id="diagnostiekLijst"></div>
             </div>
-            <p id="geenData" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
-            <p id="verrijkingLaadt" style="display: none; color: #999; font-size: 0.9em;">Bezig met laden...</p>
-            <div id="verrijkingFout" style="display: none;">
+            <p id="geenData" data-verberg-buiten="verdeling land sector bedrijven" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
+            <p id="verrijkingLaadt" data-verberg-buiten="verdeling land sector bedrijven etfoverlap" style="display: none; color: #999; font-size: 0.9em;">Bezig met laden...</p>
+            <div id="verrijkingFout" data-verberg-buiten="verdeling land sector bedrijven etfoverlap" style="display: none;">
                 <p style="color: #9C0006; font-size: 0.9em;">⚠️ Ophalen duurde te lang of is mislukt.</p>
                 <button id="verrijkingOpnieuwBtn">Opnieuw proberen</button>
             </div>

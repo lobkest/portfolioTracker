@@ -296,7 +296,7 @@ class TestDividendMeldingen(_MetRequest):
         self.assertIn("1 zonder valutaconversie", per[uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING]["tekst"])
         los = per["dividend:US9:2024-03-01"]
         self.assertEqual(los["niveau"], LET_OP)
-        self.assertEqual(los["tekst"], "Dividend P US9 op 2024-03-01 (USD): geen valutaconversie gevonden, "
+        self.assertEqual(los["tekst"], "Dividend P US9 op 01-03-2024 (USD): geen valutaconversie gevonden, "
                                        "bedrag onbekend.")
 
     def test_boven_maximum_een_samenvattende_let_op(self):

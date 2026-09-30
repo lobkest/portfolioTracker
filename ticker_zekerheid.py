@@ -7,6 +7,7 @@ from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
 from ticker_prijscheck import vergelijk_prijs_op_datum, _prijscheck_is_probleem
+from transactie_utils import formatteer_datum_nl
 from ticker_classificatie import (
     classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
 )
@@ -269,7 +270,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
             waarschuwing = (
                 f"Beurs komt overeen, maar {len(problemen)} van de {len(bekende_checks)} gecontroleerde "
                 f"datums valt buiten de dagrange (grootste afwijking "
-                f"{grootste['afwijking_pct']:.1f}% op {grootste['datum']}) — mogelijk toch de verkeerde ticker."
+                f"{grootste['afwijking_pct']:.1f}% op {formatteer_datum_nl(grootste['datum'])}) — mogelijk toch de verkeerde ticker."
             )
 
     details = _ticker_details_met_cache(ticker)
@@ -524,7 +525,7 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
             boodschap = None
         elif check.get("binnen_dagrange") is False:
             boodschap = (
-                f"Koers van {ticker} valt op {laatste['datum']} buiten de dagrange (high/low) van "
+                f"Koers van {ticker} valt op {formatteer_datum_nl(laatste['datum'])} buiten de dagrange (high/low) van "
                 f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
             )
         else:

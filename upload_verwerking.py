@@ -11,7 +11,7 @@ from diagnostiek import (
     meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND,
     GOED, INFO, LET_OP, FOUT,
 )
-from transactie_utils import _is_corporate_action_row
+from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
     find_ticker_met_snelle_prijscheck,
@@ -398,7 +398,7 @@ def _meld_dividend_records(records):
 
     for r in zonder_conversie[:MAX_LOSSE_DIVIDEND_MELDINGEN]:
         meld(CATEGORIE_DIVIDEND, LET_OP,
-             f"Dividend {r['product']} op {r['datum']} ({r['valuta']}): geen valutaconversie gevonden, "
+             f"Dividend {r['product']} op {formatteer_datum_nl(r['datum'])} ({r['valuta']}): geen valutaconversie gevonden, "
              f"bedrag onbekend.",
              sleutel=f"dividend:{r['isin']}:{r['datum']}")
     rest = len(zonder_conversie) - MAX_LOSSE_DIVIDEND_MELDINGEN

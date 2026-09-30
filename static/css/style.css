@@ -44,8 +44,8 @@ body {
 
 .content {
     flex-grow: 1;
-    min-width: 0;
-    transition: opacity 0.09s ease;
+    min-width: 0; 
+    transition: opacity 0.09s ease; /* nodig voor tabWisselt hieronder. hieronder is doel op nul gezet maar deze regel zegt dat je 90ms moet duren om naar die nul te komen*/
 }
 
 /* Korte fade tussen tabbladen (app.js: wisselView zet deze class aan, wacht

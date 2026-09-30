@@ -80,7 +80,7 @@ function verbergLaadOverlay() {
 }
 
 function formatDatum(isoDatum) {
-    const [jaar, maand, dag] = isoDatum.split("-");
+    const [jaar, maand, dag] = isoDatum.slice(0, 10).split("-");
     return `${dag}-${maand}-${jaar}`;
 }
 
@@ -1196,7 +1196,7 @@ function maakPrijscontroleTabel(prijsChecks) {
             : gecorrigeerd ? `${c.yahoo_koers_gecorrigeerd.toFixed(3)} *` : c.yahoo_koers.toFixed(3);
 
         [
-            c.datum,
+            formatDatum(c.datum),
             c.bekende_koers != null ? c.bekende_koers.toFixed(3) : "-",
             yahooKoersTekst,
             c.high != null ? c.high.toFixed(3) : "-",
@@ -3238,107 +3238,65 @@ function toonPrognose() {
 }
 
 function wisselView(view) {
-    // Echte setTimeout nodig: een class die in één frame komt en gaat, geeft geen transitie.
-    // Bij snel doorklikken de wachttijd overslaan.
     const content = document.querySelector(".content");
-    if (content.classList.contains("tabWisselt")) {
+    if (content.classList.contains("tabWisselt")) { // Bij snel doorklikken de wachttijd overslaan.
         pasViewToe(view);
         return;
     }
-    content.classList.add("tabWisselt");
-    setTimeout(() => pasViewToe(view), 90);
+    content.classList.add("tabWisselt"); // transitie CSS: opacity 0, transition 0.09s.
+    setTimeout(() => pasViewToe(view), 90); // setTimeout is functie die zegt over 90ms, voer de functie pasViewToe uit. 
 }
+
+const TOON_PER_VIEW = {
+    "portfolio": toonPortfolio,
+    "rendement": toonRendement,
+    "peraandeel": () => toonPerAandeel(document.getElementById("aandeelSelect").value),
+    "peraandeelaankoop": () => toonPerAandeelAankoop(document.getElementById("aandeelSelect").value),
+    "verdeling": toonVerdeling,
+    "land": toonLand,
+    "sector": toonSector,
+    "bedrijven": toonBedrijven,
+    "etfoverlap": renderEtfOverlapTabel,
+    "statistieken": toonStatistieken,
+    "transacties": toonTransacties,
+    "xirr-rendement": toonRendementOverTijd,
+    "prognose": toonPrognose,
+    "dividend": toonDividend,
+    "instellingen-bijnamen": toonInstellingen,
+    "instellingen-ticker": toonInstellingenTicker,
+    "instellingen-diagnostiek": toonDiagnostiek,
+};
 
 function pasViewToe(view) {
     const content = document.querySelector(".content");
+
     // Alleen Top-bedrijven past hoogte/touch-action aan; hier terug naar de CSS-standaard.
     document.getElementById("chartWrapper").style.height = "";
     document.getElementById("rendementChart").style.touchAction = "";
+
     const isInstellingenView = view === "instellingen" || view === "instellingen-bijnamen" || view === "instellingen-ticker" || view === "instellingen-diagnostiek";
 
     document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
         btn.classList.toggle("actief", btn.dataset.view === view);
+    }); // Menu-knoppen: actief voor de huidige view
+
+    // data-views: zichtbaar op deze tabbladen; data-verberg-buiten: de toon-functie zet het zelf aan als dat nodig is.
+    document.querySelectorAll("[data-views]").forEach(el => {
+        el.style.display = el.dataset.views.split(" ").includes(view) ? "block" : "none";
     });
-    document.getElementById("aandeelSelect").style.display = (view === "peraandeel" || view === "peraandeelaankoop") ? "block" : "none";
-    // Alleen met een opgeslagen code (zie CLAUDE.md: Frontend).
+    document.querySelectorAll("[data-verberg-buiten]").forEach(el => {
+        if (!el.dataset.verbergBuiten.split(" ").includes(view)) el.style.display = "none";
+    });
+
     document.getElementById("benchmarkSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("eigenAandeelSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
     document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
     document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
     document.getElementById("resetZoomBtn").style.display = (view === "verdeling" || view === "land" || view === "sector" || view === "bedrijven" || view === "etfoverlap" || view === "statistieken" || view === "transacties" || isInstellingenView || (view === "xirr-rendement" && !huidigeData.code)) ? "none" : "block";
     document.getElementById("chartWrapper").style.display = (isInstellingenView || view === "statistieken" || view === "etfoverlap" || view === "transacties") ? "none" : "block";
-    document.getElementById("instellingenHoofdSectie").style.display = view === "instellingen" ? "block" : "none";
-    document.getElementById("instellingenSectie").style.display = view === "instellingen-bijnamen" ? "block" : "none";
-    document.getElementById("instellingenTickerSectie").style.display = view === "instellingen-ticker" ? "block" : "none";
-    document.getElementById("instellingenDiagnostiekSectie").style.display = view === "instellingen-diagnostiek" ? "block" : "none";
-    document.getElementById("dividendStatsSectie").style.display = view === "dividend" ? "block" : "none";
-    document.getElementById("dividendUitkeringenSectie").style.display = view === "dividend" ? "block" : "none";
-    document.getElementById("statistiekenSectie").style.display = view === "statistieken" ? "block" : "none";
-    document.getElementById("transactiesSectie").style.display = view === "transacties" ? "block" : "none";
-    document.getElementById("bedrijvenSectie").style.display = view === "bedrijven" ? "block" : "none";
-    document.getElementById("etfOverlapSectie").style.display = view === "etfoverlap" ? "block" : "none";
-    document.getElementById("prognoseSectie").style.display = view === "prognose" ? "block" : "none";
-    document.getElementById("homeTotalenSectie").style.display = view === "portfolio" ? "block" : "none";
     document.getElementById("laatstBijgewerktText").style.display = "none";
-    document.getElementById("weergaveToggleBtn").style.display = (view === "land" || view === "sector") ? "block" : "none";
 
-    if (view !== "instellingen-bijnamen") {
-        document.getElementById("instellingenMsg").style.display = "none";
-    }
-    if (view !== "verdeling") {
-        document.getElementById("verdelingTekst").style.display = "none";
-    }
-    if (view !== "land") {
-        document.getElementById("landDekkingTekst").style.display = "none";
-        document.getElementById("europaCheckboxWrapper").style.display = "none";
-    }
-    if (view !== "peraandeel") {
-        document.getElementById("etfDrilldown").style.display = "none";
-    }
-    if (view !== "peraandeelaankoop") {
-        document.getElementById("peraandeelAankoopTitel").style.display = "none";
-        document.getElementById("meerHistorieKnoppen").style.display = "none";
-    }
-    if (view !== "rendement") {
-        document.getElementById("benchmarkMelding").style.display = "none";
-        document.getElementById("eigenAandeelMelding").style.display = "none";
-    }
-    if (view !== "xirr-rendement") {
-        document.getElementById("xirrRendementMsg").style.display = "none";
-    }
-    // Anders blijft het geen-data-bericht staan op een ander tabblad.
-    if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven") {
-        document.getElementById("geenData").style.display = "none";
-    }
-    // Idem voor de laad-/foutindicator van de verrijking.
-    if (view !== "verdeling" && view !== "land" && view !== "sector" && view !== "bedrijven" && view !== "etfoverlap") {
-        document.getElementById("verrijkingLaadt").style.display = "none";
-        document.getElementById("verrijkingFout").style.display = "none";
-    }
-
-    if (view === "portfolio") toonPortfolio();
-    else if (view === "rendement") toonRendement();
-    else if (view === "verdeling") toonVerdeling();
-    else if (view === "land") toonLand();
-    else if (view === "sector") toonSector();
-    else if (view === "instellingen-bijnamen") toonInstellingen();
-    else if (view === "instellingen-ticker") toonInstellingenTicker();
-    else if (view === "instellingen-diagnostiek") toonDiagnostiek();
-    else if (view === "dividend") toonDividend();
-    else if (view === "statistieken") toonStatistieken();
-    else if (view === "transacties") toonTransacties();
-    else if (view === "bedrijven") toonBedrijven();
-    else if (view === "etfoverlap") renderEtfOverlapTabel();
-    else if (view === "xirr-rendement") toonRendementOverTijd();
-    else if (view === "prognose") toonPrognose();
-    else if (view === "peraandeel") {
-        const select = document.getElementById("aandeelSelect");
-        toonPerAandeel(select.value);
-    }
-    else if (view === "peraandeelaankoop") {
-        const select = document.getElementById("aandeelSelect");
-        toonPerAandeelAankoop(select.value);
-    }
+    TOON_PER_VIEW[view]?.();
 
     content.classList.remove("tabWisselt");
 }

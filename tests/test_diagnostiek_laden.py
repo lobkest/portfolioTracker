@@ -279,7 +279,7 @@ class TestSplitMeldingen(_MetRequest):
         self.assertEqual(uit["adj_aantal"].tolist(), [40.0, 30.0, 40.0])
         self.assertEqual(meldingen, [{
             "categorie": CATEGORIE_SPLITS, "niveau": INFO,
-            "tekst": "Split voor ACME (US1) op 2024-02-02: factor 4.0000.", "sleutel": "split:US1:2024-02-02",
+            "tekst": "Split voor ACME (US1) op 02-02-2024: factor 4.0000.", "sleutel": "split:US1:2024-02-02",
         }])
 
     def test_geen_conversierij_let_op(self):
