@@ -121,7 +121,7 @@ class TestTickerKoersBereikRoute(unittest.TestCase):
 
     def test_onbekende_code_geeft_404(self):
         res = self.client.get(
-            "/api/portfolio/ZZZ/ticker-koers-bereik",
+            "/api/portfolio/ZZZNIETBESTAAND/ticker-koers-bereik",
             query_string={"ticker": "X", "vanaf": "2023-01-01"},
         )
         self.assertEqual(res.status_code, 404)

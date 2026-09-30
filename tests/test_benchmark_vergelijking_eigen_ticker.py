@@ -80,7 +80,7 @@ class TestBenchmarkVergelijkingEigenTicker(unittest.TestCase):
 
     def test_onbekende_code_geeft_404(self):
         with patch.object(self.app_module, "_laad_transacties_en_resultaat", return_value=(None, None)):
-            res = self.client.get("/api/portfolio/ZZZ/benchmark-vergelijking?eigen_ticker=X")
+            res = self.client.get("/api/portfolio/ZZZNIETBESTAAND/benchmark-vergelijking?eigen_ticker=X")
         self.assertEqual(res.status_code, 404)
 
 

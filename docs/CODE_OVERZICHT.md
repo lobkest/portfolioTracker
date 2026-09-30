@@ -1038,7 +1038,7 @@ Naast de database bestaan er drie **in-process** caches: `_basis_cache` (20 s, `
 Staat `transactiekosten`, `waarde_eur` of `tijd` in een al opgeslagen rij op `NULL`, dan wordt die bij een latere upload **niet** meer aangevuld.
 Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploaden. Zolang `waarde_eur` `NULL` is, valt de GAK-berekening terug op `totaal_eur`.
 
-**Let op bij tests:** een deel van de tests werkt met een **echte database** (zie hoofdstuk 7) en gebruikt eigen test-codes (zoals `TESTDIV`); er is geen aparte testdatabase.
+**Let op bij tests:** een deel van de tests werkt met een **echte database** (zie hoofdstuk 7) en gebruikt eigen test-codes (zoals `TESTDIV`). Die tests draaien alleen tegen een lokale database (CI-container of Docker), nooit tegen Neon.
 
 ## 5. Frontend
 
@@ -1173,11 +1173,11 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `bestandskeuze.js`, `diagnostiek.js`).
   `test_menu.js` leest daarnaast `style.css` en `index.html` als tekst om mobiele CSS-regels te bewaken.
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
-- **Wat ik zelf gedaan heb:** op 2026-09-25 (na de Diagnostiek-uitbreiding) de JS-tests (89 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (zodat `.env` niet wordt ingelezen): 511 tests, waarvan 456 uitgevoerd en geslaagd en 55 overgeslagen. De 40 database-vrije bestanden (419 tests) draaien volledig; de 16 **[DB]**-bestanden (92 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
+- **Wat ik zelf gedaan heb:** op 2026-09-25 (na de Diagnostiek-uitbreiding) de JS-tests (89 geslaagd) en de hele Python-suite met een lege `DATABASE_URL` (in Git Bash, zodat `.env` niet wordt ingelezen; in cmd werkt dat niet, zie 7.3): 511 tests, waarvan 456 uitgevoerd en geslaagd en 55 overgeslagen. De 40 database-vrije bestanden (419 tests) draaien volledig; de 16 **[DB]**-bestanden (92 tests) draaien alleen hun database-vrije klassen, de rest wordt overgeslagen omdat die de echte database aanraakt (zie hieronder).
 
 ### 7.2 Welk testbestand hoort bij welke module
 
-Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonder `DATABASE_URL`, omdat het de echte database aanraakt (direct, of via een functie die niet gemockt is). Alleen `app.py` importeren is geen reden meer: `init_db()` draait alleen met `DATABASE_URL`.
+Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonder bereikbare lokale database (localhost/127.0.0.1), omdat het de echte database aanraakt (direct, of via een functie die niet gemockt is). Alleen `app.py` importeren is geen reden meer: `init_db()` draait alleen met `DATABASE_URL`.
 
 | Module | Testbestanden |
 |---|---|
@@ -1200,24 +1200,28 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonde
 
 ### 7.3 Draaien
 
-Vanuit de projectmap (Windows cmd, zoals in CLAUDE.md):
+Liefst niet lokaal: de CI (GitHub Actions, zie 7.4) draait alle tests bij elke push. Lokaal alleen met een lokale Docker-database, of **zonder database** door `.env` tijdelijk te hernoemen. Vanuit de projectmap (Windows cmd, zoals in CLAUDE.md):
 
 ```
-:: zonder database: de [DB]-tests worden dan overgeslagen
-set DATABASE_URL=
-
-:: alle Python-tests (uitgebreide uitvoer)
+ren .env .env.bak
 python -m unittest discover -s tests -v
+ren .env.bak .env
+```
 
+Andere commando's (met `.env` hernoemd zoals hierboven):
+
+```
 :: alleen één testbestand
 python -m unittest discover -s tests -p "test_rendement.py" -v
 
-:: alle JavaScript-tests (zelfde commando als de CI)
+:: alle JavaScript-tests (zelfde commando als de CI, geen database nodig)
 node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js
 ```
 
-**Let op — echte database:** de **[DB]**-tests (`@vereist_database` uit `tests/db_helper.py`) lezen `DATABASE_URL` (ook uit je `.env`, want `db_helper.py` roept `load_dotenv()` aan) en schrijven lokaal met eigen test-codes (zoals `TESTDIV`) in **dezelfde Neon-database** als de app; lokaal is er geen aparte testdatabase.
-Ze ruimen na afloop op (`setUp`/`tearDown` verwijderen de test-code), maar draai ze dus bewust. Zonder bereikbare database worden ze overgeslagen. In de CI draaien ze wel, in de job `test-db` (zie 7.4).
+`set DATABASE_URL=` werkt in cmd **niet**: het verwijdert de variabele, en daarna leest `load_dotenv()` de Neon-URL uit `.env` alsnog in. Alleen in Git Bash werkt een lege waarde: `DATABASE_URL= python -m unittest discover -s tests -v`.
+
+**Let op — echte database:** de **[DB]**-tests (`@vereist_database` uit `tests/db_helper.py`) draaien alleen als `DATABASE_URL` naar **localhost of 127.0.0.1** wijst en die database bereikbaar is: de CI-container (zie 7.4) of een lokale Docker-Postgres. Een andere host, zoals Neon, wordt geweigerd vóór er een verbinding wordt geopend, zonder uitzondering. Lokaal met de Neon-URL uit `.env` worden ze dus overgeslagen.
+Ze schrijven met eigen test-codes (zoals `TESTDIV`, nooit 3 hoofdletters) en ruimen na afloop op (`setUp`/`tearDown` verwijderen de test-code).
 
 ### 7.4 CI (GitHub Actions)
 
