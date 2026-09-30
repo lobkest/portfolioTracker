@@ -15,22 +15,6 @@ function voegDiagnostiekToe(data) {
     if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
 }
 
-// Breekt af als de server te lang stil blijft (zie CLAUDE.md: Yahoo en tickers); gooit Error("TIMEOUT").
-async function fetchMetTimeout(url, opties, timeoutMs = 55000) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-        return await fetch(url, { ...(opties || {}), signal: controller.signal });
-    } catch (fout) {
-        if (fout.name === "AbortError") {
-            throw new Error("TIMEOUT");
-        }
-        throw fout;
-    } finally {
-        clearTimeout(timer);
-    }
-}
-
 // Invoer blijft bewaard zolang de pagina open is; rekenen pas na "Bereken".
 let prognoseInvoer = { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 };
 let prognoseResultaat = null;
@@ -58,16 +42,6 @@ window.addEventListener("orientationchange", () => {
         if (bedrijvenChart) bedrijvenChart.resize();
     }, 200);
 });
-
-// Voorkomt dubbelklikken of wegnavigeren tijdens een serververzoek.
-function toonLaadOverlay(tekst) {
-    document.getElementById("laadOverlayTekst").textContent = tekst;
-    document.getElementById("laadOverlay").hidden = false;
-}
-
-function verbergLaadOverlay() {
-    document.getElementById("laadOverlay").hidden = true;
-}
 
 function formatDatum(isoDatum) {
     const [jaar, maand, dag] = isoDatum.slice(0, 10).split("-");
@@ -1961,7 +1935,7 @@ function maakGeenRekeningoverzichtMelding() {
 
     const knop = document.createElement("button");
     knop.textContent = "Terug naar upload";
-    knop.onclick = gaTerugNaarUpload;
+    knop.onclick = () => location.assign(START_PAD);
     container.appendChild(knop);
 
     return container;
@@ -3247,6 +3221,9 @@ function wisselView(view) {
     setTimeout(() => pasViewToe(view), 90); // setTimeout is functie die zegt over 90ms, voer de functie pasViewToe uit. 
 }
 
+// Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
+const VIEWS_MET_CODE = ["instellingen", "instellingen-bijnamen", "dividend", "transacties"];
+
 const TOON_PER_VIEW = {
     "portfolio": toonPortfolio,
     "rendement": toonRendement,
@@ -3266,6 +3243,23 @@ const TOON_PER_VIEW = {
     "instellingen-ticker": toonInstellingenTicker,
     "instellingen-diagnostiek": toonDiagnostiek,
 };
+
+// "instellingen" heeft geen eigen toon-functie, maar is wel een tabblad.
+const ALLE_VIEWS = [...Object.keys(TOON_PER_VIEW), "instellingen"];
+
+function viewUitUrl() {
+    const toegestaan = ALLE_VIEWS.filter(v => huidigeData.code || !VIEWS_MET_CODE.includes(v));
+    return viewUitHash(location.hash, toegestaan);
+}
+
+// Het tabblad staat in de URL-hash; de hashchange-listener wisselt de view.
+function gaNaarView(view) {
+    if (viewUitUrl() === view) {
+        wisselView(view); // dezelfde hash geeft geen hashchange
+    } else {
+        location.hash = view;
+    }
+}
 
 function pasViewToe(view) {
     const content = document.querySelector(".content");
@@ -3314,19 +3308,12 @@ function toonDashboard(data) {
     transactiesHuidigePagina = 1;
     document.getElementById("benchmarkSelect").value = "";
     document.getElementById("eigenAandeelSelect").innerHTML = '<option value="">Geen</option>';
-    document.getElementById("uploadSection").style.display = "none";
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
 
-    // Tabbladen die een opgeslagen code nodig hebben.
-    const instellingenBtn = document.querySelector('.menuBtn[data-view="instellingen"]');
-    const bijnamenBtn = document.querySelector('.menuBtn[data-view="instellingen-bijnamen"]');
-    const dividendBtn = document.querySelector('.menuBtn[data-view="dividend"]');
-    const transactiesBtn = document.querySelector('.menuBtn[data-view="transacties"]');
-    instellingenBtn.style.display = data.code ? "" : "none";
-    bijnamenBtn.style.display = data.code ? "" : "none";
-    dividendBtn.style.display = data.code ? "" : "none";
-    transactiesBtn.style.display = data.code ? "" : "none";
+    VIEWS_MET_CODE.forEach(view => {
+        document.querySelector(`.menuBtn[data-view="${view}"]`).style.display = data.code ? "" : "none";
+    });
 
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
 
@@ -3337,7 +3324,7 @@ function toonDashboard(data) {
 
     ververAandeelSelect();
     ververEigenAandeelSelect();
-    wisselView("portfolio");
+    wisselView(viewUitUrl());
 
     // Bij 'niet opslaan' zit de verrijking al in het antwoord.
     if (data.verdeling !== undefined) {
@@ -3437,9 +3424,14 @@ document.addEventListener("keydown", (e) => {
 
 document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
     btn.addEventListener("click", () => {
-        wisselView(btn.dataset.view);
+        gaNaarView(btn.dataset.view);
         pasMenuStatusToe(menuOpenStatusNaViewKeuze());
     });
+});
+
+// Ook de terug- en vooruit-knop van de browser komen hier langs.
+window.addEventListener("hashchange", () => {
+    if (huidigeData && huidigeData.chart_data) wisselView(viewUitUrl());
 });
 
 document.getElementById("aandeelSelect").addEventListener("change", (e) => {
@@ -3486,113 +3478,9 @@ document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
 });
 
 document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () => {
-    wisselView("instellingen-ticker");
+    gaNaarView("instellingen-ticker");
     pasMenuStatusToe(menuOpenStatusNaViewKeuze());
 });
-
-// De x-knop zet input.value = "", zodat het bestand echt niet meegaat en `change` weer afgaat.
-// Geeft de update-functie terug voor momenten zonder `change` (reset, terug naar de startpagina).
-function koppelBestandWisKnop(inputId) {
-    const input = document.getElementById(inputId);
-    const rij = document.getElementById(`${inputId}Keuze`);
-    const naam = document.getElementById(`${inputId}Naam`);
-    const wisKnop = document.getElementById(`${inputId}WisKnop`);
-
-    function werkBij() {
-        const namen = Array.from(input.files || [], (f) => f.name);
-        const weergave = bestandSelectieWeergave(namen);
-        naam.textContent = weergave.tekst;
-        naam.title = weergave.tekst;
-        rij.hidden = !weergave.zichtbaar;
-    }
-
-    input.addEventListener("change", werkBij);
-    wisKnop.addEventListener("click", () => {
-        input.value = "";
-        werkBij();
-        // De knop verdwijnt: focus terug op het veld voor toetsenbordgebruikers.
-        input.focus();
-    });
-    werkBij();
-    return werkBij;
-}
-
-const bestandKeuzeBijwerkers = ["bestand1", "bestand2"].map(koppelBestandWisKnop);
-
-function werkBestandKeuzesBij() {
-    bestandKeuzeBijwerkers.forEach((werkBij) => werkBij());
-}
-
-// reset geeft geen `change` en de inputs zijn pas daarna leeg: volgende tick.
-document.getElementById("uploadForm").addEventListener("reset", () => {
-    setTimeout(werkBestandKeuzesBij, 0);
-});
-// Na de terugknop (bfcache) kunnen de inputs afwijken van de rij.
-window.addEventListener("pageshow", werkBestandKeuzesBij);
-
-document.getElementById("uploadForm").addEventListener("submit", async (e) => {
-    e.preventDefault(); // voorkom dat de browser het formulier zelf verstuurt
-    document.getElementById("errorMsg").textContent = ""; // reset bij elke nieuwe poging
-    const formData = new FormData(e.target); // alle inputs, inclusief bestanden
-
-    const bestand2Input = document.getElementById("bestand2");
-    if (!bestand2Input.files || bestand2Input.files.length === 0) { // als er geen bestand is gekozen, verwijderen we het uit de FormData
-        formData.delete("bestand2"); 
-    }
-
-    toonLaadOverlay("Analyseren...");
-    try {
-        // Upload krijgt 60 s, iets ruimer dan de standaard 55 s.
-        const res = await fetchMetTimeout("/upload", { method: "POST", body: formData }, 60000);
-        const data = await res.json();
-        if (!res.ok) {
-            document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
-            return;
-        }
-        toonDashboard(data);
-    } catch (err) {
-        document.getElementById("errorMsg").textContent = err.message === "TIMEOUT"
-            ? "Het ophalen duurde te lang en is gestopt. Dit gebeurt soms bij een nieuwe portfolio — druk gerust "
-              + "nog 1 of 2 keer op de upload-knop, dat lukt meestal wél (de koersen die al opgehaald zijn, staan "
-              + "dan al in de cache, dus de volgende poging is sneller)."
-            : "Er ging iets mis bij het analyseren (netwerkfout). Probeer het opnieuw.";
-    } finally {
-        verbergLaadOverlay();
-    }
-});
-
-document.getElementById("codeForm").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const code = document.getElementById("codeInput").value.trim().toUpperCase();
-    if (!code) return;
-    document.getElementById("errorMsg").textContent = "";
-    const herbepaalAlleTickers = document.getElementById("herbepaalAlleTickersCode").checked;
-    const url = herbepaalAlleTickers
-        ? `/api/portfolio/${code}?herbepaal_alle_tickers=true`
-        : `/api/portfolio/${code}`;
-    toonLaadOverlay("Ophalen...");
-    try {
-        const res = await fetch(url);
-        const data = await res.json();
-        if (!res.ok) {
-            document.getElementById("errorMsg").textContent = data.error || "Code niet gevonden.";
-            return;
-        }
-        toonDashboard(data);
-    } finally {
-        verbergLaadOverlay();
-    }
-});
-
-function gaTerugNaarUpload() {
-    // Anders blijft de scroll-lock (body.menuOpen) hangen op de uploadpagina.
-    pasMenuStatusToe(menuOpenStatusNaViewKeuze());
-    document.getElementById("dashboardSection").style.display = "none";
-    document.getElementById("uploadSection").style.display = "block";
-    werkBestandKeuzesBij();
-}
-
-document.getElementById("terugKnop").addEventListener("click", gaTerugNaarUpload);
 
 document.getElementById("verwijderPortfolioBtn").addEventListener("click", async () => {
     if (!huidigeData || !huidigeData.code) return;
@@ -3603,12 +3491,8 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
     try {
         const res = await fetch(`/api/portfolio/${huidigeData.code}`, { method: "DELETE" });
         if (res.ok) {
-            huidigeData = null;
-            pasMenuStatusToe(menuOpenStatusNaViewKeuze());
-            document.getElementById("dashboardSection").style.display = "none";
-            document.getElementById("uploadSection").style.display = "block";
-            werkBestandKeuzesBij();
-            alert("Portfolio verwijderd.");
+            // replace: de terug-knop mag niet op de verwijderde portfolio uitkomen.
+            location.replace(startPadMetMelding(MELDING_VERWIJDERD));
         } else {
             alert("Verwijderen is niet gelukt, probeer het later opnieuw.");
         }
@@ -3649,6 +3533,7 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
         Object.assign(huidigeData, data);
         laadVerrijking(huidigeData.code);
         document.getElementById("dashCode").textContent = data.code || "";
+        history.replaceState(null, "", portfolioPad(data.code) + location.hash);
         input.value = "";
         msg.style.color = "#2c7a4b";
         msg.textContent = `Code gewijzigd naar ${data.code} — bewaar deze om later terug te komen.`;
@@ -3657,3 +3542,43 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
         verbergLaadOverlay();
     }
 });
+
+// De code komt uit Flask (data-code); leeg op /analyse ('niet opslaan').
+const paginaCode = document.body.dataset.code || "";
+
+async function haalPortfolioOp() {
+    document.getElementById("laadFout").hidden = true;
+    toonLaadOverlay("Ophalen...");
+    try {
+        const res = await fetchMetTimeout(`/api/portfolio/${paginaCode}`);
+        if (res.status === 404) {
+            location.replace(startPadMetMelding(MELDING_ONBEKENDE_CODE));
+            return;
+        }
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Ophalen mislukt.");
+        toonDashboard(data);
+    } catch (err) {
+        console.error("[portfolio] ophalen mislukt:", err.message);
+        document.getElementById("laadFout").hidden = false;
+    } finally {
+        verbergLaadOverlay();
+    }
+}
+
+document.getElementById("laadOpnieuwBtn").addEventListener("click", haalPortfolioOp);
+
+// Direct na een upload of 'ophalen met code' ligt het antwoord al klaar (eenmalig);
+// bij een refresh of bookmark haalt de pagina zelf op.
+function startPortfolioPagina() {
+    const overdracht = haalOverdracht(sessieOpslag(), paginaCode);
+    if (overdracht) {
+        toonDashboard(overdracht);
+    } else if (paginaCode) {
+        haalPortfolioOp();
+    } else {
+        location.replace(START_PAD);
+    }
+}
+
+startPortfolioPagina();

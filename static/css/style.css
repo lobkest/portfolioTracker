@@ -190,7 +190,7 @@ button:hover {
 }
 
 /* Rij "gekozen bestand + x-knop" onder een bestandsveld op de startpagina
-   (zie koppelBestandWisKnop() in app.js). */
+   (zie koppelBestandWisKnop() in start.js). */
 .bestandKeuze {
     display: flex;
     align-items: center;
@@ -369,6 +369,12 @@ button:hover {
 
 .menuBtn:hover {
     background-color: #eee;
+}
+
+/* De terug-link oogt als de knoppen eromheen (een <button> erft de paginafont niet). */
+a.menuBtn {
+    text-decoration: none;
+    font-size: 13.3333px;
 }
 
 .menuBtn.actief {
@@ -558,6 +564,12 @@ button:hover {
     select,
     input,
     button {
+        min-height: 44px;
+    }
+
+    a.menuBtn {
+        display: flex;
+        align-items: center;
         min-height: 44px;
     }
 

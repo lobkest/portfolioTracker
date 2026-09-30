@@ -1,14 +1,6 @@
-<!DOCTYPE html>
-<html lang="nl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <title>Portfolio Dashboard</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
-    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon/apple-touch-icon.png') }}">
-    <link rel="manifest" href="{{ url_for('static', filename='favicon/site.webmanifest') }}">
-    <meta name="theme-color" content="#2c7a4b">
+{% extends "basis.html" %}
+
+{% block head_scripts %}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
@@ -17,68 +9,20 @@
     <!-- Date-adapter voor de tijd-as van de Prognose-grafiek. -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.7.2/luxon.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-luxon/1.3.1/chartjs-adapter-luxon.umd.min.js"></script>
-</head>
-<body data-code="{{ code or '' }}">
-    <div class="container" id="uploadSection">
-        <h1>Portfolio Dashboard</h1>
-        <p>Upload je portfoliogegevens om te starten.</p>
+    {% endblock %}
 
-        <form id="uploadForm">
-            <label for="naam">Naam (optioneel)</label>
-            <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
-
-            <div class="labelRij">
-                <label for="bestand1">Transacties-export (verplicht)</label>
-                <span class="infoTip" data-label="Transacties-export">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</span>
-            </div>
-            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
-            <div class="bestandKeuze" id="bestand1Keuze" hidden>
-                <span class="bestandKeuzeNaam" id="bestand1Naam"></span>
-                <button type="button" class="bestandWisKnop" id="bestand1WisKnop" aria-label="Transactiebestand verwijderen">&times;</button>
-            </div>
-
-            <div class="labelRij">
-                <label for="bestand2">Rekeningoverzicht (optioneel)</label>
-                <span class="infoTip" data-label="Rekeningoverzicht">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</span>
-            </div>
-            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
-            <div class="bestandKeuze" id="bestand2Keuze" hidden>
-                <span class="bestandKeuzeNaam" id="bestand2Naam"></span>
-                <button type="button" class="bestandWisKnop" id="bestand2WisKnop" aria-label="Rekeningoverzicht verwijderen">&times;</button>
-            </div>
-
-            <label class="checkboxLabel"><input type="checkbox" id="nietOpslaan" name="niet_opslaan"> Niet opslaan (eenmalige analyse, er wordt niets bewaard)</label>
-
-            <div class="labelRij">
-                <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickers" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
-                <span class="infoTip" data-label="Ticker-informatie opnieuw bepalen">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan de upload een stuk langzamer maken.</span>
-            </div>
-
-            <button type="submit">Uploaden</button>
-        </form>
-
-        <hr>
-
-        <form id="codeForm">
-            <label for="codeInput">Heb je al een code?</label>
-            <input type="text" id="codeInput" placeholder="Bijv. ABC" style="text-transform: uppercase;">
-
-            <div class="labelRij">
-                <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickersCode" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
-                <span class="infoTip" data-label="Ticker-informatie opnieuw bepalen">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan het ophalen een stuk langzamer maken.</span>
-            </div>
-
-            <button type="submit">Ophalen</button>
-        </form>
-
-        <p id="errorMsg" style="color: #9C0006;"></p>
+{% block inhoud %}
+    <div class="container" id="laadFout" hidden>
+        <p style="color: #9C0006;">Het ophalen van deze portfolio duurde te lang of is mislukt.</p>
+        <button id="laadOpnieuwBtn" type="button">Opnieuw proberen</button>
+        <p><a href="/">Terug naar de startpagina</a></p>
     </div>
 
     <div class="container dashboard" id="dashboardSection" style="display: none;">
         <button id="hamburgerBtn" class="hamburgerBtn" aria-label="Menu openen" aria-expanded="false">&#9776;</button>
         <div id="menuOverlay" class="menuOverlay"></div>
         <div class="sidebar" id="sidebarMenu">
-            <button id="terugKnop" class="menuBtn">&larr; Nieuwe upload</button>
+            <a id="terugKnop" class="menuBtn" href="/">&larr; Nieuwe upload</a>
             <hr>
             <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
             <button class="menuBtn" data-view="rendement">Rendement</button>
@@ -204,18 +148,13 @@
             </div>
         </div>
     </div>
+    {% endblock %}
 
-    <div id="laadOverlay" class="laadOverlay" hidden>
-        <div class="laadSpinner"></div>
-        <div id="laadOverlayTekst" class="laadOverlayTekst"></div>
-    </div>
+{% block scripts %}
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
     <script src="{{ url_for('static', filename='js/diagnostiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/infotip.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/bestandskeuze.js') }}"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-</body>
-</html>
+    {% endblock %}

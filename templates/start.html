@@ -1,0 +1,64 @@
+{% extends "basis.html" %}
+
+{% block inhoud %}
+    <div class="container" id="uploadSection">
+        <h1>Portfolio Dashboard</h1>
+        <p>Upload je portfoliogegevens om te starten.</p>
+        <p id="startMelding" role="status" style="font-weight: bold;"></p>
+
+        <form id="uploadForm">
+            <label for="naam">Naam (optioneel)</label>
+            <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
+
+            <div class="labelRij">
+                <label for="bestand1">Transacties-export (verplicht)</label>
+                <span class="infoTip" data-label="Transacties-export">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</span>
+            </div>
+            <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls" required>
+            <div class="bestandKeuze" id="bestand1Keuze" hidden>
+                <span class="bestandKeuzeNaam" id="bestand1Naam"></span>
+                <button type="button" class="bestandWisKnop" id="bestand1WisKnop" aria-label="Transactiebestand verwijderen">&times;</button>
+            </div>
+
+            <div class="labelRij">
+                <label for="bestand2">Rekeningoverzicht (optioneel)</label>
+                <span class="infoTip" data-label="Rekeningoverzicht">DeGiro: Inbox &rarr; Rekeningoverzicht, exporteer vanaf het begin van je beleggen (.xls)</span>
+            </div>
+            <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
+            <div class="bestandKeuze" id="bestand2Keuze" hidden>
+                <span class="bestandKeuzeNaam" id="bestand2Naam"></span>
+                <button type="button" class="bestandWisKnop" id="bestand2WisKnop" aria-label="Rekeningoverzicht verwijderen">&times;</button>
+            </div>
+
+            <label class="checkboxLabel"><input type="checkbox" id="nietOpslaan" name="niet_opslaan"> Niet opslaan (eenmalige analyse, er wordt niets bewaard)</label>
+
+            <div class="labelRij">
+                <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickers" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
+                <span class="infoTip" data-label="Ticker-informatie opnieuw bepalen">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan de upload een stuk langzamer maken.</span>
+            </div>
+
+            <button type="submit">Uploaden</button>
+        </form>
+
+        <hr>
+
+        <form id="codeForm">
+            <label for="codeInput">Heb je al een code?</label>
+            <input type="text" id="codeInput" placeholder="Bijv. ABC" style="text-transform: uppercase;">
+
+            <div class="labelRij">
+                <label class="checkboxLabel"><input type="checkbox" id="herbepaalAlleTickersCode" name="herbepaal_alle_tickers"> Ticker-informatie voor alle posities opnieuw bepalen</label>
+                <span class="infoTip" data-label="Ticker-informatie opnieuw bepalen">Normaal niet nodig — gebruik dit alleen als je denkt dat een ticker niet meer klopt. Kan het ophalen een stuk langzamer maken.</span>
+            </div>
+
+            <button type="submit">Ophalen</button>
+        </form>
+
+        <p id="errorMsg" style="color: #9C0006;"></p>
+    </div>
+    {% endblock %}
+
+{% block scripts %}
+    <script src="{{ url_for('static', filename='js/bestandskeuze.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/start.js') }}"></script>
+    {% endblock %}

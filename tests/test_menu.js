@@ -26,7 +26,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const CSS = fs.readFileSync(path.join(__dirname, "..", "static", "css", "style.css"), "utf8");
-const HTML = fs.readFileSync(path.join(__dirname, "..", "templates", "index.html"), "utf8");
+const HTML = fs.readFileSync(path.join(__dirname, "..", "templates", "basis.html"), "utf8");
 
 // Geeft de inhoud van het eerste @media-blok waarvan de voorwaarde met
 // `begin` start (accolades geteld, dus geneste regels blijven binnen het blok).

@@ -30,11 +30,50 @@ class TestPaginaRoutes(unittest.TestCase):
         html = res.get_data(as_text=True)
         self.assertIn('id="uploadForm"', html)
         self.assertIn('data-code=""', html)
+        self.assertNotIn('id="dashboardSection"', html)
+
+    def test_start_laadt_geen_dashboard_scripts(self):
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn('src="/static/js/start.js"', html)
+        self.assertNotIn("app.js", html)
+        self.assertNotIn("chart.umd", html)
 
     def test_geldige_code_geeft_pagina_met_data_code(self):
         res = self.client.get("/p/ABC")
         self.assertEqual(res.status_code, 200)
-        self.assertIn('data-code="ABC"', res.get_data(as_text=True))
+        html = res.get_data(as_text=True)
+        self.assertIn('data-code="ABC"', html)
+        self.assertIn('id="dashboardSection"', html)
+        self.assertNotIn('id="uploadForm"', html)
+        self.assertNotIn("start.js", html)
+
+    def test_beide_paginas_hebben_de_gedeelde_onderdelen(self):
+        for pad in ("/", "/p/ABC", "/analyse"):
+            html = self.client.get(pad).get_data(as_text=True)
+            self.assertIn('id="laadOverlay"', html, pad)
+            for script in ("navigatie.js", "overdracht.js", "gedeeld.js", "infotip.js"):
+                self.assertIn(f'src="/static/js/{script}"', html, pad)
+
+    def test_gedeelde_scripts_staan_voor_het_paginascript(self):
+        for pad, paginascript in (("/", "start.js"), ("/p/ABC", "app.js")):
+            html = self.client.get(pad).get_data(as_text=True)
+            self.assertLess(html.index("gedeeld.js"), html.index(paginascript), pad)
+            self.assertLess(html.index("overdracht.js"), html.index(paginascript), pad)
+
+    def test_elk_element_id_uit_de_js_bestaat_op_de_pagina(self):
+        # De top-level listeners crashen op een ontbrekend element (getElementById geeft dan null).
+        import re
+        basis = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for pad, scripts in (("/", ("start.js", "gedeeld.js")), ("/p/ABC", ("app.js", "gedeeld.js"))):
+            html = self.client.get(pad).get_data(as_text=True)
+            ids_html = set(re.findall(r'id="([^"]+)"', html))
+            for script in scripts:
+                with open(os.path.join(basis, "static", "js", script), encoding="utf-8") as f:
+                    js = f.read()
+                ids_js = set(re.findall(r'getElementById\("([^"]+)"\)', js))
+                # Elementen die de JS zelf aanmaakt staan niet in de template.
+                zelf_gemaakt = {i for i in ids_js if re.search(rf'\.id = "{re.escape(i)}"', js)}
+                self.assertEqual(ids_js - ids_html - zelf_gemaakt, set(), f"{script} op {pad}")
 
     def test_kleine_letters_redirecten_naar_hoofdletters(self):
         for pad in ("/p/abc", "/p/aBc"):
@@ -51,7 +90,9 @@ class TestPaginaRoutes(unittest.TestCase):
     def test_analyse_geeft_pagina_zonder_code(self):
         res = self.client.get("/analyse")
         self.assertEqual(res.status_code, 200)
-        self.assertIn('data-code=""', res.get_data(as_text=True))
+        html = res.get_data(as_text=True)
+        self.assertIn('data-code=""', html)
+        self.assertIn('id="dashboardSection"', html)
 
     def test_statische_verwijzingen_zijn_absoluut_op_portfolio_pagina(self):
         html = self.client.get("/p/ABC").get_data(as_text=True)

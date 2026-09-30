@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Portfolio Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
+    <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon/apple-touch-icon.png') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='favicon/site.webmanifest') }}">
+    <meta name="theme-color" content="#2c7a4b">
+    {% block head_scripts %}{% endblock %}
+</head>
+<body data-code="{{ code or '' }}">
+    {% block inhoud %}{% endblock %}
+
+    <div id="laadOverlay" class="laadOverlay" hidden>
+        <div class="laadSpinner"></div>
+        <div id="laadOverlayTekst" class="laadOverlayTekst"></div>
+    </div>
+    <script src="{{ url_for('static', filename='js/navigatie.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/overdracht.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/infotip.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/gedeeld.js') }}"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

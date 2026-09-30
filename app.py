@@ -42,7 +42,7 @@ MELDING_ONGELDIGE_CODE = "ongeldige-code"
 
 @app.route("/")
 def home():
-    return render_template("index.html")
+    return render_template("start.html")
 
 
 # Alleen de template: de pagina haalt de data zelf op, dus geen database hier.
@@ -53,12 +53,12 @@ def portfolio_pagina(code):
         return redirect(url_for("home", melding=MELDING_ONGELDIGE_CODE))
     if code != genormaliseerd:
         return redirect(url_for("portfolio_pagina", code=genormaliseerd))
-    return render_template("index.html", code=genormaliseerd)
+    return render_template("portfolio.html", code=genormaliseerd)
 
 
 @app.route("/analyse")
 def analyse_pagina():
-    return render_template("index.html")
+    return render_template("portfolio.html")
 
 @app.route("/upload", methods=["POST"])
 def upload():
