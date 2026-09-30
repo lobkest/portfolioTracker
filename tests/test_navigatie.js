@@ -6,7 +6,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     STANDAARD_VIEW, MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
-    portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, startMeldingTekst,
+    VEREIST_CODE_JA, VEREIST_CODE_NEE,
+    portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, startMeldingTekst,
 } = require("../static/js/navigatie.js");
 
 const VIEWS = ["portfolio", "rendement", "xirr-rendement", "instellingen-ticker"];
@@ -54,44 +55,180 @@ test("viewInLijst: lege of ontbrekende lijst bevat geen enkel tabblad", () => {
     assert.equal(viewInLijst(undefined, "portfolio"), false);
 });
 
-function leesPortfolioTemplate() {
+test("elementZichtbaar: zonder data-vereist-code telt alleen het tabblad", () => {
+    for (const heeftCode of [true, false]) {
+        assert.equal(elementZichtbaar("land sector", undefined, "land", heeftCode), true);
+        assert.equal(elementZichtbaar("land sector", undefined, "portfolio", heeftCode), false);
+    }
+});
+
+test("elementZichtbaar: data-vereist-code 'ja' is alleen zichtbaar bij een opgeslagen portfolio", () => {
+    assert.equal(elementZichtbaar("rendement", VEREIST_CODE_JA, "rendement", true), true);
+    assert.equal(elementZichtbaar("rendement", VEREIST_CODE_JA, "rendement", false), false);
+    assert.equal(elementZichtbaar("rendement", VEREIST_CODE_JA, "portfolio", true), false);
+    assert.equal(elementZichtbaar("rendement", VEREIST_CODE_JA, "portfolio", false), false);
+});
+
+test("elementZichtbaar: data-vereist-code 'nee' is het spiegelbeeld (alleen bij 'niet opslaan')", () => {
+    assert.equal(elementZichtbaar("portfolio", VEREIST_CODE_NEE, "portfolio", false), true);
+    assert.equal(elementZichtbaar("portfolio", VEREIST_CODE_NEE, "portfolio", true), false);
+    assert.equal(elementZichtbaar("portfolio", VEREIST_CODE_NEE, "rendement", false), false);
+    assert.equal(elementZichtbaar("portfolio", VEREIST_CODE_NEE, "rendement", true), false);
+});
+
+test("elementZichtbaar: zonder data-views (binnen een tabblad-blok) telt alleen de code", () => {
+    for (const view of ["portfolio", "xirr-rendement"]) {
+        assert.equal(elementZichtbaar(undefined, VEREIST_CODE_JA, view, true), true);
+        assert.equal(elementZichtbaar(undefined, VEREIST_CODE_JA, view, false), false);
+        assert.equal(elementZichtbaar(undefined, VEREIST_CODE_NEE, view, true), false);
+        assert.equal(elementZichtbaar(undefined, VEREIST_CODE_NEE, view, false), true);
+        assert.equal(elementZichtbaar(undefined, undefined, view, true), true);
+        assert.equal(elementZichtbaar(undefined, undefined, view, false), true);
+    }
+});
+
+const LEGE_ELEMENTEN = new Set(["input", "hr", "br", "img", "meta", "link"]);
+
+// Alle elementen van portfolio.html, elk met zijn attributen en zijn voorouders (buitenste eerst).
+function leesPortfolioElementen() {
     const fs = require("node:fs");
     const path = require("node:path");
-    return fs.readFileSync(path.join(__dirname, "..", "templates", "portfolio.html"), "utf8");
+    const html = fs.readFileSync(path.join(__dirname, "..", "templates", "portfolio.html"), "utf8")
+        .replace(/<!--[\s\S]*?-->/g, "")
+        .replace(/\{%[\s\S]*?%\}/g, "");
+    const elementen = [];
+    const stapel = [];
+    for (const m of html.matchAll(/<(\/?)([a-zA-Z][\w-]*)((?:"[^"]*"|[^>"])*)>/g)) {
+        const [, sluit, tag, attribuutTekst] = m;
+        if (sluit) {
+            assert.equal(stapel.pop().tag, tag, `sluit-tag </${tag}> past niet`);
+            continue;
+        }
+        const attrs = {};
+        for (const a of attribuutTekst.matchAll(/([\w-]+)(?:="([^"]*)")?/g)) attrs[a[1]] = a[2] === undefined ? "" : a[2];
+        const element = { tag, attrs, voorouders: [...stapel] };
+        elementen.push(element);
+        if (!LEGE_ELEMENTEN.has(tag)) stapel.push(element);
+    }
+    assert.equal(stapel.length, 0, "niet elk element is gesloten");
+    return elementen;
 }
 
-function viewsVanElement(html, id, attribuut) {
-    const tag = html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))[0];
-    return tag.match(new RegExp(`${attribuut}="([^"]*)"`))[1].split(" ");
+const heeft = (element, attribuut) => Object.hasOwn(element.attrs, attribuut);
+const tabbladVan = element => element.voorouders.find(v => (v.attrs.id || "").startsWith("tab-"));
+const viewVanTabblad = tabblad => tabblad.attrs.id.slice("tab-".length);
+
+function menuViews(elementen) {
+    return elementen.filter(e => heeft(e, "data-view")).map(e => e.attrs["data-view"]);
 }
 
 test("portfolio.html: elke naam in data-views en data-verberg-buiten is een bestaand tabblad", () => {
-    const html = leesPortfolioTemplate();
-    const tabbladen = [...html.matchAll(/data-view="([^"]+)"/g)].map(m => m[1]);
-    assert.ok(tabbladen.length > 0);
-    for (const m of html.matchAll(/data-(?:views|verberg-buiten)="([^"]*)"/g)) {
-        for (const naam of m[1].split(" ")) {
-            assert.ok(tabbladen.includes(naam), `onbekend tabblad "${naam}" in ${m[0]}`);
+    const elementen = leesPortfolioElementen();
+    const views = menuViews(elementen);
+    assert.ok(views.length > 0);
+    for (const element of elementen) {
+        for (const attribuut of ["data-views", "data-verberg-buiten"]) {
+            if (!heeft(element, attribuut)) continue;
+            for (const naam of element.attrs[attribuut].split(" ")) {
+                assert.ok(views.includes(naam), `onbekend tabblad "${naam}" in ${attribuut} van ${element.attrs.id || element.tag}`);
+            }
         }
     }
 });
 
-test("portfolio.html: de gedeelde grafiek staat op de tabbladen met een grafiek op het gedeelde canvas", () => {
+test("portfolio.html: geen dubbele id's", () => {
+    const ids = leesPortfolioElementen().filter(e => heeft(e, "id")).map(e => e.attrs.id);
+    const dubbel = ids.filter((id, i) => ids.indexOf(id) !== i);
+    assert.deepEqual(dubbel, []);
+});
+
+test("portfolio.html: elk tabblad uit het menu heeft precies één eigen blok tab-<view>", () => {
+    const elementen = leesPortfolioElementen();
+    const blokken = elementen.filter(e => (e.attrs.id || "").startsWith("tab-"));
+    assert.deepEqual(blokken.map(viewVanTabblad), menuViews(elementen));
+    for (const blok of blokken) {
+        assert.equal(blok.attrs["data-views"], viewVanTabblad(blok), blok.attrs.id);
+        assert.equal(tabbladVan(blok), undefined, `${blok.attrs.id} staat in een ander tabblad-blok`);
+    }
+});
+
+test("portfolio.html: elk data-grafiek-plek zit in een tabblad-blok, hooguit één per tabblad", () => {
+    const plekken = leesPortfolioElementen().filter(e => heeft(e, "data-grafiek-plek"));
+    for (const plek of plekken) {
+        const tabblad = tabbladVan(plek);
+        assert.ok(tabblad, "data-grafiek-plek buiten een tabblad-blok");
+        assert.ok(heeft(tabblad, "data-views"), tabblad.attrs.id);
+    }
+    const views = plekken.map(p => viewVanTabblad(tabbladVan(p)));
+    assert.deepEqual(views, [...new Set(views)]);
+});
+
+test("portfolio.html: de gedeelde grafiek heeft een plek op de tabbladen met een grafiek op het gedeelde canvas", () => {
+    const plekken = leesPortfolioElementen().filter(e => heeft(e, "data-grafiek-plek"));
     assert.deepEqual(
-        viewsVanElement(leesPortfolioTemplate(), "chartWrapper", "data-views"),
+        plekken.map(p => viewVanTabblad(tabbladVan(p))),
         ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "xirr-rendement", "prognose", "dividend"],
     );
 });
 
 test("portfolio.html: de zoomknop staat alleen op de tabbladen met een zoombare lijngrafiek", () => {
-    const zoom = viewsVanElement(leesPortfolioTemplate(), "resetZoomBtn", "data-views");
-    assert.deepEqual(zoom, ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "xirr-rendement", "prognose", "dividend"]);
-    const grafiek = viewsVanElement(leesPortfolioTemplate(), "chartWrapper", "data-views");
-    for (const view of zoom) assert.ok(grafiek.includes(view), view);
+    const elementen = leesPortfolioElementen();
+    const zoombaar = elementen.filter(e => heeft(e, "data-zoombaar"));
+    for (const plek of zoombaar) assert.ok(heeft(plek, "data-grafiek-plek"), "data-zoombaar zonder data-grafiek-plek");
+    assert.deepEqual(
+        zoombaar.map(p => viewVanTabblad(tabbladVan(p))),
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "xirr-rendement", "prognose", "dividend"],
+    );
+    const zoomknop = elementen.find(e => e.attrs.id === "resetZoomBtn");
+    assert.ok(zoomknop.voorouders.some(v => v.attrs.id === "chartWrapper"), "de zoomknop verhuist mee met de grafiek");
+});
+
+test("portfolio.html: de gedeelde grafiek zelf staat buiten de tabblad-blokken en bevat het canvas", () => {
+    const elementen = leesPortfolioElementen();
+    assert.equal(tabbladVan(elementen.find(e => e.attrs.id === "chartWrapper")), undefined);
+    const canvas = elementen.find(e => e.attrs.id === "rendementChart");
+    assert.ok(canvas.voorouders.some(v => v.attrs.id === "chartWrapper"));
+});
+
+test("portfolio.html: data-vereist-code is 'ja' of 'nee'", () => {
+    for (const element of leesPortfolioElementen()) {
+        if (!heeft(element, "data-vereist-code")) continue;
+        assert.ok([VEREIST_CODE_JA, VEREIST_CODE_NEE].includes(element.attrs["data-vereist-code"]), element.attrs.id || element.tag);
+    }
+});
+
+test("portfolio.html: code-tekst, benchmark-keuzes en de XIRR-grafiek vereisen een code; 'niet opgeslagen' juist geen", () => {
+    const elementen = leesPortfolioElementen();
+    const vereist = id => elementen.find(e => e.attrs.id === id).attrs["data-vereist-code"];
+    assert.equal(vereist("codeText"), VEREIST_CODE_JA);
+    assert.equal(vereist("nietOpgeslagenText"), VEREIST_CODE_NEE);
+    assert.equal(vereist("benchmarkSelectWrapper"), VEREIST_CODE_JA);
+    assert.equal(vereist("eigenAandeelSelectWrapper"), VEREIST_CODE_JA);
+    for (const id of ["codeText", "nietOpgeslagenText"]) {
+        assert.equal(tabbladVan(elementen.find(e => e.attrs.id === id)).attrs.id, "tab-portfolio", id);
+    }
+    const xirrPlek = elementen.find(e => heeft(e, "data-grafiek-plek") && tabbladVan(e).attrs.id === "tab-xirr-rendement");
+    assert.equal(xirrPlek.attrs["data-vereist-code"], VEREIST_CODE_JA);
 });
 
 test("portfolio.html: 'laatst bijgewerkt' wordt buiten Portfolio-home verborgen", () => {
-    assert.deepEqual(viewsVanElement(leesPortfolioTemplate(), "laatstBijgewerktText", "data-verberg-buiten"), ["portfolio"]);
+    const element = leesPortfolioElementen().find(e => e.attrs.id === "laatstBijgewerktText");
+    assert.equal(element.attrs["data-verberg-buiten"], "portfolio");
+});
+
+// De id's in deze lijsten worden via een variabele opgezocht; test_pagina_routes.py ziet ze daardoor niet.
+test("portfolio.html: de toestand- en prognose-id's uit app.js bestaan", () => {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const appJs = fs.readFileSync(path.join(__dirname, "..", "static", "js", "app.js"), "utf8");
+    const ids = new Set(leesPortfolioElementen().map(e => e.attrs.id));
+    for (const naam of ["DIVIDEND_TOESTANDEN", "TRANSACTIES_TOESTANDEN", "PROGNOSE_VELD_IDS"]) {
+        const blok = appJs.match(new RegExp(`const ${naam} = [\\[{]([^\\]}]*)[\\]}]`));
+        assert.ok(blok, naam);
+        const gevonden = [...blok[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
+        assert.ok(gevonden.length > 0, naam);
+        for (const id of gevonden) assert.ok(ids.has(id), `${id} uit ${naam} ontbreekt in portfolio.html`);
+    }
 });
 
 test("startMeldingTekst: elke bekende sleutel heeft een tekst", () => {

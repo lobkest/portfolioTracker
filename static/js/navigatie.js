@@ -37,6 +37,17 @@
         return (lijst || "").split(" ").includes(view);
     }
 
+    const VEREIST_CODE_JA = "ja";
+    const VEREIST_CODE_NEE = "nee";
+
+    // views = data-views, vereistCode = data-vereist-code; een ontbrekend attribuut stelt geen eis.
+    function elementZichtbaar(views, vereistCode, view, heeftCode) {
+        if (views !== undefined && !viewInLijst(views, view)) return false;
+        if (vereistCode === VEREIST_CODE_JA) return heeftCode;
+        if (vereistCode === VEREIST_CODE_NEE) return !heeftCode;
+        return true;
+    }
+
     // Vaste tekst per sleutel: de query zelf komt nooit op de pagina. Onbekende sleutel: null.
     function startMeldingTekst(sleutel) {
         return Object.hasOwn(START_MELDING_TEKSTEN, sleutel) ? START_MELDING_TEKSTEN[sleutel] : null;
@@ -45,7 +56,8 @@
     const exportsObj = {
         START_PAD, ANALYSE_PAD, STANDAARD_VIEW, MELDING_PARAM,
         MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
-        portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, startMeldingTekst,
+        VEREIST_CODE_JA, VEREIST_CODE_NEE,
+        portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, startMeldingTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

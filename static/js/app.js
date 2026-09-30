@@ -256,12 +256,9 @@ async function toonRendementOverTijd() {
     if (!huidigeData.code) {
         if (chart) { chart.destroy(); chart = null; }
         document.getElementById("chartWrapper").style.display = "none";
-        msg.textContent = "Dit tabblad is alleen beschikbaar voor een opgeslagen portfolio (niet bij een eenmalige, niet-opgeslagen analyse).";
-        msg.style.display = "block";
         return;
     }
 
-    document.getElementById("chartWrapper").style.display = "block";
     toonLaadOverlay("Rendement over tijd berekenen...");
     let res, data;
     try {
@@ -598,20 +595,10 @@ function toonEtfDrilldown(ticker) {
 
     if (!info) {
         container.style.display = "none";
-        container.innerHTML = "";
         return;
     }
 
-    container.innerHTML = "";
-    const titel = document.createElement("div");
-    titel.textContent = "Land- en sectorverdeling van deze ETF";
-    titel.style.fontWeight = "bold";
-    titel.style.marginBottom = "4px";
-    container.appendChild(titel);
-
-    const brontekst = document.createElement("div");
-    brontekst.style.fontSize = "0.8em";
-    brontekst.style.marginBottom = "10px";
+    const brontekst = document.getElementById("etfDrilldownBron");
     if (info.land_bron === "provider_csv") {
         brontekst.style.color = "#2c7a4b";
         brontekst.textContent = "Land: op basis van de volledige holdings-lijst van de fondsprovider.";
@@ -619,14 +606,11 @@ function toonEtfDrilldown(ticker) {
         brontekst.style.color = "#888";
         brontekst.textContent = "Land: op basis van top-10-holdings (beperkte dekking) — grotendeels \"Unknown\".";
     }
-    container.appendChild(brontekst);
 
-    const rij = document.createElement("div");
-    rij.style.display = "flex";
-    rij.style.gap = "40px";
-    rij.appendChild(maakVerdelingLijst("Land", info.land));
-    rij.appendChild(maakVerdelingLijst("Sector", info.sector));
-    container.appendChild(rij);
+    document.getElementById("etfDrilldownLijsten").replaceChildren(
+        maakVerdelingLijst("Land", info.land),
+        maakVerdelingLijst("Sector", info.sector),
+    );
 
     container.style.display = "block";
 }
@@ -1043,7 +1027,7 @@ async function resetBijnaam(ticker) {
 function toonInstellingen() {
     document.getElementById("instellingenMsg").style.display = "none";
     const sectie = document.getElementById("instellingenSectie");
-    sectie.innerHTML = "<p>Geef per aandeel/ETF optioneel een eigen bijnaam op.</p>";
+    sectie.innerHTML = "";
 
     huidigeData.tickers.forEach(t => {
         const rij = document.createElement("div");
@@ -1738,37 +1722,22 @@ function kleurVoorTicker(ticker) {
     return kleurVoorIndex(idx >= 0 ? idx : 0);
 }
 
-function maakDividendTabel(perTicker) {
-    const tabel = document.createElement("table");
-    tabel.style.fontSize = "0.9em";
-    tabel.style.borderCollapse = "collapse";
-    tabel.style.marginTop = "8px";
+// Toont van een groep elementen alleen het genoemde (of geen, bij null).
+function toonAlleen(ids, zichtbaarId) {
+    ids.forEach(id => { document.getElementById(id).hidden = id !== zichtbaarId; });
+}
 
-    const kop = document.createElement("tr");
-    ["Aandeel/ETF", "Netto dividend"].forEach(tekst => {
-        const th = document.createElement("th");
-        th.textContent = tekst;
-        th.style.textAlign = "left";
-        th.style.padding = "3px 20px 3px 0";
-        th.style.borderBottom = "1px solid #ddd";
-        kop.appendChild(th);
-    });
-    tabel.appendChild(kop);
-
-    perTicker.forEach(item => {
+function vulDividendTabel(perTicker) {
+    const rijen = perTicker.map(item => {
         const rij = document.createElement("tr");
         const naamTd = document.createElement("td");
         naamTd.textContent = item.bijnaam;
-        naamTd.style.padding = "3px 20px 3px 0";
         const bedragTd = document.createElement("td");
         bedragTd.textContent = formatteerEuro(item.totaal_netto);
-        bedragTd.style.padding = "3px 20px 3px 0";
-        rij.appendChild(naamTd);
-        rij.appendChild(bedragTd);
-        tabel.appendChild(rij);
+        rij.append(naamTd, bedragTd);
+        return rij;
     });
-
-    return tabel;
+    document.getElementById("dividendPerTickerRijen").replaceChildren(...rijen);
 }
 
 // Bedragen zijn altijd EUR; 'valuta' is de oorspronkelijke valuta en staat alleen tussen haakjes.
@@ -1843,43 +1812,20 @@ function maakDividendUitkeringenTabel(lijst) {
     return maakSorteerbareTabel(kolommen, lijst, { legeTekst: "Geen uitkeringen beschikbaar." });
 }
 
-// Eigen sectie na #chartWrapper, zodat de lijst onder de grafiek staat.
 function renderDividendUitkeringenlijst(lijst) {
-    const sectie = document.getElementById("dividendUitkeringenSectie");
-    sectie.innerHTML = "";
-
-    if (!lijst || lijst.length === 0) return;
-
-    const kop = document.createElement("h3");
-    kop.textContent = "Alle uitkeringen";
-    sectie.appendChild(kop);
-
-    const scrollWrapper = document.createElement("div");
-    scrollWrapper.className = "scrollbareTabel";
-    scrollWrapper.appendChild(maakDividendUitkeringenTabel(lijst));
-    sectie.appendChild(scrollWrapper);
+    const heeftUitkeringen = Boolean(lijst && lijst.length > 0);
+    document.getElementById("dividendUitkeringenSectie").hidden = !heeftUitkeringen;
+    if (!heeftUitkeringen) return;
+    document.getElementById("dividendUitkeringenTabel").replaceChildren(maakDividendUitkeringenTabel(lijst));
 }
 
 function renderDividendStats(data) {
-    const sectie = document.getElementById("dividendStatsSectie");
-    sectie.innerHTML = "";
+    document.getElementById("dividendTotaal").textContent = `${formatteerEuro(data.totaal_netto)} totaal ontvangen dividend`;
 
-    const totaalDiv = document.createElement("div");
-    totaalDiv.style.fontSize = "1.8em";
-    totaalDiv.style.fontWeight = "bold";
-    totaalDiv.style.color = "#2c7a4b";
-    totaalDiv.textContent = `${formatteerEuro(data.totaal_netto)} totaal ontvangen dividend`;
-    sectie.appendChild(totaalDiv);
-
-    if (!data.per_ticker || data.per_ticker.length === 0) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Nog geen dividend ontvangen.";
-        sectie.appendChild(p);
-        return;
-    }
-
-    sectie.appendChild(maakDividendTabel(data.per_ticker));
+    const perTicker = data.per_ticker || [];
+    document.getElementById("dividendNogGeen").hidden = perTicker.length > 0;
+    document.getElementById("dividendPerTickerTabel").hidden = perTicker.length === 0;
+    vulDividendTabel(perTicker);
 }
 
 function toonDividendChart(cumulatief) {
@@ -1914,34 +1860,23 @@ function toonDividendChart(cumulatief) {
     });
 }
 
+const DIVIDEND_TOESTANDEN = ["dividendLaden", "dividendFout", "dividendGeenOverzicht", "dividendStatsSectie"];
+
 // Alleen Dividend heeft het rekeningoverzicht nodig; de rest werkt zonder.
-function maakGeenRekeningoverzichtMelding() {
-    const container = document.createElement("div");
-
-    const p = document.createElement("p");
-    p.textContent = "Dividendgegevens niet beschikbaar — upload eerst je Account-overzicht (Excel) om dit te kunnen zien.";
-    container.appendChild(p);
-
-    const knop = document.createElement("button");
-    knop.textContent = "Terug naar upload";
-    knop.onclick = () => location.assign(START_PAD);
-    container.appendChild(knop);
-
-    return container;
+function toonGeenRekeningoverzicht() {
+    if (chart) { chart.destroy(); chart = null; }
+    document.getElementById("chartWrapper").style.display = "none";
+    toonAlleen(DIVIDEND_TOESTANDEN, "dividendGeenOverzicht");
 }
 
+document.getElementById("dividendNaarUploadBtn").addEventListener("click", () => location.assign(START_PAD));
+
 async function toonDividend() {
-    const sectie = document.getElementById("dividendStatsSectie");
-    const lijstSectie = document.getElementById("dividendUitkeringenSectie");
-    document.getElementById("chartWrapper").style.display = "block";
-    sectie.innerHTML = "<p>Bezig met laden...</p>";
-    lijstSectie.innerHTML = "";
+    toonAlleen(DIVIDEND_TOESTANDEN, "dividendLaden");
+    document.getElementById("dividendUitkeringenSectie").hidden = true;
 
     if (!huidigeData.code) {
-        if (chart) { chart.destroy(); chart = null; }
-        document.getElementById("chartWrapper").style.display = "none";
-        sectie.innerHTML = "";
-        sectie.appendChild(maakGeenRekeningoverzichtMelding());
+        toonGeenRekeningoverzicht();
         return;
     }
 
@@ -1950,22 +1885,16 @@ async function toonDividend() {
         res = await fetch(`/api/portfolio/${huidigeData.code}/dividend`);
         data = await res.json();
     } catch (e) {
-        sectie.innerHTML = "";
-        const p = document.createElement("p");
-        p.style.color = "#9C0006";
-        p.textContent = "Kon dividendgegevens niet ophalen.";
-        sectie.appendChild(p);
+        toonAlleen(DIVIDEND_TOESTANDEN, "dividendFout");
         return;
     }
 
     if (!res.ok || !data.beschikbaar) {
-        if (chart) { chart.destroy(); chart = null; }
-        document.getElementById("chartWrapper").style.display = "none";
-        sectie.innerHTML = "";
-        sectie.appendChild(maakGeenRekeningoverzichtMelding());
+        toonGeenRekeningoverzicht();
         return;
     }
 
+    toonAlleen(DIVIDEND_TOESTANDEN, "dividendStatsSectie");
     renderDividendStats(data);
     toonDividendChart(data.cumulatief);
     renderDividendUitkeringenlijst(data.lijst);
@@ -2384,110 +2313,38 @@ function maakGeavanceerdSectie(geavanceerd) {
     return rij;
 }
 
-function maakUitlegSectie() {
-    const box = document.createElement("div");
-    box.style.fontSize = "0.85em";
-    box.style.color = "#666";
-    box.style.background = "#f4f4f4";
-    box.style.borderRadius = "4px";
-    box.style.padding = "10px 14px";
-    box.style.marginTop = "8px";
-
-    const p1 = document.createElement("p");
-    p1.style.margin = "0 0 6px 0";
-    p1.innerHTML = "<strong>XIRR</strong> is de eerlijkste rendementsmaatstaf hierboven — die houdt (anders dan de andere percentages) rekening met WANNEER je geld hebt ingelegd, in plaats van alleen met hoeveel.";
-    box.appendChild(p1);
-
-    const p2 = document.createElement("p");
-    p2.style.margin = "0 0 6px 0";
-    p2.innerHTML = "<strong>Jaarrendement</strong> (per jaar, en het gemiddelde daarvan) wordt gedeeld door het bedrag dat dát jaar ingezet was (startwaarde + dat jaar ingelegd) — niet door het totaal over alle jaren. Dit is, net als het totaalrendement, een simpele ratio zonder tijdweging.";
-    box.appendChild(p2);
-
-    const p3 = document.createElement("p");
-    p3.style.margin = "0";
-    p3.innerHTML = "<strong>TWR</strong> (time-weighted return) sluit — anders dan XIRR — het effect van WANNEER je stort juist helemaal uit, door elke periode los te rendementeren en die aan elkaar te koppelen. Handig om je eigen beleggingskeuzes te beoordelen los van je stortingsgedrag; reageert daardoor niet extreem vlak na een storting zoals XIRR dat wel doet.";
-    box.appendChild(p3);
-
-    return box;
-}
-
 function toonStatistieken() {
-    const sectie = document.getElementById("statistiekenSectie");
-    sectie.innerHTML = "";
-
     const stats = huidigeData.statistieken;
-    if (!stats) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Geen statistieken beschikbaar voor deze portfolio.";
-        sectie.appendChild(p);
-        return;
-    }
+    document.getElementById("statistiekenGeen").hidden = Boolean(stats);
+    document.getElementById("statistiekenInhoud").hidden = !stats;
+    if (!stats) return;
 
     const tickerNamen = {};
     (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
 
-    sectie.appendChild(maakTotalenSectie(stats.totalen));
-
-    const positiesKop = document.createElement("h3");
-    positiesKop.textContent = "Posities";
-    positiesKop.style.marginBottom = "6px";
-    sectie.appendChild(positiesKop);
-    sectie.appendChild(maakPositieTabel(stats.posities, tickerNamen));
-
-    const geslotenKop = document.createElement("h3");
-    geslotenKop.textContent = "Verkochte posities";
-    geslotenKop.style.margin = "24px 0 6px 0";
-    sectie.appendChild(geslotenKop);
-    sectie.appendChild(maakGeslotenPositiesTabel(stats.gesloten_posities));
-
-    const jarenKop = document.createElement("h3");
-    jarenKop.textContent = "Rendement per jaar";
-    jarenKop.style.margin = "24px 0 6px 0";
-    sectie.appendChild(jarenKop);
-    sectie.appendChild(maakJarenTabel(stats.jaren));
-
-    const geavanceerdKop = document.createElement("h3");
-    geavanceerdKop.textContent = "Samengesteld rendement";
-    geavanceerdKop.style.margin = "24px 0 0 0";
-    sectie.appendChild(geavanceerdKop);
-    sectie.appendChild(maakGeavanceerdSectie(stats.geavanceerd));
-    sectie.appendChild(maakUitlegSectie());
+    document.getElementById("statistiekenTotalen").replaceChildren(maakTotalenSectie(stats.totalen));
+    document.getElementById("statistiekenPosities").replaceChildren(maakPositieTabel(stats.posities, tickerNamen));
+    document.getElementById("statistiekenGesloten").replaceChildren(maakGeslotenPositiesTabel(stats.gesloten_posities));
+    document.getElementById("statistiekenJaren").replaceChildren(maakJarenTabel(stats.jaren));
+    document.getElementById("statistiekenGeavanceerd").replaceChildren(maakGeavanceerdSectie(stats.geavanceerd));
 }
 
 // Niet maakSorteerbareTabel(): sorteren moet over alle pagina's heen (kern in transacties.js).
 async function toonTransacties() {
-    const sectie = document.getElementById("transactiesSectie");
-
-    if (!huidigeData.code) {
-        sectie.innerHTML = "";
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Transacties-overzicht is alleen beschikbaar voor een opgeslagen portfolio (met een code).";
-        sectie.appendChild(p);
-        return;
-    }
+    if (!huidigeData.code) return;
 
     if (transactiesRuweLijst === null) {
-        sectie.innerHTML = "<p>Bezig met laden...</p>";
+        toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesLaden");
         let res, data;
         try {
             res = await fetch(`/api/portfolio/${huidigeData.code}/transacties`);
             data = await res.json();
         } catch (e) {
-            sectie.innerHTML = "";
-            const p = document.createElement("p");
-            p.style.color = "#9C0006";
-            p.textContent = "Kon transacties niet ophalen.";
-            sectie.appendChild(p);
+            toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesFout");
             return;
         }
         if (!res.ok) {
-            sectie.innerHTML = "";
-            const p = document.createElement("p");
-            p.style.color = "#9C0006";
-            p.textContent = "Kon transacties niet ophalen.";
-            sectie.appendChild(p);
+            toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesFout");
             return;
         }
         transactiesRuweLijst = data.lijst;
@@ -2496,85 +2353,28 @@ async function toonTransacties() {
     renderTransactiesTabel();
 }
 
-const TRANSACTIES_KOLOMMEN = [
-    { key: "datum_tijd", label: "Datum & tijd" },
-    { key: "product", label: "Product" },
-    { key: "aantal", label: "Aantal" },
-    { key: "koers", label: "Koers" },
-    { key: "totaal_eur", label: "Totaal (EUR)" },
-    { key: "transactiekosten", label: "Transactiekosten (EUR)" },
-];
+const TRANSACTIES_TOESTANDEN = ["transactiesLaden", "transactiesFout", "transactiesLeeg", "transactiesInhoud"];
 
 function renderTransactiesTabel() {
-    const sectie = document.getElementById("transactiesSectie");
-    sectie.innerHTML = "";
-
     if (!transactiesRuweLijst || transactiesRuweLijst.length === 0) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Geen transacties beschikbaar.";
-        sectie.appendChild(p);
+        toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesLeeg");
         return;
     }
+    toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesInhoud");
 
     const gesorteerd = sorteerTransacties(transactiesRuweLijst, transactiesSorteerKolom, transactiesSorteerRichting);
     const totPag = totaalPaginas(gesorteerd.length, transactiesPaginaGrootte);
     if (transactiesHuidigePagina > totPag) transactiesHuidigePagina = totPag;
     const paginaRijen = pagineer(gesorteerd, transactiesPaginaGrootte, transactiesHuidigePagina);
 
-    const paginaGrootteLabel = document.createElement("label");
-    paginaGrootteLabel.style.display = "inline-block";
-    paginaGrootteLabel.style.marginTop = "0";
-    paginaGrootteLabel.style.marginBottom = "10px";
-    paginaGrootteLabel.style.fontWeight = "normal";
-    paginaGrootteLabel.textContent = "Rijen per pagina: ";
-    const paginaGrootteSelect = document.createElement("select");
-    [25, 50].forEach(n => {
-        const opt = document.createElement("option");
-        opt.value = String(n);
-        opt.textContent = String(n);
-        if (n === transactiesPaginaGrootte) opt.selected = true;
-        paginaGrootteSelect.appendChild(opt);
-    });
-    paginaGrootteSelect.addEventListener("change", () => {
-        transactiesPaginaGrootte = parseInt(paginaGrootteSelect.value, 10);
-        transactiesHuidigePagina = 1;
-        renderTransactiesTabel();
-    });
-    paginaGrootteLabel.appendChild(paginaGrootteSelect);
-    sectie.appendChild(paginaGrootteLabel);
+    document.getElementById("transactiesPaginaGrootte").value = String(transactiesPaginaGrootte);
 
-    const tabel = document.createElement("table");
-    tabel.style.fontSize = "0.9em";
-    tabel.style.borderCollapse = "collapse";
-    tabel.style.width = "100%";
-
-    const kopRij = document.createElement("tr");
-    TRANSACTIES_KOLOMMEN.forEach(kol => {
-        const th = document.createElement("th");
-        const indicator = transactiesSorteerKolom === kol.key ? (transactiesSorteerRichting === "asc" ? " ▲" : " ▼") : "";
-        th.textContent = kol.label + indicator;
-        th.style.textAlign = "left";
-        th.style.padding = "4px 16px 4px 0";
-        th.style.borderBottom = "1px solid #ddd";
-        th.style.cursor = "pointer";
-        th.style.userSelect = "none";
-        th.addEventListener("click", () => {
-            if (transactiesSorteerKolom === kol.key) {
-                transactiesSorteerRichting = transactiesSorteerRichting === "asc" ? "desc" : "asc";
-            } else {
-                transactiesSorteerKolom = kol.key;
-                transactiesSorteerRichting = "desc";
-            }
-            transactiesHuidigePagina = 1;
-            renderTransactiesTabel();
-        });
-        kopRij.appendChild(th);
+    document.querySelectorAll("#transactiesKopRij th").forEach(th => {
+        const indicator = transactiesSorteerKolom === th.dataset.kolom ? (transactiesSorteerRichting === "asc" ? " ▲" : " ▼") : "";
+        th.querySelector(".sorteerIndicator").textContent = indicator;
     });
-    tabel.appendChild(kopRij);
 
-    const tbody = document.createElement("tbody");
-    paginaRijen.forEach(rij => {
+    const rijen = paginaRijen.map(rij => {
         const tr = document.createElement("tr");
         tr.appendChild(maakTransactiesTd(rij.tijd === null ? formatDatum(rij.datum) : `${formatDatum(rij.datum)} ${rij.tijd}`));
         tr.appendChild(maakTransactiesTd(rij.product));
@@ -2582,17 +2382,31 @@ function renderTransactiesTabel() {
         tr.appendChild(maakTransactiesTd(rij.koers === null ? "onbekend" : formatteerEuro(rij.koers)));
         tr.appendChild(maakTransactiesTd(formatteerEuro(rij.totaal_eur)));
         tr.appendChild(maakTransactiesTd(rij.transactiekosten === null ? "—" : formatteerEuro(rij.transactiekosten)));
-        tbody.appendChild(tr);
+        return tr;
     });
-    tabel.appendChild(tbody);
+    document.getElementById("transactiesRijen").replaceChildren(...rijen);
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
-    wrapper.appendChild(tabel);
-    sectie.appendChild(wrapper);
-
-    sectie.appendChild(maakTransactiesPaginaNavigatie(totPag));
+    document.getElementById("transactiesPaginaNavigatie").replaceChildren(maakTransactiesPaginaNavigatie(totPag));
 }
+
+document.getElementById("transactiesPaginaGrootte").addEventListener("change", (e) => {
+    transactiesPaginaGrootte = parseInt(e.target.value, 10);
+    transactiesHuidigePagina = 1;
+    renderTransactiesTabel();
+});
+
+document.querySelectorAll("#transactiesKopRij th").forEach(th => {
+    th.addEventListener("click", () => {
+        if (transactiesSorteerKolom === th.dataset.kolom) {
+            transactiesSorteerRichting = transactiesSorteerRichting === "asc" ? "desc" : "asc";
+        } else {
+            transactiesSorteerKolom = th.dataset.kolom;
+            transactiesSorteerRichting = "desc";
+        }
+        transactiesHuidigePagina = 1;
+        renderTransactiesTabel();
+    });
+});
 
 function maakTransactiesTd(tekst) {
     const td = document.createElement("td");
@@ -2662,7 +2476,7 @@ function wisBedrijvenChart() {
 function toonBedrijven() {
     const sectie = document.getElementById("bedrijvenSectie");
     const wrapper = document.getElementById("bedrijvenChartWrapper");
-    sectie.innerHTML = "";
+    sectie.style.display = "none";
     document.getElementById("geenData").style.display = "none";
     if (toonVerrijkingWachtstatusIndienNodig()) {
         wisBedrijvenChart();
@@ -2678,13 +2492,8 @@ function toonBedrijven() {
         return;
     }
     wrapper.style.display = "block";
-
-    const dekkingTekst = document.createElement("p");
-    dekkingTekst.id = "bedrijvenDekkingTekst";
-    dekkingTekst.style.fontSize = "0.85em";
-    dekkingTekst.style.color = "#888";
-    sectie.appendChild(dekkingTekst);
-    sectie.appendChild(maakBedrijvenTopNKeuze(data.top.length));
+    sectie.style.display = "block";
+    document.getElementById("bedrijvenTopNKeuze").replaceChildren(maakBedrijvenTopNKeuze(data.top.length));
 
     tekenBedrijven();
 }
@@ -2782,58 +2591,18 @@ function tekenBedrijven() {
     });
 }
 
-// Uitklapbaar i.p.v. altijd zichtbaar: de matrix moet de aandacht krijgen.
-function maakEtfOverlapUitlegSectie() {
-    const details = document.createElement("details");
-    details.style.fontSize = "0.85em";
-    details.style.color = "#666";
-    details.style.background = "#f4f4f4";
-    details.style.borderRadius = "4px";
-    details.style.padding = "10px 14px";
-    details.style.marginBottom = "12px";
-
-    const summary = document.createElement("summary");
-    summary.textContent = "Wat betekent dit?";
-    summary.style.cursor = "pointer";
-    summary.style.fontWeight = "bold";
-    summary.style.color = "#333";
-    details.appendChild(summary);
-
-    const p1 = document.createElement("p");
-    p1.style.margin = "8px 0 6px 0";
-    p1.innerHTML = "Het <strong>overlap-percentage</strong> tussen twee ETF's is het deel van je portefeuille dat \"dubbel\" belegd is: dezelfde onderliggende bedrijven die in beide fondsen voorkomen.";
-    details.appendChild(p1);
-
-    const p2 = document.createElement("p");
-    p2.style.margin = "0 0 6px 0";
-    p2.innerHTML = "Berekening: voor elk bedrijf dat in beide ETF's zit, telt het laagste van de twee gewichten mee (bv. Apple 7% in ETF A en 4% in ETF B telt voor 4%). Deze minima worden opgeteld tot het overlap-percentage. Bedrijven die maar in één van de twee ETF's zitten, tellen niet mee.";
-    details.appendChild(p2);
-
-    const p3 = document.createElement("p");
-    p3.style.margin = "0";
-    p3.innerHTML = "Een hoog percentage betekent dat de twee ETF's veel dezelfde bedrijven bevatten en dus minder spreiding opleveren dan je van twee losse fondsen zou verwachten. Bij minder dan 2 aangehouden ETF's wordt er geen matrix getoond.";
-    details.appendChild(p3);
-
-    return details;
-}
-
 function renderEtfOverlapTabel() {
     const sectie = document.getElementById("etfOverlapSectie");
-    sectie.innerHTML = "";
-    if (toonVerrijkingWachtstatusIndienNodig()) return;
-
-    sectie.appendChild(maakEtfOverlapUitlegSectie());
+    const wacht = toonVerrijkingWachtstatusIndienNodig();
+    sectie.style.display = wacht ? "none" : "block";
+    if (wacht) return;
 
     const matrix = huidigeData.etf_overlap || {};
     const etfs = Object.keys(matrix);
 
-    if (etfs.length < 2) {
-        const p = document.createElement("p");
-        p.style.color = "#888";
-        p.textContent = "Minimaal 2 aangehouden ETF's nodig om overlap te berekenen.";
-        sectie.appendChild(p);
-        return;
-    }
+    document.getElementById("etfOverlapTeWeinig").hidden = etfs.length >= 2;
+    document.getElementById("etfOverlapMatrixBlok").hidden = etfs.length < 2;
+    if (etfs.length < 2) return;
 
     const tickerNamen = {};
     (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
@@ -2897,22 +2666,8 @@ function renderEtfOverlapTabel() {
         tabel.appendChild(tr);
     });
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
-    wrapper.appendChild(tabel);
-    sectie.appendChild(wrapper);
-
-    const klikHint = document.createElement("p");
-    klikHint.style.fontSize = "0.85em";
-    klikHint.style.color = "#888";
-    klikHint.style.marginTop = "8px";
-    klikHint.textContent = "Klik op een vakje om de vergelijking te zien.";
-    sectie.appendChild(klikHint);
-
-    const detailContainer = document.createElement("div");
-    detailContainer.id = "etfOverlapDetailContainer";
-    detailContainer.style.marginTop = "16px";
-    sectie.appendChild(detailContainer);
+    document.getElementById("etfOverlapMatrix").replaceChildren(tabel);
+    document.getElementById("etfOverlapDetailContainer").innerHTML = "";
 }
 
 // De holdings zitten niet in huidigeData: eigen fetch per klik.
@@ -3008,105 +2763,41 @@ function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
     return wrapper;
 }
 
-function maakPrognoseInputVeld(id, labelTekst, waarde, opts) {
-    opts = opts || {};
-    const wrapper = document.createElement("div");
-    wrapper.style.width = "170px";
+const PROGNOSE_VELD_IDS = {
+    jaren: "prognoseJaren",
+    rendement: "prognoseRendement",
+    laag: "prognoseLaag",
+    hoog: "prognoseHoog",
+    jaarlijks: "prognoseJaarlijks",
+    maandelijks: "prognoseMaandelijks",
+};
 
-    const label = document.createElement("label");
-    label.setAttribute("for", id);
-    label.textContent = labelTekst;
-    label.style.marginTop = "0";
-    label.style.fontSize = "0.85em";
+function leesPrognoseInvoer() {
+    prognoseInvoer = {};
+    Object.entries(PROGNOSE_VELD_IDS).forEach(([sleutel, id]) => {
+        prognoseInvoer[sleutel] = parseFloat(document.getElementById(id).value);
+    });
+    return prognoseInvoer;
+}
 
-    const input = document.createElement("input");
-    input.type = "number";
-    input.id = id;
-    input.value = waarde;
-    if (opts.step !== undefined) input.step = opts.step;
-    if (opts.min !== undefined) input.min = opts.min;
-    if (opts.max !== undefined) input.max = opts.max;
+function vulPrognoseFormulier() {
+    Object.entries(PROGNOSE_VELD_IDS).forEach(([sleutel, id]) => {
+        document.getElementById(id).value = prognoseInvoer[sleutel];
+    });
+    document.getElementById("prognoseFoutmelding").style.display = "none";
+    document.getElementById("prognoseWaarschuwing").style.display = "none";
+}
 
-    input.addEventListener("keydown", (e) => {
+Object.values(PROGNOSE_VELD_IDS).forEach(id => {
+    document.getElementById(id).addEventListener("keydown", (e) => {
         if (e.key === "Enter") {
             e.preventDefault();
             berekenEnToonPrognose();
         }
     });
+});
 
-    wrapper.appendChild(label);
-    wrapper.appendChild(input);
-    return wrapper;
-}
-
-function leesPrognoseInvoer() {
-    const getal = (id) => parseFloat(document.getElementById(id).value);
-    prognoseInvoer = {
-        jaren: getal("prognoseJaren"),
-        rendement: getal("prognoseRendement"),
-        laag: getal("prognoseLaag"),
-        hoog: getal("prognoseHoog"),
-        jaarlijks: getal("prognoseJaarlijks"),
-        maandelijks: getal("prognoseMaandelijks")
-    };
-    return prognoseInvoer;
-}
-
-function renderPrognoseFormulier() {
-    const sectie = document.getElementById("prognoseSectie");
-    sectie.innerHTML = "";
-
-    const uitleg = document.createElement("p");
-    uitleg.style.color = "#666";
-    uitleg.style.fontSize = "0.9em";
-    uitleg.style.marginTop = "0";
-    uitleg.textContent = "Projectie op basis van je huidige portfoliowaarde en -geschiedenis, aangevuld met instelbare aannames voor de toekomst. Rendement wordt maandelijks samengesteld; inleg wordt telkens ná de groei van die periode toegevoegd.";
-    sectie.appendChild(uitleg);
-
-    const rij = document.createElement("div");
-    rij.style.display = "flex";
-    rij.style.flexWrap = "wrap";
-    rij.style.gap = "16px";
-    rij.style.marginTop = "10px";
-
-    rij.appendChild(maakPrognoseInputVeld("prognoseJaren", "Aantal jaren vooruit", prognoseInvoer.jaren, { min: 0, max: 100, step: 1 }));
-    rij.appendChild(maakPrognoseInputVeld("prognoseRendement", "Verwacht rendement per jaar (%)", prognoseInvoer.rendement, { step: 0.1 }));
-    rij.appendChild(maakPrognoseInputVeld("prognoseLaag", "Bandbreedte — laag (%)", prognoseInvoer.laag, { step: 0.1 }));
-    rij.appendChild(maakPrognoseInputVeld("prognoseHoog", "Bandbreedte — hoog (%)", prognoseInvoer.hoog, { step: 0.1 }));
-    rij.appendChild(maakPrognoseInputVeld("prognoseJaarlijks", "Jaarlijkse inleg (€)", prognoseInvoer.jaarlijks, { min: 0, step: 50 }));
-    rij.appendChild(maakPrognoseInputVeld("prognoseMaandelijks", "Maandelijkse inleg (€)", prognoseInvoer.maandelijks, { min: 0, step: 10 }));
-    sectie.appendChild(rij);
-
-    const berekenBtn = document.createElement("button");
-    berekenBtn.textContent = "Bereken";
-    berekenBtn.style.marginTop = "14px";
-    berekenBtn.onclick = berekenEnToonPrognose;
-    sectie.appendChild(berekenBtn);
-
-    const fout = document.createElement("p");
-    fout.id = "prognoseFoutmelding";
-    fout.style.display = "none";
-    fout.style.color = "#9C0006";
-    fout.style.fontSize = "0.9em";
-    fout.style.marginTop = "10px";
-    sectie.appendChild(fout);
-
-    const waarschuwing = document.createElement("p");
-    waarschuwing.id = "prognoseWaarschuwing";
-    waarschuwing.style.display = "none";
-    waarschuwing.style.color = "#a66a00";
-    waarschuwing.style.fontSize = "0.9em";
-    waarschuwing.style.marginTop = "10px";
-    sectie.appendChild(waarschuwing);
-
-    const legenda = document.createElement("p");
-    legenda.style.color = "#888";
-    legenda.style.fontSize = "0.8em";
-    legenda.style.marginTop = "10px";
-    legenda.textContent = "Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).";
-    sectie.appendChild(legenda);
-}
-
+document.getElementById("prognoseBerekenBtn").addEventListener("click", () => berekenEnToonPrognose());
 
 // Echte tijd-as (niet updateChart()): dagelijkse historie en maandelijkse prognose in één grafiek.
 function tekenPrognoseChart(datasets) {
@@ -3192,7 +2883,7 @@ function berekenEnToonPrognose() {
 }
 
 function toonPrognose() {
-    renderPrognoseFormulier();
+    vulPrognoseFormulier();
     if (prognoseResultaat) {
         tekenPrognoseChart(prognoseResultaat.datasets);
     } else {
@@ -3253,6 +2944,16 @@ function gaNaarView(view) {
     }
 }
 
+// Verhuist de ene gedeelde grafiek naar het data-grafiek-plek van het tabblad; zonder plek is hij verborgen.
+function plaatsGrafiek(view) {
+    const wrapper = document.getElementById("chartWrapper");
+    const plek = document.querySelector(`#tab-${view} [data-grafiek-plek]`);
+    wrapper.style.display = plek ? "block" : "none";
+    if (!plek) return;
+    plek.appendChild(wrapper);
+    document.getElementById("resetZoomBtn").style.display = plek.hasAttribute("data-zoombaar") ? "block" : "none";
+}
+
 function pasViewToe(view) {
     const content = document.querySelector(".content");
 
@@ -3260,19 +2961,16 @@ function pasViewToe(view) {
         btn.classList.toggle("actief", btn.dataset.view === view);
     }); // Menu-knoppen: actief voor de huidige view
 
-    // data-views: zichtbaar op deze tabbladen; data-verberg-buiten: de toon-functie zet het zelf aan als dat nodig is.
-    document.querySelectorAll("[data-views]").forEach(el => {
-        el.style.display = viewInLijst(el.dataset.views, view) ? "block" : "none";
+    // data-views / data-vereist-code bepalen de zichtbaarheid; data-verberg-buiten: de toon-functie zet het zelf aan als dat nodig is.
+    const heeftCode = Boolean(huidigeData.code);
+    document.querySelectorAll("[data-views], [data-vereist-code]").forEach(el => {
+        el.style.display = elementZichtbaar(el.dataset.views, el.dataset.vereistCode, view, heeftCode) ? "block" : "none";
     });
     document.querySelectorAll("[data-verberg-buiten]").forEach(el => {
         if (!viewInLijst(el.dataset.verbergBuiten, view)) el.style.display = "none";
     });
 
-    document.getElementById("benchmarkSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
-    document.getElementById("eigenAandeelSelectWrapper").style.display = (view === "rendement" && huidigeData.code) ? "block" : "none";
-    document.getElementById("codeText").style.display = (view === "portfolio" && huidigeData.code) ? "block" : "none";
-    document.getElementById("nietOpgeslagenText").style.display = (view === "portfolio" && !huidigeData.code) ? "block" : "none";
-    if (view === "xirr-rendement" && !huidigeData.code) document.getElementById("resetZoomBtn").style.display = "none";
+    plaatsGrafiek(view);
 
     TOON_PER_VIEW[view]?.();
 

@@ -63,6 +63,74 @@ body {
     display: none;
 }
 
+/* Een eigen display-regel (label, flex) wint anders van het hidden-attribuut. */
+[hidden] {
+    display: none !important;
+}
+
+.kleineMelding {
+    font-size: 0.85em;
+    color: #888;
+}
+
+.grijsTekst {
+    color: #888;
+}
+
+.foutTekst {
+    color: #9C0006;
+}
+
+.uitlegBox {
+    font-size: 0.85em;
+    color: #666;
+    background: #f4f4f4;
+    border-radius: 4px;
+    padding: 10px 14px;
+}
+
+.sectieTitel {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.sectieKop {
+    margin: 24px 0 6px 0;
+}
+
+.sorteerKop {
+    text-align: left;
+    padding: 4px 16px 4px 0;
+    border-bottom: 1px solid #ddd;
+    cursor: pointer;
+    user-select: none;
+}
+
+.compacteTabel {
+    font-size: 0.9em;
+    border-collapse: collapse;
+    margin-top: 8px;
+}
+
+.compacteTabel th,
+.compacteTabel td {
+    text-align: left;
+    padding: 3px 20px 3px 0;
+}
+
+.compacteTabel th {
+    border-bottom: 1px solid #ddd;
+}
+
+.prognoseVeld {
+    width: 170px;
+}
+
+.prognoseVeld label {
+    margin-top: 0;
+    font-size: 0.85em;
+}
+
 /* Brede tabellen (o.a. Posities, Rendement per jaar) scrollen zelf horizontaal
    i.p.v. de hele pagina breder te maken op smalle schermen. */
 .tabelWrapper {
