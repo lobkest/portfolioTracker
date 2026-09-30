@@ -1,6 +1,6 @@
 import os
 
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 import pandas as pd
 from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code, get_transacties_overzicht
 from prijzen import get_prices
@@ -37,8 +37,27 @@ if os.environ.get("DATABASE_URL"):
     init_db()
 
 
+MELDING_ONGELDIGE_CODE = "ongeldige-code"
+
+
 @app.route("/")
 def home():
+    return render_template("index.html")
+
+
+# Alleen de template: de pagina haalt de data zelf op, dus geen database hier.
+@app.route("/p/<code>")
+def portfolio_pagina(code):
+    genormaliseerd = code.strip().upper()
+    if not is_geldige_code(genormaliseerd):
+        return redirect(url_for("home", melding=MELDING_ONGELDIGE_CODE))
+    if code != genormaliseerd:
+        return redirect(url_for("portfolio_pagina", code=genormaliseerd))
+    return render_template("index.html", code=genormaliseerd)
+
+
+@app.route("/analyse")
+def analyse_pagina():
     return render_template("index.html")
 
 @app.route("/upload", methods=["POST"])
