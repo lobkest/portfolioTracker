@@ -1885,22 +1885,8 @@ function renderDividendStats(data) {
 function toonDividendChart(cumulatief) {
     if (chart) chart.destroy();
     const labelsNL = cumulatief.datums.map(formatDatum);
-    const tickers = Object.keys(cumulatief.per_ticker);
-
-    const datasets = tickers.map(ticker => {
-        const kleur = kleurVoorTicker(ticker);
-        const naam = (huidigeData.tickers.find(t => t.ticker === ticker) || {}).naam || ticker;
-        return {
-            label: naam,
-            data: cumulatief.per_ticker[ticker],
-            borderColor: kleur,
-            backgroundColor: kleur,
-            fill: true,
-            pointRadius: 0,
-            pointHoverRadius: 4,
-            borderWidth: 1.5,
-        };
-    });
+    const naamVoorTicker = ticker => (huidigeData.tickers.find(t => t.ticker === ticker) || {}).naam || ticker;
+    const datasets = bouwDividendDatasets(cumulatief, naamVoorTicker, kleurVoorTicker);
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "line",
