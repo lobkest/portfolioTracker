@@ -232,8 +232,8 @@ app.js: toonDashboard(data)
 | 1 | `static/js/start.js` → submit-handler van `#uploadForm` | Bouwt een `FormData` uit het formulier (`naam`, `bestand1`, optioneel `bestand2`, vinkjes `niet_opslaan` en `herbepaal_alle_tickers`). Is er geen `bestand2` gekozen, dan wordt dat veld met `formData.delete("bestand2")` weggehaald. Toont de overlay "Analyseren..." en roept `fetchMetTimeout("/upload", ..., 60000)` aan. | formulier → `multipart/form-data` |
 | 2 | `app.py` → `upload()` | Dunne wrapper om `_upload_impl()`: elke onverwachte exception wordt een nette JSON-foutmelding met status 500, in plaats van een hangende request. | request → `_upload_impl()`-resultaat of `{"error": ...}` |
 | 3 | `app.py` → `_upload_impl()` | Zet de Yahoo-call-teller op nul (`reset_yahoo_call_teller()`), leest `naam`, controleert of `bestand1` er is (anders status 400). | |
-| 4 | `upload_verwerking.py` → `_lees_transacties_excel()` | `pd.read_excel()`, kolomnamen `.strip()`, `Datum` → datetime (`dayfirst=True`). | bestandsobject → **DataFrame `df`** (kolommen zoals DeGiro ze heeft: `Datum`, `Tijd`, `Product`, `ISIN`, `Beurs`, `Aantal`, `Koers`, `Totaal EUR`, ...) |
-| 5 | `upload_verwerking.py` → `_normaliseer_transactie_kolommen()` | Voegt drie hulpkolommen toe: `_kosten_eur` (uit `KOSTEN_KOLOM`), `_waarde_eur` (uit `WAARDE_KOLOM` = "Waarde EUR"), `_koers_eur` (= `Koers` gedeeld door `Wisselkoers` als die er is, anders `Koers`). Ontbreekt een kolom in dit DeGiro-formaat, dan NaN resp. ongewijzigde `Koers`. | `df` → `df` + 3 kolommen |
+| 4 | `upload_verwerking.py` → `_lees_transacties_excel()` | `pd.read_excel()`, kolomnamen `.strip()`, controle op `VERWACHTE_KOLOMMEN` (ontbreekt er een → `OngeldigExcelBestand`; `_upload_impl()` geeft dan een 400 met "Ongeldig Excel-bestand: kolom(men) ontbreken: …" en stopt), `Datum` → datetime (`dayfirst=True`). | bestandsobject → **DataFrame `df`** (kolommen zoals DeGiro ze heeft: `Datum`, `Tijd`, `Product`, `ISIN`, `Beurs`, `Aantal`, `Koers`, `Totaal EUR`, ...) |
+| 5 | `upload_verwerking.py` → `_normaliseer_transactie_kolommen()` | Voegt twee hulpkolommen toe (kosten worden rechtstreeks uit `KOSTEN_KOLOM` gelezen, die is al EUR): `_waarde_eur` (uit `WAARDE_KOLOM` = "Waarde EUR"), `_koers_eur` (= `Koers` gedeeld door `Wisselkoers` als die er is, anders `Koers`). De kolommen bestaan altijd (zie stap 4); een lege cel geeft NaN resp. een ongewijzigde `Koers`. | `df` → `df` + 2 kolommen |
 | 6 | `app.py` → `_upload_impl()` | Leest de vinkjes: `niet_opslaan` en `herbepaal_alle_tickers` (`== "on"`, want een aangevinkte HTML-checkbox stuurt "on"). **Hier splitst de route** ↓ | |
 
 ### 2.2 Tak A — "Niet opslaan" (geen database, geen code)
@@ -430,12 +430,12 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 **Verantwoordelijkheid:** Excel inlezen, kolommen normaliseren, tickers oplossen (twee paden), Order ID's bepalen, portfolio-code zoeken/maken,
 inserten en het dividendbestand verwerken. `_upload_impl()` in `app.py` roept ze in volgorde aan (zie hoofdstuk 2).
 
-Constanten: `KOSTEN_KOLOM` (`"Transactiekosten en/of kosten van derden EUR"`), `WAARDE_KOLOM` (`"Waarde EUR"`), `WISSELKOERS_KOLOM` (`"Wisselkoers"`).
+Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand moet hebben, zonder de `Unnamed: n`-kolommen; volgorde maakt niet uit), `KOSTEN_KOLOM` (`"Transactiekosten en/of kosten van derden EUR"`), `WAARDE_KOLOM` (`"Waarde EUR"`), `WISSELKOERS_KOLOM` (`"Wisselkoers"`).
 
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
-| `_lees_transacties_excel()` | Excel → DataFrame, kolommen strippen, `Datum` parsen (`dayfirst=True`) | bestandsobject → DataFrame | `_upload_impl()` |
-| `_normaliseer_transactie_kolommen()` | voegt `_kosten_eur`, `_waarde_eur`, `_koers_eur` toe | DataFrame → DataFrame | `_upload_impl()` |
+| `_lees_transacties_excel()` | Excel → DataFrame, kolommen strippen, controle op `VERWACHTE_KOLOMMEN` (anders `OngeldigExcelBestand`), `Datum` parsen (`dayfirst=True`) | bestandsobject → DataFrame | `_upload_impl()` |
+| `_normaliseer_transactie_kolommen()` | voegt `_waarde_eur`, `_koers_eur` toe | DataFrame → DataFrame | `_upload_impl()` |
 | `_normaliseer_tijd()` | maakt van een tijdcel (string, `time` of `datetime`) een `"HH:MM:SS"`-string voor een Postgres-`TIME` | cel → tekst of `None` | `_insert_nieuwe_transacties()` |
 | `_ticker_resolutie_niet_opslaan_pad()` | lichte parallelle ticker-zekerheid per (ISIN, Beurs) | DataFrame → `(dict, lijst, lijst)` | `_upload_impl()` |
 | `_bouw_transacties_df_niet_opslaan()` | bouwt een DataFrame in dezelfde vorm als uit de database | DataFrame + dict → DataFrame | `_upload_impl()` |
@@ -546,7 +546,7 @@ JSON-antwoord. Geen afhankelijkheden op andere projectmodules, niets in de datab
 
 | Waar | Melding |
 |---|---|
-| `_normaliseer_transactie_kolommen()` | Excel-bron: `GOED` (wisselkoers gebruikt voor N van M transacties), `INFO` (kolom leeg), `LET_OP` (kolom ontbreekt). Alleen bij een upload. |
+| `_normaliseer_transactie_kolommen()` | Excel-bron: `GOED` (wisselkoers gebruikt voor N van M transacties), `INFO` (kolom leeg). Een ontbrekende kolom komt hier niet meer: dat is een `OngeldigExcelBestand`. Alleen bij een upload. |
 | `_haal_valuta_op()` | `LET_OP` per ticker: valuta niet op te halen, geen valuta van Yahoo, of valuta zonder FX-paar (bv. CHF). Naast de bestaande WARN-print. |
 | `_fx_prijzen_serie()` | Per FX-paar: `GOED` (N koersen vanaf datum; uit cache / gedownload / ververst) of `FOUT` (geen koersdata). De herkomst noteert `get_prices()` via `_noteer_fx_bron()`. |
 
@@ -558,7 +558,7 @@ Geen FX-melding betekent: bij deze laadbeurt is niets gedownload of ververst (al
 |---|---|---|
 | Order ID's | `_bepaal_order_ids()` → `_meld_order_ids()` | `GOED` alle ID's echt; `INFO` N van M synthetisch; `LET_OP` aantal ID-rijen ≠ aantal transacties (alles synthetisch; een eerder opgeslagen portfolio met echte ID's kan dan niet herkend worden, zie `find_matching_code()`). Nooit ID-waarden in de tekst. |
 | Opslaan | `_vind_of_maak_portfolio_code()` | `INFO` nieuwe portfolio / bestaande aangevuld met N / geen nieuwe transacties. |
-| Opslaan | `_meld_nieuwe_rijen_kwaliteit()` (vanuit `_upload_impl()`) | `LET_OP` kolom kosten of `Waarde EUR` ontbreekt; `LET_OP` N gewone aankopen zonder `Waarde EUR` (GAK valt terug op `Totaal EUR`); `INFO` N corporate-action-rijen zonder ticker. Losse lege kostencellen bewust niet (kan echt €0 zijn). |
+| Opslaan | `_meld_nieuwe_rijen_kwaliteit()` (vanuit `_upload_impl()`) | `LET_OP` N gewone aankopen zonder `Waarde EUR` (GAK valt terug op `Totaal EUR`); `INFO` N corporate-action-rijen zonder ticker. Losse lege kostencellen bewust niet (kan echt €0 zijn). |
 | Opslaan | `_insert_nieuwe_transacties()` → `_meld_insert_resultaat()` | `GOED` N opgeslagen (`cur.rowcount`), `INFO` K genegeerd (ON CONFLICT), `FOUT` J mislukt met alleen het fouttype + `[upload] WARN`-print. Bij een `psycopg2.Error` alleen de `FOUT` ("kan de hele upload hebben teruggedraaid"): na een DB-fout faalt de rest van de transactie. Het insert-gedrag zelf is ongewijzigd. |
 | Dividend | `_verwerk_dividend_bestand_indien_aanwezig()` → `_meld_dividend_records()` | `GOED`/`INFO` samenvatting (EUR, gekoppeld, herinvesteerd, zonder conversie); `LET_OP` per uitkering zonder valutaconversie, max. `MAX_LOSSE_DIVIDEND_MELDINGEN` (5), daarboven één "Nog K ..."-melding. |
 | Dividend | `_meld_dividend_bestand_genegeerd()` | `INFO` bij "niet opslaan" met een meegestuurd rekeningoverzicht (wordt dan niet verwerkt). |
@@ -1008,7 +1008,7 @@ Lezen: `generate_code()` (bestaat de code al?), `_haal_portfolio_basis()`, `_laa
 | `koers` | NUMERIC | koers per stuk **in EUR** (`_koers_eur`, zie hoofdstuk 3) |
 | `totaal_eur` | NUMERIC, NOT NULL | totaalbedrag inclusief kosten/AutoFX; negatief bij koop |
 | `waarde_eur` | NUMERIC | kale waarde (aantal × koers, zonder kosten); basis voor de GAK |
-| `transactiekosten` | NUMERIC | DeGiro-transactiekosten; `NULL` als de kolom in het Excel-bestand ontbreekt |
+| `transactiekosten` | NUMERIC | DeGiro-transactiekosten; `NULL` als de cel in het Excel-bestand leeg is |
 | `order_id` | TEXT | echte UUID of synthetische `SYN-...` |
 | | `UNIQUE (code, order_id)` | voorkomt dubbele rijen bij herhaalde upload |
 
@@ -1255,7 +1255,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonde
 | `dividend.py` | `test_dividend.py` (14, database-vrij; o.a. het `herinvesteerd`-veld in `lijst`) |
 | `portfolio_verdeling.py` | `test_bedrijven_verdeling.py` (10), `test_etf_overlap.py` (7), `test_europa_groepering.py` (11), `test_land_overig.py` (8), `test_land_sector_per_bron.py` (3), `test_land_staaf_top_n.py` (12), `test_verdeling_samenvatting.py` (8), `test_verdeling_sortering.py` (5) |
 | `prijzen.py`, `yahoo_client.py`, `ticker_classificatie.py` | `test_koersen_cache.py` (7), `test_fx_caching_en_retry.py` (13), `test_fx_serie_memoization.py` (7), `test_prijzen_upsert.py` (2), `test_valuta_waarschuwing.py` (12, ook de Wisselkoersen-meldingen) |
-| `diagnostiek.py` en de meldingen (alle database-vrij) | `test_diagnostiek.py` (19: module, Wisselkoersen, cache-hit), `test_diagnostiek_upload.py` (26: Order ID's, Opslaan, Dividend, insert-regressie), `test_diagnostiek_laden.py` (26: Koersen, Yahoo-tellers, Splits, ETF-holdings, Laadtijden, cache-hit) |
+| `diagnostiek.py` en de meldingen (alle database-vrij) | `test_diagnostiek.py` (18: module, Wisselkoersen, cache-hit), `test_diagnostiek_upload.py` (25: Order ID's, Opslaan, Dividend, insert-regressie), `test_diagnostiek_laden.py` (26: Koersen, Yahoo-tellers, Splits, ETF-holdings, Laadtijden, cache-hit) |
 | `ticker_matching.py` | `test_ticker_zoeken.py` (10), `test_beurs_map_tdg.py` (3), `test_openfigi.py` (27, ook `ticker_zekerheid`) |
 | `ticker_prijscheck.py` | `test_koers_dagrange_samenvoegen.py` (5), `test_dagrange_prijscheck.py` (7, deels **[DB]**), `test_ticker_verificatie.py` (22, deels **[DB]**) |
 | `ticker_zekerheid.py` | `test_snelle_prijscheck.py` (23), `test_escalatiepoort_dagrange.py` (5), `test_automatische_ticker_correctie.py` (3), `test_alternatieve_kandidaten.py` (11), `test_basis_ticker_zekerheid.py` (4, via `basis_ticker_zekerheid_parallel()`), `test_niet_opslaan_performance.py` (2), `test_backfill_ticker.py` (11, **[DB]**) |
@@ -1336,7 +1336,7 @@ Voorbeeld uit de code: `waarde_eur`. Hetzelfde pad volgden `transactiekosten` en
 
 1. **`db.py`, `init_db()`:** voeg de kolom toe (achteraan de kolomlijst) in `CREATE TABLE transacties`. Let op: `CREATE TABLE IF NOT EXISTS` raakt een al bestaande tabel niet aan — voeg de kolom in de bestaande Neon-database dus eenmalig met de hand toe (bv. `ALTER TABLE transacties ADD COLUMN <kolom> <type>;` in Neon's SQL-editor).
 2. **`upload_verwerking.py`:**
-   - lees de Excel-kolom in `_normaliseer_transactie_kolommen()` (met een nette fallback als de kolom in dit DeGiro-formaat ontbreekt) en gebruik een constante zoals `WAARDE_KOLOM`;
+   - lees de Excel-kolom in `_normaliseer_transactie_kolommen()` (de kolom ook in `VERWACHTE_KOLOMMEN` zetten, anders ontbreekt hij mogelijk in de controle) en gebruik een constante zoals `WAARDE_KOLOM`;
    - neem hem op in de `INSERT` van `_insert_nieuwe_transacties()` (kolomlijst **en** `VALUES`-plaatsaanduiding **en** parameters);
    - neem hem op in `_bouw_transacties_df_niet_opslaan()` zodat "niet opslaan" dezelfde kolommen heeft.
 3. **`portfolio_orchestratie.py`:** voeg de kolom toe aan de `SELECT` **en** aan de `columns=[...]` in **zowel** `_haal_portfolio_basis()` **als** `_laad_split_gecorrigeerde_transacties()` (twee kopieën); cast `NUMERIC` naar `float` waar nodig.

@@ -1,7 +1,7 @@
 // Pure logica voor de dividendgrafiek (zonder DOM, getest onder Node).
 
-(function (root) {
-    "use strict";
+(function (root) {  // omhulsel is een trucje om de exports te laten werken in Node en browser beide. 
+    "use strict"; 
 
     const DIVIDEND_ENKEL_PUNT_RADIUS = 5;
 

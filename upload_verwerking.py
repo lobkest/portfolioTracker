@@ -20,8 +20,12 @@ from portfolio_admin import find_matching_code, generate_code
 from db import save_dividenden
 from dividend import verwerk_rekeningoverzicht
 
-# excel kolommen namen handmatig neergezet
-# Deze drie kolommen kunnen ontbreken in oudere exports (zie CLAUDE.md: Data en rekenen).
+VERWACHTE_KOLOMMEN = [
+    "Datum", "Tijd", "Product", "ISIN", "Beurs", "Uitvoeringsplaats", "Aantal", "Koers",
+    "Lokale waarde", "Waarde EUR", "Wisselkoers", "AutoFX Kosten",
+    "Transactiekosten en/of kosten van derden EUR", "Totaal EUR", "Order ID",
+]
+# De "Unnamed: n"-kolommen (samengevoegde koppen) zijn geen onderdeel van de controle.
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
 # Kale waarde zonder kosten: de basis voor de GAK.
 WAARDE_KOLOM = "Waarde EUR"
@@ -35,7 +39,6 @@ DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN = "insert_opgeslagen"
 DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD = "insert_genegeerd"
 DIAGNOSTIEK_SLEUTEL_INSERT_MISLUKT = "insert_mislukt"
 DIAGNOSTIEK_SLEUTEL_EXCEL_WAARDE = "excel_waarde"
-DIAGNOSTIEK_SLEUTEL_EXCEL_KOSTEN = "excel_kosten"
 DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS = "corporate_actions"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING = "dividend_samenvatting"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG = "dividend_zonder_conversie_overig"
@@ -43,6 +46,10 @@ DIAGNOSTIEK_SLEUTEL_DIVIDEND_NIET_OPSLAAN = "dividend_niet_opslaan"
 
 # Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
+
+
+class OngeldigExcelBestand(Exception):
+    pass
 
 
 def _normaliseer_tijd(waarde):
@@ -57,51 +64,40 @@ def _lees_transacties_excel(bestand1):
     bestand1.seek(0)
     df = pd.read_excel(bestand1)
     df.columns = df.columns.str.strip()
+    ontbreekt = [kolom for kolom in VERWACHTE_KOLOMMEN if kolom not in df.columns]
+    if ontbreekt:
+        raise OngeldigExcelBestand(
+            f"Ongeldig Excel-bestand: kolom(men) ontbreken: {', '.join(ontbreekt)}. "
+            f"Upload het transactiebestand zoals DeGiro het exporteert."
+        )
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
     return df
 
 
 def _normaliseer_transactie_kolommen(df):
-    """Voegt _kosten_eur, _waarde_eur en _koers_eur (EUR per stuk) toe; NaN of ongewijzigde koers als een kolom ontbreekt."""
-    if KOSTEN_KOLOM in df.columns:
-        df["_kosten_eur"] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce")
-    else:
-        df["_kosten_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
+    """Voegt _waarde_eur en _koers_eur (EUR per stuk) toe."""
+    df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
 
-    if WAARDE_KOLOM in df.columns:
-        df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
-    else:
-        df["_waarde_eur"] = pd.Series([None] * len(df), index=df.index, dtype="float64")
-
-    if WISSELKOERS_KOLOM in df.columns:
-        wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
-        heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
-        df["_koers_eur"] = df["Koers"].astype(float)
-        df.loc[heeft_wisselkoers, "_koers_eur"] = (
-            df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
+    wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
+    heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
+    df["_koers_eur"] = df["Koers"].astype(float)
+    df.loc[heeft_wisselkoers, "_koers_eur"] = (
+        df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
+    )
+    for _, rij in df.loc[heeft_wisselkoers, ["ISIN", "Beurs", "Koers", WISSELKOERS_KOLOM, "_koers_eur"]].iterrows():
+        dprint(
+            f"[koers-eur] ISIN={rij['ISIN']} Beurs={rij['Beurs']}: "
+            f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
+            f"_koers_eur={rij['_koers_eur']:.4f}"
         )
-        for _, rij in df.loc[heeft_wisselkoers, ["ISIN", "Beurs", "Koers", WISSELKOERS_KOLOM, "_koers_eur"]].iterrows():
-            dprint(
-                f"[koers-eur] ISIN={rij['ISIN']} Beurs={rij['Beurs']}: "
-                f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
-                f"_koers_eur={rij['_koers_eur']:.4f}"
-            )
-        aantal_met_wisselkoers = int(heeft_wisselkoers.sum())
-        if aantal_met_wisselkoers > 0:
-            meld(CATEGORIE_WISSELKOERSEN, GOED,
-                 f"Wisselkoers uit Excel gebruikt voor {aantal_met_wisselkoers} van {len(df)} transacties.",
-                 sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
-        else:
-            meld(CATEGORIE_WISSELKOERSEN, INFO,
-                 f"Kolom '{WISSELKOERS_KOLOM}' aanwezig, maar geen enkele transactie gebruikte een wisselkoers.",
-                 sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
+    aantal_met_wisselkoers = int(heeft_wisselkoers.sum())
+    if aantal_met_wisselkoers > 0:
+        meld(CATEGORIE_WISSELKOERSEN, GOED,
+             f"Wisselkoers uit Excel gebruikt voor {aantal_met_wisselkoers} van {len(df)} transacties.",
+             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
     else:
-        df["_koers_eur"] = df["Koers"].astype(float)
-        dprint(f"[upload] WAARSCHUWING: kolom '{WISSELKOERS_KOLOM}' niet gevonden - "
-               f"koers-kolom blijft ongewijzigd (aanname: al EUR)")
-        meld(CATEGORIE_WISSELKOERSEN, LET_OP,
-             f"Kolom '{WISSELKOERS_KOLOM}' ontbreekt in het Excel-bestand: koersen zijn ongewijzigd "
-             f"overgenomen (aanname: alles in EUR).",
+        meld(CATEGORIE_WISSELKOERSEN, INFO,
+             f"Kolom '{WISSELKOERS_KOLOM}' aanwezig, maar geen enkele transactie gebruikte een wisselkoers.",
              sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
     return df
 
@@ -151,7 +147,7 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
         "koers": df["_koers_eur"].astype(float),
         "totaal_eur": df["Totaal EUR"].astype(float),
         "echte_naam": df["Product"],
-        "transactiekosten": df["_kosten_eur"],
+        "transactiekosten": pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce"),
         "waarde_eur": df["_waarde_eur"],
         "tijd": df["Tijd"],
     })
@@ -244,28 +240,16 @@ def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
     if rows_to_insert.empty:
         return
 
-    if KOSTEN_KOLOM not in rows_to_insert.columns:
-        meld(CATEGORIE_OPSLAAN, LET_OP,
-             f"Kolom '{KOSTEN_KOLOM}' ontbreekt in het Excel-bestand: totale transactiekosten zijn niet "
-             f"beschikbaar.",
-             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_KOSTEN)
-
     is_corporate_action = rows_to_insert.apply(
         lambda rij: _is_corporate_action_row({"beurs": rij["Beurs"], "product": rij["Product"]}), axis=1,
     ).astype(bool)
     aankopen = rows_to_insert[(rows_to_insert["Aantal"].astype(float) > 0) & ~is_corporate_action]
-    if WAARDE_KOLOM not in rows_to_insert.columns:
+    zonder_waarde = int(aankopen["_waarde_eur"].isna().sum())
+    if zonder_waarde > 0:
         meld(CATEGORIE_OPSLAAN, LET_OP,
-             f"Kolom '{WAARDE_KOLOM}' ontbreekt in het Excel-bestand: de GAK gebruikt voor aankopen "
-             f"Totaal EUR (incl. kosten) en valt daardoor iets te hoog uit.",
+             f"{zonder_waarde} van de {len(aankopen)} nieuwe aankopen hebben geen '{WAARDE_KOLOM}': de "
+             f"GAK gebruikt daarvoor Totaal EUR (incl. kosten) en valt iets te hoog uit.",
              sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WAARDE)
-    else:
-        zonder_waarde = int(aankopen["_waarde_eur"].isna().sum())
-        if zonder_waarde > 0:
-            meld(CATEGORIE_OPSLAAN, LET_OP,
-                 f"{zonder_waarde} van de {len(aankopen)} nieuwe aankopen hebben geen '{WAARDE_KOLOM}': de "
-                 f"GAK gebruikt daarvoor Totaal EUR (incl. kosten) en valt iets te hoog uit.",
-                 sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WAARDE)
 
     aantal_corporate_actions = int(is_corporate_action.sum())
     if aantal_corporate_actions > 0:
@@ -323,7 +307,7 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
     eerste_fout = None
     for _, row in rows_to_insert.iterrows():
         try:
-            kosten_waarde = row["_kosten_eur"]
+            kosten_waarde = pd.to_numeric(row[KOSTEN_KOLOM], errors="coerce")
             waarde_eur_waarde = row["_waarde_eur"]
             cur.execute(
                 """INSERT INTO transacties

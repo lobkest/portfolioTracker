@@ -1,5 +1,3 @@
-// Opstarten, gedeelde staat en navigatie van de portfolio-pagina. Laadt als laatste script:
-// TOON_PER_VIEW hieronder verwijst naar de toon-functies uit tabs/.
 
 let chart = null;
 let huidigeData = null;
@@ -8,17 +6,16 @@ let huidigeData = null;
 let verrijkingStatus = null;
 
 // setTimeout: bij orientationchange zijn de nieuwe afmetingen nog niet klaar (mobiele Safari).
+// window is hier als je je telefoon kantelt bv. 
 window.addEventListener("orientationchange", () => {
     setTimeout(() => {
         if (chart) chart.resize();
         if (bedrijvenChart) bedrijvenChart.resize();
-    }, 200);
+    }, 200); 
 });
 
-// Gelijk aan de transitieduur van .content in style.css.
 const TAB_FADE_MS = 90;
 
-// pasViewToe() haalt de class tabWisselt weer weg.
 const wisselView = maakTabWisselaar(
     pasViewToe,
     () => document.querySelector(".content").classList.add("tabWisselt"),
@@ -43,16 +40,14 @@ const TOON_PER_VIEW = {
     "xirr-rendement": toonRendementOverTijd,
     "prognose": toonPrognose,
     "dividend": toonDividend,
+    "instellingen": () => {},  // leeg, want de instellingen zijn altijd hetzelfde voor elk portfolio
     "instellingen-bijnamen": toonInstellingen,
     "instellingen-ticker": toonInstellingenTicker,
     "instellingen-diagnostiek": toonDiagnostiek,
 };
 
-// "instellingen" heeft geen eigen toon-functie, maar is wel een tabblad.
-const ALLE_VIEWS = [...Object.keys(TOON_PER_VIEW), "instellingen"];
-
 function viewUitUrl() {
-    const toegestaan = ALLE_VIEWS.filter(v => huidigeData.code || !VIEWS_MET_CODE.includes(v));
+    const toegestaan = Object.keys(TOON_PER_VIEW).filter(v => huidigeData.code || !VIEWS_MET_CODE.includes(v));
     return viewUitHash(location.hash, toegestaan);
 }
 
@@ -61,7 +56,7 @@ function gaNaarView(view) {
     if (viewUitUrl() === view) {
         wisselView(view); // dezelfde hash geeft geen hashchange
     } else {
-        location.hash = view;
+        location.hash = view; // hashchange-listener wisselt de view
     }
 }
 

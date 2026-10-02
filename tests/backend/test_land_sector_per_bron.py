@@ -1,0 +1,103 @@
+"""
+Unit tests voor de land_per_bron_top/sector_per_bron-uitbreiding van
+portfolio_verdeling.compute_land_sector_verdeling() -- de databron voor de gestapelde-
+staafgrafiek-weergave op het Land/Sector-tabblad (toggle in
+static/js/gedeeld/grafiek.js, renderGestapeldeStaafgrafiek).
+
+Draait geheel offline: is_etf_map wordt direct meegegeven; get_etf_sector_verdeling,
+get_etf_holdings en get_land_sector worden gemockt, dus geen echte
+yfinance/database-calls nodig.
+"""
+import os
+import sys
+import unittest
+from unittest.mock import patch
+
+import pandas as pd
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+import portfolio_verdeling
+from portfolio_verdeling import compute_land_sector_verdeling
+
+
+def _price_data(tickers, waarde=100.0, datum="2024-01-02"):
+    return pd.DataFrame({t: [waarde] for t in tickers}, index=[pd.Timestamp(datum)])
+
+
+class TestLandSectorPerBron(unittest.TestCase):
+    def test_land_per_bron_optelt_naar_totaal(self):
+        # Een ETF (60% VS/40% Japan) + een los VS-aandeel -- de som van alle
+        # bronnen per land in land_per_bron_top moet gelijk zijn aan de
+        # waarde in "land" (consistentiecheck taart- vs. staaf-data). Bewust
+        # geen landen onder de 0.5%-Overig-drempel en minder dan 10 landen,
+        # zodat taart en staaf hier geen van beide groeperen en de
+        # vergelijking direct klopt.
+        transacties_df = pd.DataFrame({
+            "ticker": ["ETF_A", "AAPL"],
+            "aantal": [1.0, 1.0],
+        })
+        price_data = _price_data(["ETF_A", "AAPL"], waarde=100.0)
+
+        with patch.object(portfolio_verdeling, "get_etf_sector_verdeling", return_value={}), \
+             patch.object(portfolio_verdeling, "get_etf_holdings", return_value=[
+                 {"holding_naam": "X", "holding_ticker": "X", "gewicht": 0.6,
+                  "land": "United States", "bron": "provider_csv"},
+                 {"holding_naam": "Y", "holding_ticker": "Y", "gewicht": 0.4,
+                  "land": "Japan", "bron": "provider_csv"},
+             ]), \
+             patch.object(portfolio_verdeling, "get_land_sector", return_value=("United States", "Technology")):
+            resultaat = compute_land_sector_verdeling(
+                transacties_df, price_data, {"ETF_A": True, "AAPL": False}
+            )
+
+        land_per_bron = resultaat["land_per_bron_top"]
+        for landnaam, per_bron in land_per_bron.items():
+            self.assertAlmostEqual(sum(per_bron.values()), resultaat["land"][landnaam])
+
+        # Expliciet: VS komt uit zowel ETF_A (60) als AAPL (100) -> 160.
+        self.assertAlmostEqual(land_per_bron["United States"]["ETF_A"], 60.0)
+        self.assertAlmostEqual(land_per_bron["United States"]["AAPL"], 100.0)
+        self.assertAlmostEqual(resultaat["land"]["United States"], 160.0)
+
+    def test_sector_per_bron_los_aandeel_komt_terug_als_eigen_bron(self):
+        # Regressietest voor de los-aandeel-tak (de get_land_sector-tak):
+        # die telde altijd al op bij "sector", maar bij het toevoegen van de
+        # per-bron-registratie is dat pad makkelijk te vergeten -- dit checkt
+        # expliciet dat een los aandeel als eigen bron-sleutel in
+        # sector_per_bron verschijnt.
+        transacties_df = pd.DataFrame({"ticker": ["AAPL"], "aantal": [1.0]})
+        price_data = _price_data(["AAPL"], waarde=100.0)
+
+        with patch.object(portfolio_verdeling, "get_land_sector", return_value=("United States", "Technology")):
+            resultaat = compute_land_sector_verdeling(transacties_df, price_data, {"AAPL": False})
+
+        self.assertIn("Technology", resultaat["sector_per_bron"])
+        self.assertAlmostEqual(resultaat["sector_per_bron"]["Technology"]["AAPL"], 100.0)
+        self.assertAlmostEqual(resultaat["sector"]["Technology"], 100.0)
+
+    def test_meegegeven_is_etf_map_is_leidend_geen_eigen_classify_tickers(self):
+        # ETF_A ZOU een ETF kunnen zijn, maar de meegegeven is_etf_map zegt
+        # expliciet False -- als compute_land_sector_verdeling() nog een
+        # eigen classify_tickers()-aanroep zou doen (de oude, ongewenste
+        # situatie vóór deze refactor), zou 'ie 'm alsnog als ETF behandelen
+        # (get_etf_holdings/get_etf_sector_verdeling aanroepen). We laten
+        # die twee een AssertionError geven zodra ze aangeroepen worden, en
+        # controleren dat de aandeel-tak (get_land_sector) juist wel gebruikt
+        # wordt -- het bewijs dat de meegegeven map leidend is.
+        transacties_df = pd.DataFrame({"ticker": ["ETF_A"], "aantal": [1.0]})
+        price_data = _price_data(["ETF_A"], waarde=100.0)
+
+        with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=AssertionError(
+                 "get_etf_holdings mag niet aangeroepen worden -- is_etf_map zegt False")), \
+             patch.object(portfolio_verdeling, "get_etf_sector_verdeling", side_effect=AssertionError(
+                 "get_etf_sector_verdeling mag niet aangeroepen worden -- is_etf_map zegt False")), \
+             patch.object(portfolio_verdeling, "get_land_sector", return_value=("Germany", "Industrials")):
+            resultaat = compute_land_sector_verdeling(transacties_df, price_data, {"ETF_A": False})
+
+        self.assertAlmostEqual(resultaat["land"]["Germany"], 100.0)
+        self.assertAlmostEqual(resultaat["sector"]["Industrials"], 100.0)
+
+
+if __name__ == "__main__":
+    unittest.main()
