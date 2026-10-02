@@ -72,7 +72,7 @@ def _lees_transacties_excel(bestand1):
 
     order_ids_ruw = _lees_order_ids_ruw(bestand1)
     df["Order ID"] = order_ids_ruw if len(order_ids_ruw) == len(df) else None
-    df.attrs["aantal_order_id_rijen"] = len(order_ids_ruw)
+    _meld_order_ids(order_ids_ruw, len(df))
     return df
 
 
@@ -165,13 +165,6 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
 
 def _create_synthetic_order_ids(df):
     """Vult ontbrekende Order ID's (uit _lees_transacties_excel) aan met synthetische ID's."""
-    aantal_id_rijen = df.attrs["aantal_order_id_rijen"]
-    if aantal_id_rijen == len(df):
-        order_ids_ruw = [order_id if pd.notna(order_id) else None for order_id in df["Order ID"]]
-    else:
-        order_ids_ruw = [None] * aantal_id_rijen 
-    _meld_order_ids(order_ids_ruw, len(df))
-
     def basis_hash(row):
         basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
         return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]

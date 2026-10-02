@@ -47,7 +47,6 @@ class Test_Upload_verwerking(unittest.TestCase):
 
         with toon_df_bij_falen(df):
             self.assertIn("Order ID", df.columns)
-            self.assertEqual(df.attrs["aantal_order_id_rijen"], len(df))
             echte_ids = df["Order ID"].dropna()
             self.assertGreater(len(echte_ids), 0)
             self.assertTrue(all(len(order_id) == 36 and order_id.count("-") == 4 for order_id in echte_ids))

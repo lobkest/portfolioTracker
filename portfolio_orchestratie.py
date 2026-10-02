@@ -66,7 +66,8 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
             cur.close()
             conn.close()
             return None, None, None
-        naam = result[0]
+        # Een portfolio zonder naam heeft NULL in de DB; None betekent hier "code bestaat niet".
+        naam = result[0] or ""
 
         cur.execute(
             "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "

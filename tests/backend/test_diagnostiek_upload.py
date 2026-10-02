@@ -109,12 +109,11 @@ class TestOrderIdMeldingen(_MetRequest):
             "ISIN": ["X1", "X2"], "Aantal": [1.0, 2.0], "Totaal EUR": [-10.0, -20.0],
         })
         df["Order ID"] = uv._lees_order_ids_ruw(self._excel([UUID_1, None]))
-        df.attrs["aantal_order_id_rijen"] = len(df)
         uit, meldingen, _ = self._in_request(uv._create_synthetic_order_ids, df)
         self.assertEqual(uit["Order ID"].iloc[0], UUID_1)
         self.assertTrue(uit["Order ID"].iloc[1].startswith("SYN-"))
         self.assertTrue(uit["Order ID"].iloc[1].endswith("-0"))
-        self.assertEqual([m["niveau"] for m in meldingen], [INFO])
+        self.assertEqual(meldingen, [])
 
 
 class TestPortfolioCodeMelding(_MetRequest):
