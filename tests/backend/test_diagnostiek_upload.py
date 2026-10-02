@@ -55,7 +55,6 @@ def _rijen(n=2, **extra):
         "Order ID": [f"ID-{i}" for i in range(n)],
         uv.KOSTEN_KOLOM: [-1.0] * n,
         uv.WAARDE_KOLOM: [-50.0] * n,
-        "_waarde_eur": [-50.0] * n,
         "_koers_eur": [5.0] * n,
     }
     data.update(extra)
@@ -155,7 +154,7 @@ class TestNieuweRijenKwaliteit(_MetRequest):
             4,
             Aantal=[10.0, 10.0, -5.0, 10.0],          # rij 2 is een verkoop
             Beurs=["EAM", "EAM", "EAM", "DEG"],        # rij 3 is een corporate action
-            _waarde_eur=[None, -50.0, None, None],
+            **{uv.WAARDE_KOLOM: [None, -50.0, None, None]},
         )
         _, meldingen, _ = self._in_request(uv._meld_nieuwe_rijen_kwaliteit, rijen)
         per = _per_sleutel(meldingen)
@@ -191,7 +190,7 @@ class TestInsertRegressie(_MetRequest):
         return {(isin, beurs): "T.AS" for isin, beurs in zip(rijen["ISIN"], rijen["Beurs"])}
 
     def test_zelfde_sql_en_parameters(self):
-        rijen = _rijen(1, **{uv.KOSTEN_KOLOM: [None]}, _waarde_eur=[-50.0])
+        rijen = _rijen(1, **{uv.KOSTEN_KOLOM: [None]})
         cur = _FakeCursor([1])
         self._in_request(uv._insert_nieuwe_transacties, cur, "ABC", rijen, self._tickers(rijen))
         sql, params = cur.aanroepen[0]

@@ -17,7 +17,7 @@ from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_
 from dividend import bereken_dividend_samenvatting
 from portfolio_admin import is_geldige_code, CODE_LENGTH
 from upload_verwerking import (
-    _lees_transacties_excel, _normaliseer_transactie_kolommen, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
+    _lees_transacties_excel, _adjust_transaction_exchange_rates, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _bepaal_order_ids, _vind_of_maak_portfolio_code,
     _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
     _verwerk_dividend_bestand_indien_aanwezig, _meld_nieuwe_rijen_kwaliteit, _meld_dividend_bestand_genegeerd,
@@ -88,7 +88,7 @@ def _upload_impl():
             df = _lees_transacties_excel(bestand1)
         except OngeldigExcelBestand as e:
             return jsonify({"error": str(e)}), 400
-        df = _normaliseer_transactie_kolommen(df)
+        df = _adjust_transaction_exchange_rates(df)
 
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"

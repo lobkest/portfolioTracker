@@ -25,11 +25,10 @@ VERWACHTE_KOLOMMEN = [
     "Lokale waarde", "Waarde EUR", "Wisselkoers", "AutoFX Kosten",
     "Transactiekosten en/of kosten van derden EUR", "Totaal EUR", "Order ID",
 ]
-# De "Unnamed: n"-kolommen (samengevoegde koppen) zijn geen onderdeel van de controle.
+
+# kolom namen
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
-# Kale waarde zonder kosten: de basis voor de GAK.
 WAARDE_KOLOM = "Waarde EUR"
-# DeGiro's eigen afrekenkoers; leeg bij EUR-noteringen.
 WISSELKOERS_KOLOM = "Wisselkoers"
 
 DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS = "excel_wisselkoers"
@@ -74,10 +73,8 @@ def _lees_transacties_excel(bestand1):
     return df
 
 
-def _normaliseer_transactie_kolommen(df):
-    """Voegt _waarde_eur en _koers_eur (EUR per stuk) toe."""
-    df["_waarde_eur"] = pd.to_numeric(df[WAARDE_KOLOM], errors="coerce")
-
+def _adjust_transaction_exchange_rates(df):
+    """Voegt _koers_eur (EUR per stuk) toe."""
     wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
     heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
     df["_koers_eur"] = df["Koers"].astype(float)
@@ -148,7 +145,7 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
         "totaal_eur": df["Totaal EUR"].astype(float),
         "echte_naam": df["Product"],
         "transactiekosten": pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce"),
-        "waarde_eur": df["_waarde_eur"],
+        "waarde_eur": df[WAARDE_KOLOM],
         "tijd": df["Tijd"],
     })
 
@@ -244,7 +241,7 @@ def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
         lambda rij: _is_corporate_action_row({"beurs": rij["Beurs"], "product": rij["Product"]}), axis=1,
     ).astype(bool)
     aankopen = rows_to_insert[(rows_to_insert["Aantal"].astype(float) > 0) & ~is_corporate_action]
-    zonder_waarde = int(aankopen["_waarde_eur"].isna().sum())
+    zonder_waarde = int(aankopen[WAARDE_KOLOM].isna().sum())
     if zonder_waarde > 0:
         meld(CATEGORIE_OPSLAAN, LET_OP,
              f"{zonder_waarde} van de {len(aankopen)} nieuwe aankopen hebben geen '{WAARDE_KOLOM}': de "
@@ -308,7 +305,7 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
     for _, row in rows_to_insert.iterrows():
         try:
             kosten_waarde = pd.to_numeric(row[KOSTEN_KOLOM], errors="coerce")
-            waarde_eur_waarde = row["_waarde_eur"]
+            waarde_eur_waarde = row[WAARDE_KOLOM]
             cur.execute(
                 """INSERT INTO transacties
                    (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)

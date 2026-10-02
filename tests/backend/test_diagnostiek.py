@@ -132,7 +132,7 @@ class TestExcelWisselkoersMelding(unittest.TestCase):
 
     def _normaliseer(self, df):
         with self.app.test_request_context(), redirect_stdout(io.StringIO()):
-            uit = self.uv._normaliseer_transactie_kolommen(df)
+            uit = self.uv._adjust_transaction_exchange_rates(df)
             return uit, haal_meldingen()
 
     def test_kolom_met_waarden_geeft_goed_en_zelfde_koers_eur(self):
