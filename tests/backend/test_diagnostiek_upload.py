@@ -103,12 +103,14 @@ class TestOrderIdMeldingen(_MetRequest):
         buf.seek(0)
         return buf
 
-    def test_bepaal_order_ids_ongewijzigd_en_meldt(self):
+    def test_create_synthetic_order_ids_ongewijzigd_en_meldt(self):
         df = pd.DataFrame({
             "Datum": ["01-01-2024", "02-01-2024"], "Tijd": ["10:00", "11:00"], "Product": ["A", "B"],
             "ISIN": ["X1", "X2"], "Aantal": [1.0, 2.0], "Totaal EUR": [-10.0, -20.0],
         })
-        uit, meldingen, _ = self._in_request(uv._bepaal_order_ids, self._excel([UUID_1, None]), df)
+        df["Order ID"] = uv._lees_order_ids_ruw(self._excel([UUID_1, None]))
+        df.attrs["aantal_order_id_rijen"] = len(df)
+        uit, meldingen, _ = self._in_request(uv._create_synthetic_order_ids, df)
         self.assertEqual(uit["Order ID"].iloc[0], UUID_1)
         self.assertTrue(uit["Order ID"].iloc[1].startswith("SYN-"))
         self.assertTrue(uit["Order ID"].iloc[1].endswith("-0"))

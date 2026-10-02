@@ -70,32 +70,36 @@ def _lees_transacties_excel(bestand1):
             f"Upload het transactiebestand zoals DeGiro het exporteert."
         )
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+
+    order_ids_ruw = _lees_order_ids_ruw(bestand1)
+    df["Order ID"] = order_ids_ruw if len(order_ids_ruw) == len(df) else None
+    df.attrs["aantal_order_id_rijen"] = len(order_ids_ruw)
     return df
+
+
+def _lees_order_ids_ruw(bestand1):
+    """Eerste UUID per werkbladrij via openpyxl: de kop staat verschoven (zie CLAUDE.md: DeGiro-bestanden)."""
+    bestand1.seek(0)
+    ws = openpyxl.load_workbook(bestand1, data_only=True).active
+    order_ids_ruw = []
+    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+        gevonden = None
+        for cell in row:
+            if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
+                gevonden = cell.value
+                break
+        order_ids_ruw.append(gevonden)
+    return order_ids_ruw
 
 
 def _adjust_transaction_exchange_rates(df):
     """Voegt _koers_eur (EUR per stuk) toe."""
-    wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
+    wisselkoers = df[WISSELKOERS_KOLOM]
     heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
-    df["_koers_eur"] = df["Koers"].astype(float)
+    df["_koers_eur"] = df["Koers"]
     df.loc[heeft_wisselkoers, "_koers_eur"] = (
         df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
-    )
-    for _, rij in df.loc[heeft_wisselkoers, ["ISIN", "Beurs", "Koers", WISSELKOERS_KOLOM, "_koers_eur"]].iterrows():
-        dprint(
-            f"[koers-eur] ISIN={rij['ISIN']} Beurs={rij['Beurs']}: "
-            f"Koers={rij['Koers']} / Wisselkoers={rij[WISSELKOERS_KOLOM]} -> "
-            f"_koers_eur={rij['_koers_eur']:.4f}"
-        )
-    aantal_met_wisselkoers = int(heeft_wisselkoers.sum())
-    if aantal_met_wisselkoers > 0:
-        meld(CATEGORIE_WISSELKOERSEN, GOED,
-             f"Wisselkoers uit Excel gebruikt voor {aantal_met_wisselkoers} van {len(df)} transacties.",
-             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
-    else:
-        meld(CATEGORIE_WISSELKOERSEN, INFO,
-             f"Kolom '{WISSELKOERS_KOLOM}' aanwezig, maar geen enkele transactie gebruikte een wisselkoers.",
-             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
+    ) 
     return df
 
 
@@ -150,24 +154,13 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
     })
 
 
-def _bepaal_order_ids(bestand1, df):
-    """Order ID's via openpyxl: de kop staat verschoven (zie CLAUDE.md: DeGiro-bestanden)."""
-    bestand1.seek(0)
-    wb = openpyxl.load_workbook(bestand1, data_only=True)
-    ws = wb.active
-    order_ids_ruw = []
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        gevonden = None
-        for cell in row:
-            if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
-                gevonden = cell.value
-                break
-        order_ids_ruw.append(gevonden)
-
-    if len(order_ids_ruw) == len(df):
-        df["Order ID"] = order_ids_ruw
+def _create_synthetic_order_ids(df):
+    """Vult ontbrekende Order ID's (uit _lees_transacties_excel) aan met synthetische ID's."""
+    aantal_id_rijen = df.attrs["aantal_order_id_rijen"]
+    if aantal_id_rijen == len(df):
+        order_ids_ruw = [order_id if pd.notna(order_id) else None for order_id in df["Order ID"]]
     else:
-        df["Order ID"] = None
+        order_ids_ruw = [None] * aantal_id_rijen 
     _meld_order_ids(order_ids_ruw, len(df))
 
     def basis_hash(row):

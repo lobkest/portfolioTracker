@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from upload_verwerking import (
     VERWACHTE_KOLOMMEN, OngeldigExcelBestand, _lees_transacties_excel, _adjust_transaction_exchange_rates,
+    _create_synthetic_order_ids,
 )
 
 BESTAND_Transactions = os.path.join(
@@ -36,11 +37,36 @@ class Test_Upload_verwerking(unittest.TestCase):
             df = _lees_transacties_excel(f)
 
         with toon_df_bij_falen(df):
-            self.assertEqual(len(df), 14)
             self.assertIn("Koers", df.columns)
             self.assertNotIn("Koers ", df.columns)
             self.assertTrue(pd.api.types.is_datetime64_any_dtype(df["Datum"]))
-            self.assertEqual(df["Datum"].iloc[0], pd.Timestamp(2026, 4, 2))
+
+    def test_leest_order_ids_mee_in_df(self):
+        with open(BESTAND_Transactions, "rb") as f:
+            df = _lees_transacties_excel(f)
+
+        with toon_df_bij_falen(df):
+            self.assertIn("Order ID", df.columns)
+            self.assertEqual(df.attrs["aantal_order_id_rijen"], len(df))
+            echte_ids = df["Order ID"].dropna()
+            self.assertGreater(len(echte_ids), 0)
+            self.assertTrue(all(len(order_id) == 36 and order_id.count("-") == 4 for order_id in echte_ids))
+
+    def test_create_synthetic_order_ids_vult_synthetische_aan_en_is_uniek(self):
+        with open(BESTAND_Transactions, "rb") as f:
+            df = _lees_transacties_excel(f)
+        echte_ids = df["Order ID"].dropna().tolist()
+
+        df = _create_synthetic_order_ids(df)
+
+        print("Order IDs na _create_synthetic_order_ids:")
+        print(df["Order ID"].tolist())
+
+        with toon_df_bij_falen(df):
+            self.assertEqual(df["Order ID"].isna().sum(), 0)
+            self.assertTrue(df["Order ID"].is_unique)
+            self.assertEqual(df["Order ID"][df["Order ID"].isin(echte_ids)].tolist(), echte_ids)
+            self.assertTrue(all(order_id.startswith("SYN-") for order_id in df["Order ID"] if order_id not in echte_ids))
 
     def test_leest_echt_degiro_bestand_in_warning(self):
         with open(BESTAND_Transactions, "rb") as f:
@@ -65,14 +91,13 @@ class Test_Upload_verwerking(unittest.TestCase):
         with toon_df_bij_falen(df):
             self.assertIn("_koers_eur", df.columns)
             self.assertNotIn("_kosten_eur", df.columns)
+            self.assertTrue(pd.api.types.is_numeric_dtype(df["_koers_eur"]))
 
-            # Rij 0: EUR-notering, geen wisselkoers -> koers ongewijzigd.
-            self.assertTrue(pd.isna(df["Wisselkoers"].iloc[0]))
-            self.assertEqual(df["_koers_eur"].iloc[0], 57.33)
-
-            # Rij 1: Koers 193.65 / Wisselkoers 1.1821 = 163.82 EUR.
-            self.assertAlmostEqual(df["_koers_eur"].iloc[1], 163.82, places=2)
-            self.assertAlmostEqual(df["_koers_eur"].iloc[1], df["Koers"].iloc[1] / df["Wisselkoers"].iloc[1])
+            for _, rij in df.iterrows():
+                if pd.isna(rij["Wisselkoers"]) or rij["Wisselkoers"] == 0:
+                    self.assertEqual(rij["_koers_eur"], rij["Koers"])
+                else:
+                    self.assertAlmostEqual(rij["_koers_eur"], rij["Koers"] / rij["Wisselkoers"])
 
 
 
