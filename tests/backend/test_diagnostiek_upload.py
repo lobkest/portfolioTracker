@@ -315,13 +315,23 @@ class TestDividendMeldingen(_MetRequest):
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 
-    def test_niet_opslaan_met_bestand2_info(self):
-        meldingen = self._met_bestand2(uv._meld_dividend_bestand_genegeerd)
-        self.assertEqual([(m["niveau"], m["sleutel"]) for m in meldingen],
-                         [(INFO, uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_NIET_OPSLAAN)])
+    @patch("upload_verwerking.save_dividenden")
+    @patch("upload_verwerking.verwerk_rekeningoverzicht")
+    def test_niet_opslaan_met_bestand2_meldt_zonder_op_te_slaan(self, mock_verwerk, mock_save):
+        records = [self._record("EUR")]
+        mock_verwerk.return_value = records
+        data = {"bestand2": (io.BytesIO(b"x"), "rekening.xlsx")}
+        with self.app.test_request_context(method="POST", data=data, content_type="multipart/form-data"),              redirect_stdout(io.StringIO()):
+            resultaat = uv._verwerk_dividend_bestand_zonder_opslaan()
+            meldingen = haal_meldingen()
+        self.assertEqual(resultaat, records)
+        mock_save.assert_not_called()
+        dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
+        self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 
     def test_niet_opslaan_zonder_bestand2_niets(self):
-        _, meldingen, _ = self._in_request(uv._meld_dividend_bestand_genegeerd)
+        resultaat, meldingen, _ = self._in_request(uv._verwerk_dividend_bestand_zonder_opslaan)
+        self.assertIsNone(resultaat)
         self.assertEqual(meldingen, [])
 
 

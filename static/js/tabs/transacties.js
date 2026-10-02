@@ -36,9 +36,10 @@ const TRANSACTIES_KOLOMMEN = [
 ];
 
 async function toonTransacties() {
-    if (!huidigeData.code) return;
-
-    if (transactiesRuweLijst === null) {
+    // Zonder code (niet opslaan) staat de lijst al in het upload-antwoord.
+    if (!huidigeData.code) {
+        transactiesRuweLijst = huidigeData.transacties_lijst || [];
+    } else if (transactiesRuweLijst === null) {
         toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesLaden");
         let res, data;
         try {

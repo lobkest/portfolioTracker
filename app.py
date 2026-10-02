@@ -14,13 +14,14 @@ from yahoo_client import (
     DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING,
 )
 from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
-from dividend import bereken_dividend_samenvatting
+from dividend import bereken_dividend_samenvatting, bouw_dividend_samenvatting
+from transactie_utils import transacties_overzicht_uit_df
 from portfolio_admin import is_geldige_code, CODE_LENGTH
 from upload_verwerking import (
     _lees_transacties_excel, _adjust_transaction_exchange_rates, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _create_synthetic_order_ids, _vind_of_maak_portfolio_code,
     _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
-    _verwerk_dividend_bestand_indien_aanwezig, _meld_nieuwe_rijen_kwaliteit, _meld_dividend_bestand_genegeerd,
+    _verwerk_dividend_bestand_indien_aanwezig, _meld_nieuwe_rijen_kwaliteit, _verwerk_dividend_bestand_zonder_opslaan,
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
@@ -75,6 +76,18 @@ def upload():
         }), 500
 
 
+def _dividend_niet_opslaan(transacties_df):
+    dividend_records = _verwerk_dividend_bestand_zonder_opslaan()
+    transactie_rows = [
+        (r.isin, r.ticker, r.product)
+        for r in transacties_df.itertuples(index=False) if r.ticker is not None
+    ]
+    samenvatting = bouw_dividend_samenvatting(dividend_records, transactie_rows)
+    if samenvatting is None:
+        return {"beschikbaar": False}
+    return {**samenvatting, "beschikbaar": True}
+
+
 def _upload_impl():
     reset_yahoo_call_teller()
     naam = request.form.get("naam", "").strip()
@@ -101,7 +114,8 @@ def _upload_impl():
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
-        _meld_dividend_bestand_genegeerd()
+        result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
+        result["dividend"] = _dividend_niet_opslaan(transacties_df)
         log_yahoo_call_samenvatting()
         meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
         return jsonify(voeg_diagnostiek_toe(result))

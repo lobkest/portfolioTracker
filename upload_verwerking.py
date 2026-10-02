@@ -41,7 +41,6 @@ DIAGNOSTIEK_SLEUTEL_EXCEL_WAARDE = "excel_waarde"
 DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS = "corporate_actions"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING = "dividend_samenvatting"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG = "dividend_zonder_conversie_overig"
-DIAGNOSTIEK_SLEUTEL_DIVIDEND_NIET_OPSLAAN = "dividend_niet_opslaan"
 
 # Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
@@ -94,12 +93,22 @@ def _lees_order_ids_ruw(bestand1):
 
 def _adjust_transaction_exchange_rates(df):
     """Voegt _koers_eur (EUR per stuk) toe."""
-    wisselkoers = df[WISSELKOERS_KOLOM]
+    wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
     heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
-    df["_koers_eur"] = df["Koers"]
+    df["_koers_eur"] = df["Koers"].astype(float)
     df.loc[heeft_wisselkoers, "_koers_eur"] = (
         df.loc[heeft_wisselkoers, "Koers"].astype(float) / wisselkoers.loc[heeft_wisselkoers]
-    ) 
+    )
+    # Diagnostiek moet tonen of buitenlandse koersen naar EUR zijn omgerekend.
+    aantal_met_wisselkoers = int(heeft_wisselkoers.sum())
+    if aantal_met_wisselkoers > 0:
+        meld(CATEGORIE_WISSELKOERSEN, GOED,
+             f"Wisselkoers uit Excel gebruikt voor {aantal_met_wisselkoers} van {len(df)} transacties.",
+             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
+    else:
+        meld(CATEGORIE_WISSELKOERSEN, INFO,
+             f"Kolom '{WISSELKOERS_KOLOM}' aanwezig, maar geen enkele transactie gebruikte een wisselkoers.",
+             sleutel=DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS)
     return df
 
 
@@ -381,10 +390,12 @@ def _meld_dividend_records(records):
              sleutel=DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG)
 
 
-def _meld_dividend_bestand_genegeerd():
+def _verwerk_dividend_bestand_zonder_opslaan():
+    """Records van bestand 2 zonder database; None als het ontbreekt."""
     bestand2 = request.files.get("bestand2")
-    if bestand2 and bestand2.filename != "":
-        meld(CATEGORIE_DIVIDEND, INFO,
-             "Rekeningoverzicht meegestuurd, maar niet verwerkt bij 'Niet opslaan' (dividend wordt alleen "
-             "bij opslaan bewaard).",
-             sleutel=DIAGNOSTIEK_SLEUTEL_DIVIDEND_NIET_OPSLAAN)
+    if not bestand2 or bestand2.filename == "":
+        return None
+    with meet_tijd("dividend_bestand_verwerken"):
+        dividend_records = verwerk_rekeningoverzicht(bestand2)
+    _meld_dividend_records(dividend_records)
+    return dividend_records

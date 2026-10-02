@@ -112,12 +112,21 @@ function toonGeenRekeningoverzicht() {
     toonAlleen(DIVIDEND_TOESTANDEN, "dividendGeenOverzicht");
 }
 
+function renderDividend(data) {
+    toonAlleen(DIVIDEND_TOESTANDEN, "dividendStatsSectie");
+    renderDividendStats(data);
+    toonDividendChart(data.cumulatief);
+    renderDividendUitkeringenlijst(data.lijst);
+}
+
 async function toonDividend() {
     toonAlleen(DIVIDEND_TOESTANDEN, "dividendLaden");
     document.getElementById("dividendUitkeringenSectie").hidden = true;
 
     if (!huidigeData.code) {
-        toonGeenRekeningoverzicht();
+        const data = huidigeData.dividend;
+        if (data && data.beschikbaar) renderDividend(data);
+        else toonGeenRekeningoverzicht();
         return;
     }
 
@@ -135,10 +144,7 @@ async function toonDividend() {
         return;
     }
 
-    toonAlleen(DIVIDEND_TOESTANDEN, "dividendStatsSectie");
-    renderDividendStats(data);
-    toonDividendChart(data.cumulatief);
-    renderDividendUitkeringenlijst(data.lijst);
+    renderDividend(data);
 }
 
 document.getElementById("dividendNaarUploadBtn").addEventListener("click", () => location.assign(START_PAD));

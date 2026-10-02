@@ -206,10 +206,22 @@ def bereken_dividend_samenvatting(code):
     cur.close()
     conn.close()
 
+    return bouw_dividend_samenvatting(dividenden, rows)
+
+
+def _afronden_of_none(bedrag):
+    return round(float(bedrag), 2) if bedrag is not None else None
+
+
+def bouw_dividend_samenvatting(dividenden, transactie_rows):
+    """None bij een lege lijst. Bedragen mogen float, Decimal of None zijn; transactie_rows: (isin, ticker, product)."""
+    if not dividenden:
+        return None
+
     # Op ISIN alleen (eerste rij wint): per beurs splitsen is hier niet nodig.
     isin_naar_ticker = {}
     isin_naar_bijnaam = {}
-    for isin, ticker, product in rows:
+    for isin, ticker, product in transactie_rows:
         isin_naar_ticker.setdefault(isin, ticker)
         isin_naar_bijnaam.setdefault(isin, product)
 
@@ -246,9 +258,9 @@ def bereken_dividend_samenvatting(code):
                 "ticker": isin_naar_ticker.get(d["isin"]) or d["isin"],
                 "bijnaam": isin_naar_bijnaam.get(d["isin"]) or d["product"] or (isin_naar_ticker.get(d["isin"]) or d["isin"]),
                 "valuta": d["valuta"],
-                "bruto_eur": round(d["bruto_eur"], 2) if d["bruto_eur"] is not None else None,
-                "belasting_eur": round(d["belasting_eur"], 2) if d["belasting_eur"] is not None else None,
-                "netto_eur": round(d["netto_eur"], 2) if d["netto_eur"] is not None else None,
+                "bruto_eur": _afronden_of_none(d["bruto_eur"]),
+                "belasting_eur": _afronden_of_none(d["belasting_eur"]),
+                "netto_eur": _afronden_of_none(d["netto_eur"]),
                 "herinvesteerd": d.get("herinvesteerd", False),
             }
             for d in dividenden

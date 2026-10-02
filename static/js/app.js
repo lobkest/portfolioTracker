@@ -23,7 +23,7 @@ const wisselView = maakTabWisselaar(
 );
 
 // Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
-const VIEWS_MET_CODE = ["instellingen", "instellingen-bijnamen", "dividend", "transacties"];
+const VIEWS_MET_CODE = ["instellingen", "instellingen-bijnamen"];
 
 const TOON_PER_VIEW = {
     "portfolio": toonPortfolio,

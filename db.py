@@ -3,6 +3,7 @@ import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import execute_values, Json
 from dotenv import load_dotenv
+from transactie_utils import formatteer_transacties_overzicht
 
 load_dotenv()
 
@@ -499,18 +500,7 @@ def get_transacties_overzicht(code):
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [
-        {
-            "datum": datum.strftime("%Y-%m-%d"),
-            "tijd": tijd.strftime("%H:%M") if tijd is not None else None,
-            "product": product,
-            "aantal": float(aantal),
-            "koers": float(koers) if koers is not None else None,
-            "totaal_eur": float(totaal_eur),
-            "transactiekosten": float(transactiekosten) if transactiekosten is not None else None,
-        }
-        for datum, tijd, product, aantal, koers, totaal_eur, transactiekosten in rows
-    ]
+    return formatteer_transacties_overzicht(rows)
 
 
 def save_prices(rows):
