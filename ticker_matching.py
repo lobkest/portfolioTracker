@@ -85,11 +85,7 @@ def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
             symbol, exch = match
             dprint(f"[ticker]   OK beurs-match ({len(variant.split())} woorden): "
                    f"'{variant}' -> {symbol} ({exch})")
-            alternatieven = [
-                {"symbol": q.get("symbol"), "exchange": q.get("exchange")}
-                for q in quotes if q.get("symbol") != symbol
-            ]
-            return symbol, "zeker", alternatieven
+            return symbol, "zeker", _alternatieven_naast(quotes, symbol)
 
     if eerste_quotes:
         symbol, alternatieven = _onzeker_fallback(eerste_quotes)
@@ -104,6 +100,54 @@ def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
     return None, None, []
 
 
+def _alternatieven_naast(quotes, symbol):
+    return [
+        {"symbol": q.get("symbol"), "exchange": q.get("exchange")}
+        for q in quotes if q.get("symbol") != symbol
+    ]
+
+
+def _zoek_op_isin(isin, targets, beurs):
+    """Zelfde uitkomst als _zoek_product_progressief(): (symbol, zekerheid, alternatieven)."""
+    quotes = _yahoo_search(isin)
+    match = _kies_beurs_match(quotes, targets)
+    if match:
+        symbol, exch = match
+        dprint(f"[ticker]   query='{isin}': exact beurs-match {symbol} ({exch})")
+        return symbol, "zeker", _alternatieven_naast(quotes, symbol)
+    if quotes:
+        symbol, alternatieven = _onzeker_fallback(quotes)
+        dprint(f"[ticker]   WARN query='{isin}': GEEN match voor beurs '{beurs}' (verwacht {targets}), "
+               f"val terug op eerste resultaat {symbol} ({quotes[0].get('exchange')}) - "
+               f"mogelijk fout! Alle kandidaten: "
+               f"{[(q.get('symbol'), q.get('exchange')) for q in quotes]}")
+        return symbol, "onzeker", alternatieven
+    return None, None, []
+
+
+def _kies_beste(eerste, tweede):
+    """Een "zekere" kandidaat wint altijd van een onzekere; verder gaat de eerste voor."""
+    if eerste[0] is None:
+        return tweede
+    if tweede[0] is not None and tweede[1] == "zeker" and eerste[1] != "zeker":
+        return tweede
+    return eerste
+
+
+def _naam_override(product):
+    for key, override_ticker in MANUAL_TICKER_OVERRIDES.items():
+        if product.upper().startswith(key):
+            return override_ticker
+    return None
+
+
+def _als_resultaat(kandidaat):
+    symbol, zekerheid, alternatieven = kandidaat
+    if symbol is None:
+        return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
+    return {"ticker": symbol, "zekerheid": zekerheid, "alternatieven": alternatieven}
+
+
 def find_ticker_detailed(product, isin, beurs):
     """{ticker, zekerheid, alternatieven}. zekerheid: "zeker" (override of beurs-match),
     "onzeker" (eerste zoekresultaat) of "geen_match"."""
@@ -116,51 +160,20 @@ def find_ticker_detailed(product, isin, beurs):
         return {"ticker": isin_override, "zekerheid": "zeker", "alternatieven": []}
 
     targets = BEURS_MAP.get(beurs, [])
+    kandidaat = _zoek_product_progressief(product, beurs, targets)
 
-    kandidaten = [_zoek_product_progressief(product, beurs, targets)]
-
-    # ISIN alleen als de naam nog niet "zeker" gaf (scheelt een call); "zeker" wint altijd.
-    if kandidaten[0][1] != "zeker":
-        isin_quotes = _yahoo_search(isin)
-        isin_match = _kies_beurs_match(isin_quotes, targets)
-        if isin_match:
-            symbol, exch = isin_match
-            dprint(f"[ticker]   query='{isin}': exact beurs-match {symbol} ({exch})")
-            alternatieven = [
-                {"symbol": q.get("symbol"), "exchange": q.get("exchange")}
-                for q in isin_quotes if q.get("symbol") != symbol
-            ]
-            kandidaten.append((symbol, "zeker", alternatieven))
-        elif isin_quotes:
-            symbol, alternatieven = _onzeker_fallback(isin_quotes)
-            dprint(f"[ticker]   WARN query='{isin}': GEEN match voor beurs '{beurs}' (verwacht {targets}), "
-                   f"val terug op eerste resultaat {symbol} ({isin_quotes[0].get('exchange')}) - "
-                   f"mogelijk fout! Alle kandidaten: "
-                   f"{[(q.get('symbol'), q.get('exchange')) for q in isin_quotes]}")
-            kandidaten.append((symbol, "onzeker", alternatieven))
-
-    beste = None
-    for symbol, zekerheid, alternatieven in kandidaten:
-        if symbol is None:
-            continue
-        if beste is None or (zekerheid == "zeker" and beste[1] != "zeker"):
-            beste = (symbol, zekerheid, alternatieven)
-
-    if beste is not None and beste[1] == "zeker":
-        symbol, zekerheid, alternatieven = beste
-        return {"ticker": symbol, "zekerheid": zekerheid, "alternatieven": alternatieven}
+    # ISIN alleen als de naam nog niet "zeker" gaf (scheelt een call).
+    if kandidaat[1] != "zeker":
+        kandidaat = _kies_beste(kandidaat, _zoek_op_isin(isin, targets, beurs))
 
     # Pas ná het zoeken: een naam-override is niet beurs-specifiek.
-    for key, override_ticker in MANUAL_TICKER_OVERRIDES.items():
-        if product.upper().startswith(key):
+    if kandidaat[1] != "zeker":
+        override_ticker = _naam_override(product)
+        if override_ticker:
             dprint(f"[ticker] '{product}' -> override '{override_ticker}' (geen exacte beurs-match via search)")
             return {"ticker": override_ticker, "zekerheid": "zeker", "alternatieven": []}
 
-    if beste is not None:
-        symbol, zekerheid, alternatieven = beste
-        return {"ticker": symbol, "zekerheid": zekerheid, "alternatieven": alternatieven}
-
-    return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
+    return _als_resultaat(kandidaat)
 
 
 # OpenFIGI verandert nooit welke ticker wordt opgeslagen (zie CLAUDE.md: Yahoo en tickers).

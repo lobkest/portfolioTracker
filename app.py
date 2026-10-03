@@ -24,7 +24,7 @@ from upload_verwerking import (
     _lees_transacties_excel, _adjust_transaction_exchange_rates, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _create_synthetic_order_ids, _vind_of_maak_portfolio_code,
     _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
-    _verwerk_dividend_bestand_indien_aanwezig, _meld_nieuwe_rijen_kwaliteit, _verwerk_dividend_bestand_zonder_opslaan,
+    _verwerk_dividend_bestand_indien_aanwezig, _verwerk_dividend_bestand_zonder_opslaan,
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
@@ -129,7 +129,6 @@ def _upload_impl():
     cur = conn.cursor()
 
     code, match_code, rows_to_insert = _vind_of_maak_portfolio_code(cur, df, naam)
-    _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
 
     if not rows_to_insert.empty:
         with meet_tijd("ticker_resolutie"):

@@ -107,19 +107,22 @@ def _adjust_transaction_exchange_rates(df):
     return df
 
 
+def _bouw_posities(df):
+    """[(product, isin, beurs, transacties)] per (ISIN, Beurs); product is dat van de eerste rij."""
+    return [
+        (groep["Product"].iloc[0], isin, beurs, [
+            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
+            for _, row in groep.iterrows()
+        ])
+        for (isin, beurs), groep in df.groupby(["ISIN", "Beurs"])
+    ]
+
+
 def _ticker_resolutie_niet_opslaan_pad(df):
     """Lichte ticker-check per (ISIN, Beurs). Geeft (ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)."""
-    groepen = list(df.groupby(["ISIN", "Beurs"]))
-    namen = [groep["Product"].iloc[0] for (_isin, _beurs_val), groep in groepen]
+    posities_voor_check = _bouw_posities(df)
 
-    with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(groepen)} positie(s))"):
-        posities_voor_check = [
-            (naam_positie, isin, beurs_val, [
-                {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
-                for _, row in groep.iterrows()
-            ])
-            for naam_positie, ((isin, beurs_val), groep) in zip(namen, groepen)
-        ]
+    with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(posities_voor_check)} positie(s))"):
         resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
 
         ticker_by_isin_beurs = {}
@@ -190,7 +193,7 @@ def _meld_order_ids(order_ids):
 
 
 def _vind_of_maak_portfolio_code(cur, df, naam):
-    """Geeft (code, match_code, rows_to_insert)."""
+    """Zoekt een bestaande portfolio met dezelfde Order ID's, of maakt een nieuwe aan."""
     new_order_ids = set(df["Order ID"]) 
     match_code, missing_ids = find_matching_code(cur, new_order_ids)
 
@@ -204,6 +207,9 @@ def _vind_of_maak_portfolio_code(cur, df, naam):
         db_maak_portfolio(cur, code, naam or None)
         rows_to_insert = df
 
+    _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
+
+    # Diagnostiek
     if not match_code:
         tekst = f"Nieuwe portfolio aangemaakt met {len(rows_to_insert)} transacties."
     elif len(rows_to_insert):
@@ -238,38 +244,33 @@ def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
              sleutel=DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS)
 
 
+def _probeer_andere_productnamen(groep, transacties, bekende_ticker):
+    """De eerste productnaam gaf niets: probeer de namen van de andere rijen."""
+    detail = {"ticker": None}
+    for _, row in groep.iterrows():
+        detail = find_ticker_met_snelle_prijscheck(
+            row["Product"], row["ISIN"], row["Beurs"], transacties, bekende_ticker,
+        )
+        if detail["ticker"]:
+            break
+    return detail
+
+
 def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers):
     """Lichte check per (ISIN, Beurs); bekende tickers worden hergebruikt, tenzij het vinkje 'opnieuw bepalen' aan staat."""
     groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
+    posities = _bouw_posities(rows_to_insert)
 
     bekende_tickers = {}
     if not herbepaal_alle_tickers:
         bekende_tickers = db_get_bekende_tickers(cur, code)
 
-    transacties_per_groep = {
-        key: [
-            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
-            for _, row in groep.iterrows()
-        ]
-        for key, groep in groepen
-    }
-    eerste_poging = [
-        (groep["Product"].iloc[0], key[0], key[1], transacties_per_groep[key])
-        for key, groep in groepen
-    ]
-    resultaten = vind_tickers_met_snelle_prijscheck_parallel(eerste_poging, bekende_tickers=bekende_tickers)
+    resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
 
     ticker_by_isin_beurs = {}
-    for (key, groep), detail in zip(groepen, resultaten):
+    for (key, groep), (_naam, _isin, _beurs, transacties), detail in zip(groepen, posities, resultaten):
         if not detail["ticker"]:
-            # De eerste productnaam gaf niets: probeer de namen van de andere rijen.
-            for _, row in groep.iterrows():
-                detail = find_ticker_met_snelle_prijscheck(
-                    row["Product"], row["ISIN"], row["Beurs"], transacties_per_groep[key],
-                    bekende_tickers.get(key),
-                )
-                if detail["ticker"]:
-                    break
+            detail = _probeer_andere_productnamen(groep, transacties, bekende_tickers.get(key))
         ticker_by_isin_beurs[key] = detail["ticker"]
 
     return ticker_by_isin_beurs
