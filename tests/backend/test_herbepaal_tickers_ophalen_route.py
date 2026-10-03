@@ -11,7 +11,7 @@ tickers). Zonder de nieuwe parameter blijft dat exact zo; met de parameter
 komt er een expliciete, opt-in aanroep bij.
 
 build_portfolio_response() en backfill_verouderde_tickers() worden gemockt
-en app.py draait init_db() alleen als DATABASE_URL is ingesteld, dus geen
+en app.py draait db_init() alleen als DATABASE_URL is ingesteld, dus geen
 echte database nodig en geen Yahoo-calls.
 """
 import os

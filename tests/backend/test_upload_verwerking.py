@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from upload_verwerking import (
     VERWACHTE_KOLOMMEN, OngeldigExcelBestand, _lees_transacties_excel, _adjust_transaction_exchange_rates,
-    _create_synthetic_order_ids,
+    _create_synthetic_order_ids, _kolom_of_naamloze_buurkolom,
 )
 
 BESTAND_Transactions = os.path.join(
@@ -40,6 +40,18 @@ class Test_Upload_verwerking(unittest.TestCase):
             self.assertIn("Koers", df.columns)
             self.assertNotIn("Koers ", df.columns)
             self.assertTrue(pd.api.types.is_datetime64_any_dtype(df["Datum"]))
+
+    def test_kolom_of_naamloze_buurkolom_pakt_gevulde_naamloze_buur_rechts(self):
+        df = pd.DataFrame({"Product": ["A", "B"], "Order ID": [None, None], "Unnamed: 2": ["id-1", "id-2"]})
+
+        self.assertEqual(_kolom_of_naamloze_buurkolom(df, "Order ID").tolist(), ["id-1", "id-2"])
+
+    def test_kolom_of_naamloze_buurkolom_houdt_gevulde_kolom_en_negeert_benoemde_buur(self):
+        gevuld = pd.DataFrame({"Order ID": ["id-1", "id-2"], "Unnamed: 1": ["x", "y"]})
+        benoemde_buur = pd.DataFrame({"Order ID": [None, None], "Product": ["A", "B"]})
+
+        self.assertEqual(_kolom_of_naamloze_buurkolom(gevuld, "Order ID").tolist(), ["id-1", "id-2"])
+        self.assertTrue(_kolom_of_naamloze_buurkolom(benoemde_buur, "Order ID").isna().all())
 
     def test_leest_order_ids_mee_in_df(self):
         with open(BESTAND_Transactions, "rb") as f:

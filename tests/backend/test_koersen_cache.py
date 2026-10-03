@@ -17,8 +17,8 @@ verversen, met een 2-minuten-hergebruikdrempel (o.b.v. de bijgewerkt_op-
 kolom) om te voorkomen dat de meerdere endpoints van één portfolio-opening
 (home, verrijking, ticker-zekerheid) Yahoo kort na elkaar dubbel bevragen.
 
-Deze tests raken de database NIET aan -- get_db_connection, download_met_retry,
-save_prices/upsert_prices en yf.Ticker worden gemockt.
+Deze tests raken de database NIET aan -- db_connect, download_met_retry,
+db_save_prices/db_upsert_prices en yf.Ticker worden gemockt.
 """
 import io
 import os
@@ -37,7 +37,7 @@ import portfolio_calc
 
 
 def _mock_conn(min_max_rows, laatst_ververst_rows, cached_rows):
-    """Bouwt een gemockte get_db_connection()-return die na elkaar de drie
+    """Bouwt een gemockte db_connect()-return die na elkaar de drie
     execute()/fetchall()-aanroepen in get_prices() beantwoordt: eerst
     MIN/MAX per ticker, dan (ticker, bijgewerkt_op) voor de rij van
     'vandaag' (t.b.v. de 2-minuten-hergebruikdrempel), dan de gecachete
@@ -54,9 +54,9 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
     incrementeel verversen, niet stilzwijgend laten staan."""
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.upsert_prices")
+    @patch("prijzen.db_upsert_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_verouderde_cache_wordt_incrementeel_ververst(
         self, mock_get_conn, mock_download, mock_upsert, mock_yf_ticker
     ):
@@ -88,9 +88,9 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         self.assertEqual(result.loc[vandaag, "AAPL"], 160.0)
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.upsert_prices")
+    @patch("prijzen.db_upsert_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_ticker_met_rij_van_vandaag_wordt_toch_ververst(
         self, mock_get_conn, mock_download, mock_upsert, mock_yf_ticker
     ):
@@ -121,9 +121,9 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         mock_upsert.assert_called_once()
         self.assertEqual(result.loc[vandaag, "AAPL"], 205.0)
 
-    @patch("prijzen.upsert_prices")
+    @patch("prijzen.db_upsert_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_net_ververste_ticker_wordt_niet_dubbel_bevraagd(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -153,9 +153,9 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
     behandelen (geen download), maar een écht ontbrekende ticker nog
     altijd downloaden."""
 
-    @patch("prijzen.upsert_prices")
+    @patch("prijzen.db_upsert_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_stale_ticker_wordt_niet_ververst_als_verversen_false(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -176,9 +176,9 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
         self.assertEqual(result.loc[vandaag, "AAPL"], 200.0)
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.save_prices")
+    @patch("prijzen.db_save_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_missende_ticker_wordt_alsnog_gedownload_als_verversen_false(
         self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
     ):

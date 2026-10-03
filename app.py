@@ -2,7 +2,10 @@ import os
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 import pandas as pd
-from db import get_db_connection, init_db, delete_portfolio, wijzig_portfolio_code, get_transacties_overzicht
+from db import (
+    db_connect, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
+    db_portfolio_bestaat, db_wijzig_bijnaam, db_herstel_echte_naam,
+)
 from prijzen import get_prices
 from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
@@ -35,7 +38,7 @@ app = Flask(__name__)
 
 # Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
 if os.environ.get("DATABASE_URL"):
-    init_db()
+    db_init()
 
 
 MELDING_ONGELDIGE_CODE = "ongeldige-code"
@@ -122,7 +125,7 @@ def _upload_impl():
 
     df = _create_synthetic_order_ids(df)
 
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
 
     code, match_code, rows_to_insert = _vind_of_maak_portfolio_code(cur, df, naam)
@@ -365,15 +368,8 @@ def ticker_zekerheid_check():
 @app.route("/api/portfolio/<code>/dividend")
 def dividend(code):
     code = code.strip().upper()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    if cur.fetchone() is None:
-        cur.close()
-        conn.close()
+    if not db_portfolio_bestaat(code):
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
-    cur.close()
-    conn.close()
 
     samenvatting = bereken_dividend_samenvatting(code)
     if samenvatting is None:
@@ -386,17 +382,10 @@ def dividend(code):
 @app.route("/api/portfolio/<code>/transacties")
 def transacties_overzicht(code):
     code = code.strip().upper()
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    if cur.fetchone() is None:
-        cur.close()
-        conn.close()
+    if not db_portfolio_bestaat(code):
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
-    cur.close()
-    conn.close()
 
-    return jsonify({"lijst": get_transacties_overzicht(code)})
+    return jsonify({"lijst": db_get_transacties_overzicht(code)})
 
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])
@@ -408,15 +397,7 @@ def set_bijnaam(code):
     if not ticker or not bijnaam:
         return jsonify({"error": "Ticker en bijnaam zijn verplicht."}), 400
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE transacties SET product = %s WHERE code = %s AND ticker = %s",
-        (bijnaam, code, ticker),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    db_wijzig_bijnaam(code, ticker, bijnaam)
     _wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
@@ -429,15 +410,7 @@ def reset_bijnaam(code):
     if not ticker:
         return jsonify({"error": "Ticker is verplicht."}), 400
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE transacties SET product = echte_naam WHERE code = %s AND ticker = %s",
-        (code, ticker),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
+    db_herstel_echte_naam(code, ticker)
     _wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
@@ -445,7 +418,7 @@ def reset_bijnaam(code):
 @app.route("/api/portfolio/<code>", methods=["DELETE"])
 def verwijder_portfolio(code):
     code = code.strip().upper()
-    delete_portfolio(code)
+    db_delete_portfolio(code)
     _wis_portfolio_basis_cache(code)
     return jsonify({"success": True})
 
@@ -461,7 +434,7 @@ def wijzig_code(code):
     if nieuwe_code == code:
         return jsonify({"error": "De nieuwe code is gelijk aan de huidige code."}), 400
 
-    success, foutmelding = wijzig_portfolio_code(code, nieuwe_code)
+    success, foutmelding = db_wijzig_portfolio_code(code, nieuwe_code)
     if not success:
         return jsonify({"error": foutmelding}), 400
 

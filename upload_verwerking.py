@@ -2,7 +2,6 @@
 import hashlib
 
 import pandas as pd
-import openpyxl
 import psycopg2
 from flask import request
 
@@ -17,7 +16,7 @@ from ticker_zekerheid import (
     find_ticker_met_snelle_prijscheck,
 )
 from portfolio_admin import find_matching_code, generate_code
-from db import save_dividenden
+from db import db_save_dividenden, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie
 from dividend import verwerk_rekeningoverzicht
 
 VERWACHTE_KOLOMMEN = [
@@ -69,26 +68,22 @@ def _lees_transacties_excel(bestand1):
             f"Upload het transactiebestand zoals DeGiro het exporteert."
         )
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    df["Order ID"] = _kolom_of_naamloze_buurkolom(df, "Order ID")
+    df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
 
-    order_ids_ruw = _lees_order_ids_ruw(bestand1)
-    df["Order ID"] = order_ids_ruw if len(order_ids_ruw) == len(df) else None
-    _meld_order_ids(order_ids_ruw, len(df))
+    _meld_order_ids(df["Order ID"]) # voor diagnostiek
     return df
 
 
-def _lees_order_ids_ruw(bestand1):
-    """Eerste UUID per werkbladrij via openpyxl: de kop staat verschoven (zie CLAUDE.md: DeGiro-bestanden)."""
-    bestand1.seek(0)
-    ws = openpyxl.load_workbook(bestand1, data_only=True).active
-    order_ids_ruw = []
-    for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-        gevonden = None
-        for cell in row:
-            if cell.value and isinstance(cell.value, str) and len(cell.value) == 36 and cell.value.count("-") == 4:
-                gevonden = cell.value
-                break
-        order_ids_ruw.append(gevonden)
-    return order_ids_ruw
+def _kolom_of_naamloze_buurkolom(df, kolomnaam):
+    """Geeft de kolom zelf, of bij een lege kolom de eerste niet-lege naamloze buurkolom (rechts, dan links)."""
+    positie = df.columns.get_loc(kolomnaam)
+    if df.iloc[:, positie].notna().any(): # kolom zelf heeft waarden
+        return df.iloc[:, positie]
+    for buur in (positie + 1, positie - 1): # check rechts, dan links
+        if 0 <= buur < len(df.columns) and str(df.columns[buur]).startswith("Unnamed") and df.iloc[:, buur].notna().any():
+            return df.iloc[:, buur]
+    return df.iloc[:, positie]
 
 
 def _adjust_transaction_exchange_rates(df):
@@ -145,7 +140,7 @@ def _ticker_resolutie_niet_opslaan_pad(df):
 
 
 def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
-    """Zelfde kolommen als de SELECT's in portfolio_orchestratie.py; samen wijzigen."""
+    """Zelfde kolommen als TRANSACTIE_KOLOMMEN in db.py; samen wijzigen."""
     return pd.DataFrame({
         "datum": df["Datum"],
         "product": df["Product"],
@@ -164,7 +159,7 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
 
 
 def _create_synthetic_order_ids(df):
-    """Vult ontbrekende Order ID's (uit _lees_transacties_excel) aan met synthetische ID's."""
+    """Vult ontbrekende Order ID's aan met synthetische ID's."""
     def basis_hash(row):
         basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
         return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
@@ -179,17 +174,9 @@ def _create_synthetic_order_ids(df):
     return df
 
 
-def _meld_order_ids(order_ids_ruw, aantal_rijen):
-    """Bij een mismatch zijn alle ID's synthetisch, dan wordt een bestaande portfolio niet herkend."""
-    if len(order_ids_ruw) != aantal_rijen:
-        meld(CATEGORIE_ORDER_IDS, LET_OP,
-             f"Aantal Order ID-rijen in het werkblad ({len(order_ids_ruw)}) klopt niet met het aantal "
-             f"ingelezen transacties ({aantal_rijen}); alle transacties kregen een synthetische ID. Een "
-             f"eerder opgeslagen portfolio met echte Order ID's kan daardoor niet herkend worden, waardoor "
-             f"er een nieuwe code aangemaakt kan worden.",
-             sleutel=DIAGNOSTIEK_SLEUTEL_ORDER_IDS)
-        return
-    aantal_echt = sum(1 for order_id in order_ids_ruw if order_id)
+def _meld_order_ids(order_ids):
+    aantal_rijen = len(order_ids)
+    aantal_echt = int(order_ids.notna().sum())
     if aantal_echt == aantal_rijen:
         meld(CATEGORIE_ORDER_IDS, GOED,
              f"Alle {aantal_rijen} transacties hebben een echte Order ID.",
@@ -204,17 +191,17 @@ def _meld_order_ids(order_ids_ruw, aantal_rijen):
 
 def _vind_of_maak_portfolio_code(cur, df, naam):
     """Geeft (code, match_code, rows_to_insert)."""
-    new_order_ids = set(df["Order ID"])
+    new_order_ids = set(df["Order ID"]) 
     match_code, missing_ids = find_matching_code(cur, new_order_ids)
 
     if match_code:
         code = match_code
         if naam:
-            cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
+            db_zet_portfolio_naam(cur, code, naam)
         rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
     else:
         code = generate_code(cur)
-        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam or None))
+        db_maak_portfolio(cur, code, naam or None)
         rows_to_insert = df
 
     if not match_code:
@@ -229,6 +216,7 @@ def _vind_of_maak_portfolio_code(cur, df, naam):
 
 
 def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
+    """Geeft waarschuwingen bij ontbrekende Waarde EUR of corporate-action-rijen."""
     if rows_to_insert.empty:
         return
 
@@ -256,11 +244,7 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
 
     bekende_tickers = {}
     if not herbepaal_alle_tickers:
-        cur.execute(
-            "SELECT isin, beurs, ticker FROM transacties WHERE code = %s AND ticker IS NOT NULL",
-            (code,),
-        )
-        bekende_tickers = {(isin_val, beurs_val): ticker for isin_val, beurs_val, ticker in cur.fetchall()}
+        bekende_tickers = db_get_bekende_tickers(cur, code)
 
     transacties_per_groep = {
         key: [
@@ -301,23 +285,19 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
         try:
             kosten_waarde = pd.to_numeric(row[KOSTEN_KOLOM], errors="coerce")
             waarde_eur_waarde = row[WAARDE_KOLOM]
-            cur.execute(
-                """INSERT INTO transacties
-                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (code, order_id) DO NOTHING""",
-                (code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-                 ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["_koers_eur"]),
-                 float(row["Totaal EUR"]), row["Order ID"], row["Product"],
-                 float(kosten_waarde) if pd.notna(kosten_waarde) else None,
-                 float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
-                 _normaliseer_tijd(row["Tijd"])),
+            nieuw = db_insert_transactie(
+                cur, code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
+                ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["_koers_eur"]),
+                float(row["Totaal EUR"]), row["Order ID"], row["Product"],
+                float(kosten_waarde) if pd.notna(kosten_waarde) else None,
+                float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
+                _normaliseer_tijd(row["Tijd"]),
             )
             ingevoegd += 1
-            if cur.rowcount == 0:
-                genegeerd += 1
-            else:
+            if nieuw:
                 opgeslagen += 1
+            else:
+                genegeerd += 1
         except Exception as e:
             mislukt += 1
             if eerste_fout is None:
@@ -352,7 +332,7 @@ def _verwerk_dividend_bestand_indien_aanwezig(code):
     if bestand2 and bestand2.filename != "":
         with meet_tijd("dividend_bestand_verwerken"):
             dividend_records = verwerk_rekeningoverzicht(bestand2)
-            save_dividenden(code, dividend_records)
+            db_save_dividenden(code, dividend_records)
         _meld_dividend_records(dividend_records)
 
 

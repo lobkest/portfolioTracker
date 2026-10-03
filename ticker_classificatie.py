@@ -5,9 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 import yfinance as yf
 
 from db import (
-    get_cached_classifications, save_classification, get_cached_land_sector, save_land_sector,
-    get_cached_etf_sector_verdeling, save_etf_sector_verdeling, get_cached_etf_holdings, save_etf_holdings,
-    get_ticker_details,
+    db_get_cached_classifications, db_save_classification, db_get_cached_land_sector, db_save_land_sector,
+    db_get_cached_etf_sector_verdeling, db_save_etf_sector_verdeling, db_get_cached_etf_holdings, db_save_etf_holdings,
+    db_get_ticker_details,
 )
 from debug_utils import dprint
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
@@ -54,7 +54,7 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
         is_etf = sum(signals) >= 2
 
     # Scheelt get_land_sector() later een identieke Yahoo-call.
-    save_land_sector(ticker, country, sector)
+    db_save_land_sector(ticker, country, sector)
 
     # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; fund_overview is de fallback.
     if not category and (is_etf or quote_type == "MUTUALFUND"):
@@ -80,7 +80,7 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
 
 def get_land_sector(ticker):
     """(land, sector), met "Unknown" i.p.v. None."""
-    cached = get_cached_land_sector([ticker])
+    cached = db_get_cached_land_sector([ticker])
     if ticker in cached:
         land, sector = cached[ticker]
         dprint(f"[land-sector] '{ticker}': uit cache -> land={land}, sector={sector}")
@@ -92,7 +92,7 @@ def get_land_sector(ticker):
 
     land = info.get("country")
     sector = info.get("sector")
-    save_land_sector(ticker, land, sector)  # None mag hier gecached worden, is niet kritiek
+    db_save_land_sector(ticker, land, sector)  # None mag hier gecached worden, is niet kritiek
     return (land or "Unknown", sector or "Unknown")
 
 
@@ -103,7 +103,7 @@ def _sector_naam(sector_key):
 
 def get_etf_sector_verdeling(ticker):
     """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet)."""
-    cached = get_cached_etf_sector_verdeling(ticker)
+    cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
         dprint(f"[etf-sector] '{ticker}': uit cache -> {len(cached)} sectoren")
         return cached
@@ -118,7 +118,7 @@ def get_etf_sector_verdeling(ticker):
         return {}
 
     sector_dict = {_sector_naam(sector_key): float(gewicht) for sector_key, gewicht in weightings.items()}
-    save_etf_sector_verdeling(ticker, sector_dict)
+    db_save_etf_sector_verdeling(ticker, sector_dict)
     return sector_dict
 
 
@@ -127,7 +127,7 @@ def get_etf_holdings(ticker):
     Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider-URL bekend is."""
     heeft_provider_url = ticker in ETF_HOLDINGS_BRON
 
-    cached = get_cached_etf_holdings(ticker)
+    cached = db_get_cached_etf_holdings(ticker)
     if cached is not None:
         cached_bron = cached[0]["bron"] if cached else "yfinance_top10"
         if cached_bron == "provider_csv" or not heeft_provider_url:
@@ -149,7 +149,7 @@ def get_etf_holdings(ticker):
                 }
                 for h in provider_holdings
             ]
-            save_etf_holdings(ticker, holdings)
+            db_save_etf_holdings(ticker, holdings)
             return holdings
 
     try:
@@ -172,13 +172,13 @@ def get_etf_holdings(ticker):
             "bron": "yfinance_top10",
         })
 
-    save_etf_holdings(ticker, holdings)
+    db_save_etf_holdings(ticker, holdings)
     return holdings
 
 
 def classify_ticker(ticker):
     """True als Yahoo de ticker als ETF ziet. Bij een fout False, zonder te cachen."""
-    cached = get_cached_classifications([ticker])
+    cached = db_get_cached_classifications([ticker])
     if ticker in cached:
         dprint(f"[classify] '{ticker}': uit cache -> ETF={cached[ticker]}")
         return cached[ticker]
@@ -187,14 +187,14 @@ def classify_ticker(ticker):
     if details is None:
         return False
 
-    save_classification(ticker, details["is_etf"], details)
+    db_save_classification(ticker, details["is_etf"], details)
     return details["is_etf"]
 
 
 def classify_tickers(tickers):
     """{ticker: is_etf}, met een pauze tussen Yahoo-calls tegen rate limiting."""
     tickers = list(dict.fromkeys(t for t in tickers if t))  # uniek, volgorde behouden
-    cached = get_cached_classifications(tickers)
+    cached = db_get_cached_classifications(tickers)
     result = dict(cached)
 
     te_doen = [t for t in tickers if t not in cached]
@@ -205,7 +205,7 @@ def classify_tickers(tickers):
         if details is None:
             result[t] = False  # niet cachen, volgende keer opnieuw proberen
         else:
-            save_classification(t, details["is_etf"], details)
+            db_save_classification(t, details["is_etf"], details)
             result[t] = details["is_etf"]
 
     return result
@@ -226,7 +226,7 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
 
 def _ticker_details_met_cache(ticker):
     """Details uit de ticker_info-cache; zijn valuta én quote_type leeg, dan is de rij stale en opnieuw ophalen."""
-    bestaand = get_ticker_details([ticker])
+    bestaand = db_get_ticker_details([ticker])
     details = bestaand.get(ticker)
     if details and (details.get("valuta") or details.get("quote_type")):
         dprint(f"[prijscheck] '{ticker}': ticker_info-cache bruikbaar -> {details}")
@@ -235,5 +235,5 @@ def _ticker_details_met_cache(ticker):
     nieuw = _classify_ticker_uncached(ticker)
     if nieuw is None:
         return details or {}
-    save_classification(ticker, nieuw["is_etf"], nieuw)
+    db_save_classification(ticker, nieuw["is_etf"], nieuw)
     return nieuw

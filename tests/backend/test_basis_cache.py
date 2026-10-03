@@ -6,7 +6,7 @@ _ticker_zekerheid_groepen() elk apart dezelfde transacties op en herhaalden
 compute_split_adjusted_shares()/get_prices() vanaf nul binnen hetzelfde
 portfolio-bezoek.
 
-get_db_connection wordt gemockt en app.py draait init_db() alleen als
+db_connect wordt gemockt en app.py draait db_init() alleen als
 DATABASE_URL is ingesteld, dus geen echte database nodig; ticker=None in de nep-transactierij zorgt dat get_prices()
 nooit wordt aangeroepen (lege tickerlijst), dus ook geen yfinance-calls.
 """
@@ -50,9 +50,7 @@ class TestBasisCache(unittest.TestCase):
         portfolio_orchestratie._basis_cache.pop(TEST_CODE, None)
         self.addCleanup(portfolio_orchestratie._basis_cache.pop, TEST_CODE, None)
 
-        self._get_conn_patcher = patch.object(
-            portfolio_orchestratie, "get_db_connection", side_effect=lambda: _fake_conn()
-        )
+        self._get_conn_patcher = patch("db.db_connect", side_effect=lambda: _fake_conn())
         self.mock_get_conn = self._get_conn_patcher.start()
         self.addCleanup(self._get_conn_patcher.stop)
 

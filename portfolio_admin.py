@@ -3,6 +3,7 @@ import random
 import re
 import string
 
+from db import db_get_order_id_sets, db_portfolio_bestaat_met_cursor
 
 CODE_LENGTH = 3
 
@@ -15,23 +16,14 @@ def generate_code(cur, length=CODE_LENGTH):
     chars = string.ascii_uppercase
     while True:
         code = "".join(random.choices(chars, k=length))
-        cur.execute("SELECT 1 FROM portfolios WHERE code = %s", (code,))
-        if cur.fetchone() is None:
+        if not db_portfolio_bestaat_met_cursor(cur, code):
             return code
-
-
-def get_order_id_sets(cur):
-    cur.execute("SELECT code, order_id FROM transacties WHERE order_id IS NOT NULL")
-    sets = {}
-    for code, order_id in cur.fetchall():
-        sets.setdefault(code, set()).add(order_id)
-    return sets
 
 
 def find_matching_code(cur, new_order_ids):
     """Match als de Order ID's van een portfolio en de upload een deelverzameling van elkaar zijn.
     Geeft (code, ontbrekende_order_ids) of (None, None)."""
-    existing = get_order_id_sets(cur)
+    existing = db_get_order_id_sets(cur)
     for code, ids in existing.items():
         if ids <= new_order_ids:
             return code, new_order_ids - ids

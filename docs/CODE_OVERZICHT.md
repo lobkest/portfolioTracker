@@ -42,14 +42,14 @@ Je kunt ook **"Niet opslaan"** kiezen: dan wordt er niets in de database bewaard
 | Wat | Waar | Toelichting |
 |---|---|---|
 | Ingangspunt | `app.py` | Bevat `app = Flask(__name__)`, direct onder de imports. Dit `app`-object is wat een WSGI-server nodig heeft. |
-| Database initialiseren | `app.py`: `init_db()`, direct onder `app = Flask(__name__)` | Staat **op moduleniveau** (dus bij het *importeren* van `app.py`, niet in `if __name__ == "__main__"`), achter `if os.environ.get("DATABASE_URL")`. Daardoor draait het onder gunicorn, en in een test die `app` importeert alleen als `DATABASE_URL` is ingesteld. |
+| Database initialiseren | `app.py`: `db_init()`, direct onder `app = Flask(__name__)` | Staat **op moduleniveau** (dus bij het *importeren* van `app.py`, niet in `if __name__ == "__main__"`), achter `if os.environ.get("DATABASE_URL")`. Daardoor draait het onder gunicorn, en in een test die `app` importeert alleen als `DATABASE_URL` is ingesteld. |
 | Lokaal draaien | `python app.py` | Onderaan `app.py`: `app.run(debug=True)`. Alleen bedoeld voor lokaal. |
-| Configuratie | `.env` met `DATABASE_URL` | `db.py` roept `load_dotenv()` aan; `get_db_connection()` doet `psycopg2.connect(os.environ["DATABASE_URL"])`. Zonder `DATABASE_URL` slaat `app.py` `init_db()` over; pas de eerste echte databasecall crasht dan met een `KeyError`. |
+| Configuratie | `.env` met `DATABASE_URL` | `db.py` roept `load_dotenv()` aan; `db_connect()` doet `psycopg2.connect(os.environ["DATABASE_URL"])`. Zonder `DATABASE_URL` slaat `app.py` `db_init()` over; pas de eerste echte databasecall crasht dan met een `KeyError`. |
 | Optionele omgevingsvariabele | `OPENFIGI_API_KEY` | Alleen gelezen in `ticker_matching.py`; mag ontbreken. |
 | Productie (Render) | gunicorn | `gunicorn` staat in `requirements.txt`. Het **startcommando staat niet in de repo** (geen `Procfile`, `render.yaml` of dergelijke gevonden) — het is dus waarschijnlijk in het Render-dashboard ingesteld. Voor een Flask-object `app` in `app.py` is `gunicorn app:app` de gebruikelijke vorm, maar dat kan ik hier niet verifiëren: **onzeker**. |
 | Gunicorn-timeout | niet in de repo | Diverse commentaren in de code gaan uit van "de standaard gunicorn-timeout van 30 s", en de frontend breekt zelf af na 55 s (`fetchMetTimeout`) resp. 60 s (upload). Wat er op Render echt is ingesteld: **onzeker**. |
 
-Wat `init_db()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF NOT EXISTS` voor elke tabel (zie [hoofdstuk 4](#4-database)),
+Wat `db_init()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF NOT EXISTS` voor elke tabel (zie [hoofdstuk 4](#4-database)),
 `commit`, sluiten. Het is dus veilig om het bij elke start opnieuw uit te voeren — ook bij elke gunicorn-worker.
 
 ### Hoe de modules elkaar aanroepen
@@ -139,6 +139,7 @@ flowchart LR
     STAT --> UTIL
     VERD --> CLASS
     DIV --> DB
+    ADM --> DB
 
     ZEK --> MATCH
     ZEK --> PCHK
@@ -181,6 +182,7 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `di
 | `statistieken.py` | `transactie_utils` |
 | `portfolio_verdeling.py` | `ticker_classificatie` |
 | `dividend.py` | `db` |
+| `portfolio_admin.py` | `db` |
 | `ticker_zekerheid.py` | `db`, `debug_utils`, `ticker_classificatie`, `ticker_matching`, `ticker_prijscheck`, `transactie_utils` |
 | `ticker_prijscheck.py` | `db`, `debug_utils`, `prijzen`, `ticker_classificatie`, `yahoo_client` |
 | `ticker_matching.py` | `db`, `debug_utils`, `transactie_utils`, `yahoo_client` |
@@ -188,7 +190,8 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `di
 | `prijzen.py` | `db`, `debug_utils`, `diagnostiek`, `yahoo_client` |
 | `etf_holdings_provider.py` | `debug_utils` |
 | `debug_utils.py`, `yahoo_client.py` | `diagnostiek` |
-| `db.py`, `diagnostiek.py`, `portfolio_admin.py`, `transactie_utils.py` | *(geen)* — het zijn de "bladeren" van de boom |
+| `db.py` | `transactie_utils` |
+| `diagnostiek.py`, `transactie_utils.py` | *(geen)* — het zijn de "bladeren" van de boom |
 
 Er zijn geen circulaire imports; dat is precies waarom `transactie_utils.py` en `yahoo_client.py` als losse modules bestaan, die
 zelf hooguit `diagnostiek` importeren: helpers die meerdere domeinmodules nodig hebben, zouden anders een import in een kring opleveren.
@@ -196,7 +199,7 @@ zelf hooguit `diagnostiek` importeren: helpers die meerdere domeinmodules nodig 
 ### De vier "soorten" code, kort
 
 - **Routes** (`app.py`): een request lezen, één orkestratiefunctie aanroepen, JSON teruggeven. (In de praktijk zitten er een paar
-  routes met eigen SQL of logica in — zie [hoofdstuk 3](#3-per-python-module), sectie `app.py`.)
+  routes met eigen validatie of logica in — zie [hoofdstuk 3](#3-per-python-module), sectie `app.py`. SQL staat nergens buiten `db.py`.)
 - **Orkestratie** (`portfolio_orchestratie.py`, `upload_verwerking.py`, en `_upload_impl()` in `app.py`): voegt taakfuncties samen tot een
   compleet antwoord.
 - **Taakfuncties** (de domeinmodules): één berekening, één DB-call of één netwerkcall.
@@ -257,13 +260,13 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 | # | Waar | Wat gebeurt er | Data |
 |---|---|---|---|
 | B1 | `upload_verwerking.py` → `_bepaal_order_ids(bestand1, df)` | Leest het Excel-bestand **nog een keer** met `openpyxl` en zoekt per rij de cel die op een UUID lijkt (36 tekens, 4 streepjes). Reden: in het DeGiro-bestand staat de kop "Order ID" door samengevoegde cellen één kolom verschoven ten opzichte van de waarden, dus pandas vindt ze niet. Rijen zonder Order ID krijgen een **synthetische ID**: `"SYN-"` + eerste 16 tekens van de MD5 over `Datum\|Tijd\|Product\|ISIN\|Aantal\|Totaal EUR`, plus een volgnummer voor identieke rijen. | `df` → `df` + kolom `Order ID` |
-| B2 | `app.py` → `get_db_connection()` | Opent één verbinding + cursor voor de volgende stappen. | |
+| B2 | `app.py` → `db_connect()` | Opent één verbinding + cursor voor de volgende stappen. | |
 | B3 | `upload_verwerking.py` → `_vind_of_maak_portfolio_code(cur, df, naam)` | Roept `find_matching_code()` (in `portfolio_admin.py`) aan: die vergelijkt de set Order ID's van deze upload met de set van **elk** bestaand portfolio. Is een bestaande set een deelverzameling van de nieuwe → dat is een update van hetzelfde portfolio (de ontbrekende ID's zijn de nieuwe rijen). Is de nieuwe set een deelverzameling van de bestaande → niets nieuws. Geen match → `generate_code(cur)` maakt een nieuwe, nog niet gebruikte 3-letter-code en er komt een rij in `portfolios`. Bij een match en een ingevulde `naam` wordt de naam bijgewerkt. | `df` → `(code, match_code, rows_to_insert)` |
 | B4 | `upload_verwerking.py` → `_ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)` | Alleen voor de **nieuwe** rijen. Haalt (tenzij het vinkje aan staat) de al bekende tickers van deze code uit `transacties` op en geeft die door als `bekende_tickers`, zodat de dure yahooquery-zoekopdracht voor bekende posities wordt overgeslagen. Roept `vind_tickers_met_snelle_prijscheck_parallel()` aan (12 threads). | → dict `{(isin, beurs): ticker}` |
 | B5 | `upload_verwerking.py` → `_insert_nieuwe_transacties()` | `INSERT ... ON CONFLICT (code, order_id) DO NOTHING` per rij. **Let op:** een `except Exception: pass` slikt elke fout per rij stilzwijgend in. | rijen → `transacties` |
 | B6 | `app.py` → `conn.commit()` | Maakt de inserts definitief. | |
 | B7 | `ticker_zekerheid.py` → `backfill_verouderde_tickers(code, forceer)` | Alleen bij een **bestaande** code (`match_code`): herbeoordeelt de opgeslagen tickers. Overschrijft alleen als de oude ticker een prijsprobleem heeft en de nieuwe kandidaat niet (of altijd herzoeken bij `forceer=True`, het vinkje). | |
-| B8 | `upload_verwerking.py` → `_verwerk_dividend_bestand_indien_aanwezig(code)` | Is er een `bestand2`: `verwerk_rekeningoverzicht()` (in `dividend.py`) → lijst dividendrecords → `save_dividenden()` (upsert in `dividenden`). | Excel → records → DB |
+| B8 | `upload_verwerking.py` → `_verwerk_dividend_bestand_indien_aanwezig(code)` | Is er een `bestand2`: `verwerk_rekeningoverzicht()` (in `dividend.py`) → lijst dividendrecords → `db_save_dividenden()` (upsert in `dividenden`). | Excel → records → DB |
 | B9 | `portfolio_orchestratie.py` → `_wis_portfolio_basis_cache(code)` | Cache leegmaken ná alle mutaties hierboven, zodat het volgende stuk verse data ziet. | |
 | B10 | `portfolio_orchestratie.py` → `build_portfolio_response(code)` | Haalt de "basis" op (zie 2.5) en roept `analyze_transacties_kern()` aan. Levert de **kern** (zonder verrijking). | code → dict |
 | B11 | `app.py` → `_upload_impl()` | `log_yahoo_call_samenvatting()` en `jsonify(...)`. | dict → JSON |
@@ -282,7 +285,7 @@ en land/sector/holdings-opzoekingen zijn het netwerk-zware deel, dat bij een nie
 | Geen koersdata? | Geeft `{"code", "naam", "chart_data": None}` terug; de frontend toont "Geen koersdata gevonden" | Geeft lege structuren terug |
 
 Wat `analyze_transacties_kern()` intern doet, in volgorde: (1) split-correctie + koersen ophalen — óf overslaan als
-`prijs_data_al_klaar` is meegegeven; (2) `get_laatste_prijs_update()`; (3) `compute_value_over_time()`, `compute_per_ticker()`,
+`prijs_data_al_klaar` is meegegeven; (2) `db_get_laatste_prijs_update()`; (3) `compute_value_over_time()`, `compute_per_ticker()`,
 `compute_per_ticker_koers_en_aankopen()`; (4) ticker- en echte-namen-dicts; (5) `ticker_waarschuwingen_voor_transacties()`;
 (6) `bereken_dividend_samenvatting(code)` (alleen als er een code is) voor "dividend per ticker"; (7) `bereken_statistieken()`; (8) alles
 in één dict gieten. Let op: bij "Niet opslaan" draait `analyze_transacties_verrijking()` daarna nóg een keer split-correctie +
@@ -294,7 +297,7 @@ de al opgehaalde koersen door via `prijs_data_al_klaar`.
 `_haal_portfolio_basis(code)` in `portfolio_orchestratie.py` is de gedeelde eerste stap voor de kern, de verrijking en de
 Ticker-zekerheid-routes:
 
-1. `SELECT` op `portfolios` (bestaat de code?) en op `transacties` (12 kolommen) → lijst tuples;
+1. `db_get_portfolio_naam_en_transacties()` (`SELECT` op `portfolios`: bestaat de code? en op `transacties`: de 12 kolommen van `TRANSACTIE_KOLOMMEN`) → naam + lijst tuples;
 2. → **`transacties_df`** (DataFrame), `transactiekosten` en `waarde_eur` naar `float`;
 3. `compute_split_adjusted_shares(transacties_df)` → voegt kolom `adj_aantal` toe;
 4. `get_prices(tickers, start_date, verversen)` → **`price_data`** (DataFrame: index = datum, kolommen = tickers, waarden = koers in EUR);
@@ -373,7 +376,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | **GAK en kostprijs** | `statistieken.py` | `bereken_holdings_en_gesloten()`; een tweede, parallelle implementatie zit in `compute_per_ticker()` |
 | **Split-correctie** (aantallen in de waardereeks) | `portfolio_calc.py` | `compute_split_adjusted_shares()` |
 | Split-correctie (bij de prijscontrole van tickers) | `ticker_prijscheck.py` | `_haal_splits_op()`, `_cumulatieve_split_factor()` |
-| **Koersen ophalen en cachen** | `prijzen.py` (+ `db.py`, `yahoo_client.py`) | `get_prices()`, `save_prices()`, `upsert_prices()`, `download_met_retry()` |
+| **Koersen ophalen en cachen** | `prijzen.py` (+ `db.py`, `yahoo_client.py`) | `get_prices()`, `db_save_prices()`, `db_upsert_prices()`, `download_met_retry()` |
 | Valuta naar EUR | `prijzen.py` | `_converteer_naar_eur()`, `_fx_prijzen_serie()` |
 | **Ticker zoeken** | `ticker_matching.py` | `find_ticker_detailed()`, `_zoek_product_progressief()`, `BEURS_MAP`, `MANUAL_TICKER_OVERRIDES_ISIN` |
 | **Ticker verifiëren** | `ticker_prijscheck.py`, `ticker_zekerheid.py`, `ticker_matching.py` | `vergelijk_prijs_op_datum()`, `find_ticker_met_snelle_prijscheck()` (licht), `verifieer_ticker_met_prijs()` (volledig), `haal_openfigi_resultaten()` |
@@ -389,7 +392,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 
 ### `app.py` — de Flask-routes
 
-**Verantwoordelijkheid:** het Flask-object aanmaken, `init_db()` draaien, en 19 routes definiëren. 20 functies in totaal (19 routes + `_upload_impl()`).
+**Verantwoordelijkheid:** het Flask-object aanmaken, `db_init()` draaien, en 19 routes definiëren. 20 functies in totaal (19 routes + `_upload_impl()`).
 
 | Route | Methode | Functie | Wat | Aangeroepen door (frontend) |
 |---|---|---|---|---|
@@ -407,16 +410,16 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | `/api/portfolio/<code>/ticker-zekerheid/positie` | GET | `ticker_zekerheid_positie()` | volledige verificatie van 1 positie (`isin`, `beurs`) | `toonInstellingenTicker()` |
 | `/api/ticker-zekerheid-check` | POST | `ticker_zekerheid_check()` | volledige verificatie voor een "niet opslaan"-analyse, op meegestuurde transacties | `controleerTickerZekerheidUitgebreid()` |
 | `/api/portfolio/<code>/dividend` | GET | `dividend()` | `bereken_dividend_samenvatting()`; `{"beschikbaar": False}` als er geen dividenden zijn | `toonDividend()` |
-| `/api/portfolio/<code>/transacties` | GET | `transacties_overzicht()` | `{"lijst": get_transacties_overzicht(code)}` | `toonTransacties()` |
+| `/api/portfolio/<code>/transacties` | GET | `transacties_overzicht()` | `{"lijst": db_get_transacties_overzicht(code)}` | `toonTransacties()` |
 | `/api/portfolio/<code>/bijnaam` | POST | `set_bijnaam()` | `UPDATE transacties SET product = ...` voor alle rijen met die ticker | `slaBijnaamOp()` |
 | `/api/portfolio/<code>/reset-bijnaam` | POST | `reset_bijnaam()` | `product = echte_naam` | `resetBijnaam()` |
-| `/api/portfolio/<code>` | DELETE | `verwijder_portfolio()` | `delete_portfolio()` + cache wissen | handler van `#verwijderPortfolioBtn` |
-| `/api/portfolio/<code>/wijzig-code` | POST | `wijzig_code()` | valideert met `is_geldige_code()`, dan `wijzig_portfolio_code()` | handler van `#wijzigCodeBtn` |
+| `/api/portfolio/<code>` | DELETE | `verwijder_portfolio()` | `db_delete_portfolio()` + cache wissen | handler van `#verwijderPortfolioBtn` |
+| `/api/portfolio/<code>/wijzig-code` | POST | `wijzig_code()` | valideert met `is_geldige_code()`, dan `db_wijzig_portfolio_code()` | handler van `#wijzigCodeBtn` |
 
 **Bijzonderheden en valkuilen**
 
 - `app.py` is **niet helemaal "alleen dunne routes"**: `_upload_impl()` is een lange orkestratiefunctie, en `ticker_koers_bereik()`, `dividend()`,
-  `transacties_overzicht()` doen een eigen SQL-check of berekening. `benchmark_vergelijking()` bevat validatielogica en roept `get_prices()` rechtstreeks aan.
+  `transacties_overzicht()` doen een eigen validatie of berekening (de "bestaat de code?"-check via `db_portfolio_bestaat()`). `benchmark_vergelijking()` bevat validatielogica en roept `get_prices()` rechtstreeks aan.
 - Er is **geen authenticatie of gebruikersbegrip**: wie een code kent, kan alles lezen, wijzigen en met de `DELETE`-route verwijderen.
 - De route-functie `dividend()` heeft dezelfde naam als de module `dividend.py`. Dat werkt omdat `app.py` alleen losse functies uit die module
   importeert, maar het is verwarrend bij zoeken.
@@ -442,7 +445,7 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | `_bepaal_order_ids()` | Order ID's via `openpyxl`, synthetische ID's voor rijen zonder | bestand + DataFrame → DataFrame | `_upload_impl()` |
 | `_vind_of_maak_portfolio_code()` | bestaande code zoeken (`find_matching_code()`) of nieuwe maken (`generate_code()`) | cursor, DataFrame, naam → `(code, match_code, rows_to_insert)` | `_upload_impl()` |
 | `_ticker_resolutie_opslaan_pad()` | tickers voor de nieuwe rijen, met hergebruik van bekende tickers | cursor, code, DataFrame, vlag → dict | `_upload_impl()` |
-| `_insert_nieuwe_transacties()` | `INSERT ... ON CONFLICT (code, order_id) DO NOTHING` per rij | rijen → aantal ingevoegd | `_upload_impl()` |
+| `_insert_nieuwe_transacties()` | roept per rij `db_insert_transactie()` aan (`INSERT ... ON CONFLICT (code, order_id) DO NOTHING`) | rijen → aantal ingevoegd | `_upload_impl()` |
 | `_verwerk_dividend_bestand_indien_aanwezig()` | leest `request.files["bestand2"]`, slaat dividenden op | code → (schrijft naar DB) | `_upload_impl()` |
 
 **Bijzonderheden en valkuilen**
@@ -462,9 +465,9 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
-| `_haal_portfolio_basis()` | SELECT + split-correctie + `get_prices()`, 20 s gecachet in `_basis_cache` | `code` → `(naam, transacties_df, price_data)` of `(None, None, None)` | `portfolio_verrijking()`, `_ticker_zekerheid_groepen()`, `build_portfolio_response()` |
+| `_haal_portfolio_basis()` | `db_get_portfolio_naam_en_transacties()` + split-correctie + `get_prices()`, 20 s gecachet in `_basis_cache` | `code` → `(naam, transacties_df, price_data)` of `(None, None, None)` | `portfolio_verrijking()`, `_ticker_zekerheid_groepen()`, `build_portfolio_response()` |
 | `_wis_portfolio_basis_cache()` | verwijdert de cache-entry van een code | `code` → — | `_upload_impl()`, `api_portfolio()`, `set_bijnaam()`, `reset_bijnaam()`, `verwijder_portfolio()`, `wijzig_code()` |
-| `_laad_split_gecorrigeerde_transacties()` | SELECT + split-correctie, **zonder** koersen en zonder cache | `code` → `transacties_df` of `None` als de code niet bestaat | `_laad_transacties_en_resultaat()`, `ticker_koers_bereik()` |
+| `_laad_split_gecorrigeerde_transacties()` | `db_get_portfolio_naam_en_transacties()` + split-correctie, **zonder** koersen en zonder cache | `code` → `transacties_df` of `None` als de code niet bestaat | `_laad_transacties_en_resultaat()`, `ticker_koers_bereik()` |
 | `_laad_transacties_en_resultaat()` | `_laad_split_gecorrigeerde_transacties()` + `get_prices()` + `compute_value_over_time()` | `code` → `(transacties_df, resultaat)`; `(None, None)` als de code niet bestaat; `(df, None)` zonder koersdata | `benchmark_vergelijking()`, `rendement_over_tijd()` |
 | `_ticker_zekerheid_groepen()` | groepeert transacties per (ISIN, Beurs), zonder corporate-action-rijen | `code` → lijst `((isin, beurs), info)` of `None` | `ticker_zekerheid_lijst()`, `ticker_zekerheid_positie()` |
 | `build_portfolio_response()` | basis ophalen → kern | `code, verversen` → dict of `None` | `_upload_impl()`, `api_portfolio()`, `set_bijnaam()`, `reset_bijnaam()`, `wijzig_code()` |
@@ -474,8 +477,8 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 
 **Bijzonderheden en valkuilen**
 
-- `_laad_split_gecorrigeerde_transacties()` (en dus `_laad_transacties_en_resultaat()`) doet dezelfde SELECT als `_haal_portfolio_basis()` maar gebruikt **de cache niet** (en geeft altijd verse koersen via `get_prices()`
-  met de standaardinstellingen). Wie een kolom aan `transacties` toevoegt moet **beide** SELECT-lijsten aanpassen. Verschil: alleen `_haal_portfolio_basis()` cast `transactiekosten`/`waarde_eur` naar `float`; de andere laat ze als `Decimal`.
+- `_laad_split_gecorrigeerde_transacties()` (en dus `_laad_transacties_en_resultaat()`) haalt dezelfde gegevens op als `_haal_portfolio_basis()` (via dezelfde db-functie) maar gebruikt **de cache niet** (en geeft altijd verse koersen via `get_prices()`
+  met de standaardinstellingen). De kolomlijst staat op één plek: `TRANSACTIE_KOLOMMEN` in `db.py`. Verschil: alleen `_haal_portfolio_basis()` cast `transactiekosten`/`waarde_eur` naar `float`; de andere laat ze als `Decimal`.
 - `import resource` is Unix-only; op Windows is `resource` dan `None` en vervallen de `[memory]`-logregels stilzwijgend.
 - De cache is een gewoon `dict` in het proces: bij twee gunicorn-workers zijn dat twee aparte caches.
 - Bij "niet opslaan" krijgt `analyze_transacties_verrijking()` het **niet-split-gecorrigeerde** `transacties_df` mee (de kern past de correctie alleen lokaal toe),
@@ -484,16 +487,15 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 ### `portfolio_admin.py` — portfolio-code beheren en uploads matchen
 
 **Verantwoordelijkheid:** 3-letter-codes genereren/valideren en bepalen of een nieuwe upload bij een bestaand portfolio hoort (via Order ID-overlap).
-Constante: `CODE_LENGTH = 3`; `app.py` geeft die ook als `code_lengte` mee aan `portfolio.html` (de `maxlength` van het veld "Nieuwe code"). Heeft geen imports van andere projectmodules.
+Constante: `CODE_LENGTH = 3`; `app.py` geeft die ook als `code_lengte` mee aan `portfolio.html` (de `maxlength` van het veld "Nieuwe code"). Importeert alleen uit `db.py` (de SQL zelf staat daar).
 
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
 | `is_geldige_code()` | `re.fullmatch` op exact `CODE_LENGTH` hoofdletters A–Z | tekst → bool | `portfolio_pagina()`, `wijzig_code()` |
-| `generate_code()` | willekeurige code, herhaalt tot hij nog niet in `portfolios` staat | cursor → tekst | `_vind_of_maak_portfolio_code()` |
-| `get_order_id_sets()` | `{code: set(order_id)}` voor **alle** portfolio's | cursor → dict | `find_matching_code()` |
-| `find_matching_code()` | eerste code waarvan de bestaande set ⊆ nieuwe set (dan: nieuwe − bestaande = te inserten), of nieuwe set ⊆ bestaande set (dan: niets nieuws) | cursor, set → `(code, set)` of `(None, None)` | `_vind_of_maak_portfolio_code()` |
+| `generate_code()` | willekeurige code, herhaalt tot `db_portfolio_bestaat_met_cursor()` zegt dat hij nog niet in `portfolios` staat | cursor → tekst | `_vind_of_maak_portfolio_code()` |
+| `find_matching_code()` | eerste code waarvan de bestaande set (uit `db_get_order_id_sets()`) ⊆ nieuwe set (dan: nieuwe − bestaande = te inserten), of nieuwe set ⊆ bestaande set (dan: niets nieuws) | cursor, set → `(code, set)` of `(None, None)` | `_vind_of_maak_portfolio_code()` |
 
-**Valkuilen:** `get_order_id_sets()` leest bij elke upload alle Order ID's van alle portfolio's; de match is het *eerste* portfolio dat aan een van beide
+**Valkuilen:** `db_get_order_id_sets()` (in `db.py`) leest bij elke upload alle Order ID's van alle portfolio's; de match is het *eerste* portfolio dat aan een van beide
 deelverzameling-voorwaarden voldoet.
 
 ---
@@ -561,7 +563,7 @@ Geen FX-melding betekent: bij deze laadbeurt is niets gedownload of ververst (al
 | Opslaan | `_meld_nieuwe_rijen_kwaliteit()` (vanuit `_upload_impl()`) | `LET_OP` N gewone aankopen zonder `Waarde EUR` (GAK valt terug op `Totaal EUR`); `INFO` N corporate-action-rijen zonder ticker. Losse lege kostencellen bewust niet (kan echt €0 zijn). |
 | Opslaan | `_insert_nieuwe_transacties()` → `_meld_insert_resultaat()` | `GOED` N opgeslagen (`cur.rowcount`), `INFO` K genegeerd (ON CONFLICT), `FOUT` J mislukt met alleen het fouttype + `[upload] WARN`-print. Bij een `psycopg2.Error` alleen de `FOUT` ("kan de hele upload hebben teruggedraaid"): na een DB-fout faalt de rest van de transactie. Het insert-gedrag zelf is ongewijzigd. |
 | Dividend | `_verwerk_dividend_bestand_indien_aanwezig()` → `_meld_dividend_records()` | `GOED`/`INFO` samenvatting (EUR, gekoppeld, herinvesteerd, zonder conversie); `LET_OP` per uitkering zonder valutaconversie, max. `MAX_LOSSE_DIVIDEND_MELDINGEN` (5), daarboven één "Nog K ..."-melding. |
-| Dividend | `_verwerk_dividend_bestand_zonder_opslaan()` | Bij "niet opslaan": zelfde `_meld_dividend_records()`-meldingen, zonder `save_dividenden`. |
+| Dividend | `_verwerk_dividend_bestand_zonder_opslaan()` | Bij "niet opslaan": zelfde `_meld_dividend_records()`-meldingen, zonder `db_save_dividenden`. |
 
 **Laad-categorieën:**
 
@@ -672,7 +674,7 @@ opgeslagen dividenden samenvatten voor de UI.
 | `_clusters_binnen_venster()` | groepeert op datum gesorteerde items zolang twee opeenvolgende ≤ `max_dagen` uit elkaar liggen | items, dagen → lijst clusters | `verwerk_rekeningoverzicht_df()` |
 | `verwerk_rekeningoverzicht_df()` | het eigenlijke rekenwerk: netten per (Datum, ISIN), omrekenen naar EUR, gepoolde conversies, `herinvesteerd`-vlag | DataFrame → lijst records | `verwerk_rekeningoverzicht()` |
 | `verwerk_rekeningoverzicht()` | Excel inlezen + kolommen hernoemen, dan `verwerk_rekeningoverzicht_df()` | bestandsobject → lijst records | `_verwerk_dividend_bestand_indien_aanwezig()` |
-| `bereken_dividend_samenvatting()` | leest `dividenden` (via `get_dividenden()`), koppelt ISIN → ticker/bijnaam via `transacties`, bouwt `totaal_netto`, `per_ticker`, `cumulatief`, `lijst` | `code` → dict of `None` | `dividend()` (route), `analyze_transacties_kern()` |
+| `bereken_dividend_samenvatting()` | leest `dividenden` (via `db_get_dividenden()`), koppelt ISIN → ticker/bijnaam via `transacties`, bouwt `totaal_netto`, `per_ticker`, `cumulatief`, `lijst` | `code` → dict of `None` | `dividend()` (route), `analyze_transacties_kern()` |
 
 Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
 
@@ -682,7 +684,7 @@ Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
   `"Mutatie"` → `valuta_mutatie`, `"Unnamed: 8"` → `mutatie`, `"Saldo"` → `valuta_saldo`, `"Unnamed: 10"` → `saldo`. Verschuift het DeGiro-formaat, dan breekt dit.
 - Koppelen aan de conversie gaat op **tijdstip van de conversie-rijen onderling** plus valuta+bedrag — **nooit** op de Valutadatum van de dividendrij (die loopt vaak een dag vóór).
 - "Dividend Herinvestering"-rijen worden **meegenomen** in het netten (anders klopt het netto-bedrag niet) en zetten de vlag `herinvesteerd`. Die vlag
-  komt als echte bool in `lijst[].herinvesteerd` (`get_dividenden()` cast naar `bool`); de frontend toont er een groen label "herinvesteerd" mee in de
+  komt als echte bool in `lijst[].herinvesteerd` (`db_get_dividenden()` cast naar `bool`); de frontend toont er een groen label "herinvesteerd" mee in de
   uitkeringenlijst (zie hoofdstuk 5). Getest in `tests/test_dividend.py` (`TestDividendSamenvattingHerinvesteerd`).
 - Lukt de koppeling niet, dan blijven `bruto_eur`/`belasting_eur`/`netto_eur` expliciet `None`: nooit een gok. Zulke rijen blijven wel in `lijst` staan, maar tellen niet mee in `totaal_netto`.
 - `dividend_id` = `"DIV-"` + eerste 16 tekens MD5 over `datum|isin|bruto_ruw|belasting_ruw` (de ruwe bedragen, dus stabiel bij latere verbeteringen aan de EUR-omrekening).
@@ -741,13 +743,13 @@ Niet in de tabel: de Diagnostiek-helpers `_noteer_koers_bron()`, `_meld_koersen(
 
 1. Eén query naar `prijzen` voor de vroegste én laatste gecachte datum per ticker, één voor de `bijgewerkt_op` van "vandaag", één voor alle rijen vanaf `start_date`.
 2. Per ticker: niet in cache, **of** cache begint > 5 dagen ná `start_date` → **missing** (volledig downloaden). Anders: tenzij de rij van vandaag < 2 minuten geleden is ververst → **stale**.
-3. `missing`: één bulk-`download_met_retry()`, `ffill`, `_converteer_naar_eur()`, dan `save_prices()` (`ON CONFLICT DO NOTHING`).
-4. `stale` (en `verversen=True`): per ticker een download vanaf de laatste gecachte datum, omrekenen, dan `upsert_prices()` (`DO UPDATE`, ook `bijgewerkt_op`).
+3. `missing`: één bulk-`download_met_retry()`, `ffill`, `_converteer_naar_eur()`, dan `db_save_prices()` (`ON CONFLICT DO NOTHING`).
+4. `stale` (en `verversen=True`): per ticker een download vanaf de laatste gecachte datum, omrekenen, dan `db_upsert_prices()` (`DO UPDATE`, ook `bijgewerkt_op`).
 5. Alles samenvoegen, `pivot()` en `ffill()`.
 
 **Valkuilen**
 
-- `yf.download(..., auto_adjust=True)`: de koersen zijn gecorrigeerd voor splits én dividend, en historische rijen worden bij `save_prices()` nooit overschreven. Of dat na een latere dividenduitkering
+- `yf.download(..., auto_adjust=True)`: de koersen zijn gecorrigeerd voor splits én dividend, en historische rijen worden bij `db_save_prices()` nooit overschreven. Of dat na een latere dividenduitkering
   merkbaar inconsistent wordt, kon ik niet uit de code afleiden: **onzeker**.
 - `_converteer_naar_eur()` doet per te downloaden ticker een `yf.Ticker(t).info.get("currency")`-call (via `_haal_valuta_op()`), zonder retry en zonder cache; bij een fout of een ontbrekende valuta wordt EUR aangenomen. Alleen USD/GBP/GBp
   worden omgerekend — een ticker in een andere valuta wordt als EUR behandeld. In al die gevallen verschijnt een `[koersen] WARN`-regel in de terminal (altijd, ook met `DEBUG = False`), zodat een mogelijk verkeerde koers terug te vinden is.
@@ -865,7 +867,7 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 - Is `quoteType` leeg, dan beslist een heuristiek (≥ 2 van 5 signalen → ETF).
 - `_classify_ticker_uncached()` schrijft als bijproduct ook `ticker_land_sector` weg, zodat `get_land_sector()` daarna geen tweede identieke call hoeft te doen.
 - `get_etf_holdings()`: een verse `yfinance_top10`-cache telt niet als "goed genoeg" zodra er inmiddels een provider-URL bekend is (`ETF_HOLDINGS_BRON`); dan wordt geprobeerd te upgraden naar `provider_csv`.
-- `get_cached_classifications()` (in `db.py`) heeft **geen** leeftijdscheck: `ticker_info` verloopt nooit. Alleen `_ticker_details_met_cache()` herhaalt bij stale rijen.
+- `db_get_cached_classifications()` (in `db.py`) heeft **geen** leeftijdscheck: `ticker_info` verloopt nooit. Alleen `_ticker_details_met_cache()` herhaalt bij stale rijen.
 - Bij een mislukte call wordt `False` (= "aandeel") teruggegeven maar **niet** gecachet; die keer telt de positie dus als aandeel.
 
 ---
@@ -951,34 +953,38 @@ Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMAT
 
 ### `db.py` — database-connectie, schema, opslag en cache-helpers
 
-**Verantwoordelijkheid:** het meeste wat `psycopg2` aanraakt. Losse SQL-queries staan ook in `app.py`, `portfolio_orchestratie.py`, `dividend.py`, `ticker_zekerheid.py` en `prijzen.py`
-(die openen zelf een verbinding via `get_db_connection()`), en in `upload_verwerking.py` en `portfolio_admin.py` (die gebruiken een doorgegeven cursor).
+**Verantwoordelijkheid:** alle SQL van de app; buiten `db.py` staat geen `cur.execute`. Elke functie begint met `db_`, zodat je op de aanroepplek ziet dat de database wordt geraakt.
+Functies met een `cur`-parameter draaien binnen de transactie van de aanroeper (`_upload_impl()` in `app.py`, `backfill_verouderde_tickers()`, `generate_code()`), die zelf commit;
+alle andere functies openen en sluiten zelf een verbinding via `db_connect()`.
 Hoofdstuk 4 beschrijft de tabellen; hier alleen de functies.
 
 | Groep | Functies | Aangeroepen door |
 |---|---|---|
-| Verbinding en schema | `get_db_connection()`, `init_db()` | overal; `init_db()` alleen op moduleniveau in `app.py` |
-| Classificatie (`ticker_info`) | `get_cached_classifications()`, `save_classification()`, `get_ticker_details()` | `classify_ticker()`, `classify_tickers()`, `_ticker_details_met_cache()` |
-| Land/sector (`ticker_land_sector`) | `get_cached_land_sector()`, `save_land_sector()` | `get_land_sector()`, `_classify_ticker_uncached()` |
-| ETF-caches | `get_cached_etf_sector_verdeling()`, `save_etf_sector_verdeling()`, `get_cached_etf_holdings()`, `save_etf_holdings()` | `get_etf_sector_verdeling()`, `get_etf_holdings()` |
-| Prijscheck/splits/OpenFIGI | `get_cached_prijscheck()`, `save_prijscheck()`, `get_cached_splits()`, `save_splits()`, `get_cached_openfigi()`, `save_openfigi()` | `vergelijk_prijs_op_datum()`, `_haal_splits_op()`, `haal_openfigi_resultaten()` |
-| Koersen (`prijzen`) | `save_prices()`, `upsert_prices()`, `get_laatste_prijs_update()` | `get_prices()`, `analyze_transacties_kern()` |
-| Portfolio beheren | `delete_portfolio()`, `wijzig_portfolio_code()` | `verwijder_portfolio()`, `wijzig_code()` |
-| Dividend | `save_dividenden()`, `get_dividenden()` | `_verwerk_dividend_bestand_indien_aanwezig()`, `bereken_dividend_samenvatting()` |
-| Transactieoverzicht | `get_transacties_overzicht()` | `transacties_overzicht()` |
+| Verbinding en schema | `db_connect()`, `db_init()` | overal; `db_init()` alleen op moduleniveau in `app.py` |
+| Classificatie (`ticker_info`) | `db_get_cached_classifications()`, `db_save_classification()`, `db_get_ticker_details()` | `classify_ticker()`, `classify_tickers()`, `_ticker_details_met_cache()` |
+| Land/sector (`ticker_land_sector`) | `db_get_cached_land_sector()`, `db_save_land_sector()` | `get_land_sector()`, `_classify_ticker_uncached()` |
+| ETF-caches | `db_get_cached_etf_sector_verdeling()`, `db_save_etf_sector_verdeling()`, `db_get_cached_etf_holdings()`, `db_save_etf_holdings()` | `get_etf_sector_verdeling()`, `get_etf_holdings()` |
+| Prijscheck/splits/OpenFIGI | `db_get_cached_prijscheck()`, `db_save_prijscheck()`, `db_get_cached_splits()`, `db_save_splits()`, `db_get_cached_openfigi()`, `db_save_openfigi()` | `vergelijk_prijs_op_datum()`, `_haal_splits_op()`, `haal_openfigi_resultaten()` |
+| Koersen (`prijzen`) | `db_get_gecachte_prijzen()`, `db_save_prices()`, `db_upsert_prices()`, `db_get_laatste_prijs_update()` | `get_prices()`, `analyze_transacties_kern()` |
+| Portfolio beheren | `db_delete_portfolio()`, `db_wijzig_portfolio_code()`, `db_portfolio_bestaat()`, `db_portfolio_bestaat_met_cursor()` (cur), `db_maak_portfolio()` (cur), `db_zet_portfolio_naam()` (cur), `db_get_order_id_sets()` (cur) | `verwijder_portfolio()`, `wijzig_code()`, `dividend()`, `transacties_overzicht()`, `generate_code()`, `find_matching_code()`, `_vind_of_maak_portfolio_code()` |
+| Transacties lezen | `TRANSACTIE_KOLOMMEN` (constante) en `db_get_portfolio_naam_en_transacties()`, `db_get_transacties_overzicht()`, `db_get_isin_ticker_product()`, `db_get_bekende_tickers()` (cur), `db_get_transacties_voor_tickercheck()` (cur) | `_haal_portfolio_basis()`, `_laad_split_gecorrigeerde_transacties()`, `transacties_overzicht()`, `bereken_dividend_samenvatting()`, `_ticker_resolutie_opslaan_pad()`, `backfill_verouderde_tickers()` |
+| Transacties schrijven | `db_insert_transactie()` (cur), `db_wijzig_ticker()` (cur), `db_wijzig_bijnaam()`, `db_herstel_echte_naam()` | `_insert_nieuwe_transacties()`, `backfill_verouderde_tickers()`, `set_bijnaam()`, `reset_bijnaam()` |
+| Dividend | `db_save_dividenden()`, `db_get_dividenden()` | `_verwerk_dividend_bestand_indien_aanwezig()`, `bereken_dividend_samenvatting()` |
+
+Functies met `(cur)` krijgen een cursor van de aanroeper.
 
 **Bijzonderheden en valkuilen**
 
-- **Elke functie opent en sluit zijn eigen verbinding** (geen connection pool). Dat is eenvoudig, maar betekent veel round-trips naar Neon.
+- **Elke functie zonder `cur`-parameter opent en sluit zijn eigen verbinding** (geen connection pool). Dat is eenvoudig, maar betekent veel round-trips naar Neon.
 - `CACHE_GELDIGHEID = "30 days"` geldt voor `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings` en `ticker_splits`.
-- `save_dividenden()` en `save_prijscheck()` zijn **upserts** (`DO UPDATE`), `save_prices()` is `DO NOTHING` en `upsert_prices()` is `DO UPDATE`: kies bewust welke je nodig hebt.
-- `wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij, verhuist dan transacties/dividenden en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
+- `db_save_dividenden()` en `db_save_prijscheck()` zijn **upserts** (`DO UPDATE`), `db_save_prices()` is `DO NOTHING` en `db_upsert_prices()` is `DO UPDATE`: kies bewust welke je nodig hebt.
+- `db_wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij, verhuist dan transacties/dividenden en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
 
 ## 4. Database
 
-Alle tabellen worden aangemaakt in `init_db()` (`db.py`), PostgreSQL bij Neon. Er zijn **11 tabellen**: 3 met persoonlijke data (`portfolios`, `transacties`, `dividenden`) en 8 die
+Alle tabellen worden aangemaakt in `db_init()` (`db.py`), PostgreSQL bij Neon. Er zijn **11 tabellen**: 3 met persoonlijke data (`portfolios`, `transacties`, `dividenden`) en 8 die
 "anonieme marktdata/cache" zijn (`prijzen`, `ticker_info`, `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings`, `ticker_prijscheck`, `ticker_splits`, `openfigi_cache`).
-`delete_portfolio()` verwijdert alleen de eerste groep; de caches blijven staan.
+`db_delete_portfolio()` verwijdert alleen de eerste groep; de caches blijven staan.
 
 ### 4.1 Persoonlijke data
 
@@ -989,8 +995,8 @@ Alle tabellen worden aangemaakt in `init_db()` (`db.py`), PostgreSQL bij Neon. E
 | `naam` | TEXT | optionele naam |
 | `aangemaakt_op` | TIMESTAMP, default nu | |
 
-Schrijven: `_vind_of_maak_portfolio_code()` (INSERT en naam-UPDATE), `wijzig_portfolio_code()`, `delete_portfolio()`.
-Lezen: `generate_code()` (bestaat de code al?), `_haal_portfolio_basis()`, `_laad_split_gecorrigeerde_transacties()` (voor `ticker_koers_bereik()`, `benchmark_vergelijking()`, `rendement_over_tijd()`), de routes `dividend()`, `transacties_overzicht()`, `wijzig_portfolio_code()`.
+Schrijven: `_vind_of_maak_portfolio_code()` (via `db_maak_portfolio()` en `db_zet_portfolio_naam()`), `db_wijzig_portfolio_code()`, `db_delete_portfolio()`.
+Lezen: `generate_code()` (bestaat de code al? via `db_portfolio_bestaat_met_cursor()`), `_haal_portfolio_basis()`, `_laad_split_gecorrigeerde_transacties()` (voor `ticker_koers_bereik()`, `benchmark_vergelijking()`, `rendement_over_tijd()`; beide via `db_get_portfolio_naam_en_transacties()`), de routes `dividend()` en `transacties_overzicht()` (via `db_portfolio_bestaat()`), `db_wijzig_portfolio_code()`.
 
 #### `transacties`
 | Kolom | Type | Betekenis |
@@ -1012,10 +1018,10 @@ Lezen: `generate_code()` (bestaat de code al?), `_haal_portfolio_basis()`, `_laa
 | `order_id` | TEXT | echte UUID of synthetische `SYN-...` |
 | | `UNIQUE (code, order_id)` | voorkomt dubbele rijen bij herhaalde upload |
 
-Schrijven: `_insert_nieuwe_transacties()` (INSERT); `backfill_verouderde_tickers()`
-(UPDATE `ticker`); `set_bijnaam()`/`reset_bijnaam()` (UPDATE `product`); `wijzig_portfolio_code()` (UPDATE `code`); `delete_portfolio()`.
-Lezen: `_haal_portfolio_basis()`, `_laad_split_gecorrigeerde_transacties()`, `get_order_id_sets()`, `_ticker_resolutie_opslaan_pad()`, `backfill_verouderde_tickers()`,
-`bereken_dividend_samenvatting()`, `get_transacties_overzicht()`.
+Schrijven: `_insert_nieuwe_transacties()` (INSERT via `db_insert_transactie()`); `backfill_verouderde_tickers()`
+(UPDATE `ticker` via `db_wijzig_ticker()`); `set_bijnaam()`/`reset_bijnaam()` (UPDATE `product` via `db_wijzig_bijnaam()`/`db_herstel_echte_naam()`); `db_wijzig_portfolio_code()` (UPDATE `code`); `db_delete_portfolio()`.
+Lezen: `_haal_portfolio_basis()`, `_laad_split_gecorrigeerde_transacties()` (beide via `db_get_portfolio_naam_en_transacties()`), `db_get_order_id_sets()`, `_ticker_resolutie_opslaan_pad()` (via `db_get_bekende_tickers()`), `backfill_verouderde_tickers()` (via `db_get_transacties_voor_tickercheck()`),
+`bereken_dividend_samenvatting()` (via `db_get_isin_ticker_product()`), `db_get_transacties_overzicht()`.
 
 #### `dividenden`
 | Kolom | Type | Betekenis |
@@ -1028,20 +1034,20 @@ Lezen: `_haal_portfolio_basis()`, `_laad_split_gecorrigeerde_transacties()`, `ge
 | `herinvesteerd` | BOOLEAN, default FALSE | er was ook een "Dividend Herinvestering"-rij |
 | | `UNIQUE (code, dividend_id)` | |
 
-Schrijven: `save_dividenden()` (**upsert**), `wijzig_portfolio_code()`, `delete_portfolio()`. Lezen: `get_dividenden()` (via `bereken_dividend_samenvatting()`).
+Schrijven: `db_save_dividenden()` (**upsert**), `db_wijzig_portfolio_code()`, `db_delete_portfolio()`. Lezen: `db_get_dividenden()` (via `bereken_dividend_samenvatting()`).
 
 ### 4.2 Marktdata en caches
 
 | Tabel | Kolommen (behalve de sleutel) | Betekenis | Schrijft | Leest |
 |---|---|---|---|---|
-| `prijzen` — PK `(ticker, datum)` | `koers_eur`, `bijgewerkt_op` | dagkoersen in EUR; ook FX-paren (bv. `USDEUR=X`) omdat yfinance die als ticker behandelt | `save_prices()`, `upsert_prices()` (beide vanuit `get_prices()`) | `get_prices()` (directe SQL), `get_laatste_prijs_update()` |
-| `ticker_info` — PK `ticker` | `is_etf`, `land`, `sector`, `quote_type`, `valuta`, `yahoo_beurs`, `fund_family`, `category`, `bijgewerkt_op` | ETF/aandeel-classificatie + Yahoo-metadata | `save_classification()` | `get_cached_classifications()`, `get_ticker_details()` |
-| `ticker_land_sector` — PK `ticker` | `land`, `sector`, `bijgewerkt_op` | land/sector van een los aandeel of holding-ticker | `save_land_sector()` | `get_cached_land_sector()` |
-| `etf_sector_verdeling` — PK `(etf_ticker, sector)` | `gewicht`, `bijgewerkt_op` | sectorverdeling per ETF, gewicht als fractie 0–1 | `save_etf_sector_verdeling()` (delete + bulk insert) | `get_cached_etf_sector_verdeling()` |
-| `etf_holdings` — PK `(etf_ticker, holding_naam)` | `holding_ticker`, `gewicht`, `land`, `bron`, `bijgewerkt_op` | holdings per ETF; `bron` is `'provider_csv'` of `'yfinance_top10'` | `save_etf_holdings()` (delete + bulk insert) | `get_cached_etf_holdings()` |
-| `ticker_prijscheck` — PK `(ticker, datum)` | `yahoo_slotkoers`, `valuta`, `high`, `low`, `opgehaald_op` | historische Yahoo-slotkoers + dagrange voor de prijsvergelijking | `save_prijscheck()` (upsert) | `get_cached_prijscheck()` |
-| `ticker_splits` — PK `ticker` | `splits` (JSONB), `bijgewerkt_op` | `{iso_datum: ratio}` | `save_splits()` | `get_cached_splits()` |
-| `openfigi_cache` — PK `isin` | `resultaten` (JSONB), `opgehaald_op` | OpenFIGI-antwoord per ISIN | `save_openfigi()` | `get_cached_openfigi()` |
+| `prijzen` — PK `(ticker, datum)` | `koers_eur`, `bijgewerkt_op` | dagkoersen in EUR; ook FX-paren (bv. `USDEUR=X`) omdat yfinance die als ticker behandelt | `db_save_prices()`, `db_upsert_prices()` (beide vanuit `get_prices()`) | `db_get_gecachte_prijzen()` (vanuit `get_prices()`), `db_get_laatste_prijs_update()` |
+| `ticker_info` — PK `ticker` | `is_etf`, `land`, `sector`, `quote_type`, `valuta`, `yahoo_beurs`, `fund_family`, `category`, `bijgewerkt_op` | ETF/aandeel-classificatie + Yahoo-metadata | `db_save_classification()` | `db_get_cached_classifications()`, `db_get_ticker_details()` |
+| `ticker_land_sector` — PK `ticker` | `land`, `sector`, `bijgewerkt_op` | land/sector van een los aandeel of holding-ticker | `db_save_land_sector()` | `db_get_cached_land_sector()` |
+| `etf_sector_verdeling` — PK `(etf_ticker, sector)` | `gewicht`, `bijgewerkt_op` | sectorverdeling per ETF, gewicht als fractie 0–1 | `db_save_etf_sector_verdeling()` (delete + bulk insert) | `db_get_cached_etf_sector_verdeling()` |
+| `etf_holdings` — PK `(etf_ticker, holding_naam)` | `holding_ticker`, `gewicht`, `land`, `bron`, `bijgewerkt_op` | holdings per ETF; `bron` is `'provider_csv'` of `'yfinance_top10'` | `db_save_etf_holdings()` (delete + bulk insert) | `db_get_cached_etf_holdings()` |
+| `ticker_prijscheck` — PK `(ticker, datum)` | `yahoo_slotkoers`, `valuta`, `high`, `low`, `opgehaald_op` | historische Yahoo-slotkoers + dagrange voor de prijsvergelijking | `db_save_prijscheck()` (upsert) | `db_get_cached_prijscheck()` |
+| `ticker_splits` — PK `ticker` | `splits` (JSONB), `bijgewerkt_op` | `{iso_datum: ratio}` | `db_save_splits()` | `db_get_cached_splits()` |
+| `openfigi_cache` — PK `isin` | `resultaten` (JSONB), `opgehaald_op` | OpenFIGI-antwoord per ISIN | `db_save_openfigi()` | `db_get_cached_openfigi()` |
 
 De functies die deze helpers aanroepen: zie de tabel "db.py" in hoofdstuk 3 (bv. `classify_ticker()`, `get_land_sector()`, `get_etf_holdings()`, `vergelijk_prijs_op_datum()`, `_haal_splits_op()`, `haal_openfigi_resultaten()`).
 
@@ -1050,7 +1056,7 @@ De functies die deze helpers aanroepen: zie de tabel "db.py" in hoofdstuk 3 (bv.
 | Cache | Vervalt na | Mislukte lookup | Bijzonderheid |
 |---|---|---|---|
 | `prijzen` | nooit als geheel; wel **incrementeel verversen** vanaf de laatste gecachte datum bij elke portfolio-opening, tenzij < 2 minuten geleden | niets opslaan (`download_met_retry()` geeft een lege `Series`) | een cache die te laat begint (> 5 dagen na `start_date`) telt als "missing" en wordt volledig opnieuw gedownload |
-| `ticker_info` | **nooit** (`get_cached_classifications()` filtert niet op leeftijd) | niet cachen; die keer telt de ticker als "aandeel" | `_ticker_details_met_cache()` haalt een rij opnieuw op als `valuta` en `quote_type` beide NULL zijn |
+| `ticker_info` | **nooit** (`db_get_cached_classifications()` filtert niet op leeftijd) | niet cachen; die keer telt de ticker als "aandeel" | `_ticker_details_met_cache()` haalt een rij opnieuw op als `valuta` en `quote_type` beide NULL zijn |
 | `ticker_land_sector` | 30 dagen | niet cachen | `land = NULL` (Yahoo heeft het niet) wordt wél gecachet |
 | `etf_sector_verdeling` | 30 dagen | lege uitkomst niet cachen | |
 | `etf_holdings` | 30 dagen | lege uitkomst niet cachen | een verse `yfinance_top10`-cache wordt overruled zodra er een provider-URL bekend is |
@@ -1066,7 +1072,7 @@ Naast de database bestaan er drie **in-process** caches: `_basis_cache` (20 s, `
 
 1. **Ticker-backfill**: `backfill_verouderde_tickers()` (bij upload naar een bestaande code of bij "ophalen met code" met het vinkje) herbeoordeelt de opgeslagen tickers; zie hoofdstuk 3.
 2. **"Self-healing" bij lezen** (geen apart commando): `_ticker_details_met_cache()` (stale `ticker_info`), `vergelijk_prijs_op_datum()` (mist high/low → aanvullen), `get_etf_holdings()` (upgrade van
-   `yfinance_top10` naar `provider_csv`), `get_prices()` (cache begint te laat → opnieuw downloaden) en `save_dividenden()` als upsert (een herberekening overschrijft een oude `NULL`-rij; met `DO NOTHING` bleef een foute rij voor altijd staan).
+   `yfinance_top10` naar `provider_csv`), `get_prices()` (cache begint te laat → opnieuw downloaden) en `db_save_dividenden()` als upsert (een herberekening overschrijft een oude `NULL`-rij; met `DO NOTHING` bleef een foute rij voor altijd staan).
 
 **Geen data-backfill voor `transacties`:** een upload naar een bestaande code voegt alleen nieuwe Order ID's in (`ON CONFLICT (code, order_id) DO NOTHING`).
 Staat `transactiekosten`, `waarde_eur` of `tijd` in een al opgeslagen rij op `NULL`, dan wordt die bij een latere upload **niet** meer aangevuld.
@@ -1246,7 +1252,7 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.2 Welk testbestand hoort bij welke module
 
-Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonder bereikbare lokale database (localhost/127.0.0.1), omdat het de echte database aanraakt (direct, of via een functie die niet gemockt is). Alleen `app.py` importeren is geen reden om over te slaan: `init_db()` draait alleen met `DATABASE_URL`.
+Tussen haakjes het aantal tests. **[DB]** = het bestand wordt overgeslagen zonder bereikbare lokale database (localhost/127.0.0.1), omdat het de echte database aanraakt (direct, of via een functie die niet gemockt is). Alleen `app.py` importeren is geen reden om over te slaan: `db_init()` draait alleen met `DATABASE_URL`.
 
 | Module | Testbestanden |
 |---|---|
@@ -1297,7 +1303,7 @@ Ze schrijven met eigen test-codes (zoals `TESTDIV`, nooit 3 hoofdletters) en rui
 ### 7.4 CI (GitHub Actions)
 
 `.github/workflows/tests.yml` draait bij **elke push** (en via de knop "Run workflow") twee jobs, allebei alleen op Ubuntu: `test-js` (Node 20, `node --test ...`) en `test-db` (Python 3.13, met database).
-De job `test` (Python op Windows en macOS, zonder database) is **tijdelijk uitgeschakeld**: hij staat uitgecommentarieerd in het bestand. `test-db` start een wegwerp-Postgres-container (`postgres:18`), zet `DATABASE_URL` naar die container, maakt het schema aan met een losse stap (`python -c "from db import init_db; init_db()"`) en draait dan de hele Python-suite, **[DB]**-tests inbegrepen. Er gaat geen secret en geen Neon-verbinding mee. De lijst JS-bestanden in het workflowbestand is handmatig; een nieuw `test_*.js` moet je daar zelf aan toevoegen.
+De job `test` (Python op Windows en macOS, zonder database) is **tijdelijk uitgeschakeld**: hij staat uitgecommentarieerd in het bestand. `test-db` start een wegwerp-Postgres-container (`postgres:18`), zet `DATABASE_URL` naar die container, maakt het schema aan met een losse stap (`python -c "from db import db_init; db_init()"`) en draait dan de hele Python-suite, **[DB]**-tests inbegrepen. Er gaat geen secret en geen Neon-verbinding mee. De lijst JS-bestanden in het workflowbestand is handmatig; een nieuw `test_*.js` moet je daar zelf aan toevoegen.
 
 ## 8. Waar moet ik zijn als ik ... wil aanpassen?
 
@@ -1334,13 +1340,13 @@ Uitgangspunt: een tabblad is een knop in het menu + een blok in de HTML + een be
 
 Voorbeeld uit de code: `waarde_eur`. Hetzelfde pad volgden `transactiekosten` en `tijd`.
 
-1. **`db.py`, `init_db()`:** voeg de kolom toe (achteraan de kolomlijst) in `CREATE TABLE transacties`. Let op: `CREATE TABLE IF NOT EXISTS` raakt een al bestaande tabel niet aan — voeg de kolom in de bestaande Neon-database dus eenmalig met de hand toe (bv. `ALTER TABLE transacties ADD COLUMN <kolom> <type>;` in Neon's SQL-editor).
+1. **`db.py`, `db_init()`:** voeg de kolom toe (achteraan de kolomlijst) in `CREATE TABLE transacties`. Let op: `CREATE TABLE IF NOT EXISTS` raakt een al bestaande tabel niet aan — voeg de kolom in de bestaande Neon-database dus eenmalig met de hand toe (bv. `ALTER TABLE transacties ADD COLUMN <kolom> <type>;` in Neon's SQL-editor).
 2. **`upload_verwerking.py`:**
    - lees de Excel-kolom in `_normaliseer_transactie_kolommen()` (de kolom ook in `VERWACHTE_KOLOMMEN` zetten, anders ontbreekt hij mogelijk in de controle) en gebruik een constante zoals `WAARDE_KOLOM`;
-   - neem hem op in de `INSERT` van `_insert_nieuwe_transacties()` (kolomlijst **en** `VALUES`-plaatsaanduiding **en** parameters);
+   - geef hem door aan `db_insert_transactie()` in `_insert_nieuwe_transacties()` (nieuwe parameter in de aanroep);
    - neem hem op in `_bouw_transacties_df_niet_opslaan()` zodat "niet opslaan" dezelfde kolommen heeft.
-3. **`portfolio_orchestratie.py`:** voeg de kolom toe aan de `SELECT` **en** aan de `columns=[...]` in **zowel** `_haal_portfolio_basis()` **als** `_laad_split_gecorrigeerde_transacties()` (twee kopieën); cast `NUMERIC` naar `float` waar nodig.
-4. **Tonen?** Dan ook `get_transacties_overzicht()` in `db.py`, `TRANSACTIES_KOLOMMEN` in `static/js/tabs/transacties.js` (kop en cel in één regel) en `VERGELIJKERS` in `static/js/transacties.js` (de sortering, onder dezelfde sleutel).
+3. **`db.py`:** neem de kolom op in de `INSERT` van `db_insert_transactie()` (kolomlijst **en** `VALUES`-plaatsaanduiding **en** parameters) en in `TRANSACTIE_KOLOMMEN` (de lijst voor de `SELECT` in `db_get_portfolio_naam_en_transacties()`; die ene lijst dekt zowel `_haal_portfolio_basis()` als `_laad_split_gecorrigeerde_transacties()`). Cast `NUMERIC` in `portfolio_orchestratie.py` naar `float` waar nodig.
+4. **Tonen?** Dan ook `db_get_transacties_overzicht()` in `db.py`, `TRANSACTIES_KOLOMMEN` in `static/js/tabs/transacties.js` (kop en cel in één regel) en `VERGELIJKERS` in `static/js/transacties.js` (de sortering, onder dezelfde sleutel).
 5. **Tests + bestaande data:** test de nieuwe kolom met een eigen test-code. Al opgeslagen rijen krijgen de kolom niet vanzelf gevuld (er is geen data-backfill, zie 4.4): portfolio verwijderen en opnieuw uploaden.
 
 ### 8.4 Een ticker-probleem oplossen
@@ -1521,10 +1527,10 @@ oogopslag te lezen. Een laag die meerdere taakfuncties achter elkaar aanroept, h
 #### Database: PostgreSQL bij Neon
 
 **PostgreSQL** is een relationele database: tabellen met rijen en kolommen, die je met **SQL** bevraagt (`SELECT ... FROM transacties WHERE code = %s`).
-**Neon** host die database in de cloud. De backend verbindt ermee via `psycopg2` en de `DATABASE_URL` (`get_db_connection()` in `db.py`).
+**Neon** host die database in de cloud. De backend verbindt ermee via `psycopg2` en de `DATABASE_URL` (`db_connect()` in `db.py`).
 Er is geen **ORM** (een laag die tabellen als Python-klassen verpakt); de SQL staat gewoon in de code.
 
-`init_db()` in `db.py` maakt alle tabellen aan met `CREATE TABLE IF NOT EXISTS`: bestaat de tabel al, dan gebeurt er niets. Daarom is het veilig
+`db_init()` in `db.py` maakt alle tabellen aan met `CREATE TABLE IF NOT EXISTS`: bestaat de tabel al, dan gebeurt er niets. Daarom is het veilig
 om het bij elke start te draaien, maar voegt het ook geen nieuwe kolom toe aan een bestaande tabel (zie 8.3).
 
 Er zijn twee soorten tabellen (hoofdstuk 4):
@@ -1637,7 +1643,7 @@ Hoofdstuk 9 bevat de woorden uit het domein (GAK, XIRR, ticker, ...). Hieronder 
 | **ORM** | Een laag die tabellen als klassen verpakt; wordt **niet** gebruikt, de SQL staat in de code. |
 | **Primary key / UNIQUE** | Kolom(men) die een rij uniek maken; `UNIQUE (code, order_id)` voorkomt dubbele transacties. |
 | **Cache** | Bewaarde kopie van iets dat duur is om op te halen: cachetabellen in Neon, `_basis_cache` in het geheugen. |
-| **Upsert** | Invoegen, of bijwerken als de rij al bestaat (`ON CONFLICT ... DO UPDATE`); bv. `save_dividenden()`. |
+| **Upsert** | Invoegen, of bijwerken als de rij al bestaat (`ON CONFLICT ... DO UPDATE`); bv. `db_save_dividenden()`. |
 | **Rate limit** | Een externe dienst die tijdelijk weigert omdat je te veel vraagt. |
 | **Retry / backoff** | Een mislukte call opnieuw proberen / met steeds langere wachttijd. |
 | **Thread / thread pool** | Parallelle uitvoering binnen één proces / een vast aantal threads dat taken deelt (`ThreadPoolExecutor`). |
@@ -1666,15 +1672,15 @@ van wat een functie hoort te doen.
 
 #### Stap 2 — Het datamodel
 
-- **Lees:** `db.py`: eerst `init_db()`, dan één `get_cached_*`/`save_*`-paar (bv. `get_cached_land_sector()` en `save_land_sector()`), dan `save_prices()` en `upsert_prices()`.
+- **Lees:** `db.py`: eerst `db_init()`, dan één `get_cached_*`/`save_*`-paar (bv. `db_get_cached_land_sector()` en `db_save_land_sector()`), dan `db_save_prices()` en `db_upsert_prices()`.
 - **Wat doen deze bestanden:** `db.py` opent de verbinding met de database, maakt alle tabellen aan en bevat de functies die caches lezen en schrijven.
   Het is de plek waar Python en PostgreSQL elkaar raken.
 - **Waar in de stack:** backend, database.
 - **Waarom nu:** alle andere modules lezen of schrijven deze tabellen; als je weet wat er bewaard wordt, begrijp je de rest sneller.
 - **Wat je hier leert:** hoe een tabel met primary key en `UNIQUE` eruitziet; het verschil tussen gebruikersdata en een cachetabel; `ON CONFLICT DO NOTHING`
   tegenover een upsert (`DO UPDATE`).
-- **Zo lees je het:** leg `init_db()` naast de tabellen in hoofdstuk 4. Vergelijk `save_prices()` met `upsert_prices()`; `tests/test_prijzen_upsert.py` bewaakt dat
-  `upsert_prices()` echt `DO UPDATE` gebruikt.
+- **Zo lees je het:** leg `db_init()` naast de tabellen in hoofdstuk 4. Vergelijk `db_save_prices()` met `db_upsert_prices()`; `tests/test_prijzen_upsert.py` bewaakt dat
+  `db_upsert_prices()` echt `DO UPDATE` gebruikt.
 
 #### Stap 3 — Pure JavaScript
 

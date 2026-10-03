@@ -1,7 +1,7 @@
 """
 Route-level tests voor de pagina-routes: / (start), /p/<code> (portfolio)
 en /analyse ('niet opslaan'). Ze geven alleen een template of een redirect
-terug; get_db_connection is gepatcht om te falen als bewijs dat ze de
+terug; db_connect is gepatcht om te falen als bewijs dat ze de
 database niet raken.
 """
 import os
@@ -18,7 +18,7 @@ class TestPaginaRoutes(unittest.TestCase):
         self.app_module = app_module
         self.client = app_module.app.test_client()
         patcher = patch.object(
-            app_module, "get_db_connection",
+            app_module, "db_connect",
             side_effect=AssertionError("pagina-route mag de database niet raken"),
         )
         patcher.start()

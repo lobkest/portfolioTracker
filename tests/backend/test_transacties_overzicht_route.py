@@ -5,7 +5,7 @@ transactiekosten per rij, geen sortering/paginering server-side, dat gebeurt
 client-side).
 
 Raakt de echte database aan (net als tests/test_ticker_koers_bereik_route.py),
-want app.py roept init_db() op moduleniveau aan.
+want app.py roept db_init() op moduleniveau aan.
 """
 import os
 import sys
@@ -30,8 +30,8 @@ class TestTransactiesOverzichtRoute(unittest.TestCase):
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
         cur.execute(
@@ -55,8 +55,8 @@ class TestTransactiesOverzichtRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))

@@ -8,12 +8,12 @@ from transactie_utils import formatteer_transacties_overzicht
 load_dotenv()
 
 
-def get_db_connection():
+def db_connect():
     return psycopg2.connect(os.environ["DATABASE_URL"])
 
 
-def init_db():
-    conn = get_db_connection()
+def db_init():
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("""
         CREATE TABLE IF NOT EXISTS portfolios (
@@ -147,10 +147,10 @@ def init_db():
     conn.close()
 
 
-def get_cached_classifications(tickers):
+def db_get_cached_classifications(tickers):
     if not tickers:
         return {}
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("SELECT ticker, is_etf FROM ticker_info WHERE ticker = ANY(%s)", (tickers,))
     result = {row[0]: row[1] for row in cur.fetchall()}
@@ -159,10 +159,10 @@ def get_cached_classifications(tickers):
     return result
 
 
-def save_classification(ticker, is_etf, details=None):
+def db_save_classification(ticker, is_etf, details=None):
     """details (optioneel): {"land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category"}."""
     details = details or {}
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO ticker_info (ticker, is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category) "
@@ -179,10 +179,10 @@ def save_classification(ticker, is_etf, details=None):
     conn.close()
 
 
-def get_ticker_details(tickers):
+def db_get_ticker_details(tickers):
     if not tickers:
         return {}
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "SELECT ticker, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category "
@@ -200,10 +200,10 @@ def get_ticker_details(tickers):
 CACHE_GELDIGHEID = "30 days"
 
 
-def get_cached_land_sector(tickers):
+def db_get_cached_land_sector(tickers):
     if not tickers:
         return {}
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         f"SELECT ticker, land, sector FROM ticker_land_sector "
@@ -216,8 +216,8 @@ def get_cached_land_sector(tickers):
     return result
 
 
-def save_land_sector(ticker, land, sector):
-    conn = get_db_connection()
+def db_save_land_sector(ticker, land, sector):
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO ticker_land_sector (ticker, land, sector) VALUES (%s, %s, %s) "
@@ -230,8 +230,8 @@ def save_land_sector(ticker, land, sector):
     conn.close()
 
 
-def get_cached_etf_sector_verdeling(etf_ticker):
-    conn = get_db_connection()
+def db_get_cached_etf_sector_verdeling(etf_ticker):
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         f"SELECT sector, gewicht FROM etf_sector_verdeling "
@@ -246,9 +246,9 @@ def get_cached_etf_sector_verdeling(etf_ticker):
     return {row[0]: float(row[1]) for row in rows}
 
 
-def save_etf_sector_verdeling(etf_ticker, sector_dict):
+def db_save_etf_sector_verdeling(etf_ticker, sector_dict):
     """Delete + bulk insert, zodat alle rijen dezelfde bijgewerkt_op krijgen. Niet aanroepen met een lege dict."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("DELETE FROM etf_sector_verdeling WHERE etf_ticker = %s", (etf_ticker,))
     if sector_dict:
@@ -262,8 +262,8 @@ def save_etf_sector_verdeling(etf_ticker, sector_dict):
     conn.close()
 
 
-def get_cached_etf_holdings(etf_ticker):
-    conn = get_db_connection()
+def db_get_cached_etf_holdings(etf_ticker):
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         f"SELECT holding_naam, holding_ticker, gewicht, land, bron FROM etf_holdings "
@@ -282,9 +282,9 @@ def get_cached_etf_holdings(etf_ticker):
     ]
 
 
-def save_etf_holdings(etf_ticker, holdings_lijst):
+def db_save_etf_holdings(etf_ticker, holdings_lijst):
     """Delete + bulk insert. Niet aanroepen met een lege lijst."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("DELETE FROM etf_holdings WHERE etf_ticker = %s", (etf_ticker,))
     if holdings_lijst:
@@ -302,9 +302,9 @@ def save_etf_holdings(etf_ticker, holdings_lijst):
     conn.close()
 
 
-def get_cached_prijscheck(ticker, datum):
+def db_get_cached_prijscheck(ticker, datum):
     """(yahoo_slotkoers, valuta, high, low), of None als nooit geprobeerd; None ín de tuple = geprobeerd, mislukt."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "SELECT yahoo_slotkoers, valuta, high, low FROM ticker_prijscheck WHERE ticker = %s AND datum = %s",
@@ -324,9 +324,9 @@ def get_cached_prijscheck(ticker, datum):
     )
 
 
-def save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
+def db_save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
     """Permanent, ook bij koers None. Upsert, zodat later gevonden high/low nog wordt bijgeschreven."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO ticker_prijscheck (ticker, datum, yahoo_slotkoers, valuta, high, low) "
@@ -341,9 +341,9 @@ def save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
     conn.close()
 
 
-def get_cached_splits(ticker):
+def db_get_cached_splits(ticker):
     """{iso_datum: ratio} of None. Verloopt wel: een ticker kan later nog splitsen."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         f"SELECT splits FROM ticker_splits WHERE ticker = %s AND bijgewerkt_op > NOW() - INTERVAL '{CACHE_GELDIGHEID}'",
@@ -355,9 +355,9 @@ def get_cached_splits(ticker):
     return row[0] if row else None
 
 
-def save_splits(ticker, splits):
+def db_save_splits(ticker, splits):
     """Ook een leeg dict cachen: dat betekent 'geen splits'."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO ticker_splits (ticker, splits) VALUES (%s, %s) "
@@ -369,8 +369,8 @@ def save_splits(ticker, splits):
     conn.close()
 
 
-def get_cached_openfigi(isin):
-    conn = get_db_connection()
+def db_get_cached_openfigi(isin):
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("SELECT resultaten FROM openfigi_cache WHERE isin = %s", (isin,))
     row = cur.fetchone()
@@ -379,9 +379,9 @@ def get_cached_openfigi(isin):
     return row[0] if row else None
 
 
-def save_openfigi(isin, resultaten):
+def db_save_openfigi(isin, resultaten):
     """Alleen na een geslaagde aanroep; een lege lijst ('geen match') mag wel."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO openfigi_cache (isin, resultaten) VALUES (%s, %s) "
@@ -394,9 +394,9 @@ def save_openfigi(isin, resultaten):
     conn.close()
 
 
-def delete_portfolio(code):
+def db_delete_portfolio(code):
     """De caches blijven staan: dat is anonieme marktdata."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute("DELETE FROM transacties WHERE code = %s", (code,))
     cur.execute("DELETE FROM dividenden WHERE code = %s", (code,))
@@ -406,9 +406,9 @@ def delete_portfolio(code):
     conn.close()
 
 
-def wijzig_portfolio_code(oude_code, nieuwe_code):
+def db_wijzig_portfolio_code(oude_code, nieuwe_code):
     """FK zonder ON UPDATE CASCADE: eerst nieuwe rij, dan verhuizen, dan oude weg. Geeft (gelukt, foutmelding)."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     try:
         cur.execute("SELECT naam, aangemaakt_op FROM portfolios WHERE code = %s", (oude_code,))
@@ -436,11 +436,11 @@ def wijzig_portfolio_code(oude_code, nieuwe_code):
         conn.close()
 
 
-def save_dividenden(code, records):
+def db_save_dividenden(code, records):
     """Bewust een upsert, zie CLAUDE.md: DeGiro-bestanden."""
     if not records:
         return
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     execute_values(
         cur,
@@ -461,8 +461,8 @@ def save_dividenden(code, records):
     conn.close()
 
 
-def get_dividenden(code):
-    conn = get_db_connection()
+def db_get_dividenden(code):
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "SELECT datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd "
@@ -488,9 +488,9 @@ def get_dividenden(code):
     return resultaat
 
 
-def get_transacties_overzicht(code):
+def db_get_transacties_overzicht(code):
     """tijd en transactiekosten kunnen None zijn; nooit een verzonnen waarde invullen."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "SELECT datum, tijd, product, aantal, koers, totaal_eur, transactiekosten FROM transacties "
@@ -503,11 +503,11 @@ def get_transacties_overzicht(code):
     return formatteer_transacties_overzicht(rows)
 
 
-def save_prices(rows):
+def db_save_prices(rows):
     """rows: (ticker, datum, koers_eur)-tuples. DO NOTHING: historische koersen veranderen niet."""
     if not rows:
         return
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     execute_values(
         cur,
@@ -520,11 +520,11 @@ def save_prices(rows):
     conn.close()
 
 
-def upsert_prices(rows):
-    """Alleen voor de verse koers van vandaag (kan tussentijds zijn); historie via save_prices()."""
+def db_upsert_prices(rows):
+    """Alleen voor de verse koers van vandaag (kan tussentijds zijn); historie via db_save_prices()."""
     if not rows:
         return
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     execute_values(
         cur,
@@ -539,11 +539,11 @@ def upsert_prices(rows):
     conn.close()
 
 
-def get_laatste_prijs_update(tickers):
+def db_get_laatste_prijs_update(tickers):
     """(laatste_koersdatum, laatst_opgehaald_op in UTC), of (None, None)."""
     if not tickers:
         return None, None
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
     cur.execute(
         "SELECT MAX(datum), MAX(bijgewerkt_op) FROM prijzen WHERE ticker = ANY(%s)",
@@ -553,3 +553,159 @@ def get_laatste_prijs_update(tickers):
     cur.close()
     conn.close()
     return (row[0], row[1]) if row else (None, None)
+
+
+def db_get_gecachte_prijzen(tickers, vandaag, start_datum):
+    """Geeft ({ticker: (eerste_datum, laatste_datum)}, {ticker: bijgewerkt_op van vandaag}, [(ticker, datum, koers_eur)])."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT ticker, MIN(datum), MAX(datum) FROM prijzen WHERE ticker = ANY(%s) GROUP BY ticker",
+        (tickers,),
+    )
+    datums = {ticker: (eerste, laatste) for ticker, eerste, laatste in cur.fetchall()}
+
+    cur.execute(
+        "SELECT ticker, bijgewerkt_op FROM prijzen WHERE ticker = ANY(%s) AND datum = %s",
+        (tickers, vandaag),
+    )
+    bijgewerkt_vandaag = {ticker: bijgewerkt_op for ticker, bijgewerkt_op in cur.fetchall()}
+
+    cur.execute(
+        "SELECT ticker, datum, koers_eur FROM prijzen WHERE ticker = ANY(%s) AND datum >= %s",
+        (tickers, start_datum),
+    )
+    koersen = cur.fetchall()
+    cur.close()
+    conn.close()
+    return datums, bijgewerkt_vandaag, koersen
+
+
+TRANSACTIE_KOLOMMEN = [
+    "datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur",
+    "echte_naam", "transactiekosten", "waarde_eur", "tijd",
+]
+
+
+def db_get_portfolio_naam_en_transacties(code):
+    """(naam, rijen in volgorde van TRANSACTIE_KOLOMMEN), of (None, None) als de code niet bestaat.
+    Een portfolio zonder naam heeft NULL in de DB en geeft hier "" terug."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
+    result = cur.fetchone()
+    if result is None:
+        cur.close()
+        conn.close()
+        return None, None
+    cur.execute(f"SELECT {', '.join(TRANSACTIE_KOLOMMEN)} FROM transacties WHERE code = %s", (code,))
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return result[0] or "", rows
+
+
+def db_portfolio_bestaat_met_cursor(cur, code):
+    cur.execute("SELECT 1 FROM portfolios WHERE code = %s", (code,))
+    return cur.fetchone() is not None
+
+
+def db_portfolio_bestaat(code):
+    conn = db_connect()
+    cur = conn.cursor()
+    bestaat = db_portfolio_bestaat_met_cursor(cur, code)
+    cur.close()
+    conn.close()
+    return bestaat
+
+
+def db_maak_portfolio(cur, code, naam):
+    cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam))
+
+
+def db_zet_portfolio_naam(cur, code, naam):
+    cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
+
+
+def db_get_order_id_sets(cur):
+    cur.execute("SELECT code, order_id FROM transacties WHERE order_id IS NOT NULL")
+    sets = {}
+    for code, order_id in cur.fetchall():
+        sets.setdefault(code, set()).add(order_id)
+    return sets
+
+
+def db_get_bekende_tickers(cur, code):
+    """{(isin, beurs): ticker} van de transacties van deze portfolio die al een ticker hebben."""
+    cur.execute(
+        "SELECT isin, beurs, ticker FROM transacties WHERE code = %s AND ticker IS NOT NULL",
+        (code,),
+    )
+    return {(isin, beurs): ticker for isin, beurs, ticker in cur.fetchall()}
+
+
+def db_insert_transactie(cur, code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
+                      order_id, echte_naam, transactiekosten, waarde_eur, tijd):
+    """Geeft False als de rij al bestond (ON CONFLICT DO NOTHING)."""
+    cur.execute(
+        """INSERT INTO transacties
+                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   ON CONFLICT (code, order_id) DO NOTHING""",
+        (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
+         order_id, echte_naam, transactiekosten, waarde_eur, tijd),
+    )
+    return cur.rowcount != 0
+
+
+def db_get_transacties_voor_tickercheck(cur, code):
+    cur.execute(
+        "SELECT isin, beurs, ticker, product, echte_naam, datum, koers FROM transacties WHERE code = %s",
+        (code,),
+    )
+    return cur.fetchall()
+
+
+def db_wijzig_ticker(cur, code, isin, beurs, ticker):
+    cur.execute(
+        "UPDATE transacties SET ticker = %s WHERE code = %s AND isin = %s AND beurs = %s",
+        (ticker, code, isin, beurs),
+    )
+
+
+def db_get_isin_ticker_product(code):
+    """(isin, ticker, product)-rijen van de transacties met een ticker."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT isin, ticker, product FROM transacties WHERE code = %s AND ticker IS NOT NULL",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+
+def db_wijzig_bijnaam(code, ticker, bijnaam):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE transacties SET product = %s WHERE code = %s AND ticker = %s",
+        (bijnaam, code, ticker),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def db_herstel_echte_naam(code, ticker):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE transacties SET product = echte_naam WHERE code = %s AND ticker = %s",
+        (code, ticker),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()

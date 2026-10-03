@@ -6,7 +6,7 @@ standaard teruggeven) en analyze_transacties_verrijking() (Verdeling/Land/
 Sector/Bedrijven/ETF-overlap -- lui opgevraagd via /api/portfolio/<code>/
 verrijking). Zie CLAUDE.md: Flows.
 
-Raakt de echte database aan via 'import app' (init_db() draait bij import,
+Raakt de echte database aan via 'import app' (db_init() draait bij import,
 zie CLAUDE.md: Tech stack en omgeving) -- daarom, net als tests/test_upload_route_foutafhandeling.py,
 overgeslagen zonder DATABASE_URL. classify_tickers/land-sector/ETF-holdings-
 functies worden gemockt zodat er verder geen yfinance-calls plaatsvinden.

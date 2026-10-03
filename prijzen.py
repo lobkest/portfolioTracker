@@ -5,7 +5,7 @@ import pandas as pd
 import yfinance as yf
 from flask import g, has_app_context
 
-from db import get_db_connection, save_prices, upsert_prices
+from db import db_get_gecachte_prijzen, db_save_prices, db_upsert_prices
 from debug_utils import dprint, meet_tijd
 from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
 from yahoo_client import download_met_retry, _tel_yahoo_call
@@ -128,29 +128,10 @@ def get_prices(tickers, start_date, verversen=True):
     start_date = pd.Timestamp(start_date)
     vandaag = pd.Timestamp.now().normalize()
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-
     # Vroegste datum: gaat de cache ver genoeg terug? Laatste: is hij nog actueel?
-    cur.execute(
-        "SELECT ticker, MIN(datum), MAX(datum) FROM prijzen WHERE ticker = ANY(%s) GROUP BY ticker",
-        (tickers,),
-    )
-    datums_cache = {row[0]: (pd.Timestamp(row[1]), pd.Timestamp(row[2])) for row in cur.fetchall()}
-
-    cur.execute(
-        "SELECT ticker, bijgewerkt_op FROM prijzen WHERE ticker = ANY(%s) AND datum = %s",
-        (tickers, vandaag.date()),
-    )
-    laatst_ververst_vandaag = {row[0]: row[1] for row in cur.fetchall()}
-
-    cur.execute(
-        "SELECT ticker, datum, koers_eur FROM prijzen WHERE ticker = ANY(%s) AND datum >= %s",
-        (tickers, start_date.date()),
-    )
-    cached = pd.DataFrame(cur.fetchall(), columns=["ticker", "datum", "koers_eur"])
-    cur.close()
-    conn.close()
+    datums, laatst_ververst_vandaag, koers_rijen = db_get_gecachte_prijzen(tickers, vandaag.date(), start_date.date())
+    datums_cache = {t: (pd.Timestamp(eerste), pd.Timestamp(laatste)) for t, (eerste, laatste) in datums.items()}
+    cached = pd.DataFrame(koers_rijen, columns=["ticker", "datum", "koers_eur"])
 
     missing = []
     # ticker -> datum vanaf waar incrementeel ververst moet worden
@@ -202,7 +183,7 @@ def get_prices(tickers, start_date, verversen=True):
                     continue
                 for datum, koers in raw[t].dropna().items():
                     fresh_rows.append((t, datum.date(), float(koers)))
-            save_prices(fresh_rows)
+            db_save_prices(fresh_rows)
 
             fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
             # Bij overlap de verse waarde houden; duplicaten breken pivot().
@@ -229,7 +210,7 @@ def get_prices(tickers, start_date, verversen=True):
                     stale_rows.append((t, datum.date(), float(koers)))
 
             if stale_rows:
-                upsert_prices(stale_rows)
+                db_upsert_prices(stale_rows)
                 stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
                 cached = pd.concat([cached, stale_df], ignore_index=True)
                 cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")

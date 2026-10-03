@@ -185,8 +185,8 @@ class TestPrijscheckCache(unittest.TestCase):
     TEST_DATUM = date(2023, 3, 15)
 
     def _cleanup(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute(
             "DELETE FROM ticker_prijscheck WHERE ticker = %s AND datum = %s",
@@ -230,10 +230,10 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
     of None (= geen bekende splits, de standaard "geen correctie"-situatie).
     """
     stack = ExitStack()
-    stack.enter_context(patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None))
+    stack.enter_context(patch.object(ticker_prijscheck, "db_get_cached_prijscheck", return_value=None))
     stack.enter_context(patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
     stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
-    stack.enter_context(patch.object(ticker_prijscheck, "save_prijscheck"))
+    stack.enter_context(patch.object(ticker_prijscheck, "db_save_prijscheck"))
     stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value=splits or {}))
     return stack
 
@@ -305,9 +305,9 @@ class TestValutaConversie(unittest.TestCase):
         # naam te laten dispatchen. _haal_koers_en_dagrange_op zelf blijft
         # alleen nog voor de PRIMAIRE ticker.
         stack = ExitStack()
-        stack.enter_context(patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None))
+        stack.enter_context(patch.object(ticker_prijscheck, "db_get_cached_prijscheck", return_value=None))
         stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": valuta}))
-        stack.enter_context(patch.object(ticker_prijscheck, "save_prijscheck"))
+        stack.enter_context(patch.object(ticker_prijscheck, "db_save_prijscheck"))
         stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value={}))
         stack.enter_context(patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, None, None)))
         stack.enter_context(patch.object(

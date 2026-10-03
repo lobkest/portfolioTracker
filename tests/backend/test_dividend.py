@@ -204,7 +204,7 @@ class TestDividendConversieRichting(unittest.TestCase):
 
 
 def _opgeslagen_dividend(datum, netto, **extra):
-    # Vorm zoals db.get_dividenden() een rij teruggeeft.
+    # Vorm zoals db.db_get_dividenden() een rij teruggeeft.
     return {
         "datum": datum, "product": "FONDS X", "isin": "IE0000000001", "valuta": "EUR",
         "bruto_eur": netto, "belasting_eur": 0.0, "netto_eur": netto, **extra,
@@ -219,7 +219,7 @@ class TestDividendSamenvattingHerinvesteerd(unittest.TestCase):
     def _samenvatting(self, dividenden):
         conn = MagicMock()
         conn.cursor.return_value.fetchall.return_value = []
-        with patch.object(dividend, "get_dividenden", return_value=dividenden),              patch.object(dividend, "get_db_connection", return_value=conn):
+        with patch.object(dividend, "db_get_dividenden", return_value=dividenden),              patch("db.db_connect", return_value=conn):
             return dividend.bereken_dividend_samenvatting("TST")
 
     def test_vlag_komt_als_bool_in_de_lijst(self):

@@ -2,7 +2,7 @@
 import pandas as pd
 import yfinance as yf
 
-from db import get_cached_splits, save_splits, get_cached_prijscheck, save_prijscheck
+from db import db_get_cached_splits, db_save_splits, db_get_cached_prijscheck, db_save_prijscheck
 from debug_utils import dprint
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
 from prijzen import FX_PAAR_PER_VALUTA, _fx_prijzen_serie
@@ -66,7 +66,7 @@ def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMI
 
 def _haal_splits_op(ticker):
     """{iso_datum: ratio}; bij een fout leeg en niet gecachet."""
-    cached = get_cached_splits(ticker)
+    cached = db_get_cached_splits(ticker)
     if cached is not None:
         dprint(f"[splits] '{ticker}': uit cache -> {len(cached)} split(s)")
         return cached
@@ -76,7 +76,7 @@ def _haal_splits_op(ticker):
     except Exception:
         return {}
     resultaat = {pd.Timestamp(datum).date().isoformat(): float(ratio) for datum, ratio in splits.items()}
-    save_splits(ticker, resultaat)
+    db_save_splits(ticker, resultaat)
     return resultaat
 
 
@@ -112,18 +112,18 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     """bekende_koers is altijd EUR. Geeft o.a. niveau ("ok"/"mild"/"waarschuwing"), match
     (False alleen bij "waarschuwing") en binnen_dagrange (None zonder high/low)."""
     datum = pd.Timestamp(datum).date()
-    cached = get_cached_prijscheck(ticker, datum)
+    cached = db_get_cached_prijscheck(ticker, datum)
     if cached is not None:
         yahoo_koers, valuta, high, low = cached
         dprint(f"[prijscheck] '{ticker}' op {datum}: uit cache -> yahoo_koers={yahoo_koers}")
         if yahoo_koers is not None and high is None and low is None:
             # Rij zonder dagrange: alsnog aanvullen.
             high, low = _haal_dagrange_op(ticker, datum)
-            save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
+            db_save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
     else:
         yahoo_koers, high, low = _haal_koers_en_dagrange_op(ticker, datum)
         valuta = _ticker_details_met_cache(ticker).get("valuta")
-        save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
+        db_save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
     if yahoo_koers is None or not bekende_koers:
         return {

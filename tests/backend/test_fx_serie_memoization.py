@@ -13,7 +13,7 @@ blijft de 2-minuten-staleness-check in get_prices() bewaken).
 
 Draait geheel offline: get_prices() wordt gemockt, geen echte database- of
 Yahoo-calls. Gebruikt een kale Flask-app (niet app.py, want die roept
-init_db() aan bij import) enkel om app-/requestcontexten te kunnen pushen.
+db_init() aan bij import) enkel om app-/requestcontexten te kunnen pushen.
 """
 import os
 import sys

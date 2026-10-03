@@ -4,8 +4,8 @@ Unit tests voor de High/Low-dagrange op de Ticker-zekerheid-pagina
 samenvattende waarschuwingsmeldingen die er voortaan op leunen i.p.v. op de
 %-afwijkingsdrempel).
 
-Draait geheel offline: get_cached_prijscheck/_haal_koers_en_dagrange_op/
-save_prijscheck worden gemockt (net als tests/test_ticker_verificatie.py),
+Draait geheel offline: db_get_cached_prijscheck/_haal_koers_en_dagrange_op/
+db_save_prijscheck worden gemockt (net als tests/test_ticker_verificatie.py),
 behalve TestBackfillHighLowDoUpdate, die bewust de echte database raakt
 (net als TestPrijscheckCache aldaar) om het bekende ON CONFLICT DO NOTHING-
 patroon te regressietesten.
@@ -65,10 +65,10 @@ def tearDownModule():
 
 def _mock_yahoo_omgeving(yahoo_koers, high, low):
     stack = ExitStack()
-    stack.enter_context(patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None))
+    stack.enter_context(patch.object(ticker_prijscheck, "db_get_cached_prijscheck", return_value=None))
     stack.enter_context(patch.object(ticker_prijscheck, "_haal_koers_en_dagrange_op", return_value=(yahoo_koers, high, low)))
     stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
-    stack.enter_context(patch.object(ticker_prijscheck, "save_prijscheck"))
+    stack.enter_context(patch.object(ticker_prijscheck, "db_save_prijscheck"))
     stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value={}))
     return stack
 
@@ -189,7 +189,7 @@ class TestMeldingGebruiktDagrangeNietAfwijking(unittest.TestCase):
 @vereist_database
 class TestBackfillHighLowDoUpdate(unittest.TestCase):
     """Regressietest voor het bekende ON CONFLICT DO NOTHING-patroon (zie
-    CLAUDE.md: DeGiro-bestanden, save_dividenden()): een hernieuwde save_prijscheck-
+    CLAUDE.md: DeGiro-bestanden, db_save_dividenden()): een hernieuwde db_save_prijscheck-
     aanroep met nieuwe high/low moet een bestaande NULL-rij overschrijven,
     niet stilzwijgend negeren."""
 
@@ -197,8 +197,8 @@ class TestBackfillHighLowDoUpdate(unittest.TestCase):
     TEST_DATUM = date(2023, 3, 15)
 
     def _cleanup(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute(
             "DELETE FROM ticker_prijscheck WHERE ticker = %s AND datum = %s",
@@ -215,18 +215,18 @@ class TestBackfillHighLowDoUpdate(unittest.TestCase):
         self._cleanup()
 
     def test_backfill_high_low_do_update(self):
-        from db import save_prijscheck, get_cached_prijscheck
+        from db import db_save_prijscheck, db_get_cached_prijscheck
 
         # Eerste keer: alleen de slotkoers bekend (zoals een rij van vóór de
         # dagrange-uitbreiding), high/low blijven NULL.
-        save_prijscheck(self.TEST_TICKER, self.TEST_DATUM, 123.45, "EUR")
-        eerste = get_cached_prijscheck(self.TEST_TICKER, self.TEST_DATUM)
+        db_save_prijscheck(self.TEST_TICKER, self.TEST_DATUM, 123.45, "EUR")
+        eerste = db_get_cached_prijscheck(self.TEST_TICKER, self.TEST_DATUM)
         self.assertEqual(eerste, (123.45, "EUR", None, None))
 
         # Her-aanroep met inmiddels bekende high/low moet die bijschrijven --
         # met ON CONFLICT DO NOTHING zou dit stil genegeerd worden.
-        save_prijscheck(self.TEST_TICKER, self.TEST_DATUM, 123.45, "EUR", high=130.0, low=120.0)
-        tweede = get_cached_prijscheck(self.TEST_TICKER, self.TEST_DATUM)
+        db_save_prijscheck(self.TEST_TICKER, self.TEST_DATUM, 123.45, "EUR", high=130.0, low=120.0)
+        tweede = db_get_cached_prijscheck(self.TEST_TICKER, self.TEST_DATUM)
         self.assertEqual(tweede, (123.45, "EUR", 130.0, 120.0))
 
 

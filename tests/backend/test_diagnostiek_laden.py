@@ -175,9 +175,9 @@ def _mock_conn(min_max_rows, laatst_ververst_rows, cached_rows):
 
 class TestKoersenMeldingen(_MetRequest):
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.save_prices")
+    @patch("prijzen.db_save_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_cache_en_download_zonder_data(self, mock_conn, mock_download, _save, mock_ticker):
         mock_ticker.return_value.info = {"currency": "EUR"}
         vandaag = pd.Timestamp.now().normalize()
@@ -343,7 +343,7 @@ class TestCacheHitNieuweMeldingen(_MetRequest):
         po._wis_portfolio_basis_cache(TEST_CODE)
 
     @patch("portfolio_orchestratie.get_prices")
-    @patch("portfolio_orchestratie.get_db_connection")
+    @patch("db.db_connect")
     def test_hit_geeft_koersmeldingen_opnieuw_zonder_laadtijden(self, mock_conn, mock_get_prices):
         mock_conn.side_effect = lambda: _fake_conn()
         index = pd.date_range("2024-01-01", "2024-02-29", freq="D")

@@ -4,7 +4,7 @@ import os
 import requests
 from yahooquery import search
 
-from db import get_cached_openfigi, save_openfigi
+from db import db_get_cached_openfigi, db_save_openfigi
 from debug_utils import dprint
 from transactie_utils import _is_corporate_action_row
 from yahoo_client import _tel_yahoo_call
@@ -173,7 +173,7 @@ def haal_openfigi_resultaten(isin):
     if not isin:
         return {"resultaten": [], "fout": "Geen ISIN beschikbaar voor deze positie."}
 
-    gecached = get_cached_openfigi(isin)
+    gecached = db_get_cached_openfigi(isin)
     if gecached is not None:
         return {"resultaten": gecached, "fout": None}
 
@@ -201,7 +201,7 @@ def haal_openfigi_resultaten(isin):
     body = response.json()
     if not body or "data" not in body[0]:
         waarschuwing = (body[0].get("warning") if body else None) or "Geen match bij OpenFIGI."
-        save_openfigi(isin, [])
+        db_save_openfigi(isin, [])
         return {"resultaten": [], "fout": waarschuwing}
 
     resultaten = [
@@ -215,7 +215,7 @@ def haal_openfigi_resultaten(isin):
         }
         for item in body[0]["data"]
     ]
-    save_openfigi(isin, resultaten)
+    db_save_openfigi(isin, resultaten)
     return {"resultaten": resultaten, "fout": None}
 
 

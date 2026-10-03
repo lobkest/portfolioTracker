@@ -92,8 +92,8 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
     CODE = "TESTCA"
 
     def _leeg_op(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.CODE,))
@@ -107,8 +107,8 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
         self.addCleanup(portfolio_orchestratie._basis_cache.pop, self.CODE, None)
 
         self._leeg_op()
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.CODE, "unittest"))
         cur.execute(
@@ -146,8 +146,8 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
 
     def test_regressie_normale_corporate_action_rij_op_beurs_deg_blijft_gefilterd(self):
         cur_code = self.CODE
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam) "

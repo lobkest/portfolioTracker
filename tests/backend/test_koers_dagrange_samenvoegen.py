@@ -74,13 +74,13 @@ class TestVergelijkPrijsOpDatumÉénDownload(unittest.TestCase):
     (slotkoers + dagrange apart) van vóór deze wijziging."""
 
     def setUp(self):
-        patcher1 = patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None)
+        patcher1 = patch.object(ticker_prijscheck, "db_get_cached_prijscheck", return_value=None)
         patcher1.start()
         self.addCleanup(patcher1.stop)
         patcher2 = patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"})
         patcher2.start()
         self.addCleanup(patcher2.stop)
-        patcher3 = patch.object(ticker_prijscheck, "save_prijscheck")
+        patcher3 = patch.object(ticker_prijscheck, "db_save_prijscheck")
         patcher3.start()
         self.addCleanup(patcher3.stop)
         patcher4 = patch.object(ticker_prijscheck, "_haal_splits_op", return_value={})
@@ -104,13 +104,13 @@ class TestFaalpadGelijkAanVoorSamenvoegen(unittest.TestCase):
     geen dagrange, geen vergelijking mogelijk."""
 
     def setUp(self):
-        patcher1 = patch.object(ticker_prijscheck, "get_cached_prijscheck", return_value=None)
+        patcher1 = patch.object(ticker_prijscheck, "db_get_cached_prijscheck", return_value=None)
         patcher1.start()
         self.addCleanup(patcher1.stop)
         patcher2 = patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"})
         patcher2.start()
         self.addCleanup(patcher2.stop)
-        patcher3 = patch.object(ticker_prijscheck, "save_prijscheck")
+        patcher3 = patch.object(ticker_prijscheck, "db_save_prijscheck")
         patcher3.start()
         self.addCleanup(patcher3.stop)
 

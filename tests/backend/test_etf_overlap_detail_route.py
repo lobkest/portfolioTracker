@@ -4,7 +4,7 @@ achter een geklikte percentage-cel op het ETF-overlap-tabblad. Los van een portf
 ticker, ook voor de 'niet opslaan'-analyse), dus geen setUp/tearDown-rijen
 in de database nodig -- alleen bereken_etf_overlap_detail() wordt gemockt.
 
-Geen echte database nodig: app.py draait init_db() alleen als DATABASE_URL
+Geen echte database nodig: app.py draait db_init() alleen als DATABASE_URL
 is ingesteld.
 """
 import os

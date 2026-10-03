@@ -1,5 +1,5 @@
 """
-db.get_laatste_prijs_update(), ÉCHT tegen de database (zelfde patroon als
+db.db_get_laatste_prijs_update(), ÉCHT tegen de database (zelfde patroon als
 tests/test_dividend_db.py) -- t.b.v. de "laatst bijgewerkt"-melding op
 Portfolio-home. Test dat MAX(datum)/MAX(bijgewerkt_op) over meerdere
 tickers heen klopt, en dat een lege tickerlijst / tickers zonder prijsdata
@@ -28,8 +28,8 @@ class TestLaatstePrijsUpdate(unittest.TestCase):
     TICKER_B = "TESTPRIJSB"
 
     def setUp(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM prijzen WHERE ticker IN (%s, %s)", (self.TICKER_A, self.TICKER_B))
         conn.commit()
@@ -40,12 +40,12 @@ class TestLaatstePrijsUpdate(unittest.TestCase):
         self.setUp()
 
     def test_geeft_meest_recente_datum_en_ophaalmoment_over_meerdere_tickers(self):
-        from db import get_db_connection, get_laatste_prijs_update
+        from db import db_connect, db_get_laatste_prijs_update
 
-        conn = get_db_connection()
+        conn = db_connect()
         cur = conn.cursor()
         # TICKER_A heeft de meest recente koersdatum, TICKER_B is het meest
-        # recent OPGEHAALD (bijgewerkt_op) -- get_laatste_prijs_update moet
+        # recent OPGEHAALD (bijgewerkt_op) -- db_get_laatste_prijs_update moet
         # het maximum van elke kolom apart teruggeven, niet gekoppeld aan
         # dezelfde rij.
         cur.execute(
@@ -60,17 +60,17 @@ class TestLaatstePrijsUpdate(unittest.TestCase):
         cur.close()
         conn.close()
 
-        laatste_datum, laatst_opgehaald = get_laatste_prijs_update([self.TICKER_A, self.TICKER_B])
+        laatste_datum, laatst_opgehaald = db_get_laatste_prijs_update([self.TICKER_A, self.TICKER_B])
         self.assertEqual(laatste_datum, date(2026, 9, 3))
         self.assertEqual(laatst_opgehaald.isoformat(), "2026-09-03T18:04:00")
 
     def test_lege_tickerlijst_geeft_none_none(self):
-        from db import get_laatste_prijs_update
-        self.assertEqual(get_laatste_prijs_update([]), (None, None))
+        from db import db_get_laatste_prijs_update
+        self.assertEqual(db_get_laatste_prijs_update([]), (None, None))
 
     def test_tickers_zonder_prijsdata_geeft_none_none(self):
-        from db import get_laatste_prijs_update
-        self.assertEqual(get_laatste_prijs_update(["TESTPRIJS_ONBEKEND"]), (None, None))
+        from db import db_get_laatste_prijs_update
+        self.assertEqual(db_get_laatste_prijs_update(["TESTPRIJS_ONBEKEND"]), (None, None))
 
 
 if __name__ == "__main__":

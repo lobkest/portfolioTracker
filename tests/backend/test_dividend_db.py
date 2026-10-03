@@ -2,11 +2,11 @@
 Opslaan+ophalen-cyclus voor dividenden, ÉCHT tegen de database (in
 tegenstelling tot tests/test_dividend.py, dat bewust database-vrij is en
 alleen de berekening zelf test). Dit dekt het end-to-end-pad
-save_dividenden() -> DB -> get_dividenden() -> bereken_dividend_samenvatting()
+db_save_dividenden() -> DB -> db_get_dividenden() -> bereken_dividend_samenvatting()
 af, waar eerder een upsert-bug zat: ON CONFLICT DO NOTHING liet een
 foutieve (bv. NULL) waarde permanent staan zodra dezelfde dividend_id ooit
 met die foutieve waarde was opgeslagen, ook na een latere bugfix in de
-berekening zelf. Zie db.save_dividenden() voor de uitleg/fix.
+berekening zelf. Zie db.db_save_dividenden() voor de uitleg/fix.
 
 Gebruikt een aparte, opgeruimde test-code (TESTDIV) in dezelfde database als
 DATABASE_URL aangeeft — bewust GEEN aparte testdatabase, dit project heeft
@@ -32,8 +32,8 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
     TEST_CODE = "TESTDIV"
 
     def setUp(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
@@ -44,8 +44,8 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         conn.close()
 
     def tearDown(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
@@ -55,10 +55,10 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         conn.close()
 
     def test_opgeslagen_dividend_komt_terug_in_de_samenvatting(self):
-        from db import save_dividenden
+        from db import db_save_dividenden
         from dividend import bereken_dividend_samenvatting
 
-        save_dividenden(self.TEST_CODE, [{
+        db_save_dividenden(self.TEST_CODE, [{
             "dividend_id": "TEST-EUR-1", "datum": date(2024, 1, 1),
             "product": "TEST BV", "isin": "NL0000000001", "valuta": "EUR",
             "bruto_eur": 5.0, "belasting_eur": 0.0, "netto_eur": 5.0,
@@ -75,7 +75,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # dividend_id opnieuw opslaan met de gecorrigeerde waarde. Met
         # ON CONFLICT DO NOTHING zou de eerste (foutieve) waarde blijven
         # staan; met de upsert-fix moet de tweede (juiste) waarde winnen.
-        from db import save_dividenden
+        from db import db_save_dividenden
         from dividend import bereken_dividend_samenvatting
 
         foutief = [{
@@ -83,7 +83,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
             "product": "TEST ETF", "isin": "IE0000000002", "valuta": "USD",
             "bruto_eur": None, "belasting_eur": 0.0, "netto_eur": None,
         }]
-        save_dividenden(self.TEST_CODE, foutief)
+        db_save_dividenden(self.TEST_CODE, foutief)
 
         # Tussentijds al herberekend voor code MOL was dit de daadwerkelijke
         # bug: de samenvatting bleef €0,00 tonen ondanks een correcte
@@ -96,7 +96,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
             "product": "TEST ETF", "isin": "IE0000000002", "valuta": "USD",
             "bruto_eur": 4.2, "belasting_eur": 0.0, "netto_eur": 4.2,
         }]
-        save_dividenden(self.TEST_CODE, gecorrigeerd)
+        db_save_dividenden(self.TEST_CODE, gecorrigeerd)
 
         samenvatting = bereken_dividend_samenvatting(self.TEST_CODE)
         self.assertIsNotNone(samenvatting)
@@ -107,13 +107,13 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # (uitkeringslijst-feature, 2026-09-11): moet ongeaggregeerd per
         # uitkering teruggeven, nieuwste eerst, en een rij met
         # netto_eur=None (onbekende valutaconversie) NIET wegfilteren.
-        from db import get_db_connection, save_dividenden
+        from db import db_connect, db_save_dividenden
         from dividend import bereken_dividend_samenvatting
 
         # Eén ISIN heeft een gekoppelde transactie (dus een bijnaam/ticker
         # via isin_naar_bijnaam/isin_naar_ticker), de andere niet -- om de
         # fallback (product/isin zelf) ook te dekken.
-        conn = get_db_connection()
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute(
             "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur) "
@@ -124,7 +124,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         cur.close()
         conn.close()
 
-        save_dividenden(self.TEST_CODE, [
+        db_save_dividenden(self.TEST_CODE, [
             {
                 "dividend_id": "TEST-LIJST-1", "datum": date(2024, 1, 1),
                 "product": "TEST BV", "isin": "NL0000000001", "valuta": "EUR",

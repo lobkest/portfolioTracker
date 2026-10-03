@@ -6,7 +6,7 @@ synchroon voor de volle portfolio draaide (zie
 tests/test_niet_opslaan_performance.py voor de kwantitatieve bevestiging
 daarvan), zonder dat de gebruiker een foutmelding te zien kreeg.
 
-app.py draait init_db() alleen als DATABASE_URL is ingesteld, dus
+app.py draait db_init() alleen als DATABASE_URL is ingesteld, dus
 'import app' werkt zonder database. TestNietOpslaanGebruiktGoedkopeTickerMatch
 wordt zonder DATABASE_URL nog overgeslagen: portfolio_orchestratie.get_prices()
 is daar niet gemockt en raakt de koerscache en Yahoo.

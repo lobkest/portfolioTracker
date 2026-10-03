@@ -15,7 +15,6 @@ import unittest
 from contextlib import redirect_stdout
 from unittest.mock import patch, MagicMock
 
-import openpyxl
 import pandas as pd
 import psycopg2
 from flask import Flask
@@ -74,41 +73,21 @@ class _MetRequest(unittest.TestCase):
 
 class TestOrderIdMeldingen(_MetRequest):
     def test_alle_echte_ids_goed(self):
-        _, meldingen, _ = self._in_request(uv._meld_order_ids, [UUID_1, UUID_2], 2)
+        _, meldingen, _ = self._in_request(uv._meld_order_ids, pd.Series([UUID_1, UUID_2]))
         self.assertEqual([(m["categorie"], m["niveau"]) for m in meldingen], [(CATEGORIE_ORDER_IDS, GOED)])
         self.assertEqual(meldingen[0]["tekst"], "Alle 2 transacties hebben een echte Order ID.")
 
     def test_deels_synthetisch_info(self):
-        _, meldingen, _ = self._in_request(uv._meld_order_ids, [UUID_1, None, None], 3)
+        _, meldingen, _ = self._in_request(uv._meld_order_ids, pd.Series([UUID_1, None, None]))
         self.assertEqual(meldingen[0]["niveau"], INFO)
         self.assertTrue(meldingen[0]["tekst"].startswith("2 van 3 transacties zonder Order ID"))
-
-    def test_mismatch_let_op(self):
-        _, meldingen, _ = self._in_request(uv._meld_order_ids, [UUID_1, None, None], 2)
-        self.assertEqual(meldingen[0]["niveau"], LET_OP)
-        self.assertIn("(3)", meldingen[0]["tekst"])
-        self.assertIn("(2)", meldingen[0]["tekst"])
-        self.assertIn("kan", meldingen[0]["tekst"])
-        # Geen Order ID-waarden in de tekst.
-        self.assertNotIn(UUID_1, meldingen[0]["tekst"])
-
-    def _excel(self, order_ids):
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.append(["Datum", "Order ID"])
-        for i, order_id in enumerate(order_ids):
-            ws.append([f"0{i + 1}-01-2024", order_id])
-        buf = io.BytesIO()
-        wb.save(buf)
-        buf.seek(0)
-        return buf
 
     def test_create_synthetic_order_ids_ongewijzigd_en_meldt(self):
         df = pd.DataFrame({
             "Datum": ["01-01-2024", "02-01-2024"], "Tijd": ["10:00", "11:00"], "Product": ["A", "B"],
             "ISIN": ["X1", "X2"], "Aantal": [1.0, 2.0], "Totaal EUR": [-10.0, -20.0],
         })
-        df["Order ID"] = uv._lees_order_ids_ruw(self._excel([UUID_1, None]))
+        df["Order ID"] = [UUID_1, None]
         uit, meldingen, _ = self._in_request(uv._create_synthetic_order_ids, df)
         self.assertEqual(uit["Order ID"].iloc[0], UUID_1)
         self.assertTrue(uit["Order ID"].iloc[1].startswith("SYN-"))
@@ -304,7 +283,7 @@ class TestDividendMeldingen(_MetRequest):
             functie(*args)
             return haal_meldingen()
 
-    @patch("upload_verwerking.save_dividenden")
+    @patch("upload_verwerking.db_save_dividenden")
     @patch("upload_verwerking.verwerk_rekeningoverzicht")
     def test_verwerk_bestand_meldt_en_slaat_ongewijzigd_op(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]
@@ -314,7 +293,7 @@ class TestDividendMeldingen(_MetRequest):
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 
-    @patch("upload_verwerking.save_dividenden")
+    @patch("upload_verwerking.db_save_dividenden")
     @patch("upload_verwerking.verwerk_rekeningoverzicht")
     def test_niet_opslaan_met_bestand2_meldt_zonder_op_te_slaan(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]

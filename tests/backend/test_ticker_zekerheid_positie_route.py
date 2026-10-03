@@ -11,7 +11,7 @@ backend-logica -- deze test bevestigt dat de route exact hetzelfde
 resultaat geeft als een directe aanroep van die functie.
 
 Raakt de echte database aan (net als tests/test_dividend_db.py), want
-app.py roept init_db() op moduleniveau aan -- 'import app' zou zonder
+app.py roept db_init() op moduleniveau aan -- 'import app' zou zonder
 DATABASE_URL dus al bij de import crashen. Mockt find_ticker_detailed en
 vergelijk_prijs_op_datum zodat er geen echte yahooquery/yfinance-calls
 gebeuren.
@@ -66,8 +66,8 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
         for order_id, datum in (("POS-1", date(2023, 1, 10)), ("POS-2", date(2023, 6, 10))):
@@ -84,8 +84,8 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))
@@ -157,8 +157,8 @@ class TestTickerZekerheidLijstRoute(unittest.TestCase):
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
         cur.execute(
@@ -175,8 +175,8 @@ class TestTickerZekerheidLijstRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import get_db_connection
-        conn = get_db_connection()
+        from db import db_connect
+        conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))

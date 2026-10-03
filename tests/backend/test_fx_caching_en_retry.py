@@ -13,7 +13,7 @@ Daarnaast stond het rate-limit-detectiepatroon (+ oplopende backoff)
 bijna-identiek uitgeschreven in _fetch_yf_info en de _haal_*_op-functies
 in ticker_prijscheck.py -- nu gedeeld via _met_rate_limit_retry().
 
-Draait geheel offline: get_db_connection/download_met_retry/save_prices/
+Draait geheel offline: db_connect/download_met_retry/db_save_prices/
 yf.Ticker/time.sleep worden gemockt, geen echte database- of Yahoo-calls.
 """
 import os
@@ -36,7 +36,7 @@ def _mock_conn_voor_twee_aanroepen(
     eerste_min_max, eerste_cached, tweede_min_max, tweede_cached,
     eerste_laatst_ververst=None, tweede_laatst_ververst=None,
 ):
-    """Bouwt een gemockte get_db_connection()-return die na elkaar de
+    """Bouwt een gemockte db_connect()-return die na elkaar de
     fetchall()-resultaten voor TWEE opeenvolgende get_prices()-aanroepen
     teruggeeft (elk: MIN/MAX-rij(en), dan (ticker, bijgewerkt_op) voor de
     rij van 'vandaag', dan gecachete (ticker, datum, koers_eur)-rijen) --
@@ -58,9 +58,9 @@ class TestFxKoersCaching(unittest.TestCase):
     eigen, ongecachete FX-koers."""
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.save_prices")
+    @patch("prijzen.db_save_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_tweede_fx_opzoeking_zelfde_valuta_en_datum_doet_geen_nieuwe_download(
         self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
     ):
@@ -106,9 +106,9 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
     download triggeren zodra _fx_koers_op_datum() met verversen=False wordt
     aangeroepen -- ongeacht hoe oud die cache-rij is."""
 
-    @patch("prijzen.upsert_prices")
+    @patch("prijzen.db_upsert_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_stale_fx_cache_triggert_geen_download_bij_verversen_false(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -135,9 +135,9 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
         mock_upsert.assert_not_called()
         self.assertEqual(resultaat, 0.9)
 
-    @patch("prijzen.upsert_prices")
+    @patch("prijzen.db_upsert_prices")
     @patch("prijzen.download_met_retry")
-    @patch("prijzen.get_db_connection")
+    @patch("db.db_connect")
     def test_zelfde_stale_cache_zou_wel_verversen_bij_verversen_true(
         self, mock_get_conn, mock_download, mock_upsert
     ):

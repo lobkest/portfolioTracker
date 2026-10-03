@@ -1,7 +1,7 @@
 """Hoe zeker is een ticker: lichte check bij elke upload, volledige check op de Ticker-zekerheid-pagina."""
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from db import get_db_connection
+from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker
 from debug_utils import dprint
 from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
@@ -468,13 +468,9 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
 def backfill_verouderde_tickers(code, forceer=False):
     """Herbeoordeelt opgeslagen tickers: zonder forceer alleen bij een prijsprobleem, met forceer altijd.
     Vervangt alleen door een kandidaat zonder prijsprobleem. Geeft het aantal gecorrigeerde groepen."""
-    conn = get_db_connection()
+    conn = db_connect()
     cur = conn.cursor()
-    cur.execute(
-        "SELECT isin, beurs, ticker, product, echte_naam, datum, koers FROM transacties WHERE code = %s",
-        (code,),
-    )
-    rows = cur.fetchall()
+    rows = db_get_transacties_voor_tickercheck(cur, code)
 
     groepen = {}
     for isin, beurs, ticker, product, echte_naam, datum, koers in rows:
@@ -498,10 +494,7 @@ def backfill_verouderde_tickers(code, forceer=False):
         if _ticker_heeft_prijsprobleem(nieuwe_ticker, transacties):
             continue
 
-        cur.execute(
-            "UPDATE transacties SET ticker = %s WHERE code = %s AND isin = %s AND beurs = %s",
-            (nieuwe_ticker, code, isin, beurs),
-        )
+        db_wijzig_ticker(cur, code, isin, beurs, nieuwe_ticker)
         gecorrigeerd += 1
 
     conn.commit()

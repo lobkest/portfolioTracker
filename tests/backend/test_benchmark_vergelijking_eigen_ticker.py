@@ -7,7 +7,7 @@ tests van bereken_benchmark_vergelijking zelf, die hier niet herhaald worden.
 
 Mockt _laad_transacties_en_resultaat en get_prices (zelfde patroon als
 tests/test_ticker_koers_bereik_route.py), dus geen echte DB-rijen of
-yfinance-calls nodig; app.py draait init_db() alleen als DATABASE_URL is
+yfinance-calls nodig; app.py draait db_init() alleen als DATABASE_URL is
 ingesteld.
 """
 import os

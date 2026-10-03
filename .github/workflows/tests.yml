@@ -81,9 +81,9 @@ jobs:
       - name: Dependencies installeren
         run: python -m pip install -r requirements.txt
 
-      # Niet elke database-test importeert app.py, dus init_db() draait anders niet.
+      # Niet elke database-test importeert app.py, dus db_init() draait anders niet.
       - name: Schema aanmaken
-        run: python -c "from db import init_db; init_db()"
+        run: python -c "from db import db_init; db_init()"
 
       - name: Unit tests draaien
         run: python -m unittest discover -s tests -v

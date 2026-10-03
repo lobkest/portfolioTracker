@@ -69,7 +69,7 @@ def _getal_of_none(waarde):
 
 
 def transacties_overzicht_uit_df(transacties_df):
-    """Zelfde lijst als get_transacties_overzicht(), voor 'Niet opslaan' (geen database)."""
+    """Zelfde lijst als db_get_transacties_overzicht(), voor 'Niet opslaan' (geen database)."""
     rows = [
         (rij.datum, _naar_tijd_of_none(rij.tijd), rij.product, rij.aantal,
          _getal_of_none(rij.koers), rij.totaal_eur, _getal_of_none(rij.transactiekosten))

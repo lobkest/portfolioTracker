@@ -2,8 +2,8 @@
 Unit tests voor ticker_zekerheid.haal_openfigi_resultaten() — EXPERIMENTEEL/
 DIAGNOSTISCH paneel op de Ticker-zekerheid-pagina (zie CLAUDE.md: Yahoo en tickers), inmiddels
 aangevuld met een permanente DB-cache (openfigi_cache). Draait geheel
-offline: ticker_zekerheid.requests.post EN de cache-functies (get_cached_openfigi/
-save_openfigi) worden gemockt, dus geen echte OpenFIGI-netwerk-calls en geen
+offline: ticker_zekerheid.requests.post EN de cache-functies (db_get_cached_openfigi/
+db_save_openfigi) worden gemockt, dus geen echte OpenFIGI-netwerk-calls en geen
 (gedeelde, persistente) databasetoegang nodig -- zonder die laatste mock zou
 elke test tegen dezelfde echte Neon-DB lopen en elkaars cache-writes zien.
 """
@@ -33,8 +33,8 @@ def _leeg_cache_patch():
     requests.post-mock-pad doorloopt i.p.v. een cache-hit van een vorige
     test (of een vorige testrun) te zien."""
     return (
-        patch.object(ticker_matching, "get_cached_openfigi", return_value=None),
-        patch.object(ticker_matching, "save_openfigi"),
+        patch.object(ticker_matching, "db_get_cached_openfigi", return_value=None),
+        patch.object(ticker_matching, "db_save_openfigi"),
     )
 
 

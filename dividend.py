@@ -3,7 +3,7 @@ import hashlib
 
 import pandas as pd
 
-from db import get_db_connection, get_dividenden
+from db import db_get_dividenden, db_get_isin_ticker_product
 
 
 def _koppel_valutaconversie_paren(df):
@@ -192,21 +192,11 @@ def verwerk_rekeningoverzicht(file_object):
 
 def bereken_dividend_samenvatting(code):
     """None = nooit een rekeningoverzicht geüpload (niet hetzelfde als 'geen dividend')."""
-    dividenden = get_dividenden(code)
+    dividenden = db_get_dividenden(code)
     if not dividenden:
         return None
 
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT isin, ticker, product FROM transacties WHERE code = %s AND ticker IS NOT NULL",
-        (code,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    return bouw_dividend_samenvatting(dividenden, rows)
+    return bouw_dividend_samenvatting(dividenden, db_get_isin_ticker_product(code))
 
 
 def _afronden_of_none(bedrag):

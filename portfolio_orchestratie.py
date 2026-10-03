@@ -10,7 +10,7 @@ except ImportError:
     resource = None
 
 
-from db import get_db_connection, get_laatste_prijs_update
+from db import db_get_portfolio_naam_en_transacties, db_get_laatste_prijs_update, TRANSACTIE_KOLOMMEN
 from debug_utils import meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
@@ -58,30 +58,11 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
 
     meldingen_voor = haal_meldingen()
     with meet_tijd(f"basis_ophalen_db (code={code})"):
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-        result = cur.fetchone()
-        if result is None:
-            cur.close()
-            conn.close()
+        naam, rows = db_get_portfolio_naam_en_transacties(code)
+        if naam is None:
             return None, None, None
-        # Een portfolio zonder naam heeft NULL in de DB; None betekent hier "code bestaat niet".
-        naam = result[0] or ""
 
-        cur.execute(
-            "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
-            "FROM transacties WHERE code = %s",
-            (code,),
-        )
-        rows = cur.fetchall()
-        cur.close()
-        conn.close()
-
-    transacties_df = pd.DataFrame(
-        rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
-    )
+    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
     transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
 
@@ -147,27 +128,11 @@ def _wis_portfolio_basis_cache(code):
 
 def _laad_split_gecorrigeerde_transacties(code):
     """Zonder koersen. Split-correctie over alle transacties: corporate-action-rijen hangen aan de ISIN."""
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT naam FROM portfolios WHERE code = %s", (code,))
-    if cur.fetchone() is None:
-        cur.close()
-        conn.close()
+    naam, rows = db_get_portfolio_naam_en_transacties(code)
+    if naam is None:
         return None
 
-    cur.execute(
-        "SELECT datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, echte_naam, transactiekosten, waarde_eur, tijd "
-        "FROM transacties WHERE code = %s",
-        (code,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-
-    transacties_df = pd.DataFrame(
-        rows,
-        columns=["datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur", "echte_naam", "transactiekosten", "waarde_eur", "tijd"],
-    )
+    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
     return compute_split_adjusted_shares(transacties_df)
 
 
@@ -238,7 +203,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None}
 
-    laatste_koersdatum, laatst_opgehaald_op = get_laatste_prijs_update(tickers)
+    laatste_koersdatum, laatst_opgehaald_op = db_get_laatste_prijs_update(tickers)
 
     resultaat = compute_value_over_time(transacties_df, price_data)
     per_ticker = compute_per_ticker(transacties_df, price_data)

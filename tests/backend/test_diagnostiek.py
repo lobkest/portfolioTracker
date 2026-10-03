@@ -227,7 +227,7 @@ class TestBasisCacheMeldingen(unittest.TestCase):
         self.po._wis_portfolio_basis_cache(TEST_CODE)
 
     @patch("portfolio_orchestratie.get_prices")
-    @patch("portfolio_orchestratie.get_db_connection")
+    @patch("db.db_connect")
     def test_hit_geeft_meldingen_opnieuw_mee(self, mock_conn, mock_get_prices):
         mock_conn.side_effect = lambda: _fake_conn()
 
