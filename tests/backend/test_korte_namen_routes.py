@@ -28,9 +28,9 @@ class TestBepaalKorteNaamVoorstellen(unittest.TestCase):
              patch.object(po, "db_get_ticker_details", return_value=details):
             uit = po.bepaal_korte_naam_voorstellen("ABC")
         self.assertEqual(uit, [
-            {"ticker": "ASML.AS", "huidig": "ASML HOLDING NV", "voorstel": "ASML Holding"},
-            {"ticker": "ONB.AS", "huidig": "ONBEKEND", "voorstel": None},
-            {"ticker": "TDT.AS", "huidig": "VANECK AEX", "voorstel": "AEX"},
+            {"ticker": "ASML.AS", "huidig": "ASML HOLDING NV", "long_name": "ASML Holding N.V.", "voorstel": "ASML Holding"},
+            {"ticker": "ONB.AS", "huidig": "ONBEKEND", "long_name": None, "voorstel": None},
+            {"ticker": "TDT.AS", "huidig": "VANECK AEX", "long_name": "VanEck AEX UCITS ETF", "voorstel": "AEX"},
         ])
         mock_yahoo.assert_called_once_with(["ASML.AS", "ONB.AS", "TDT.AS"])
 
