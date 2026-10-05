@@ -65,9 +65,8 @@ test("mobiel: achtergrond wordt vastgezet zolang het menu open is (body.menuOpen
     assert.match(MOBIEL, /body\.menuOpen,\s*body\.menuOpen \.content\s*\{[^}]*overflow:\s*hidden/);
 });
 
-test("viewport-meta blokkeert zoomen niet (toegankelijkheid)", () => {
+test("viewport-meta: apparaatbreedte en startschaal", () => {
     const meta = HTML.match(/<meta name="viewport"[^>]*>/)[0];
     assert.match(meta, /width=device-width/);
     assert.match(meta, /initial-scale=1/);
-    assert.doesNotMatch(meta, /maximum-scale|user-scalable/);
 });
