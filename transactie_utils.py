@@ -71,7 +71,7 @@ def _getal_of_none(waarde):
 def transacties_overzicht_uit_df(transacties_df):
     """Zelfde lijst als db_get_transacties_overzicht(), voor 'Niet opslaan' (geen database)."""
     rows = [
-        (rij.datum, _naar_tijd_of_none(rij.tijd), rij.product, rij.aantal,
+        (rij.datum, _naar_tijd_of_none(rij.tijd), rij.echte_naam if pd.notna(rij.echte_naam) else rij.product, rij.aantal,
          _getal_of_none(rij.koers), rij.totaal_eur, _getal_of_none(rij.transactiekosten))
         for rij in transacties_df.itertuples(index=False)
     ]

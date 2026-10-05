@@ -493,7 +493,7 @@ def db_get_transacties_overzicht(code):
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "SELECT datum, tijd, product, aantal, koers, totaal_eur, transactiekosten FROM transacties "
+        "SELECT datum, tijd, COALESCE(echte_naam, product), aantal, koers, totaal_eur, transactiekosten FROM transacties "
         "WHERE code = %s ORDER BY datum DESC, tijd DESC",
         (code,),
     )

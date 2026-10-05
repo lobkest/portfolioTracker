@@ -52,7 +52,7 @@ function maakPrijscontroleTabel(prijsChecks) {
     wrapper.appendChild(tabel);
 
     const kop = document.createElement("tr");
-    ["Datum", "Excel-koers", "Yahoo-koers", "High", "Low", "Binnen dagrange", "Afwijking"].forEach(tekst => {
+    ["Datum", "Excel-koers", "Yahoo-koers", "Low", "High", "Binnen dagrange", "Afwijking"].forEach(tekst => {
         const th = document.createElement("th");
         th.textContent = tekst;
         kop.appendChild(th);
@@ -73,8 +73,8 @@ function maakPrijscontroleTabel(prijsChecks) {
             formatDatum(c.datum),
             c.bekende_koers != null ? c.bekende_koers.toFixed(3) : "-",
             yahooKoersTekst,
-            c.high != null ? c.high.toFixed(3) : "-",
             c.low != null ? c.low.toFixed(3) : "-",
+            c.high != null ? c.high.toFixed(3) : "-",
         ].forEach((tekst, i) => {
             const td = document.createElement("td");
             td.textContent = tekst;
