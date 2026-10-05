@@ -902,8 +902,18 @@ a.menuBtn {
    hoogte (bv. iPhone 14 landscape = 844px), dus zonder deze tak zou de
    hamburger-layout hieronder überhaupt niet aanslaan in landscape. */
 @media (max-width: 768px), (max-width: 900px) and (orientation: landscape) {
+    /* App-gevoel: geen pinch-zoom, geen horizontaal schuiven, geen rubber-banding. */
+    html {
+        overflow-x: hidden;
+        overscroll-behavior: none;
+        background-color: #f4f4f4;
+    }
+
     body {
         padding-top: 0;
+        overflow-x: hidden;
+        overscroll-behavior: none;
+        touch-action: pan-x pan-y;
     }
 
     .container {

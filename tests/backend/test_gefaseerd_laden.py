@@ -26,7 +26,8 @@ except ImportError:
     from tests.db_helper import vereist_database
 
 VERRIJKINGSVELDEN = {
-    "verdeling", "verdeling_samenvatting", "land_sector_verdeling", "bedrijven_verdeling", "etf_overlap",
+    "verdeling", "verdeling_samenvatting", "land_sector_verdeling", "valuta_verdeling",
+    "bedrijven_verdeling", "etf_overlap",
 }
 
 
@@ -65,6 +66,7 @@ class TestGefaseerdLaden(unittest.TestCase):
             patch.object(portfolio_orchestratie, "classify_tickers", return_value={"ETF_A": True, "AAPL": False}),
             patch.object(portfolio_orchestratie, "_verwarm_land_sector_cache_parallel", return_value=None),
             patch.object(portfolio_orchestratie, "compute_land_sector_verdeling", return_value={"land": {}, "sector": {}}),
+            patch.object(portfolio_orchestratie, "compute_valuta_verdeling", return_value={"valuta": {}}),
             patch.object(portfolio_orchestratie, "bereken_bedrijven_verdeling", return_value={"top": []}),
             patch.object(portfolio_orchestratie, "bereken_etf_overlap", return_value={}),
         ]

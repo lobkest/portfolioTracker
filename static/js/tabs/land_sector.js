@@ -1,6 +1,6 @@
-// Tabbladen Land en Sector: taart of gestapelde staaf, met een gedeelde weergavekeuze.
+// Tabbladen Land, Sector en Valuta: taart of gestapelde staaf, met een gedeelde weergavekeuze.
 
-// "taart" of "staaf", gedeeld tussen Land en Sector.
+// "taart" of "staaf", gedeeld tussen Land, Sector en Valuta.
 let landSectorWeergave = "taart";
 
 function toonPlatteVerdeling(verdelingObj) {
@@ -119,15 +119,32 @@ function toonSector() {
     }
 }
 
+function toonValuta() {
+    if (chart) chart.destroy();
+    document.getElementById("geenData").style.display = "none";
+    if (toonVerrijkingWachtstatusIndienNodig()) return;
+
+    const vv = huidigeData.valuta_verdeling;
+    if (landSectorWeergave === "staaf") {
+        const tickerNamen = {};
+        (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+        const totaal = Object.values((vv && vv.valuta) || {}).reduce((s, w) => s + w, 0);
+        chart = renderGestapeldeStaafgrafiek("rendementChart", vv && vv.valuta_per_bron, tickerNamen, { totaal });
+    } else {
+        toonPlatteVerdeling(vv && vv.valuta);
+    }
+}
+
 document.getElementById("europaCheckbox").addEventListener("change", () => {
     toonLand();
 });
 
-// De keuze geldt voor Land én Sector; de data staat al in huidigeData.
+// De keuze geldt voor Land, Sector én Valuta; de data staat al in huidigeData.
 document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
     landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
     const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
     const actieveView = actieveKnop ? actieveKnop.dataset.view : null;
     if (actieveView === "land") toonLand();
     else if (actieveView === "sector") toonSector();
+    else if (actieveView === "valuta") toonValuta();
 });

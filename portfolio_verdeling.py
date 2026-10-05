@@ -3,7 +3,7 @@ import re
 
 import pandas as pd
 
-from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector
+from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector, get_valuta
 
 # Fractie van het totaal (0.005 = 0,5%); alleen voor de taart.
 LAND_OVERIG_DREMPEL = 0.005
@@ -391,3 +391,28 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
         "land_per_bron_europa_top": _beperk_tot_top_n_per_bron(land_per_bron_europa),
         "sector_per_bron": sector_per_bron,
     }
+
+
+def compute_valuta_verdeling(transacties_df, price_data):
+    """Per noteringsvaluta (ook van een ETF), bedragen in €. Sleutels:
+      valuta: {valuta: €}, kleine valuta's in 'Overig' (taart)
+      valuta_per_bron: {valuta: {bron: €}} (staaf)
+    """
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
+    laatste_prijzen = price_data.iloc[-1]
+
+    valuta = {}
+    valuta_per_bron = {}
+    for ticker, aantal in huidige_holdings.items():
+        if ticker not in price_data.columns:
+            continue
+        waarde = float(aantal) * float(laatste_prijzen[ticker])
+        if waarde <= 0:
+            continue
+        naam = get_valuta(ticker)
+        valuta[naam] = valuta.get(naam, 0.0) + waarde
+        rij = valuta_per_bron.setdefault(naam, {})
+        rij[ticker] = rij.get(ticker, 0.0) + waarde
+
+    return {"valuta": _voeg_kleine_landen_samen(valuta), "valuta_per_bron": valuta_per_bron}

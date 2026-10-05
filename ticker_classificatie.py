@@ -96,6 +96,14 @@ def get_land_sector(ticker):
     return (land or "Unknown", sector or "Unknown")
 
 
+def get_valuta(ticker):
+    """Noteringsvaluta, met "Unknown" i.p.v. None; Yahoo's "GBp" (pence) telt als GBP."""
+    valuta = _ticker_details_met_cache(ticker).get("valuta")
+    if not valuta:
+        return "Unknown"
+    return "GBP" if valuta == "GBp" else valuta
+
+
 def _sector_naam(sector_key):
     """'consumer_cyclical' -> 'Consumer Cyclical'."""
     return sector_key.replace("_", " ").title()
@@ -214,6 +222,7 @@ def classify_tickers(tickers):
 def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
     """Vult alleen de caches, zodat de verdelingsfuncties daarna sequentieel alleen cache-hits krijgen."""
     def _warm(ticker):
+        get_valuta(ticker)
         if is_etf_map.get(ticker, False):
             get_etf_sector_verdeling(ticker)
             get_etf_holdings(ticker)

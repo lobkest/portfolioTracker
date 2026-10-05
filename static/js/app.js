@@ -33,6 +33,7 @@ const TOON_PER_VIEW = {
     "verdeling": toonVerdeling,
     "land": toonLand,
     "sector": toonSector,
+    "valuta": toonValuta,
     "bedrijven": toonBedrijven,
     "etfoverlap": renderEtfOverlapTabel,
     "statistieken": toonStatistieken,
@@ -139,6 +140,7 @@ function herTekenVerrijkingTabbladIndienActief() {
     if (view === "verdeling") toonVerdeling();
     else if (view === "land") toonLand();
     else if (view === "sector") toonSector();
+    else if (view === "valuta") toonValuta();
     else if (view === "bedrijven") toonBedrijven();
     else if (view === "etfoverlap") renderEtfOverlapTabel();
 }
