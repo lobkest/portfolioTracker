@@ -407,6 +407,20 @@ def set_bijnaam(code):
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
+@app.route("/api/portfolio/<code>/bijnamen", methods=["POST"])
+def set_bijnamen(code):
+    code = code.strip().upper()
+    namen = (request.get_json() or {}).get("namen")
+    if not isinstance(namen, dict):
+        return jsonify({"error": "Namen zijn verplicht."}), 400
+
+    schoon = {t: n.strip() for t, n in namen.items() if isinstance(n, str) and n.strip()}
+    if schoon:
+        db_wijzig_bijnamen(code, schoon)
+    _wis_portfolio_basis_cache(code)
+    return jsonify(build_portfolio_response(code, verversen=False))
+
+
 @app.route("/api/portfolio/<code>/reset-bijnaam", methods=["POST"])
 def reset_bijnaam(code):
     code = code.strip().upper()

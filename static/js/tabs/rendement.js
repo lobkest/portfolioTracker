@@ -1,15 +1,16 @@
 // Tabblad Rendement: in € optioneel naast een benchmark of eigen aandeel, in % met XIRR en TWR (alleen met code).
 
-let benchmarkVergelijkingData = null;
+const BENCHMARK_KLEUREN = { "S&P 500": "#eb6834", "Nasdaq 100": "#0f9d9a", "AEX": "#b8860b" };
+// Per gekozen benchmark de opgehaalde vergelijking, op naam.
+let benchmarkVergelijkingen = {};
 // Los van de benchmark: beide vergelijkingslijnen kunnen tegelijk zichtbaar zijn.
 let eigenAandeelVergelijkingData = null;
 let rendementWeergave = "euro";
 
 function resetRendement() {
     rendementWeergave = "euro";
-    benchmarkVergelijkingData = null;
+    benchmarkVergelijkingen = {};
     eigenAandeelVergelijkingData = null;
-    document.getElementById("benchmarkSelect").value = "";
     document.getElementById("eigenAandeelSelect").innerHTML = '<option value="">Geen</option>';
 }
 
@@ -38,21 +39,24 @@ function toonRendementEuro() {
     const meldingEl = document.getElementById("benchmarkMelding");
     meldingEl.style.display = "none";
 
-    if (benchmarkVergelijkingData) {
-        const b = benchmarkVergelijkingData;
+    const meldingen = [];
+    Object.values(benchmarkVergelijkingen).forEach(b => {
         // b.labels is een slotstuk van d.labels: links opvullen met null.
         const offset = d.labels.length - b.labels.length;
         const reeks = offset > 0 ? Array(offset).fill(null).concat(b.rendement) : b.rendement;
         datasets.push({
             label: `Rendement ${b.naam} (hypothetisch, €)`,
             data: reeks,
-            borderColor: "#eb6834",
+            borderColor: BENCHMARK_KLEUREN[b.naam],
             borderDash: [5, 5],
         });
         if (b.onvolledige_dekking) {
-            meldingEl.textContent = `${b.naam} heeft pas koersdata vanaf ${formatDatum(b.vanaf_datum)} — inleg van vóór die datum telt niet mee in deze vergelijking.`;
-            meldingEl.style.display = "block";
+            meldingen.push(`${b.naam} heeft pas koersdata vanaf ${formatDatum(b.vanaf_datum)} — inleg van vóór die datum telt niet mee in deze vergelijking.`);
         }
+    });
+    if (meldingen.length) {
+        meldingEl.textContent = meldingen.join(" ");
+        meldingEl.style.display = "block";
     }
 
     const eigenMeldingEl = document.getElementById("eigenAandeelMelding");
@@ -78,8 +82,8 @@ function toonRendementEuro() {
 }
 
 async function wisselBenchmark(benchmarkNaam) {
-    if (!benchmarkNaam) {
-        benchmarkVergelijkingData = null;
+    if (benchmarkVergelijkingen[benchmarkNaam]) {
+        delete benchmarkVergelijkingen[benchmarkNaam];
         toonRendementEuro();
         return;
     }
@@ -88,18 +92,30 @@ async function wisselBenchmark(benchmarkNaam) {
         const res = await fetch(`/api/portfolio/${huidigeData.code}/benchmark-vergelijking?benchmark=${encodeURIComponent(benchmarkNaam)}`);
         const data = await res.json();
         if (!res.ok) {
-            benchmarkVergelijkingData = null;
             alert(data.error || "Benchmarkvergelijking kon niet berekend worden.");
         } else {
-            benchmarkVergelijkingData = { naam: benchmarkNaam, ...data };
+            benchmarkVergelijkingen[benchmarkNaam] = { naam: benchmarkNaam, ...data };
         }
     } catch (e) {
-        benchmarkVergelijkingData = null;
         alert("Benchmarkvergelijking ophalen is mislukt.");
     } finally {
         verbergLaadOverlay();
         toonRendementEuro();
     }
+}
+
+function bouwBenchmarkKnoppen() {
+    const knoppen = Object.entries(BENCHMARK_KLEUREN).map(([naam, kleur]) => {
+        const knop = document.createElement("button");
+        knop.type = "button";
+        knop.className = "keuzeKnop vergelijkKnop benchmark";
+        knop.dataset.waarde = naam;
+        knop.style.setProperty("--kleur", kleur);
+        knop.textContent = naam;
+        knop.addEventListener("click", () => wisselBenchmark(naam));
+        return knop;
+    });
+    document.getElementById("benchmarkKnoppen").replaceChildren(...knoppen);
 }
 
 // Zoals wisselBenchmark(), met een eigen dataset zodat beide tegelijk zichtbaar zijn.
@@ -169,6 +185,9 @@ function bouwVergelijkKnoppen() {
 }
 
 function markeerVergelijkKnoppen() {
+    document.querySelectorAll("#benchmarkKnoppen .vergelijkKnop").forEach(knop => {
+        knop.classList.toggle("actief", knop.dataset.waarde in benchmarkVergelijkingen);
+    });
     document.querySelectorAll("[data-vergelijk-knoppen]").forEach(houder => {
         const gekozen = document.getElementById(houder.dataset.vergelijkKnoppen).value;
         houder.querySelectorAll(".vergelijkKnop").forEach(knop => {
@@ -177,11 +196,8 @@ function markeerVergelijkKnoppen() {
     });
 }
 
+bouwBenchmarkKnoppen();
 bouwVergelijkKnoppen();
-
-document.getElementById("benchmarkSelect").addEventListener("change", (e) => {
-    wisselBenchmark(e.target.value);
-});
 
 document.getElementById("eigenAandeelSelect").addEventListener("change", (e) => {
     wisselEigenAandeel(e.target.value);

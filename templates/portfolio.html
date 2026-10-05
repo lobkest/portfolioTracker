@@ -68,16 +68,10 @@
                         <button type="button" class="segmentKnop" data-weergave="pct">%</button>
                     </div>
                 </div>
-                <label id="benchmarkSelectWrapper" class="margeOnder15" data-vereist-code="ja">
-                    Vergelijk met benchmark:
-                    <select id="benchmarkSelect">
-                        <option value="">Geen</option>
-                        <option value="S&P 500">S&P 500</option>
-                        <option value="Nasdaq 100">Nasdaq 100</option>
-                        <option value="AEX">AEX</option>
-                    </select>
-                    <div class="vergelijkKnoppen" data-vergelijk-knoppen="benchmarkSelect" data-kleur="benchmark"></div>
-                </label>
+                <div id="benchmarkSelectWrapper" class="margeOnder15" data-vereist-code="ja">
+                    Vergelijk met benchmarks:
+                    <div id="benchmarkKnoppen" class="benchmarkKnoppen"></div>
+                </div>
                 <p id="benchmarkMelding" class="kleineMelding" data-verberg-buiten="rendement" style="display: none;"></p>
                 <label id="eigenAandeelSelectWrapper" class="margeOnder15" data-vereist-code="ja">
                     Vergelijk met eigen aandeel al in portefeuille:
@@ -286,7 +280,7 @@
             </div>
 
             <div id="tab-instellingen-bijnamen" data-views="instellingen-bijnamen" style="display: none;">
-                <p>Geef per aandeel/ETF optioneel een eigen bijnaam op.</p>
+                <p>Kies per aandeel/ETF de Excel naam, Yahoo naam of korte naam, of typ zelf een bijnaam en druk op Enter.</p>
                 <div id="instellingenSectie"></div>
             </div>
 

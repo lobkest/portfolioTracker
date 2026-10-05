@@ -677,9 +677,16 @@ body {
     display: none;
 }
 
+.benchmarkKnoppen {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 6px;
+}
+
 .vergelijkKnop.benchmark {
-    color: #eb6834;
-    border-color: #eb6834;
+    color: var(--kleur);
+    border-color: var(--kleur);
 }
 
 .vergelijkKnop.eigen {
@@ -688,7 +695,7 @@ body {
 }
 
 .vergelijkKnop.benchmark:hover:not(:disabled) {
-    background-color: #fdeee8;
+    background-color: color-mix(in srgb, var(--kleur) 12%, white);
 }
 
 .vergelijkKnop.eigen:hover:not(:disabled) {
@@ -697,7 +704,7 @@ body {
 
 .vergelijkKnop.benchmark.actief,
 .vergelijkKnop.benchmark.actief:hover {
-    background-color: #eb6834;
+    background-color: var(--kleur);
     color: white;
 }
 
@@ -819,8 +826,8 @@ body {
     margin-right: 8px;
 }
 
-.bijnaamReset {
-    margin-left: 6px;
+.bijnaamKnop {
+    margin: 2px 6px 2px 0;
 }
 
 .bijnaamStatus {
@@ -1055,7 +1062,6 @@ body {
     }
 
     #aandeelSelect,
-    #benchmarkSelect,
     #eigenAandeelSelect {
         display: none !important;
     }

@@ -186,7 +186,7 @@ def _ticker_zekerheid_groepen(code):
 
 
 def bepaal_korte_naam_voorstellen(code):
-    """[{ticker, huidig, voorstel}]; voorstel is None zonder Yahoo-longName. Schrijft niets weg."""
+    """[{ticker, huidig, long_name, voorstel}]; beide None zonder Yahoo-longName. Schrijft niets weg."""
     huidig = db_laad_product_per_ticker(code)
     tickers = sorted(huidig)
     if not tickers:
@@ -200,7 +200,7 @@ def bepaal_korte_naam_voorstellen(code):
     voorstellen = kies_korte_namen({
         t: {"long_name": long_names[t], "fund_family": details.get(t, {}).get("fund_family")} for t in tickers
     })
-    return [{"ticker": t, "huidig": huidig[t], "voorstel": voorstellen.get(t)} for t in tickers]
+    return [{"ticker": t, "huidig": huidig[t], "long_name": long_names[t], "voorstel": voorstellen.get(t)} for t in tickers]
 
 
 def build_portfolio_response(code, verversen=True):

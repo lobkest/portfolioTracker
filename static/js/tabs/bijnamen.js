@@ -1,19 +1,19 @@
-// Tabblad Instellingen > Bijnamen: per positie een eigen naam opslaan of terugzetten, of alle korte namen van Yahoo toepassen.
+// Tabblad Instellingen > Bijnamen: per positie de Excel-, Yahoo- of korte naam kiezen, of dat in één keer voor alle posities.
 
-// Voorstellen uit GET /korte-namen: {ticker: korte naam of null}.
-let korteNamen = {};
-let korteNamenStatus = "leeg"; // leeg | laden | klaar | fout
-let korteNamenFout = "";
+// Uit GET /korte-namen: {ticker: {long_name, voorstel}} (null zonder Yahoo-naam).
+let yahooNamen = {};
+let yahooNamenStatus = "leeg"; // leeg | laden | klaar | fout
+let yahooNamenFout = "";
 
 function resetKorteNamen() {
-    korteNamen = {};
-    korteNamenStatus = "leeg";
-    korteNamenFout = "";
+    yahooNamen = {};
+    yahooNamenStatus = "leeg";
+    yahooNamenFout = "";
 }
 
-async function laadKorteNamen() {
+async function laadYahooNamen() {
     const code = huidigeData.code;
-    korteNamenStatus = "laden";
+    yahooNamenStatus = "laden";
     try {
         const res = await fetchMetTimeout(`/api/portfolio/${code}/korte-namen`);
         const data = await res.json();
@@ -21,52 +21,24 @@ async function laadKorteNamen() {
         if (!res.ok) {
             throw new Error(data.error || "Namen ophalen mislukt.");
         }
-        korteNamen = {};
-        data.namen.forEach(n => { korteNamen[n.ticker] = n.voorstel; });
-        korteNamenStatus = "klaar";
+        yahooNamen = {};
+        data.namen.forEach(n => { yahooNamen[n.ticker] = { long_name: n.long_name, voorstel: n.voorstel }; });
+        yahooNamenStatus = "klaar";
     } catch (e) {
         if (huidigeData.code !== code) return;
-        korteNamenStatus = "fout";
-        korteNamenFout = e.message === "TIMEOUT" ? "Yahoo reageerde niet op tijd." : e.message;
+        yahooNamenStatus = "fout";
+        yahooNamenFout = e.message === "TIMEOUT" ? "Yahoo reageerde niet op tijd." : e.message;
     }
     renderBijnamen();
 }
 
-async function pasKorteNamenToe() {
-    toonLaadOverlay("Korte namen toepassen...");
+async function pasBijnamenToe(namen, laadTekst, succesTekst) {
+    toonLaadOverlay(laadTekst);
     try {
-        const res = await fetchMetTimeout(`/api/portfolio/${huidigeData.code}/korte-namen`, { method: "POST" });
-        const data = await res.json();
-        if (!res.ok) {
-            throw new Error(data.error || "Toepassen mislukt.");
-        }
-        // Object.assign (zie CLAUDE.md: Frontend); daarna de verrijking opnieuw, want daar staan ook namen in.
-        Object.assign(huidigeData, data);
-        ververAandeelSelect();
-        toonInstellingen();
-        toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
-        laadVerrijking(huidigeData.code);
-        const msg = document.getElementById("instellingenMsg");
-        msg.className = "melding positief";
-        msg.textContent = "Korte namen toegepast.";
-        msg.style.display = "block";
-    } catch (e) {
-        const msg = document.getElementById("instellingenMsg");
-        msg.className = "melding foutTekst";
-        msg.textContent = e.message === "TIMEOUT" ? "Yahoo reageerde niet op tijd." : (e.message || "Korte namen toepassen mislukt.");
-        msg.style.display = "block";
-    } finally {
-        verbergLaadOverlay();
-    }
-}
-
-async function slaBijnaamOp(ticker, bijnaam) {
-    toonLaadOverlay("Aanpassen...");
-    try {
-        const res = await fetch(`/api/portfolio/${huidigeData.code}/bijnaam`, {
+        const res = await fetch(`/api/portfolio/${huidigeData.code}/bijnamen`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ticker, bijnaam })
+            body: JSON.stringify({ namen })
         });
         const data = await res.json();
         if (!res.ok) {
@@ -80,40 +52,12 @@ async function slaBijnaamOp(ticker, bijnaam) {
         laadVerrijking(huidigeData.code);
         const msg = document.getElementById("instellingenMsg");
         msg.className = "melding positief";
-        msg.textContent = "Bijnaam opgeslagen.";
+        msg.textContent = succesTekst;
         msg.style.display = "block";
     } catch (e) {
         const msg = document.getElementById("instellingenMsg");
         msg.className = "melding foutTekst";
-        msg.textContent = "Bijnaam opslaan mislukt. Probeer het opnieuw.";
-        msg.style.display = "block";
-    } finally {
-        verbergLaadOverlay();
-    }
-}
-
-async function resetBijnaam(ticker) {
-    toonLaadOverlay("Aanpassen...");
-    try {
-        const res = await fetch(`/api/portfolio/${huidigeData.code}/reset-bijnaam`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ticker })
-        });
-        const data = await res.json();
-        if (!res.ok) {
-            throw new Error(data.error || "Reset mislukt.");
-        }
-        // Zie slaBijnaamOp().
-        Object.assign(huidigeData, data);
-        ververAandeelSelect();
-        toonInstellingen();
-        toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
-        laadVerrijking(huidigeData.code);
-    } catch (e) {
-        const msg = document.getElementById("instellingenMsg");
-        msg.className = "melding foutTekst";
-        msg.textContent = "Bijnaam resetten mislukt. Probeer het opnieuw.";
+        msg.textContent = e.message || "Bijnaam opslaan mislukt. Probeer het opnieuw.";
         msg.style.display = "block";
     } finally {
         verbergLaadOverlay();
@@ -122,90 +66,110 @@ async function resetBijnaam(ticker) {
 
 function toonInstellingen() {
     document.getElementById("instellingenMsg").style.display = "none";
-    if (korteNamenStatus === "leeg" || korteNamenStatus === "fout") {
-        laadKorteNamen();
+    if (yahooNamenStatus === "leeg" || yahooNamenStatus === "fout") {
+        laadYahooNamen();
     }
     renderBijnamen();
 }
 
-function maakKorteNamenBalk() {
+// Tickers zonder naam in de gekozen bron vallen weg en blijven dus ongewijzigd.
+function verzamelNamen(naamVan) {
+    const namen = {};
+    huidigeData.tickers.forEach(t => {
+        const naam = naamVan(t);
+        if (naam) namen[t.ticker] = naam;
+    });
+    return namen;
+}
+
+const NAAM_BRONNEN = [
+    { label: "Excel naam", alles: "Alle Excel namen", naamVan: t => t.echte_naam, vereistYahoo: false },
+    { label: "Yahoo naam", alles: "Alle Yahoo namen", naamVan: t => (yahooNamen[t.ticker] || {}).long_name, vereistYahoo: true },
+    { label: "Korte naam", alles: "Alle korte namen", naamVan: t => (yahooNamen[t.ticker] || {}).voorstel, vereistYahoo: true },
+];
+
+function maakYahooStatus() {
+    const status = document.createElement("span");
+    status.className = "kleinLabel bijnaamStatus";
+    if (yahooNamenStatus === "fout") {
+        status.className = "melding foutTekst bijnaamStatus";
+        status.textContent = `Yahoo-namen ophalen mislukt: ${yahooNamenFout}`;
+    } else if (yahooNamenStatus !== "klaar") {
+        status.textContent = "Namen ophalen bij Yahoo...";
+    }
+    return status;
+}
+
+function maakAllesBalk() {
     const balk = document.createElement("div");
     balk.className = "bijnaamRij";
 
-    const knop = document.createElement("button");
-    knop.textContent = "Korte namen toepassen";
-    knop.disabled = korteNamenStatus !== "klaar" || !Object.values(korteNamen).some(Boolean);
-    knop.onclick = pasKorteNamenToe;
+    const kop = document.createElement("span");
+    kop.className = "kleinLabel";
+    kop.textContent = "Alles:";
+    balk.appendChild(kop);
 
-    const status = document.createElement("span");
-    status.className = "kleinLabel bijnaamStatus";
-    if (korteNamenStatus === "fout") {
-        status.className = "melding foutTekst bijnaamStatus";
-        status.textContent = `Korte namen ophalen mislukt: ${korteNamenFout}`;
-    } else if (korteNamenStatus !== "klaar") {
-        status.textContent = "Korte namen ophalen bij Yahoo...";
-    }
+    NAAM_BRONNEN.forEach(bron => {
+        const namen = verzamelNamen(bron.naamVan);
+        const knop = document.createElement("button");
+        knop.className = "bijnaamKnop";
+        knop.textContent = bron.alles;
+        knop.disabled = Object.keys(namen).length === 0;
+        knop.onclick = () => pasBijnamenToe(namen, "Namen toepassen...", "Namen toegepast.");
+        balk.appendChild(knop);
+    });
 
-    balk.appendChild(knop);
-    balk.appendChild(status);
+    balk.appendChild(maakYahooStatus());
     return balk;
 }
 
-function maakVoorstelRegel(ticker, huidigeNaam) {
-    if (korteNamenStatus !== "klaar") return null;
-    const regel = document.createElement("div");
-    regel.className = "kleinLabel";
-    const voorstel = korteNamen[ticker];
-    if (!voorstel) {
-        regel.textContent = "Korte naam: geen Yahoo-naam, blijft ongewijzigd";
-    } else if (voorstel === huidigeNaam) {
-        regel.textContent = `Korte naam: ${voorstel} (staat al zo)`;
-    } else {
-        regel.textContent = `Korte naam: ${voorstel}`;
-    }
-    return regel;
+function maakNaamKnop(bron, t) {
+    const naam = bron.naamVan(t);
+    const knop = document.createElement("button");
+    knop.className = "bijnaamKnop";
+    knop.textContent = naam || "-";
+    knop.disabled = !naam || naam === t.naam;
+    knop.onclick = () => pasBijnamenToe({ [t.ticker]: naam }, "Aanpassen...", "Bijnaam opgeslagen.");
+    return knop;
 }
 
 function renderBijnamen() {
     const sectie = document.getElementById("instellingenSectie");
     sectie.innerHTML = "";
-    sectie.appendChild(maakKorteNamenBalk());
+    sectie.appendChild(maakAllesBalk());
 
     huidigeData.tickers.forEach(t => {
         const rij = document.createElement("div");
         rij.className = "bijnaamRij";
 
-        const label = document.createElement("div");
-        label.textContent = `${t.ticker} (origineel: ${t.echte_naam})`;
-        label.className = "kleinLabel";
+        const kop = document.createElement("div");
+        kop.textContent = t.ticker;
+        kop.className = "kleinLabel";
+        rij.appendChild(kop);
 
-        const voorstelRegel = maakVoorstelRegel(t.ticker, t.naam);
+        NAAM_BRONNEN.forEach(bron => {
+            const regel = document.createElement("div");
+            const label = document.createElement("span");
+            label.className = "kleinLabel";
+            label.textContent = `${bron.label}: `;
+            regel.appendChild(label);
+            regel.appendChild(bron.vereistYahoo && yahooNamenStatus !== "klaar" ? document.createTextNode("...") : maakNaamKnop(bron, t));
+            rij.appendChild(regel);
+        });
 
         const input = document.createElement("input");
         input.type = "text";
         input.value = t.naam;
-
-        const opslaanBtn = document.createElement("button");
-        opslaanBtn.textContent = "Opslaan";
-        opslaanBtn.onclick = () => slaBijnaamOp(t.ticker, input.value.trim());
-
         input.addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
-                opslaanBtn.click();
+                const naam = input.value.trim();
+                if (naam && naam !== t.naam) {
+                    pasBijnamenToe({ [t.ticker]: naam }, "Aanpassen...", "Bijnaam opgeslagen.");
+                }
             }
         });
-
-        const resetBtn = document.createElement("button");
-        resetBtn.textContent = "Reset";
-        resetBtn.className = "bijnaamReset";
-        resetBtn.onclick = () => resetBijnaam(t.ticker);
-
-        rij.appendChild(label);
-        if (voorstelRegel) rij.appendChild(voorstelRegel);
         rij.appendChild(input);
-        rij.appendChild(opslaanBtn);
-        rij.appendChild(resetBtn);
         sectie.appendChild(rij);
     });
 }
