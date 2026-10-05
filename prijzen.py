@@ -1,20 +1,26 @@
 """Koersen ophalen en cachen (tabel prijzen) en omrekenen naar EUR."""
 import threading
+import time
 
 import pandas as pd
 import yfinance as yf
 from flask import g, has_app_context
 
-from db import db_get_gecachte_prijzen, db_save_prices, db_upsert_prices
+from db import db_get_gecachte_koersen, db_get_ticker_details, db_save_koersen
 from debug_utils import dprint, meet_tijd
 from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
-from yahoo_client import download_met_retry, _tel_yahoo_call
+from split_correctie import ruwe_koers
+from yahoo_client import download_koersen_met_retry, _tel_yahoo_call
 
 FX_PAAR_PER_VALUTA = {"USD": "USDEUR=X", "GBP": "GBPEUR=X", "GBp": "GBPEUR=X"}
 
 # Vast i.p.v. per aanroep, zodat een punt-in-tijd-FX-lookup altijd dezelfde cache gebruikt.
 # Moet ná Yahoo's eerste FX-datum liggen (zie CLAUDE.md: Yahoo en tickers).
 FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
+
+# Eerste opbouw van de cache: per groepje downloaden en na dit budget stoppen (gunicorn-timeout); de rest volgt bij de volgende opening.
+KOERS_DOWNLOAD_GROEPJE = 10
+KOERS_TIJDBUDGET_SECONDEN = 20
 
 # Voorkomt dat de endpoints van één portfolio-opening Yahoo meermaals bevragen.
 DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
@@ -96,6 +102,11 @@ def _haal_valuta_op(t):
         meld(CATEGORIE_WISSELKOERSEN, LET_OP,
              f"Yahoo geeft geen valuta voor '{t}'; aangenomen EUR (geen omrekening).", sleutel=t)
         return "EUR"
+    return _controleer_valuta(t, currency)
+
+
+def _controleer_valuta(t, currency):
+    """Een valuta zonder FX-paar telt mee alsof het EUR is, met een WARN."""
     if currency != "EUR" and currency not in FX_PAAR_PER_VALUTA:
         print(f"[koersen] WARN {t}: valuta '{currency}' wordt niet ondersteund - "
               f"koers NIET omgerekend, telt mee alsof het EUR is")
@@ -105,12 +116,28 @@ def _haal_valuta_op(t):
     return currency
 
 
+def _valuta_per_ticker(tickers):
+    """Uit de ticker_info-cache; alleen bij een gemiste cache een .info-call (één Yahoo-call per ticker, traag)."""
+    # Een FX-paar noteert al in EUR per eenheid vreemde valuta.
+    valuta = {t: "EUR" for t in tickers if t in FX_PAREN}
+    rest = [t for t in tickers if t not in valuta]
+    try:
+        details = db_get_ticker_details(rest) if rest else {}
+    except Exception as e:
+        print(f"[koersen] WARN valuta-cache niet te lezen ({e!a}) - terugval op Yahoo")
+        details = {}
+    for t in rest:
+        uit_cache = (details.get(t) or {}).get("valuta")
+        valuta[t] = _controleer_valuta(t, uit_cache) if uit_cache else _haal_valuta_op(t)
+    return valuta
+
+
 def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
     """In-place; `verversen` volgt de aanroeper (get_prices())."""
-    for t in tickers_kolommen:
-        if t not in raw.columns:
-            continue
-        currency = _haal_valuta_op(t)
+    tickers = [t for t in tickers_kolommen if t in raw.columns]
+    valuta = _valuta_per_ticker(tickers)
+    for t in tickers:
+        currency = valuta[t]
         if currency in ("USD", "GBP", "GBp"):
             fx = _fx_prijzen_serie(currency, verversen=verversen)
             fx = fx.reindex(raw.index).ffill()
@@ -118,9 +145,41 @@ def _converteer_naar_eur(raw, tickers_kolommen, verversen=True):
             raw[t] = raw[t] / divisor * fx
 
 
+def _in_groepjes(lijst, grootte):
+    return [lijst[i:i + grootte] for i in range(0, len(lijst), grootte)]
+
+
+def _download_ruwe_koersen_in_eur(tickers, vanaf, verversen):
+    """({ticker: Series met RUWE koersen in EUR}, {ticker: {iso_datum: ratio}}), alleen voor tickers waarvan
+    Yahoo koersen én splits teruggaf; een ticker zonder splitlijst wordt niet opgeslagen (de koers zou onbetrouwbaar zijn)."""
+    close, splits = download_koersen_met_retry(tickers, vanaf)
+    if isinstance(close, pd.Series):
+        close = close.to_frame(name=tickers[0] if isinstance(tickers, list) else tickers)
+
+    ruw = pd.DataFrame({
+        t: ruwe_koers(close[t], splits[t]) for t in close.columns if t in splits
+    })
+    # Pas ná het terugrekenen: een doorgetrokken koers is de laatste echte koers, nooit een ander moment.
+    ruw = ruw.ffill()
+    gelukt = list(ruw.columns)
+    for t in gelukt:
+        eerste_ruw = ruw[t].first_valid_index()
+        dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, gevraagd vanaf {vanaf}")
+    _converteer_naar_eur(ruw, gelukt, verversen=verversen)
+    return ruw, {t: splits[t] for t in gelukt}
+
+
+def _rijen(ruw):
+    return [
+        (t, datum.date(), float(koers))
+        for t in ruw.columns for datum, koers in ruw[t].dropna().items()
+    ]
+
+
 def get_prices(tickers, start_date, verversen=True):
-    """Koersen in EUR, index = datum, kolommen = tickers.
-    verversen=False slaat alleen de incrementele verversing over; nieuwe tickers worden altijd gedownload."""
+    """RUWE koersen in EUR (de koers zoals hij die dag noteerde, zie CLAUDE.md: Data en rekenen), index = datum,
+    kolommen = tickers. verversen=False slaat alleen de incrementele verversing over; nieuwe tickers worden altijd gedownload.
+    Past de opbouw niet binnen KOERS_TIJDBUDGET_SECONDEN, dan staan de rest in .attrs["koersen_onvolledig"]."""
     tickers = [t for t in tickers if t]
     if not tickers:
         return pd.DataFrame()
@@ -129,7 +188,7 @@ def get_prices(tickers, start_date, verversen=True):
     vandaag = pd.Timestamp.now().normalize()
 
     # Vroegste datum: gaat de cache ver genoeg terug? Laatste: is hij nog actueel?
-    datums, laatst_ververst_vandaag, koers_rijen = db_get_gecachte_prijzen(tickers, vandaag.date(), start_date.date())
+    datums, laatst_ververst_vandaag, koers_rijen = db_get_gecachte_koersen(tickers, vandaag.date(), start_date.date())
     datums_cache = {t: (pd.Timestamp(eerste), pd.Timestamp(laatste)) for t, (eerste, laatste) in datums.items()}
     cached = pd.DataFrame(koers_rijen, columns=["ticker", "datum", "koers_eur"])
 
@@ -161,63 +220,56 @@ def get_prices(tickers, start_date, verversen=True):
         _noteer_fx_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
         _noteer_koers_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
 
+    onvolledig = []
     if missing:
         with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
-            raw = download_met_retry(missing, start_date)
-            if isinstance(raw, pd.Series):
-                raw = raw.to_frame(name=missing[0])
-            raw = raw.ffill()
-
-            for t in missing:
-                if t not in raw.columns:
+            begin = time.monotonic()
+            for groepje in _in_groepjes(missing, KOERS_DOWNLOAD_GROEPJE):
+                if time.monotonic() - begin > KOERS_TIJDBUDGET_SECONDEN:
+                    onvolledig.extend(groepje)
                     continue
-                eerste_ruw = raw[t].first_valid_index()
-                dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, "
-                       f"gevraagd vanaf {start_date}")
+                ruw, splits = _download_ruwe_koersen_in_eur(groepje, start_date, verversen)
+                fresh_rows = _rijen(ruw)
+                db_save_koersen(fresh_rows, splits)
 
-            _converteer_naar_eur(raw, missing, verversen=verversen)
-
-            fresh_rows = []
-            for t in missing:
-                if t not in raw.columns:
-                    continue
-                for datum, koers in raw[t].dropna().items():
-                    fresh_rows.append((t, datum.date(), float(koers)))
-            db_save_prices(fresh_rows)
-
-            fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
-            # Bij overlap de verse waarde houden; duplicaten breken pivot().
-            cached = pd.concat([cached, fresh_df], ignore_index=True)
-            cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
+                fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
+                # Bij overlap de verse waarde houden; duplicaten breken pivot().
+                cached = pd.concat([cached, fresh_df], ignore_index=True)
+                cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
     if stale and verversen:
         # Per ticker: yfinance kent geen eigen startdatum per ticker in één bulk-call.
         with meet_tijd(f"koersen_download_incrementeel ({len(stale)} ticker(s))"):
             stale_rows = []
+            stale_splits = {}
             for t, vanaf in stale.items():
-                raw_t = download_met_retry(t, vanaf)
-                if isinstance(raw_t, pd.Series):
-                    raw_t = raw_t.to_frame(name=t)
-                raw_t = raw_t.ffill()
-                if t not in raw_t.columns or raw_t[t].dropna().empty:
+                ruw_t, splits_t = _download_ruwe_koersen_in_eur(t, vanaf, verversen)
+                if t not in ruw_t.columns or ruw_t[t].dropna().empty:
                     dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
                            f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
                     continue
-                _converteer_naar_eur(raw_t, [t], verversen=verversen)
                 _noteer_fx_bron(t, FX_BRON_VERVERST)
                 _noteer_koers_bron(t, FX_BRON_VERVERST)
-                for datum, koers in raw_t[t].dropna().items():
-                    stale_rows.append((t, datum.date(), float(koers)))
+                stale_rows.extend(_rijen(ruw_t))
+                stale_splits.update(splits_t)
 
             if stale_rows:
-                db_upsert_prices(stale_rows)
+                db_save_koersen(stale_rows, stale_splits)
                 stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
                 cached = pd.concat([cached, stale_df], ignore_index=True)
                 cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
 
+    if onvolledig:
+        meld(CATEGORIE_KOERSEN, LET_OP,
+             f"Koersen nog niet compleet: {len(onvolledig)} van {len(tickers)} ticker(s) ({', '.join(onvolledig)}) zijn "
+             f"nog niet opgehaald en tellen voorlopig niet mee in de waarde. Open het portfolio opnieuw om verder te gaan.",
+             sleutel="koersen_onvolledig")
+
     if cached.empty:
-        _meld_koersen(tickers, set())
-        return pd.DataFrame()
+        _meld_koersen(tickers, set(onvolledig))
+        leeg = pd.DataFrame()
+        leeg.attrs["koersen_onvolledig"] = onvolledig
+        return leeg
 
     cached["datum"] = pd.to_datetime(cached["datum"])
     cached["koers_eur"] = cached["koers_eur"].astype(float)
@@ -229,7 +281,8 @@ def get_prices(tickers, start_date, verversen=True):
         eerste_geldige = pivot[t].first_valid_index()
         dprint(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
 
-    _meld_koersen(tickers, set(pivot.columns))
+    _meld_koersen(tickers, set(pivot.columns) | set(onvolledig))
+    pivot.attrs["koersen_onvolledig"] = onvolledig
     return pivot
 
 

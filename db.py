@@ -55,6 +55,37 @@ def db_init():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS koersen (
+            ticker TEXT NOT NULL,
+            datum DATE NOT NULL,
+            -- ruwe koers in EUR: de koers zoals hij die dag noteerde, nooit achteraf voor splits gecorrigeerd
+            koers_eur NUMERIC NOT NULL,
+            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (ticker, datum)
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS koers_splits (
+            ticker TEXT NOT NULL,
+            datum DATE NOT NULL,
+            ratio NUMERIC NOT NULL,
+            PRIMARY KEY (ticker, datum)
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS prijscheck_koersen (
+            ticker TEXT NOT NULL,
+            datum DATE NOT NULL,
+            -- ruwe slotkoers en dagrange in eigen valuta (zoals koersen.koers_eur, maar zonder FX)
+            slotkoers NUMERIC,
+            valuta TEXT,
+            high NUMERIC,
+            low NUMERIC,
+            opgehaald_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (ticker, datum)
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ticker_info (
             ticker TEXT PRIMARY KEY,
             is_etf BOOLEAN NOT NULL,
@@ -581,6 +612,145 @@ def db_get_gecachte_prijzen(tickers, vandaag, start_datum):
     return datums, bijgewerkt_vandaag, koersen
 
 
+def db_save_koersen(rijen, splits_per_ticker):
+    """rijen: (ticker, datum, koers_eur) met RUWE koersen; splits_per_ticker: {ticker: {iso_datum: ratio}} uit
+    dezelfde Yahoo-response (ook leeg). Eén transactie: koersen zonder bijbehorende splits mogen niet bestaan."""
+    if not rijen and not splits_per_ticker:
+        return
+    conn = db_connect()
+    cur = conn.cursor()
+    try:
+        if rijen:
+            execute_values(
+                cur,
+                "INSERT INTO koersen (ticker, datum, koers_eur, bijgewerkt_op) VALUES %s "
+                "ON CONFLICT (ticker, datum) DO UPDATE SET "
+                "koers_eur = EXCLUDED.koers_eur, bijgewerkt_op = EXCLUDED.bijgewerkt_op",
+                rijen,
+                template="(%s, %s, %s, NOW())",
+            )
+        split_rijen = [
+            (ticker, datum, ratio)
+            for ticker, splits in splits_per_ticker.items() for datum, ratio in splits.items()
+        ]
+        if split_rijen:
+            execute_values(
+                cur,
+                "INSERT INTO koers_splits (ticker, datum, ratio) VALUES %s "
+                "ON CONFLICT (ticker, datum) DO UPDATE SET ratio = EXCLUDED.ratio",
+                split_rijen,
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
+def db_get_gecachte_koersen(tickers, vandaag, start_datum):
+    """Geeft ({ticker: (eerste_datum, laatste_datum)}, {ticker: bijgewerkt_op van vandaag}, [(ticker, datum, koers_eur)])."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT ticker, MIN(datum), MAX(datum) FROM koersen WHERE ticker = ANY(%s) GROUP BY ticker",
+        (tickers,),
+    )
+    datums = {ticker: (eerste, laatste) for ticker, eerste, laatste in cur.fetchall()}
+
+    cur.execute(
+        "SELECT ticker, bijgewerkt_op FROM koersen WHERE ticker = ANY(%s) AND datum = %s",
+        (tickers, vandaag),
+    )
+    bijgewerkt_vandaag = {ticker: bijgewerkt_op for ticker, bijgewerkt_op in cur.fetchall()}
+
+    cur.execute(
+        "SELECT ticker, datum, koers_eur FROM koersen WHERE ticker = ANY(%s) AND datum >= %s",
+        (tickers, start_datum),
+    )
+    koersen = cur.fetchall()
+    cur.close()
+    conn.close()
+    return datums, bijgewerkt_vandaag, koersen
+
+
+def db_get_koers_splits(tickers):
+    """{ticker: {iso_datum: ratio}} voor elke ticker die koersen heeft (leeg dict = geen splits sinds de eerste koers).
+    Tickers zonder koersen ontbreken: daar is de splitlijst onbekend."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT k.ticker, s.datum, s.ratio "
+        "FROM (SELECT DISTINCT ticker FROM koersen WHERE ticker = ANY(%s)) k "
+        "LEFT JOIN koers_splits s ON s.ticker = k.ticker",
+        (tickers,),
+    )
+    resultaat = {}
+    for ticker, datum, ratio in cur.fetchall():
+        splits = resultaat.setdefault(ticker, {})
+        if datum is not None:
+            splits[datum.isoformat()] = float(ratio)
+    cur.close()
+    conn.close()
+    return resultaat
+
+
+def db_get_laatste_koers_update(tickers):
+    """(laatste_koersdatum, laatst_opgehaald_op in UTC), of (None, None)."""
+    if not tickers:
+        return None, None
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT MAX(datum), MAX(bijgewerkt_op) FROM koersen WHERE ticker = ANY(%s)",
+        (tickers,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    return (row[0], row[1]) if row else (None, None)
+
+
+def db_get_cached_prijscheck_koers(ticker, datum):
+    """(slotkoers, valuta, high, low), of None als nooit geprobeerd; None ín de tuple = geprobeerd, mislukt."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT slotkoers, valuta, high, low FROM prijscheck_koersen WHERE ticker = %s AND datum = %s",
+        (ticker, datum),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        return None
+    slotkoers, valuta, high, low = row
+    return (
+        float(slotkoers) if slotkoers is not None else None,
+        valuta,
+        float(high) if high is not None else None,
+        float(low) if low is not None else None,
+    )
+
+
+def db_save_prijscheck_koers(ticker, datum, slotkoers, valuta, high=None, low=None):
+    """Permanent, ook bij slotkoers None. Alleen RUWE waarden opslaan."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO prijscheck_koersen (ticker, datum, slotkoers, valuta, high, low) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (ticker, datum) DO UPDATE SET slotkoers = EXCLUDED.slotkoers, "
+        "valuta = EXCLUDED.valuta, high = EXCLUDED.high, low = EXCLUDED.low, "
+        "opgehaald_op = CURRENT_TIMESTAMP",
+        (ticker, datum, slotkoers, valuta, high, low),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 TRANSACTIE_KOLOMMEN = [
     "datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur",
     "echte_naam", "transactiekosten", "waarde_eur", "tijd",
@@ -603,6 +773,16 @@ def db_get_portfolio_naam_en_transacties(code):
     cur.close()
     conn.close()
     return result[0] or "", rows
+
+
+def db_get_order_ids(code):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT order_id FROM transacties WHERE code = %s AND order_id IS NOT NULL", (code,))
+    order_ids = [r[0] for r in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return order_ids
 
 
 def db_portfolio_bestaat_met_cursor(cur, code):

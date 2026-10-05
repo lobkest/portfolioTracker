@@ -226,9 +226,11 @@ class TestBasisCacheMeldingen(unittest.TestCase):
     def tearDown(self):
         self.po._wis_portfolio_basis_cache(TEST_CODE)
 
+    @patch("portfolio_orchestratie._meld_datakwaliteit")
     @patch("portfolio_orchestratie.get_prices")
+    @patch("portfolio_orchestratie.db_get_koers_splits", return_value={})
     @patch("db.db_connect")
-    def test_hit_geeft_meldingen_opnieuw_mee(self, mock_conn, mock_get_prices):
+    def test_hit_geeft_meldingen_opnieuw_mee(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit):
         mock_conn.side_effect = lambda: _fake_conn()
 
         def fake_get_prices(tickers, start_date, verversen=True):

@@ -26,7 +26,7 @@ def _datums(*isos):
 class TestHoldingsOpDatums(unittest.TestCase):
     def _trades(self, *rijen):
         return pd.DataFrame(
-            [{"ticker": "X", "datum": pd.Timestamp(d), "adj_aantal": a} for d, a in rijen]
+            [{"ticker": "X", "datum": pd.Timestamp(d), "aantal": a} for d, a in rijen]
         )
 
     def test_nul_voor_de_eerste_aankoop(self):
@@ -73,14 +73,14 @@ class TestHoldingsOpDatums(unittest.TestCase):
 
     def test_decimal_en_nan_aantal(self):
         trades = pd.DataFrame([
-            {"ticker": "X", "datum": pd.Timestamp("2023-01-01"), "adj_aantal": Decimal("2.5")},
-            {"ticker": "X", "datum": pd.Timestamp("2023-01-02"), "adj_aantal": float("nan")},
+            {"ticker": "X", "datum": pd.Timestamp("2023-01-01"), "aantal": Decimal("2.5")},
+            {"ticker": "X", "datum": pd.Timestamp("2023-01-02"), "aantal": float("nan")},
         ])
         datums = _datums("2023-01-01", "2023-01-02")
         self.assertEqual(holdings_op_datums(trades, datums), [2.5, 2.5])
 
     def test_geen_transacties_geeft_nullen(self):
-        trades = pd.DataFrame(columns=["ticker", "datum", "adj_aantal"])
+        trades = pd.DataFrame(columns=["ticker", "datum", "aantal"])
         datums = _datums("2023-01-01", "2023-01-02")
         self.assertEqual(holdings_op_datums(trades, datums), [0.0, 0.0])
 

@@ -151,6 +151,7 @@ function toonDashboard(data) {
     document.getElementById("dashCode").textContent = data.code || "";
 
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
+    toonKoersenBanner(data);
 
     if (!data.chart_data) {
         document.getElementById("geenData").style.display = "block";
@@ -236,6 +237,21 @@ function toonTickerWaarschuwingBanner(waarschuwingen) {
     banner.style.display = "block";
 }
 
+// Nooit stil onvolledige totalen: posities zonder (volledige) koersen staan bovenaan.
+function toonKoersenBanner(data) {
+    const banner = document.getElementById("koersenBanner");
+    const tekst = koersMeldingTekst(data.koersen_onvolledig, data.koersen_ontbreken);
+    if (!tekst) {
+        banner.style.display = "none";
+        return;
+    }
+    document.getElementById("koersenBannerTekst").textContent = tekst;
+    // Opnieuw openen kan alleen met een code; bij 'niet opslaan' zou de analyse verdwijnen.
+    const opnieuw = data.code && (data.koersen_onvolledig || []).length > 0;
+    document.getElementById("koersenOpnieuwKnop").style.display = opnieuw ? "inline-block" : "none";
+    banner.style.display = "block";
+}
+
 // Ook de terug- en vooruit-knop van de browser komen hier langs.
 window.addEventListener("hashchange", () => {
     if (huidigeData && huidigeData.chart_data) wisselView(viewUitUrl());
@@ -243,6 +259,10 @@ window.addEventListener("hashchange", () => {
 
 document.getElementById("resetZoomBtn").addEventListener("click", () => {
     if (chart) chart.resetZoom();
+});
+
+document.getElementById("koersenOpnieuwKnop").addEventListener("click", () => {
+    window.location.reload();
 });
 
 document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () => {

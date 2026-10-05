@@ -54,6 +54,10 @@ class TestBasisCache(unittest.TestCase):
         self.mock_get_conn = self._get_conn_patcher.start()
         self.addCleanup(self._get_conn_patcher.stop)
 
+        datakwaliteit_patcher = patch("portfolio_orchestratie._meld_datakwaliteit")
+        datakwaliteit_patcher.start()
+        self.addCleanup(datakwaliteit_patcher.stop)
+
     def test_tweede_aanroep_binnen_ttl_doet_geen_nieuwe_db_call(self):
         with patch.object(self.portfolio_orchestratie.time, "time", return_value=1000.0):
             naam1, df1, prices1 = self.portfolio_orchestratie._haal_portfolio_basis(TEST_CODE)

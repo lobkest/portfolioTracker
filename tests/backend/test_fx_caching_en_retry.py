@@ -13,7 +13,7 @@ Daarnaast stond het rate-limit-detectiepatroon (+ oplopende backoff)
 bijna-identiek uitgeschreven in _fetch_yf_info en de _haal_*_op-functies
 in ticker_prijscheck.py -- nu gedeeld via _met_rate_limit_retry().
 
-Draait geheel offline: db_connect/download_met_retry/db_save_prices/
+Draait geheel offline: db_connect/download_koersen_met_retry/db_save_koersen/
 yf.Ticker/time.sleep worden gemockt, geen echte database- of Yahoo-calls.
 """
 import os
@@ -58,8 +58,8 @@ class TestFxKoersCaching(unittest.TestCase):
     eigen, ongecachete FX-koers."""
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_tweede_fx_opzoeking_zelfde_valuta_en_datum_doet_geen_nieuwe_download(
         self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
@@ -82,7 +82,7 @@ class TestFxKoersCaching(unittest.TestCase):
             # via een kolom-default bij elke INSERT) -> geen nieuwe download.
             tweede_laatst_ververst=[("USDEUR=X", datetime.now())],
         )
-        mock_download.return_value = pd.Series({gevraagde_datum: 0.9}, name="USDEUR=X")
+        mock_download.return_value = (pd.Series({gevraagde_datum: 0.9}, name="USDEUR=X"), {"USDEUR=X": {}})
 
         eerste = ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum)
         tweede = ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum)
@@ -92,7 +92,7 @@ class TestFxKoersCaching(unittest.TestCase):
         self.assertEqual(tweede, 0.9)
 
     def test_onbekende_valuta_geeft_none_zonder_download(self):
-        with patch("prijzen.download_met_retry") as mock_download:
+        with patch("prijzen.download_koersen_met_retry") as mock_download:
             resultaat = ticker_prijscheck._fx_koers_op_datum("JPY", pd.Timestamp("2024-03-01"))
 
         self.assertIsNone(resultaat)
@@ -106,8 +106,8 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
     download triggeren zodra _fx_koers_op_datum() met verversen=False wordt
     aangeroepen -- ongeacht hoe oud die cache-rij is."""
 
-    @patch("prijzen.db_upsert_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_stale_fx_cache_triggert_geen_download_bij_verversen_false(
         self, mock_get_conn, mock_download, mock_upsert
@@ -135,8 +135,8 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
         mock_upsert.assert_not_called()
         self.assertEqual(resultaat, 0.9)
 
-    @patch("prijzen.db_upsert_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_zelfde_stale_cache_zou_wel_verversen_bij_verversen_true(
         self, mock_get_conn, mock_download, mock_upsert
@@ -161,7 +161,7 @@ class TestFxKoersOpDatumVerversenFalse(unittest.TestCase):
         conn = MagicMock()
         conn.cursor.return_value = cur
         mock_get_conn.return_value = conn
-        mock_download.return_value = pd.Series({vandaag: 0.93}, name="USDEUR=X")
+        mock_download.return_value = (pd.Series({vandaag: 0.93}, name="USDEUR=X"), {"USDEUR=X": {}})
 
         ticker_prijscheck._fx_koers_op_datum("USD", gevraagde_datum, verversen=True)
 

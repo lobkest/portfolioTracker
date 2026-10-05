@@ -47,6 +47,14 @@ def bereken_xirr(cashflows):
         return None
 
 
+def _rijen_met_cashflow(df):
+    """Zonder corporate-action-rijen, maar mét wisselrijen (ook op DEG): de cash-in-lieu is echt geld."""
+    if df.empty:
+        return df
+    wissel = df["is_wisselrij"].astype(bool) if "is_wisselrij" in df.columns else False
+    return df[~df.apply(_is_corporate_action_row, axis=1) | wissel]
+
+
 def bereken_twr(transacties_df, resultaat):
     """Time-weighted return als fractie, of None. cf telt mee op de einddatum van een sub-periode;
     corporate-action-rijen tellen niet als cashflow."""
@@ -54,7 +62,7 @@ def bereken_twr(transacties_df, resultaat):
         return None
 
     df = transacties_df.dropna(subset=["ticker"])
-    df = df[~df.apply(_is_corporate_action_row, axis=1)]
+    df = _rijen_met_cashflow(df)
     cf_lookup = {}
     for _, row in df.iterrows():
         cf = -float(row["totaal_eur"])
@@ -199,7 +207,7 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
     if resultaat.empty:
         return []
     df = transacties_df.dropna(subset=["ticker"])
-    df = df[~df.apply(_is_corporate_action_row, axis=1)]
+    df = _rijen_met_cashflow(df)
     cashflows = [
         (pd.Timestamp(row["datum"]).date(), float(row["totaal_eur"]))
         for _, row in df.iterrows() if float(row["totaal_eur"]) != 0

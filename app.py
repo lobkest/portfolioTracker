@@ -29,7 +29,7 @@ from upload_verwerking import (
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
-    _laad_split_gecorrigeerde_transacties,
+    _laad_split_gecorrigeerde_transacties, _pas_effectieve_datums_toe, continue_koersreeks,
     _ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar,
 )
@@ -243,7 +243,9 @@ def benchmark_vergelijking(code):
     if vergelijk_ticker not in vergelijk_prices.columns:
         return jsonify({"error": f"Geen koersdata gevonden voor '{vergelijk_label}'."}), 400
 
-    vergelijking = bereken_benchmark_vergelijking(transacties_df, resultaat, vergelijk_prices[vergelijk_ticker])
+    # Ruwe koersen springen op een splitdag; de vergelijking koopt en waardeert stukken, dus een continue reeks.
+    vergelijk_koersen = continue_koersreeks(vergelijk_ticker, vergelijk_prices[vergelijk_ticker])
+    vergelijking = bereken_benchmark_vergelijking(transacties_df, resultaat, vergelijk_koersen)
     if vergelijking is None:
         return jsonify({"error": "Vergelijking kon niet berekend worden."}), 400
 
@@ -284,6 +286,7 @@ def ticker_koers_bereik(code):
     serie = price_data[ticker].dropna()
     if tot:
         serie = serie[serie.index <= pd.Timestamp(tot)]
+    transacties_df = _pas_effectieve_datums_toe(transacties_df)
 
     return jsonify({
         "labels": [d.strftime("%Y-%m-%d") for d in serie.index],

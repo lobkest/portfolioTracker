@@ -34,6 +34,10 @@
                 <span id="tickerWaarschuwingTekst"></span>
                 <button id="tickerWaarschuwingKnop" type="button" class="margeLinks10">Naar Ticker-zekerheid</button>
             </div>
+            <div id="koersenBanner" class="waarschuwingBanner" style="display: none;">
+                <span id="koersenBannerTekst"></span>
+                <button id="koersenOpnieuwKnop" type="button" class="margeLinks10" style="display: none;">Opnieuw openen</button>
+            </div>
 
             <!-- Gedeeld door meerdere tabbladen, daarom boven de tabblad-blokken. -->
             <p id="instellingenMsg" class="melding positief" data-verberg-buiten="instellingen-bijnamen" style="display: none;"></p>
@@ -318,6 +322,7 @@
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dividend.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/koersen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>

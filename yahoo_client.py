@@ -94,17 +94,40 @@ BULK_DOWNLOAD_POGINGEN = 3
 BULK_DOWNLOAD_WACHTTIJD = 5  # seconden; vast (niet oplopend)
 
 
-def download_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOAD_POGINGEN, wachttijd=BULK_DOWNLOAD_WACHTTIJD):
-    """Bewust anders dan _met_rate_limit_retry: retry op elke fout, vaste wachttijd, lege Series bij mislukken."""
+def _als_frame(data, ticker_of_pair):
+    if isinstance(data, pd.Series):
+        return data.to_frame(name=ticker_of_pair if isinstance(ticker_of_pair, str) else ticker_of_pair[0])
+    return data
+
+
+def _splits_per_ticker(stock_splits):
+    """{ticker: {iso_datum: ratio}} uit Yahoo's 'Stock Splits'-kolom (0 = geen split die dag)."""
+    resultaat = {}
+    for ticker in stock_splits.columns:
+        kolom = stock_splits[ticker]
+        dagen = kolom[kolom.notna() & (kolom != 0)]
+        resultaat[ticker] = {pd.Timestamp(d).date().isoformat(): float(r) for d, r in dagen.items()}
+    return resultaat
+
+
+def download_koersen_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOAD_POGINGEN, wachttijd=BULK_DOWNLOAD_WACHTTIJD):
+    """(Close, splits): Close met auto_adjust=False is split-gecorrigeerd maar niet dividend-gecorrigeerd; de splits komen
+    uit dezelfde response. Bewust anders dan _met_rate_limit_retry: retry op elke fout, vaste wachttijd, bij mislukken
+    een leeg DataFrame en {}. Een ticker zonder 'Stock Splits'-kolom staat niet in splits."""
     for poging in range(1, pogingen + 1):
         try:
             _tel_yahoo_call("yf.download")
-            return yf.download(ticker_of_pair, start=start_date, auto_adjust=True, progress=False)["Close"]
+            data = yf.download(ticker_of_pair, start=start_date, auto_adjust=False, actions=True, progress=False)
+            close = _als_frame(data["Close"], ticker_of_pair)
+            try:
+                splits = _splits_per_ticker(_als_frame(data["Stock Splits"], ticker_of_pair))
+            except KeyError:
+                splits = {}
+            return close, splits
         except Exception:
             if poging < pogingen:
                 _tel_yahoo_retry("retries")
                 time.sleep(wachttijd)
             else:
                 _tel_yahoo_retry("mislukt")
-                return pd.Series(dtype=float)
-
+                return pd.DataFrame(dtype=float), {}

@@ -10,6 +10,7 @@ function resetPerAandeelAankoop() {
 // Ook gebruikt voor de dummy-legenda-datasets.
 const AANKOOP_KLEUR = "#2c7a4b";
 const VERKOOP_KLEUR = "#9C0006"; // zelfde rood als de foutmeldingen en verwijderPortfolioBtn
+const SPLIT_KLEUR = "#6f42c1";
 
 // Eigen Chart i.p.v. updateChart(): twee y-assen en de annotation-plugin.
 function toonPerAandeelAankoop(ticker) {
@@ -54,10 +55,28 @@ function toonPerAandeelAankoop(ticker) {
         });
         return annotaties;
     }
+    // Ruwe koersen (zoals DeGiro ze toont) springen op een splitdag; het aantal springt dan andersom mee.
+    const splitAnnotaties = {};
+    (d.splits || []).forEach(split => {
+        const i = splitLabelIndex(d.labels, split.datum);
+        if (i === -1 || split.datum < d.labels[0]) return;
+        splitAnnotaties[`split-${split.datum}`] = {
+            type: "line",
+            xMin: labelsNL[i],
+            xMax: labelsNL[i],
+            borderColor: SPLIT_KLEUR,
+            borderWidth: 2,
+            label: { display: true, content: splitLabel(split.ratio), position: "start", backgroundColor: SPLIT_KLEUR },
+        };
+    });
     const annotaties = {
         ...maakVerticaleAnnotaties(d.aankoop_datums, "aankoop", AANKOOP_KLEUR),
         ...maakVerticaleAnnotaties(d.verkoop_datums, "verkoop", VERKOOP_KLEUR),
+        ...splitAnnotaties,
     };
+    const splitLegenda = Object.keys(splitAnnotaties).length
+        ? [{ label: "Split", data: [], borderColor: SPLIT_KLEUR, borderWidth: 2, pointRadius: 0 }]
+        : [];
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "line",
@@ -102,6 +121,7 @@ function toonPerAandeelAankoop(ticker) {
                     borderWidth: 1.5,
                     pointRadius: 0,
                 },
+                ...splitLegenda,
             ],
         },
         options: {

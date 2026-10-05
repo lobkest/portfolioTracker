@@ -127,11 +127,11 @@ class TestYahooTellers(_MetRequest):
 
     @patch("yahoo_client.time.sleep")
     @patch("yahoo_client.yf.download")
-    def test_download_met_retry_telt_en_geeft_lege_series(self, mock_download, _sleep):
+    def test_download_koersen_met_retry_telt_en_geeft_leeg_resultaat(self, mock_download, _sleep):
         mock_download.side_effect = RuntimeError("netwerk")
-        resultaat = yahoo_client.download_met_retry("AAPL", "2024-01-01")
-        self.assertIsInstance(resultaat, pd.Series)
-        self.assertTrue(resultaat.empty)
+        close, splits = yahoo_client.download_koersen_met_retry("AAPL", "2024-01-01")
+        self.assertTrue(close.empty)
+        self.assertEqual(splits, {})
         self.assertEqual(yahoo_client.yahoo_teller_stand(), (3, 2, 1))
 
     def test_reset_zet_tellers_op_nul(self):
@@ -175,8 +175,8 @@ def _mock_conn(min_max_rows, laatst_ververst_rows, cached_rows):
 
 class TestKoersenMeldingen(_MetRequest):
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_cache_en_download_zonder_data(self, mock_conn, mock_download, _save, mock_ticker):
         mock_ticker.return_value.info = {"currency": "EUR"}
@@ -189,7 +189,7 @@ class TestKoersenMeldingen(_MetRequest):
             laatst_ververst_rows=[("AAPL", datetime.now())],
             cached_rows=[("AAPL", eerste.date(), 100.0), ("AAPL", vandaag.date(), 110.0)],
         )
-        mock_download.return_value = pd.Series(dtype=float)
+        mock_download.return_value = (pd.DataFrame(dtype=float), {})
 
         resultaat, meldingen, _ = self._in_request(prijzen.get_prices, ["AAPL", "MSFT"], eerste)
 
@@ -342,9 +342,11 @@ class TestCacheHitNieuweMeldingen(_MetRequest):
     def tearDown(self):
         po._wis_portfolio_basis_cache(TEST_CODE)
 
+    @patch("portfolio_orchestratie._meld_datakwaliteit")
     @patch("portfolio_orchestratie.get_prices")
+    @patch("portfolio_orchestratie.db_get_koers_splits", return_value={})
     @patch("db.db_connect")
-    def test_hit_geeft_koersmeldingen_opnieuw_zonder_laadtijden(self, mock_conn, mock_get_prices):
+    def test_hit_geeft_koersmeldingen_opnieuw_zonder_laadtijden(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit):
         mock_conn.side_effect = lambda: _fake_conn()
         index = pd.date_range("2024-01-01", "2024-02-29", freq="D")
         mock_get_prices.return_value = pd.DataFrame(

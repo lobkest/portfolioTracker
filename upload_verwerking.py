@@ -10,6 +10,7 @@ from diagnostiek import (
     meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND,
     GOED, INFO, LET_OP, FOUT,
 )
+from split_correctie import vind_wisselparen
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
@@ -111,12 +112,23 @@ def _adjust_transaction_exchange_rates(df):
     return df
 
 
+def _wisselrij_labels(df):
+    """Index-labels van de omboekingen bij een ISIN-wissel (splits): geen markttransactie, dus niet voor de prijscheck."""
+    standaard = pd.DataFrame({
+        "datum": df["Datum"], "tijd": df["Tijd"], "isin": df["ISIN"], "aantal": df["Aantal"],
+        "koers": df["_koers_eur"], "transactiekosten": pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce"),
+    })
+    paren, _onduidelijk = vind_wisselparen(standaard)
+    return {label for paar in paren for label in paar.oud_rijen + paar.nieuw_rijen}
+
+
 def _bouw_posities(df):
     """[(product, isin, beurs, transacties)] per (ISIN, Beurs); product is dat van de eerste rij."""
+    wisselrijen = _wisselrij_labels(df)
     return [
         (groep["Product"].iloc[0], isin, beurs, [
             {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
-            for _, row in groep.iterrows()
+            for label, row in groep.iterrows() if label not in wisselrijen
         ])
         for (isin, beurs), groep in df.groupby(["ISIN", "Beurs"])
     ]

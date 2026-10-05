@@ -51,7 +51,7 @@ class TestBenchmarkVergelijkingEigenTicker(unittest.TestCase):
             index=pd.to_datetime(["2023-01-01", "2023-01-02"]),
         )
         with patch.object(self.app_module, "_laad_transacties_en_resultaat", return_value=(transacties_df, resultaat)), \
-             patch.object(self.app_module, "get_prices", return_value=prices):
+             patch.object(self.app_module, "get_prices", return_value=prices),              patch("portfolio_orchestratie.db_get_koers_splits", return_value={}):
             res = self.client.get(f"/api/portfolio/{self.TEST_CODE}/benchmark-vergelijking?eigen_ticker=VWCE.AS")
 
         self.assertEqual(res.status_code, 200)
@@ -73,7 +73,7 @@ class TestBenchmarkVergelijkingEigenTicker(unittest.TestCase):
         )
         with patch.object(self.app_module, "_laad_transacties_en_resultaat", return_value=(transacties_df, resultaat)), \
              patch.object(self.app_module, "get_prices", return_value=prices), \
-             patch.object(self.app_module, "BENCHMARK_TICKERS", {"S&P 500": "URTH"}):
+             patch.object(self.app_module, "BENCHMARK_TICKERS", {"S&P 500": "URTH"}),              patch("portfolio_orchestratie.db_get_koers_splits", return_value={}):
             res = self.client.get(f"/api/portfolio/{self.TEST_CODE}/benchmark-vergelijking?benchmark=S%26P%20500")
 
         self.assertEqual(res.status_code, 200)
@@ -82,6 +82,19 @@ class TestBenchmarkVergelijkingEigenTicker(unittest.TestCase):
         with patch.object(self.app_module, "_laad_transacties_en_resultaat", return_value=(None, None)):
             res = self.client.get("/api/portfolio/ZZZNIETBESTAAND/benchmark-vergelijking?eigen_ticker=X")
         self.assertEqual(res.status_code, 404)
+
+
+    def test_eigen_ticker_met_split_geeft_geen_sprong(self):
+        # Ruwe koers 10, na een 4:1-split op 03-01 noteert hij 2,50: de waarde van de gekochte stukken blijft 100.
+        datums = pd.to_datetime(["2023-01-01", "2023-01-02", "2023-01-03"])
+        transacties_df, _ = self._transacties_en_resultaat(("VWCE.AS",))
+        resultaat = pd.DataFrame({"waarde": [100.0] * 3, "geinvesteerd": [100.0] * 3}, index=datums)
+        prices = pd.DataFrame({"VWCE.AS": [10.0, 10.0, 2.5]}, index=datums)
+        with patch.object(self.app_module, "_laad_transacties_en_resultaat", return_value=(transacties_df, resultaat)),              patch.object(self.app_module, "get_prices", return_value=prices),              patch("portfolio_orchestratie.db_get_koers_splits", return_value={"VWCE.AS": {"2023-01-03": 4.0}}):
+            res = self.client.get(f"/api/portfolio/{self.TEST_CODE}/benchmark-vergelijking?eigen_ticker=VWCE.AS")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.get_json()["waarde"], [100.0, 100.0, 100.0])
 
 
 if __name__ == "__main__":

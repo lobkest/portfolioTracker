@@ -137,7 +137,8 @@ class TestConverteerNaarEurOngewijzigd(unittest.TestCase):
         self.fx = pd.Series([0.9, 0.8], index=index)
 
     def _converteer(self):
-        with self.app.test_request_context(), redirect_stdout(io.StringIO()):
+        # Lege valuta-cache: de valuta komt dan via yf.Ticker(...).info, zoals deze tests mocken.
+        with self.app.test_request_context(), redirect_stdout(io.StringIO()),                 patch("prijzen.db_get_ticker_details", return_value={}):
             prijzen._converteer_naar_eur(self.raw, ["T"])
             return diagnostiek.haal_meldingen()
 

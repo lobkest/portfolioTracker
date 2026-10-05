@@ -17,8 +17,8 @@ verversen, met een 2-minuten-hergebruikdrempel (o.b.v. de bijgewerkt_op-
 kolom) om te voorkomen dat de meerdere endpoints van één portfolio-opening
 (home, verrijking, ticker-zekerheid) Yahoo kort na elkaar dubbel bevragen.
 
-Deze tests raken de database NIET aan -- db_connect, download_met_retry,
-db_save_prices/db_upsert_prices en yf.Ticker worden gemockt.
+Deze tests raken de database NIET aan -- db_connect, download_koersen_met_retry,
+db_save_koersen en yf.Ticker worden gemockt.
 """
 import io
 import os
@@ -54,8 +54,8 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
     incrementeel verversen, niet stilzwijgend laten staan."""
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_upsert_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_verouderde_cache_wordt_incrementeel_ververst(
         self, mock_get_conn, mock_download, mock_upsert, mock_yf_ticker
@@ -72,11 +72,11 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
             cached_rows=[("AAPL", eerste.date(), 100.0), ("AAPL", oude_max.date(), 150.0)],
         )
         # incrementele download levert precies 1 nieuwe (verse) koers op
-        mock_download.return_value = pd.Series({vandaag: 160.0}, name="AAPL")
+        mock_download.return_value = (pd.Series({vandaag: 160.0}, name="AAPL"), {"AAPL": {}})
 
         result = prijzen.get_prices(["AAPL"], eerste)
 
-        # download_met_retry moet zijn aangeroepen VANAF de oude max-datum
+        # download_koersen_met_retry moet zijn aangeroepen VANAF de oude max-datum
         # zelf (niet pas de dag erna) -- die dag moet nu juist herververst
         # kunnen worden, dat is precies het punt van deze fix.
         ticker_arg, vanaf_arg = mock_download.call_args[0][:2]
@@ -88,8 +88,8 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         self.assertEqual(result.loc[vandaag, "AAPL"], 160.0)
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_upsert_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_ticker_met_rij_van_vandaag_wordt_toch_ververst(
         self, mock_get_conn, mock_download, mock_upsert, mock_yf_ticker
@@ -111,7 +111,7 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
             cached_rows=[("AAPL", eerste.date(), 100.0), ("AAPL", vandaag.date(), 200.0)],
         )
         # nieuwe download levert een afwijkende (bv. inmiddels definitieve) koers op
-        mock_download.return_value = pd.Series({vandaag: 205.0}, name="AAPL")
+        mock_download.return_value = (pd.Series({vandaag: 205.0}, name="AAPL"), {"AAPL": {}})
 
         result = prijzen.get_prices(["AAPL"], eerste)
 
@@ -121,8 +121,8 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         mock_upsert.assert_called_once()
         self.assertEqual(result.loc[vandaag, "AAPL"], 205.0)
 
-    @patch("prijzen.db_upsert_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_net_ververste_ticker_wordt_niet_dubbel_bevraagd(
         self, mock_get_conn, mock_download, mock_upsert
@@ -153,8 +153,8 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
     behandelen (geen download), maar een écht ontbrekende ticker nog
     altijd downloaden."""
 
-    @patch("prijzen.db_upsert_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_stale_ticker_wordt_niet_ververst_als_verversen_false(
         self, mock_get_conn, mock_download, mock_upsert
@@ -176,8 +176,8 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
         self.assertEqual(result.loc[vandaag, "AAPL"], 200.0)
 
     @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_prices")
-    @patch("prijzen.download_met_retry")
+    @patch("prijzen.db_save_koersen")
+    @patch("prijzen.download_koersen_met_retry")
     @patch("db.db_connect")
     def test_missende_ticker_wordt_alsnog_gedownload_als_verversen_false(
         self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
@@ -191,7 +191,7 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
             laatst_ververst_rows=[],
             cached_rows=[],
         )
-        mock_download.return_value = pd.Series({vandaag: 300.0}, name="MSFT")
+        mock_download.return_value = (pd.Series({vandaag: 300.0}, name="MSFT"), {"MSFT": {}})
 
         result = prijzen.get_prices(["MSFT"], eerste, verversen=False)
 
@@ -212,7 +212,7 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
         transacties_df = pd.DataFrame({
             "ticker": ["AAPL", "AAPL"],
             "datum": [pd.Timestamp("2024-01-01").date(), pd.Timestamp("2024-01-05").date()],
-            "adj_aantal": [1.0, 1.0],
+            "aantal": [1.0, 1.0],
             "totaal_eur": [-100.0, -110.0],
         })
 
@@ -234,7 +234,7 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
         transacties_df = pd.DataFrame({
             "ticker": ["AAPL"],
             "datum": [pd.Timestamp("2024-01-01").date()],
-            "adj_aantal": [1.0],
+            "aantal": [1.0],
             "totaal_eur": [-100.0],
         })
 
