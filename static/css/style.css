@@ -823,6 +823,10 @@ body {
     margin-left: 6px;
 }
 
+.bijnaamStatus {
+    margin-left: 8px;
+}
+
 /* Instellingen > Ticker-zekerheid: één kaart per positie. */
 .tickerKaart {
     margin-bottom: 18px;

@@ -644,6 +644,26 @@ def db_get_bekende_tickers(cur, code):
     return {(isin, beurs): ticker for isin, beurs, ticker in cur.fetchall()}
 
 
+def db_get_product_per_ticker(cur, code):
+    """{ticker: product} van de laatst toegevoegde rij per ticker."""
+    cur.execute(
+        "SELECT DISTINCT ON (ticker) ticker, product FROM transacties "
+        "WHERE code = %s AND ticker IS NOT NULL ORDER BY ticker, id DESC",
+        (code,),
+    )
+    return {ticker: product for ticker, product in cur.fetchall()}
+
+
+def db_laad_product_per_ticker(code):
+    conn = db_connect()
+    cur = conn.cursor()
+    try:
+        return db_get_product_per_ticker(cur, code)
+    finally:
+        cur.close()
+        conn.close()
+
+
 def db_insert_transactie(cur, code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
                       order_id, echte_naam, transactiekosten, waarde_eur, tijd):
     """Geeft False als de rij al bestond (ON CONFLICT DO NOTHING)."""
@@ -699,12 +719,34 @@ def db_wijzig_bijnaam(code, ticker, bijnaam):
     conn.close()
 
 
+def db_wijzig_bijnamen(code, bijnaam_per_ticker):
+    """Alle bijnamen in één transactie; alle rijen van een ticker krijgen dezelfde naam."""
+    conn = db_connect()
+    cur = conn.cursor()
+    try:
+        for ticker, bijnaam in bijnaam_per_ticker.items():
+            cur.execute(
+                "UPDATE transacties SET product = %s WHERE code = %s AND ticker = %s",
+                (bijnaam, code, ticker),
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 def db_herstel_echte_naam(code, ticker):
+    """Alle rijen van de ticker krijgen de echte_naam van de nieuwste rij (één product per ticker)."""
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "UPDATE transacties SET product = echte_naam WHERE code = %s AND ticker = %s",
-        (code, ticker),
+        "UPDATE transacties SET product = COALESCE("
+        "(SELECT echte_naam FROM transacties WHERE code = %s AND ticker = %s ORDER BY id DESC LIMIT 1), product) "
+        "WHERE code = %s AND ticker = %s",
+        (code, ticker, code, ticker),
     )
     conn.commit()
     cur.close()

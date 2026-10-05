@@ -16,7 +16,11 @@ from ticker_zekerheid import (
     find_ticker_met_snelle_prijscheck,
 )
 from portfolio_admin import find_matching_code, generate_code
-from db import db_save_dividenden, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie
+from db import (
+    db_save_dividenden, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
+    db_get_product_per_ticker,
+)
+from ticker_classificatie import haal_long_names
 from dividend import verwerk_rekeningoverzicht
 
 VERWACHTE_KOLOMMEN = [
@@ -142,15 +146,35 @@ def _ticker_resolutie_niet_opslaan_pad(df):
     return ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw
 
 
-def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs):
+def _bepaal_product_per_ticker(df, ticker_by_isin_beurs, bestaand=None):
+    """{ticker: product}: bestaande tickers houden hun product, nieuwe krijgen Yahoo's longName (anders de DeGiro-naam)."""
+    bestaand = bestaand or {}
+    echte_naam_per_ticker = {}
+    for isin, beurs, naam in zip(df["ISIN"], df["Beurs"], df["Product"]):
+        ticker = ticker_by_isin_beurs.get((isin, beurs))
+        if ticker:
+            echte_naam_per_ticker.setdefault(ticker, naam)
+
+    nieuwe_tickers = [t for t in echte_naam_per_ticker if t not in bestaand]
+    long_names = haal_long_names(nieuwe_tickers)
+
+    product_per_ticker = dict(bestaand)
+    for ticker in nieuwe_tickers:
+        product_per_ticker[ticker] = long_names.get(ticker) or echte_naam_per_ticker[ticker]
+    return product_per_ticker
+
+
+def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker=None):
     """Zelfde kolommen als TRANSACTIE_KOLOMMEN in db.py; samen wijzigen."""
+    product_per_ticker = product_per_ticker or {}
+    tickers = [ticker_by_isin_beurs.get((isin_val, beurs_val))
+               for isin_val, beurs_val in zip(df["ISIN"], df["Beurs"])]
     return pd.DataFrame({
         "datum": df["Datum"],
-        "product": df["Product"],
+        "product": [product_per_ticker.get(ticker, naam) for ticker, naam in zip(tickers, df["Product"])],
         "isin": df["ISIN"],
         "beurs": df["Beurs"],
-        "ticker": [ticker_by_isin_beurs.get((isin_val, beurs_val))
-                   for isin_val, beurs_val in zip(df["ISIN"], df["Beurs"])],
+        "ticker": tickers,
         "aantal": df["Aantal"].astype(float),
         "koers": df["_koers_eur"].astype(float),
         "totaal_eur": df["Totaal EUR"].astype(float),
@@ -276,8 +300,15 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
     return ticker_by_isin_beurs
 
 
-def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
+def _product_per_ticker_opslaan_pad(cur, code, rows_to_insert, ticker_by_isin_beurs):
+    return _bepaal_product_per_ticker(
+        rows_to_insert, ticker_by_isin_beurs, bestaand=db_get_product_per_ticker(cur, code),
+    )
+
+
+def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker=None):
     """Geeft het aantal INSERT's zonder exception, inclusief rijen die ON CONFLICT negeerde."""
+    product_per_ticker = product_per_ticker or {}
     ingevoegd = 0
     # Alleen voor de Diagnostiek.
     opgeslagen = genegeerd = mislukt = 0
@@ -286,9 +317,10 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs):
         try:
             kosten_waarde = pd.to_numeric(row[KOSTEN_KOLOM], errors="coerce")
             waarde_eur_waarde = row[WAARDE_KOLOM]
+            ticker = ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])]
             nieuw = db_insert_transactie(
-                cur, code, row["Datum"].date(), row["Product"], row["ISIN"], row["Beurs"],
-                ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])], float(row["Aantal"]), float(row["_koers_eur"]),
+                cur, code, row["Datum"].date(), product_per_ticker.get(ticker, row["Product"]), row["ISIN"], row["Beurs"],
+                ticker, float(row["Aantal"]), float(row["_koers_eur"]),
                 float(row["Totaal EUR"]), row["Order ID"], row["Product"],
                 float(kosten_waarde) if pd.notna(kosten_waarde) else None,
                 float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,

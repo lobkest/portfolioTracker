@@ -412,7 +412,9 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | `/api/portfolio/<code>/dividend` | GET | `dividend()` | `bereken_dividend_samenvatting()`; `{"beschikbaar": False}` als er geen dividenden zijn | `toonDividend()` |
 | `/api/portfolio/<code>/transacties` | GET | `transacties_overzicht()` | `{"lijst": db_get_transacties_overzicht(code)}` | `toonTransacties()` |
 | `/api/portfolio/<code>/bijnaam` | POST | `set_bijnaam()` | `UPDATE transacties SET product = ...` voor alle rijen met die ticker | `slaBijnaamOp()` |
-| `/api/portfolio/<code>/reset-bijnaam` | POST | `reset_bijnaam()` | `product = echte_naam` | `resetBijnaam()` |
+| `/api/portfolio/<code>/reset-bijnaam` | POST | `reset_bijnaam()` | `product` = live `longName` (`haal_long_names()`), anders `echte_naam` | `resetBijnaam()` |
+| `/api/portfolio/<code>/korte-namen` | GET | `get_korte_namen()` | `bepaal_korte_naam_voorstellen()`: `[{ticker, huidig, voorstel}]`, schrijft niets; 502 als Yahoo niets teruggeeft | `laadKorteNamen()` |
+| `/api/portfolio/<code>/korte-namen` | POST | `pas_korte_namen_toe()` | berekent de voorstellen opnieuw, `db_wijzig_bijnamen()` voor alle tickers met een voorstel (één transactie) | `pasKorteNamenToe()` |
 | `/api/portfolio/<code>` | DELETE | `verwijder_portfolio()` | `db_delete_portfolio()` + cache wissen | handler van `#verwijderPortfolioBtn` |
 | `/api/portfolio/<code>/wijzig-code` | POST | `wijzig_code()` | valideert met `is_geldige_code()`, dan `db_wijzig_portfolio_code()` | handler van `#wijzigCodeBtn` |
 
@@ -1022,7 +1024,7 @@ Lezen: `generate_code()` (bestaat de code al? via `db_portfolio_bestaat_met_curs
 | `code` | TEXT, NOT NULL, foreign key → `portfolios(code)` | |
 | `datum` | DATE, NOT NULL | transactiedatum |
 | `tijd` | TIME | uitvoeringstijd; nodig voor de chronologische volgorde binnen een dag |
-| `product` | TEXT, NOT NULL | **bijnaam** (standaard gelijk aan `echte_naam`, aanpasbaar via Instellingen → Bijnamen) |
+| `product` | TEXT, NOT NULL | **bijnaam** (bij een nieuwe ticker Yahoo's `longName`, anders `echte_naam`; één waarde per ticker per portfolio; aanpasbaar via Instellingen → Bijnamen) |
 | `echte_naam` | TEXT | de productnaam zoals in het Excel-bestand; dit gaat naar de Yahoo-zoekopdracht |
 | `isin` | TEXT, NOT NULL | |
 | `beurs` | TEXT | DeGiro-beurscode (sleutel in `BEURS_MAP`); corporate-action-rijen hebben `DEG` |

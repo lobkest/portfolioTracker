@@ -76,6 +76,7 @@ class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
         with patch.object(self.app_module, "verifieer_tickers_met_prijs_parallel") as mock_dure_check, \
              patch.object(self.upload_verwerking, "basis_ticker_zekerheid_parallel",
                            side_effect=lambda posities, **kw: [dict(BASIS_RESULTAAT) for _ in posities]) as mock_basis, \
+             patch.object(self.upload_verwerking, "haal_long_names", return_value={}), \
              patch.object(self.app_module, "get_prices", return_value=pd.DataFrame()):
             excel = _maak_transacties_excel(n_posities=5)
             res = self.client.post(

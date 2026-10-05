@@ -10,7 +10,10 @@ except ImportError:
     resource = None
 
 
-from db import db_get_portfolio_naam_en_transacties, db_get_laatste_prijs_update, TRANSACTIE_KOLOMMEN
+from db import (
+    db_get_portfolio_naam_en_transacties, db_get_laatste_prijs_update, TRANSACTIE_KOLOMMEN,
+    db_laad_product_per_ticker, db_get_ticker_details,
+)
 from debug_utils import meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
@@ -30,7 +33,12 @@ from portfolio_verdeling import (
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
     bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX,
 )
-from ticker_classificatie import classify_tickers, _verwarm_land_sector_cache_parallel
+from ticker_classificatie import classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names
+from naam_verkorting import kies_korte_namen
+
+
+class YahooNamenOnbeschikbaar(Exception):
+    pass
 
 
 # Alleen voor de 2-3 requests van één portfolio-bezoek; per gunicorn-worker.
@@ -175,6 +183,24 @@ def _ticker_zekerheid_groepen(code):
         groep["transacties"].append({"datum": datum, "koers": koers})
 
     return list(per_isin_beurs.items())
+
+
+def bepaal_korte_naam_voorstellen(code):
+    """[{ticker, huidig, voorstel}]; voorstel is None zonder Yahoo-longName. Schrijft niets weg."""
+    huidig = db_laad_product_per_ticker(code)
+    tickers = sorted(huidig)
+    if not tickers:
+        return []
+
+    long_names = haal_long_names(tickers)
+    if not any(long_names.values()):
+        raise YahooNamenOnbeschikbaar()
+
+    details = db_get_ticker_details(tickers)
+    voorstellen = kies_korte_namen({
+        t: {"long_name": long_names[t], "fund_family": details.get(t, {}).get("fund_family")} for t in tickers
+    })
+    return [{"ticker": t, "huidig": huidig[t], "voorstel": voorstellen.get(t)} for t in tickers]
 
 
 def build_portfolio_response(code, verversen=True):

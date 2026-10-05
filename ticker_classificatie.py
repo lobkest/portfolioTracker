@@ -3,6 +3,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import yfinance as yf
+from yahooquery import Ticker as YahooqueryTicker
 
 from db import (
     db_get_cached_classifications, db_save_classification, db_get_cached_land_sector, db_save_land_sector,
@@ -24,6 +25,31 @@ def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WA
     if fout is not None:
         return None
     return info
+
+
+def haal_long_names(tickers):
+    """{ticker: Yahoo longName of None}, in één batch-call; bij een mislukte call None voor alle tickers."""
+    tickers = list(dict.fromkeys(t for t in tickers if t))
+    if not tickers:
+        return {}
+
+    def _actie():
+        _tel_yahoo_call("yahooquery.Ticker.price")
+        return YahooqueryTicker(tickers).price
+
+    price, fout = _met_rate_limit_retry(_actie)
+    if fout is not None or not isinstance(price, dict):
+        return {t: None for t in tickers}
+
+    long_names = {}
+    for t in tickers:
+        # Een fout of onbekende ticker komt als string terug, geen dict.
+        regel = price.get(t)
+        if not isinstance(regel, dict):
+            regel = price.get(t.upper())
+        naam = regel.get("longName") if isinstance(regel, dict) else None
+        long_names[t] = naam.strip() if isinstance(naam, str) and naam.strip() else None
+    return long_names
 
 
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):

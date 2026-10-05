@@ -4,8 +4,9 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for
 import pandas as pd
 from db import (
     db_connect, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
-    db_portfolio_bestaat, db_wijzig_bijnaam, db_herstel_echte_naam,
+    db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
 )
+from ticker_classificatie import haal_long_names
 from prijzen import get_prices
 from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
@@ -23,13 +24,14 @@ from portfolio_admin import is_geldige_code, CODE_LENGTH
 from upload_verwerking import (
     _lees_transacties_excel, _adjust_transaction_exchange_rates, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _create_synthetic_order_ids, _vind_of_maak_portfolio_code,
-    _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties,
-    _verwerk_dividend_bestand_indien_aanwezig, _verwerk_dividend_bestand_zonder_opslaan,
+    _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties, _bepaal_product_per_ticker,
+    _product_per_ticker_opslaan_pad, _verwerk_dividend_bestand_indien_aanwezig, _verwerk_dividend_bestand_zonder_opslaan,
 )
 from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
     _laad_split_gecorrigeerde_transacties,
     _ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
+    bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
 from portfolio_calc import holdings_op_datums
@@ -113,7 +115,8 @@ def _upload_impl():
         # Alleen de lichte ticker-check: de volledige liep hier over de
         # gunicorn-timeout (zie CLAUDE.md: Yahoo en tickers).
         ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = _ticker_resolutie_niet_opslaan_pad(df)
-        transacties_df = _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs)
+        product_per_ticker = _bepaal_product_per_ticker(df, ticker_by_isin_beurs)
+        transacties_df = _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
@@ -134,8 +137,11 @@ def _upload_impl():
         with meet_tijd("ticker_resolutie"):
             ticker_by_isin_beurs = _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)
 
+        with meet_tijd("long_names_ophalen"):
+            product_per_ticker = _product_per_ticker_opslaan_pad(cur, code, rows_to_insert, ticker_by_isin_beurs)
+
         with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
-            _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs)
+            _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker)
 
     conn.commit()
     cur.close()
@@ -409,7 +415,44 @@ def reset_bijnaam(code):
     if not ticker:
         return jsonify({"error": "Ticker is verplicht."}), 400
 
-    db_herstel_echte_naam(code, ticker)
+    long_name = haal_long_names([ticker]).get(ticker)
+    if long_name:
+        db_wijzig_bijnaam(code, ticker, long_name)
+    else:
+        db_herstel_echte_naam(code, ticker)
+    _wis_portfolio_basis_cache(code)
+    return jsonify(build_portfolio_response(code, verversen=False))
+
+
+def _korte_namen_voorstellen_of_fout(code):
+    """(voorstellen, None) of (None, (JSON-fout, status))."""
+    if not db_portfolio_bestaat(code):
+        return None, (jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404)
+    try:
+        return bepaal_korte_naam_voorstellen(code), None
+    except YahooNamenOnbeschikbaar:
+        return None, (jsonify({"error": "Yahoo gaf geen namen terug. Probeer het later opnieuw."}), 502)
+
+
+@app.route("/api/portfolio/<code>/korte-namen")
+def get_korte_namen(code):
+    code = code.strip().upper()
+    voorstellen, fout = _korte_namen_voorstellen_of_fout(code)
+    if fout:
+        return fout
+    return jsonify({"namen": voorstellen})
+
+
+@app.route("/api/portfolio/<code>/korte-namen", methods=["POST"])
+def pas_korte_namen_toe(code):
+    code = code.strip().upper()
+    voorstellen, fout = _korte_namen_voorstellen_of_fout(code)
+    if fout:
+        return fout
+
+    nieuwe_namen = {v["ticker"]: v["voorstel"] for v in voorstellen if v["voorstel"]}
+    if nieuwe_namen:
+        db_wijzig_bijnamen(code, nieuwe_namen)
     _wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
