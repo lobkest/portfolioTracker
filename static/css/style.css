@@ -994,6 +994,12 @@ body {
         align-items: start;
     }
 
+    /* Even veel grijze rand boven en onder als aan de zijkanten (20px); alleen het dashboard, de startpagina houdt zijn 60px. */
+    body:has(.dashboard) {
+        padding-top: 20px;
+        padding-bottom: 20px;
+    }
+
     .tabInfo,
     .tabGrafiek {
         min-width: 0;

@@ -25,7 +25,7 @@ uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt 
 - **Portfolio-pagina** (`/p/<code>`): het dashboard. Het tabblad staat in de
   URL (`/p/ABC#rendement`), dus verversen, bladwijzers en de terug-knop werken
   per tabblad. Tabbladen: Portfolio-home, Rendement (met benchmark), Per
-  aandeel, Per aandeel aankoop, Verdeling, Land, Sector, Top-bedrijven,
+  aandeel, Per aandeel aankoop, Verdeling, Land, Sector, Valuta, Top-bedrijven,
   ETF-overlap, Statistieken, Transacties, Prognose,
   Dividend en Instellingen (bijnamen, ticker-zekerheid, diagnostiek).
 
