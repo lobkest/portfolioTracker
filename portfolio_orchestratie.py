@@ -12,19 +12,21 @@ except ImportError:
 
 from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
-    db_laad_product_per_ticker, db_get_ticker_details, db_get_order_ids,
+    db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
+    db_get_cached_openfigi_voor_isins,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
     check_corporate_action_rijen, check_isin_wissels, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
-    check_dagsprong, _naam_per_ticker,
+    check_dagsprong, tickers_met_koersafwijking, check_koers_stilstand, _naam_per_ticker, ticker_bevindingen,
+    check_valuta_consistentie,
 )
 from debug_utils import meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
-    CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, GOED, INFO, LET_OP,
+    CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, GOED, INFO, LET_OP,
 )
-from transactie_utils import _is_corporate_action_row
+from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from prijzen import get_prices
 from portfolio_calc import (
     compute_split_adjusted_shares, compute_value_over_time, compute_per_ticker,
@@ -143,7 +145,7 @@ def _meld_datakwaliteit(code, transacties_df):
         bevindingen = (
             check_ontbrekende_kolommen(transacties_df)
             + check_posities_zonder_ticker(transacties_df)
-            + check_synthetische_order_ids(db_get_order_ids(code))
+            + check_synthetische_order_ids(pd.DataFrame(db_get_order_id_rijen(code), columns=ORDER_ID_KOLOMMEN))
             + check_corporate_action_rijen(transacties_df)
         )
         for b in bevindingen:
@@ -154,13 +156,47 @@ def _meld_datakwaliteit(code, transacties_df):
         print(f"[diagnostiek] WARN datakwaliteit niet gecontroleerd ({e!a})")
 
 
+def _meld_tickers(transacties_df, ticker_waarschuwingen):
+    """Alleen caches: ticker_info en openfigi_cache, geen Yahoo- of OpenFIGI-call. Mag het laden nooit breken."""
+    try:
+        met_ticker = transacties_df.dropna(subset=["ticker"])
+        tickers = met_ticker["ticker"].unique().tolist()
+        isins = met_ticker["isin"].dropna().unique().tolist()
+        bevindingen = ticker_bevindingen(
+            transacties_df, db_get_ticker_details(tickers), db_get_cached_openfigi_voor_isins(isins), ticker_waarschuwingen)
+        for b in bevindingen:
+            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        print(f"[diagnostiek] WARN tickers niet gecontroleerd ({e!a})")
+
+
+def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
+    """Alleen direct na een upload, als de Excel er nog is."""
+    try:
+        tickers = sorted({t for t in ticker_per_isin_beurs.values() if t})
+        valuta = {t: d.get("valuta") for t, d in db_get_ticker_details(tickers).items()}
+        for b in check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta):
+            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        print(f"[diagnostiek] WARN valuta-consistentie niet gecontroleerd ({e!a})")
+
+
+def ticker_per_isin_beurs_uit_basis(code):
+    """{(isin, beurs): ticker} uit de (net gebouwde, dus gecachete) basis van `code`."""
+    _naam, transacties_df, _prijzen = _haal_portfolio_basis(code)
+    if transacties_df is None:
+        return {}
+    rijen = transacties_df.dropna(subset=["ticker", "isin"])
+    return {(i, b): t for i, b, t in zip(rijen["isin"], rijen["beurs"], rijen["ticker"])}
+
+
 def _meld_plausibiliteit(transacties_df, price_data, per_ticker):
     """Diagnostiek mag het laden nooit breken."""
     try:
         bevindingen = (
             check_transactiekoers_vs_rekenkoers(transacties_df, price_data)
             + check_waarde_vs_inleg(per_ticker, _naam_per_ticker(transacties_df))
-            + check_dagsprong(transacties_df, per_ticker)
+            + check_dagsprong(transacties_df, per_ticker, tickers_met_koersafwijking(transacties_df, price_data))
         )
         for b in bevindingen:
             meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
@@ -182,10 +218,15 @@ def _meld_koersdekking(transacties_df, price_data):
         if eerste_koers is None or eerste_koers <= eerste_transactie + pd.Timedelta(days=MARGE_EERSTE_KOERS_DAGEN):
             continue
         meld(CATEGORIE_KOERSEN, LET_OP,
-             f"Koersen voor '{ticker}' beginnen pas op {pd.Timestamp(eerste_koers).strftime('%Y-%m-%d')}, de "
-             f"eerste transactie was op {eerste_transactie.strftime('%Y-%m-%d')}: tot de eerste koers telt deze "
+             f"Koersen voor '{ticker}' beginnen pas op {formatteer_datum_nl(eerste_koers)}, de "
+             f"eerste transactie was op {formatteer_datum_nl(eerste_transactie)}: tot de eerste koers telt deze "
              f"positie met waarde 0 mee, terwijl de inleg al meetelt.",
              sleutel=f"koers_later:{ticker}")
+    try:
+        for b in check_koers_stilstand(transacties_df, price_data):
+            meld(CATEGORIE_KOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        print(f"[diagnostiek] WARN koersstilstand niet gecontroleerd ({e!a})")
 
 
 def _meld_etf_holdings(land_sector_verdeling):
@@ -345,6 +386,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
 
     # Leest alleen de prijscheck-cache: normaal geen nieuwe Yahoo-calls.
     ticker_waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
+    _meld_tickers(transacties_df, ticker_waarschuwingen)
 
     if resource:
         mem_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss

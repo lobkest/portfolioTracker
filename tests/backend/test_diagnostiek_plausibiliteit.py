@@ -12,10 +12,10 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from diagnostiek import GOED, LET_OP
+from diagnostiek import GOED, INFO, LET_OP
 from diagnostiek_checks import (
     MAX_BEVINDINGEN_PER_CHECK, check_dagsprong, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
-    _naam_per_ticker,
+    tickers_met_koersafwijking, _naam_per_ticker,
 )
 from portfolio_calc import compute_per_ticker
 from test_waarde_latere_splits import TICKER, _Omgeving, _rij
@@ -83,19 +83,35 @@ class TestXelaSpikeOudeSituatie(unittest.TestCase):
 
 
 class TestDagsprong(unittest.TestCase):
-    def _invoer(self, sprongdag):
+    def _invoer(self, sprongdag, transactiekoers=10.0):
         dagen = pd.bdate_range("2024-03-01", "2024-03-29")
         koers = pd.Series(10.0, index=dagen)
         koers[sprongdag:] = 25.0
-        df = _df([("2024-03-01", "ACME", "ACME CORP", "US1", "NSY", "ACM", 10, 10.0, -100.0, -100.0)])
+        df = _df([("2024-03-01", "ACME", "ACME CORP", "US1", "NSY", "ACM", 10, transactiekoers, -100.0, -100.0)])
         return df, pd.DataFrame({"ACM": koers})
 
-    def test_sprong_zonder_transactie(self):
+    def _check(self, df, prijs_data):
+        return check_dagsprong(df, compute_per_ticker(df, prijs_data), tickers_met_koersafwijking(df, prijs_data))
+
+    def test_echte_grote_dagbeweging_zonder_koersafwijking_is_info(self):
+        # GME-achtig: +150% op één dag, de transactiekoers klopt met de rekenkoers.
         df, prijs_data = self._invoer("2024-03-12")
-        [b] = check_dagsprong(df, compute_per_ticker(df, prijs_data))
-        self.assertEqual((b["niveau"], b["sleutel"]), (LET_OP, "plausibel:dagsprong:ACM"))
-        for stuk in ("ACME CORP", "12-03-2024", "EUR 100,00", "EUR 250,00", "+150,0%"):
+        [b] = self._check(df, prijs_data)
+        self.assertEqual((b["niveau"], b["sleutel"]), (INFO, "plausibel:dagsprong:ACM"))
+        for stuk in ("ACME CORP", "12-03-2024", "EUR 100,00", "EUR 250,00", "+150,0%", "echte koersbeweging"):
             self.assertIn(stuk, b["tekst"])
+
+    def test_sprong_met_koersafwijking_is_let_op(self):
+        # Gekocht voor 1 terwijl het dashboard met 10 rekent: de reeks zelf is verdacht.
+        df, prijs_data = self._invoer("2024-03-12", transactiekoers=1.0)
+        [b] = self._check(df, prijs_data)
+        self.assertEqual((b["niveau"], b["sleutel"]), (LET_OP, "plausibel:dagsprong:ACM"))
+        self.assertIn("wijken ook af", b["tekst"])
+
+    def test_zonder_koersafwijkingslijst_altijd_info(self):
+        df, prijs_data = self._invoer("2024-03-12", transactiekoers=1.0)
+        [b] = check_dagsprong(df, compute_per_ticker(df, prijs_data))
+        self.assertEqual(b["niveau"], INFO)
 
     def test_sprong_op_transactiedag_telt_niet(self):
         df, prijs_data = self._invoer("2024-03-12")
@@ -117,9 +133,11 @@ class TestDagsprong(unittest.TestCase):
             koersen[f"T{i}"] = koers
             rijen.append(("2024-03-01", f"P{i}", f"P{i}", f"X{i}", "NSY", f"T{i}", 1, 10.0, -10.0, -10.0))
         df = _df(rijen)
-        uit = check_dagsprong(df, compute_per_ticker(df, pd.DataFrame(koersen)))
+        uit = check_dagsprong(df, compute_per_ticker(df, pd.DataFrame(koersen)), {"T0"})
         self.assertEqual(len(uit), MAX_BEVINDINGEN_PER_CHECK + 1)
-        self.assertEqual(uit[0]["sleutel"], f"plausibel:dagsprong:T{aantal - 1}")  # grootste sprong eerst
+        # LET_OP eerst, daarna de grootste sprong.
+        self.assertEqual([b["sleutel"] for b in uit[:2]], ["plausibel:dagsprong:T0", f"plausibel:dagsprong:T{aantal - 1}"])
+        self.assertEqual((uit[-1]["niveau"], uit[-1]["sleutel"]), (INFO, "plausibel:dagsprong:meer"))
         self.assertIn("en 2 meer", uit[-1]["tekst"])
 
 

@@ -225,15 +225,11 @@ document.getElementById("verrijkingOpnieuwBtn").addEventListener("click", () => 
 // Wijst door naar Ticker-zekerheid; kiest zelf nooit een alternatieve ticker.
 function toonTickerWaarschuwingBanner(waarschuwingen) {
     const banner = document.getElementById("tickerWaarschuwingBanner");
-    if (!waarschuwingen || waarschuwingen.length === 0) {
+    const tekst = tickerWaarschuwingTekst(waarschuwingen);
+    if (!tekst) {
         banner.style.display = "none";
         return;
     }
-
-    const namen = waarschuwingen.map(w => w.naam || w.ticker).join(", ");
-    const tekst = waarschuwingen.length === 1
-        ? `⚠️ Bij 1 positie (${namen}) wijkt de koers meer dan verwacht af van Yahoo Finance — controleer het Ticker-zekerheid-tabblad.`
-        : `⚠️ Bij ${waarschuwingen.length} posities (${namen}) wijkt de koers meer dan verwacht af van Yahoo Finance — controleer het Ticker-zekerheid-tabblad.`;
     document.getElementById("tickerWaarschuwingTekst").textContent = tekst;
     banner.style.display = "block";
 }

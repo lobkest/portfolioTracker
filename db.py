@@ -96,7 +96,8 @@ def db_init():
             yahoo_beurs TEXT,
             fund_family TEXT,
             category TEXT,
-            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            long_name TEXT
         );
     """)
     cur.execute("""
@@ -191,19 +192,22 @@ def db_get_cached_classifications(tickers):
 
 
 def db_save_classification(ticker, is_etf, details=None):
-    """details (optioneel): {"land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category"}."""
+    """details (optioneel): {"land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category",
+    "long_name"}. Een ontbrekende long_name overschrijft een bekende niet."""
     details = details or {}
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO ticker_info (ticker, is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) "
+        "INSERT INTO ticker_info (ticker, is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category, "
+        "long_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
         "ON CONFLICT (ticker) DO UPDATE SET is_etf = EXCLUDED.is_etf, land = EXCLUDED.land, "
         "sector = EXCLUDED.sector, quote_type = EXCLUDED.quote_type, valuta = EXCLUDED.valuta, "
         "yahoo_beurs = EXCLUDED.yahoo_beurs, fund_family = EXCLUDED.fund_family, "
-        "category = EXCLUDED.category, bijgewerkt_op = CURRENT_TIMESTAMP",
+        "category = EXCLUDED.category, long_name = COALESCE(EXCLUDED.long_name, ticker_info.long_name), "
+        "bijgewerkt_op = CURRENT_TIMESTAMP",
         (ticker, is_etf, details.get("land"), details.get("sector"), details.get("quote_type"),
-         details.get("valuta"), details.get("yahoo_beurs"), details.get("fund_family"), details.get("category")),
+         details.get("valuta"), details.get("yahoo_beurs"), details.get("fund_family"), details.get("category"),
+         details.get("long_name")),
     )
     conn.commit()
     cur.close()
@@ -216,11 +220,11 @@ def db_get_ticker_details(tickers):
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "SELECT ticker, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category "
+        "SELECT ticker, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category, long_name "
         "FROM ticker_info WHERE ticker = ANY(%s)",
         (tickers,),
     )
-    kolommen = ["land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category"]
+    kolommen = ["land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category", "long_name"]
     result = {row[0]: dict(zip(kolommen, row[1:])) for row in cur.fetchall()}
     cur.close()
     conn.close()
@@ -408,6 +412,32 @@ def db_get_cached_openfigi(isin):
     cur.close()
     conn.close()
     return row[0] if row else None
+
+
+def db_get_cached_openfigi_voor_isins(isins):
+    """{isin: resultaten}; een ISIN die nog nooit is opgevraagd ontbreekt."""
+    if not isins:
+        return {}
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT isin, resultaten FROM openfigi_cache WHERE isin = ANY(%s)", (list(isins),))
+    result = {row[0]: row[1] for row in cur.fetchall()}
+    cur.close()
+    conn.close()
+    return result
+
+
+def db_save_long_names(long_names):
+    """Alleen bestaande ticker_info-rijen; None slaat een ticker over."""
+    paren = [(naam, ticker) for ticker, naam in long_names.items() if naam]
+    if not paren:
+        return
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.executemany("UPDATE ticker_info SET long_name = %s WHERE ticker = %s", paren)
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 def db_save_openfigi(isin, resultaten):
@@ -775,14 +805,19 @@ def db_get_portfolio_naam_en_transacties(code):
     return result[0] or "", rows
 
 
-def db_get_order_ids(code):
+ORDER_ID_KOLOMMEN = ["order_id", "datum", "tijd", "product", "isin", "beurs", "aantal", "koers", "transactiekosten"]
+
+
+def db_get_order_id_rijen(code):
+    """Rijen in de volgorde van ORDER_ID_KOLOMMEN, zodat wissel- en corporate-action-rijen herkenbaar zijn."""
     conn = db_connect()
     cur = conn.cursor()
-    cur.execute("SELECT order_id FROM transacties WHERE code = %s AND order_id IS NOT NULL", (code,))
-    order_ids = [r[0] for r in cur.fetchall()]
+    cur.execute(
+        f"SELECT {', '.join(ORDER_ID_KOLOMMEN)} FROM transacties WHERE code = %s AND order_id IS NOT NULL", (code,))
+    rijen = cur.fetchall()
     cur.close()
     conn.close()
-    return order_ids
+    return rijen
 
 
 def db_portfolio_bestaat_met_cursor(cur, code):

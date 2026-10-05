@@ -8,7 +8,7 @@ from yahooquery import Ticker as YahooqueryTicker
 from db import (
     db_get_cached_classifications, db_save_classification, db_get_cached_land_sector, db_save_land_sector,
     db_get_cached_etf_sector_verdeling, db_save_etf_sector_verdeling, db_get_cached_etf_holdings, db_save_etf_holdings,
-    db_get_ticker_details,
+    db_get_ticker_details, db_save_long_names,
 )
 from debug_utils import dprint
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
@@ -49,11 +49,16 @@ def haal_long_names(tickers):
             regel = price.get(t.upper())
         naam = regel.get("longName") if isinstance(regel, dict) else None
         long_names[t] = naam.strip() if isinstance(naam, str) and naam.strip() else None
+    # Voor de DIS/ACC-check in Diagnostiek; hier niet als cache gelezen.
+    try:
+        db_save_long_names(long_names)
+    except Exception as e:
+        print(f"[classify] WARN long_name niet opgeslagen ({e!a})")
     return long_names
 
 
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
-    """{is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category}, of None bij een fout."""
+    """{is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category, long_name}, of None bij een fout."""
     info = _fetch_yf_info(ticker, pogingen, wachttijd)
     if info is None:
         return None  # onbekend, NIET als aandeel cachen — gewoon opnieuw proberen volgende keer
@@ -101,6 +106,7 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
         "yahoo_beurs": info.get("exchange"),
         "fund_family": fund_family,
         "category": category,
+        "long_name": info.get("longName"),
     }
 
 

@@ -6,7 +6,7 @@ from diagnostiek import meld, CATEGORIE_SPLITS, INFO, LET_OP
 from split_correctie import (
     DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, vind_wisselparen,
 )
-from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl
+from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl, getal_nl
 
 
 def _vind_conversies(df, log=True):
@@ -87,10 +87,6 @@ def _verwerk_wisselparen(df):
                 for label in rijen:
                     if pd.isna(df.at[label, "ticker"]) and ticker:
                         df.at[label, "ticker"] = ticker
-        meld(CATEGORIE_SPLITS, INFO,
-             f"Splitboeking met ISIN-wissel op {formatteer_datum_nl(paar.datum)}: {paar.oud_aantal:g} stuks uit "
-             f"({paar.oud_isin}), {paar.nieuw_aantal:g} stuks in ({paar.nieuw_isin}).",
-             sleutel=f"wisselpaar:{paar.oud_isin}:{paar.nieuw_isin}:{paar.datum:%Y-%m-%d}")
     for dag in onduidelijk:
         meld(CATEGORIE_SPLITS, LET_OP,
              f"Op {formatteer_datum_nl(dag)} staan boekingen (tijd 00:00, zonder kosten) met meer dan twee ISIN's "
@@ -106,6 +102,8 @@ def compute_split_adjusted_shares(transacties_df):
     df["koers"] = df["koers"].fillna(0).astype(float)
     df["effectieve_datum"] = pd.to_datetime(df["datum"])
     df["is_wisselrij"] = False
+    paren, _onduidelijk = vind_wisselparen(df)
+    wisselrijen = {label for paar in paren for label in paar.oud_rijen + paar.nieuw_rijen}
 
     for item in _vind_conversies(df):
         isin, product_naam = item["isin"], item["product_naam"]
@@ -120,10 +118,12 @@ def compute_split_adjusted_shares(transacties_df):
             df.loc[mask, "adj_aantal"] *= ratio
             conv_datum_tekst = pd.Timestamp(conv_date).strftime("%Y-%m-%d")
             meld(CATEGORIE_SPLITS, INFO,
-                 f"Split voor {product_naam} ({isin}) op {formatteer_datum_nl(conv_date)}: factor {ratio:.4f}.",
+                 f"Split voor {product_naam} ({isin}) op {formatteer_datum_nl(conv_date)}: factor {getal_nl(ratio, 4)}.",
                  sleutel=f"split:{isin}:{conv_datum_tekst}")
 
-        if not item["conversies"]:
+        # Een herkende ISIN-wissel meldt meld_split_koppeling() al.
+        ca_rijen = df.index[(df["isin"] == isin) & df.apply(_is_corporate_action_row, axis=1)]
+        if not item["conversies"] and not set(ca_rijen) <= wisselrijen:
             meld(CATEGORIE_SPLITS, LET_OP,
                  f"{product_naam} ({isin}) heeft corporate-action-rijen, maar er is geen splitfactor bepaald "
                  f"({item['reden_geen_factor']}); het aantal aandelen kan vanaf dan afwijken. Bij een corporate action "
@@ -156,15 +156,39 @@ def bepaal_split_boekingen(transacties_df):
         if ticker is not None:
             gebeurtenis = DegiroSplitGebeurtenis(paar.datum, paar.oud_aantal, paar.nieuw_aantal)
             boekingen.append(SplitBoeking(
-                ticker, gebeurtenis, tuple(paar.oud_rijen) + tuple(paar.nieuw_rijen), "wisselpaar"))
+                ticker, gebeurtenis, tuple(paar.oud_rijen) + tuple(paar.nieuw_rijen), "wisselpaar",
+                (paar.oud_isin, paar.nieuw_isin)))
     return boekingen
+
+
+def split_tekst(ratio):
+    """Yahoo-ratio 4 -> 'Split 4:1', 1/3 -> 'Reverse split 1:3' (zoals splitLabel() in koersen.js)."""
+    return f"Split {getal_nl(ratio)}:1" if ratio >= 1 else f"Reverse split 1:{getal_nl(1 / ratio)}"
+
+
+def _wissel_tekst(boeking, koppeling, verschil):
+    g = boeking.gebeurtenis
+    oud_isin, nieuw_isin = boeking.isins or ("?", "?")
+    tekst = (f"{split_tekst(koppeling.yahoo_ratio)} van {boeking.ticker} op {formatteer_datum_nl(koppeling.yahoo_datum)} "
+             f"met ISIN-wissel ({oud_isin} -> {nieuw_isin}): {getal_nl(g.oud_aantal)} stuks uit, "
+             f"{getal_nl(g.nieuw_aantal)} stuks in")
+    # DeGiro boekt hele stukken; het restant onder de 1 gaat contant.
+    fractie = g.oud_aantal * koppeling.yahoo_ratio - g.nieuw_aantal
+    if fractie > 1e-6:
+        tekst += f", fractie {getal_nl(fractie)} stuk contant uitbetaald"
+    if verschil:
+        tekst += (f". DeGiro boekte op {formatteer_datum_nl(g.datum)}; het aantal telt mee vanaf Yahoo's datum")
+    return tekst + "."
 
 
 def meld_split_koppeling(resultaat):
     """Diagnostiek-meldingen bij het koppelen van DeGiro-boekingen aan Yahoo-splits."""
     for boeking, koppeling in resultaat.gekoppeld:
         verschil = (pd.Timestamp(boeking.gebeurtenis.datum).normalize() - koppeling.yahoo_datum).days
-        if verschil:
+        if boeking.patroon == "wisselpaar":
+            meld(CATEGORIE_SPLITS, INFO, _wissel_tekst(boeking, koppeling, verschil),
+                 sleutel=f"split_koppeling:{boeking.ticker}:{koppeling.yahoo_datum:%Y-%m-%d}")
+        elif verschil:
             meld(CATEGORIE_SPLITS, INFO,
                  f"Split van {boeking.ticker}: DeGiro boekte op {formatteer_datum_nl(boeking.gebeurtenis.datum)}, Yahoo op "
                  f"{formatteer_datum_nl(koppeling.yahoo_datum)}; het aantal telt mee vanaf Yahoo's datum.",
@@ -172,13 +196,13 @@ def meld_split_koppeling(resultaat):
     for boeking in resultaat.zonder_yahoo:
         g = boeking.gebeurtenis
         meld(CATEGORIE_SPLITS, LET_OP,
-             f"DeGiro-splitboeking voor {boeking.ticker} op {formatteer_datum_nl(g.datum)} ({g.oud_aantal:g} -> "
-             f"{g.nieuw_aantal:g} stuks) past bij geen Yahoo-split binnen {SPLIT_KOPPEL_MAX_DAGEN} dagen; de waarde kan "
+             f"DeGiro-splitboeking voor {boeking.ticker} op {formatteer_datum_nl(g.datum)} ({getal_nl(g.oud_aantal)} -> "
+             f"{getal_nl(g.nieuw_aantal)} stuks) past bij geen Yahoo-split binnen {SPLIT_KOPPEL_MAX_DAGEN} dagen; de waarde kan "
              f"rond die datum tijdelijk afwijken.",
              sleutel=f"split_zonder_yahoo:{boeking.ticker}:{pd.Timestamp(g.datum):%Y-%m-%d}")
     for ticker, datum, ratio in resultaat.zonder_boeking:
         meld(CATEGORIE_SPLITS, LET_OP,
-             f"Yahoo meldt een split voor {ticker} op {formatteer_datum_nl(datum)} (ratio {ratio:g}) terwijl je stukken "
+             f"Yahoo meldt een split voor {ticker} op {formatteer_datum_nl(datum)} ({split_tekst(ratio).lower()}) terwijl je stukken "
              f"hield, maar er is geen DeGiro-boeking gevonden; het aantal stuks kan vanaf dan niet kloppen.",
              sleutel=f"split_zonder_boeking:{ticker}:{pd.Timestamp(datum):%Y-%m-%d}")
 

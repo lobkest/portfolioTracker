@@ -31,7 +31,7 @@ from portfolio_orchestratie import (
     _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
     _laad_split_gecorrigeerde_transacties, _pas_effectieve_datums_toe, continue_koersreeks,
     _ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
-    bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar,
+    bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
 from portfolio_calc import holdings_op_datums
@@ -118,6 +118,7 @@ def _upload_impl():
         product_per_ticker = _bepaal_product_per_ticker(df, ticker_by_isin_beurs)
         transacties_df = _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
         result = analyze_transacties(transacties_df, code=None, naam=naam or None)
+        meld_valuta_consistentie(df, ticker_by_isin_beurs)
         result["ticker_zekerheid"] = ticker_zekerheid
         result["ticker_posities_ruw"] = ticker_posities_ruw
         result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
@@ -157,6 +158,7 @@ def _upload_impl():
     # Pas ná alle mutaties hierboven wissen.
     _wis_portfolio_basis_cache(code)
     result = build_portfolio_response(code)
+    meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
     response = jsonify(voeg_diagnostiek_toe(result))
     log_yahoo_call_samenvatting()

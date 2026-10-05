@@ -4,7 +4,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { koersMeldingTekst, splitLabel, splitLabelIndex } = require("../static/js/koersen.js");
+const { koersMeldingTekst, tickerWaarschuwingTekst, splitLabel, splitLabelIndex } = require("../static/js/koersen.js");
 
 test("alles compleet: geen melding", () => {
     assert.equal(koersMeldingTekst([], []), null);
@@ -42,4 +42,30 @@ test("splitdatum op of na een grafiekdatum", () => {
     assert.equal(splitLabelIndex(labels, "2021-01-26"), 2);
     assert.equal(splitLabelIndex(labels, "2021-01-23"), 1); // weekend: eerste handelsdag erna
     assert.equal(splitLabelIndex(labels, "2021-02-01"), -1); // buiten de grafiek
+});
+
+test("tickerwaarschuwing: niets zonder waarschuwingen", () => {
+    assert.equal(tickerWaarschuwingTekst([]), null);
+    assert.equal(tickerWaarschuwingTekst(undefined), null);
+});
+
+test("tickerwaarschuwing: alleen OpenFIGI noemt geen koersafwijking", () => {
+    const tekst = tickerWaarschuwingTekst([{ ticker: "VWCE.DE", naam: "VWCE", redenen: ["openfigi"] }]);
+    assert.equal(tekst, "⚠️ Bij 1 positie (VWCE) staat de ticker niet bij wat OpenFIGI voor de ISIN kent. " +
+        "Controleer het Ticker-zekerheid-tabblad.");
+});
+
+test("tickerwaarschuwing: koers, OpenFIGI en beide apart gegroepeerd", () => {
+    const tekst = tickerWaarschuwingTekst([
+        { ticker: "A", naam: "A", redenen: ["koers"] },
+        { ticker: "B", naam: "B", redenen: ["openfigi", "koers"] },
+        { ticker: "C", naam: "C", redenen: ["koers"] },
+    ]);
+    assert.match(tekst, /^⚠️ Bij 2 posities \(A, C\) wijkt de koers meer dan verwacht af/);
+    assert.match(tekst, /Bij 1 positie \(B\) wijkt de koers af van Yahoo Finance én staat de ticker niet bij OpenFIGI\./);
+    assert.doesNotMatch(tekst, /Bij 1 positie \(B\) staat de ticker niet bij wat/);
+});
+
+test("tickerwaarschuwing: zonder redenen (oud antwoord) telt als koers", () => {
+    assert.match(tickerWaarschuwingTekst([{ ticker: "X", naam: "X" }]), /Bij 1 positie \(X\) wijkt de koers/);
 });

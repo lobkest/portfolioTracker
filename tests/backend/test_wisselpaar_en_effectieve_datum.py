@@ -105,7 +105,9 @@ class TestXelaRuweAantallen(_MetRequest):
         self.assertEqual(_cumulatief(df), {"2021-01-08": 13.0, "2021-01-25": 14.0, "2021-01-26": 4.0, "2021-01-27": 0.0})
         self.assertEqual(df["is_wisselrij"].tolist(), [False, False, True, True, False])
         self.assertEqual(df["ticker"].tolist(), ["XELA"] * 5)
-        self.assertTrue(any(m["niveau"] == INFO and "ISIN-wissel" in m["tekst"] for m in meldingen))
+        # De wissel wordt pas gemeld bij de koppeling aan Yahoo (meld_split_koppeling), in één regel; ook geen
+        # "geen splitfactor"-melding voor de wisselrijen op DEG.
+        self.assertEqual(meldingen, [])
 
     def test_wisselrijen_op_deg_zonder_ticker_krijgen_de_ticker_via_isin(self):
         self._controleer("DEG", None)
@@ -169,8 +171,10 @@ class TestEffectieveDatum(_MetRequest):
         _, gekoppeld = bepaal_effectieve_datums(df, boekingen, {"XELA": XELA_SPLITS})
         _, meldingen = self._in_request(meld_split_koppeling, gekoppeld)
         self.assertEqual([(m["niveau"], m["sleutel"]) for m in meldingen], [(INFO, "split_koppeling:XELA:2021-01-26")])
-        self.assertIn("27-01-2021", meldingen[0]["tekst"])
-        self.assertIn("26-01-2021", meldingen[0]["tekst"])
+        self.assertEqual(meldingen[0]["tekst"],
+                         f"Reverse split 1:3 van XELA op 26-01-2021 met ISIN-wissel ({OUD_ISIN} -> {NIEUW_ISIN}): "
+                         f"14 stuks uit, 4 stuks in, fractie 0,67 stuk contant uitbetaald. DeGiro boekte op 27-01-2021; "
+                         f"het aantal telt mee vanaf Yahoo's datum.")
 
         _, geen_yahoo = bepaal_effectieve_datums(df, boekingen, {"XELA": {}})
         _, meldingen = self._in_request(meld_split_koppeling, geen_yahoo)
@@ -179,6 +183,15 @@ class TestEffectieveDatum(_MetRequest):
         _, geen_boeking = bepaal_effectieve_datums(df.iloc[:2], [], {"XELA": {"2021-01-26": 1 / 3}})
         _, meldingen = self._in_request(meld_split_koppeling, geen_boeking)
         self.assertEqual([(m["niveau"], m["sleutel"]) for m in meldingen], [(LET_OP, "split_zonder_boeking:XELA:2021-01-26")])
+        self.assertIn("(reverse split 1:3)", meldingen[0]["tekst"])
+
+    def test_wissel_op_yahoo_datum_geeft_ook_een_regel(self):
+        df, boekingen = self._boekingen_en_df()
+        _, gekoppeld = bepaal_effectieve_datums(df, boekingen, {"XELA": XELA_SPLITS})
+        _, meldingen = self._in_request(meld_split_koppeling, gekoppeld)
+        [m] = meldingen
+        self.assertIn("Reverse split 1:3 van XELA op 26-01-2021", m["tekst"])
+        self.assertNotIn("DeGiro boekte", m["tekst"])
 
 
 class TestConversierijPatroon(_MetRequest):

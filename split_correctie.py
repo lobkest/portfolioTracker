@@ -39,6 +39,7 @@ class SplitBoeking(NamedTuple):
     gebeurtenis: DegiroSplitGebeurtenis
     rijen: tuple
     patroon: str  # "conversierij" of "wisselpaar"
+    isins: tuple = ()  # (oud, nieuw) bij een wisselpaar
 
 
 class Wisselpaar(NamedTuple):

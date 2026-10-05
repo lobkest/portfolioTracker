@@ -15,6 +15,14 @@ def formatteer_datum_nl(datum):
     return pd.Timestamp(datum).strftime("%d-%m-%Y")
 
 
+def getal_nl(x, decimalen=2):
+    """3.5 -> '3,5', 4.0 -> '4': zonder overbodige nullen, met komma."""
+    tekst = f"{float(x):.{decimalen}f}"
+    if "." in tekst:
+        tekst = tekst.rstrip("0").rstrip(".")
+    return "0" if tekst == "-0" else tekst.replace(".", ",")
+
+
 def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
     """Ontbrekende tijd telt als 00:00; mergesort houdt de volgorde daarbinnen stabiel."""
     if tijd_kolom not in df.columns:

@@ -375,11 +375,49 @@ function maakTickerZekerheidPlaceholder(p) {
     return rij;
 }
 
-function toonTickerZekerheidPositieFout(kaart, tekst) {
+function toonTickerZekerheidPositieFout(kaart, tekst, p) {
     const status = kaart.querySelector(".tickerZekerheidStatus");
     if (status) {
         status.textContent = `⚠️ ${tekst}`;
         status.classList.add("negatief");
+    }
+
+    const oudeKnop = kaart.querySelector(".tickerOpnieuwKnop");
+    if (oudeKnop) oudeKnop.remove();
+    const knop = document.createElement("button");
+    knop.className = "tickerOpnieuwKnop";
+    knop.textContent = "Opnieuw proberen";
+    knop.addEventListener("click", () => {
+        knop.disabled = true;
+        knop.textContent = "Bezig...";
+        controleerTickerZekerheidPositie(p, kaart);
+    });
+    kaart.appendChild(knop);
+}
+
+async function controleerTickerZekerheidPositie(p, kaart) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TICKER_POSITIE_TIMEOUT_MS);
+    try {
+        const url = `/api/portfolio/${huidigeData.code}/ticker-zekerheid/positie`
+            + `?isin=${encodeURIComponent(p.isin)}&beurs=${encodeURIComponent(p.beurs)}`;
+        const res = await fetch(url, { signal: controller.signal });
+        const resultaat = await res.json();
+        if (!res.ok) {
+            toonTickerZekerheidPositieFout(kaart, resultaat.error || "Kon deze positie niet controleren.", p);
+            return;
+        }
+        kaart.replaceWith(maakTickerZekerheidKaart(resultaat));
+    } catch (e) {
+        toonTickerZekerheidPositieFout(
+            kaart,
+            e.name === "AbortError"
+                ? "Duurde te lang en is afgebroken."
+                : "Netwerkfout bij het controleren van deze positie.",
+            p
+        );
+    } finally {
+        clearTimeout(timeoutId);
     }
 }
 
@@ -432,32 +470,7 @@ async function toonInstellingenTicker() {
     });
 
     // Max. 4 tegelijk; elke rij wordt bijgewerkt zodra zijn antwoord binnen is.
-    await voerMetConcurrencyLimietUit(posities, 4, async (p) => {
-        const key = `${p.isin}|${p.beurs}`;
-        const kaart = kaarten[key];
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), TICKER_POSITIE_TIMEOUT_MS);
-        try {
-            const url = `/api/portfolio/${huidigeData.code}/ticker-zekerheid/positie`
-                + `?isin=${encodeURIComponent(p.isin)}&beurs=${encodeURIComponent(p.beurs)}`;
-            const res = await fetch(url, { signal: controller.signal });
-            const resultaat = await res.json();
-            if (!res.ok) {
-                toonTickerZekerheidPositieFout(kaart, resultaat.error || "Kon deze positie niet controleren.");
-                return;
-            }
-            kaart.replaceWith(maakTickerZekerheidKaart(resultaat));
-        } catch (e) {
-            toonTickerZekerheidPositieFout(
-                kaart,
-                e.name === "AbortError"
-                    ? "Duurde te lang en is afgebroken."
-                    : "Netwerkfout bij het controleren van deze positie."
-            );
-        } finally {
-            clearTimeout(timeoutId);
-        }
-    });
+    await voerMetConcurrencyLimietUit(posities, 4, p => controleerTickerZekerheidPositie(p, kaarten[`${p.isin}|${p.beurs}`]));
 }
 
 // 'Niet opslaan': de lichte check uit /upload, met een knop voor de volledige check.

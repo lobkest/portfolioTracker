@@ -17,10 +17,22 @@ from diagnostiek_checks import (
 
 
 def _rij(datum=datetime.date(2021, 3, 1), product="ACME", isin="NL0000000001", beurs="EAM", ticker="ACM.AS",
-         aantal=10.0, transactiekosten=1.0, waarde_eur=-100.0, tijd=datetime.time(10, 0), echte_naam=None):
+         aantal=10.0, transactiekosten=1.0, waarde_eur=-100.0, tijd=datetime.time(10, 0), echte_naam=None,
+         koers=10.0, order_id=None):
     return {"datum": datum, "product": product, "isin": isin, "beurs": beurs, "ticker": ticker, "aantal": aantal,
             "transactiekosten": transactiekosten, "waarde_eur": waarde_eur, "tijd": tijd,
-            "echte_naam": echte_naam or product}
+            "echte_naam": echte_naam or product, "koers": koers, "order_id": order_id}
+
+
+def _wisselpaar(d=datetime.date(2022, 2, 1), **extra):
+    """XELA-vorm: tijd 00:00, geen kosten, -100 op de oude en +10 op de nieuwe ISIN."""
+    t = datetime.time(0, 0)
+    return (
+        _rij(ticker="XELA", isin="OLD", product="XELA OUD", aantal=-100.0, datum=d, tijd=t, transactiekosten=None,
+             **extra),
+        _rij(ticker="XELA", isin="NEW", product="XELA NIEUW", aantal=10.0, datum=d, tijd=t, transactiekosten=None,
+             **extra),
+    )
 
 
 def _df(*rijen):
@@ -44,6 +56,10 @@ class TestOntbrekendeKolommen(unittest.TestCase):
         ca = _rij(beurs="DEG", ticker=None, transactiekosten=None, waarde_eur=None, tijd=None)
         verkoop = _rij(aantal=-5.0, waarde_eur=float("nan"))
         self.assertEqual(check_ontbrekende_kolommen(_df(ca, verkoop)), [])
+
+    def test_wisselrijen_tellen_niet_mee(self):
+        # Live: de twee XELA-wisselrijen gaven "2 transacties hebben geen 'transactiekosten'".
+        self.assertEqual(check_ontbrekende_kolommen(_df(*_wisselpaar(), _rij())), [])
 
     def test_lege_df(self):
         self.assertEqual(check_ontbrekende_kolommen(_df()), [])
@@ -74,13 +90,18 @@ class TestPositiesZonderTicker(unittest.TestCase):
 
 class TestSynthetischeOrderIds(unittest.TestCase):
     def test_telt_syn_rijen(self):
-        [b] = check_synthetische_order_ids(["abc", "SYN-1-0", "SYN-2-0", "def"])
+        df = _df(*[_rij(order_id=o) for o in ("abc", "SYN-1-0", "SYN-2-0", "def")])
+        [b] = check_synthetische_order_ids(df)
         self.assertEqual(b["niveau"], INFO)
-        self.assertIn("2 van 4", b["tekst"])
+        self.assertIn("2 van 4 gewone transacties", b["tekst"])
+
+    def test_wissel_en_corporate_action_rijen_tellen_niet_mee(self):
+        df = _df(*_wisselpaar(order_id="SYN-W-0"), _rij(beurs="DEG", order_id="SYN-D-0"), _rij(order_id="abc"))
+        self.assertEqual(check_synthetische_order_ids(df), [])
 
     def test_geen_syn_geeft_niets(self):
-        self.assertEqual(check_synthetische_order_ids(["abc", "def"]), [])
-        self.assertEqual(check_synthetische_order_ids([]), [])
+        self.assertEqual(check_synthetische_order_ids(_df(_rij(order_id="abc"), _rij(order_id="def"))), [])
+        self.assertEqual(check_synthetische_order_ids(_df()), [])
 
 
 class TestCorporateActionRijen(unittest.TestCase):
@@ -103,18 +124,10 @@ class TestCorporateActionRijen(unittest.TestCase):
 
 class TestIsinWissels(unittest.TestCase):
     def _wissel(self):
-        d = datetime.date(2022, 2, 1)
-        t = datetime.time(0, 0)
-        return _df(
-            _rij(ticker="XELA", isin="OLD", product="XELA OUD", aantal=-100.0, datum=d, tijd=t, transactiekosten=0.0),
-            _rij(ticker="XELA", isin="NEW", product="XELA NIEUW", aantal=10.0, datum=d, tijd=t, transactiekosten=None),
-        )
+        return _df(*_wisselpaar())
 
-    def test_herkent_wissel_met_ratio(self):
-        [b] = check_isin_wissels(self._wissel())
-        self.assertEqual(b["niveau"], INFO)
-        for stuk in ("XELA", "OLD", "NEW", "01-02-2022", "10.0000"):
-            self.assertIn(stuk, b["tekst"])
+    def test_herkende_wissel_meldt_meld_split_koppeling_niet_hier(self):
+        self.assertEqual(check_isin_wissels(self._wissel()), [])
 
     def test_meerdere_isins_zonder_patroon(self):
         df = _df(_rij(ticker="T", isin="A"), _rij(ticker="T", isin="B"))
@@ -140,12 +153,13 @@ class TestMeldDatakwaliteit(unittest.TestCase):
 
         df = _df(_rij(tijd=None))
         app = Flask(__name__)
-        with app.test_request_context(), patch.object(po, "db_get_order_ids", return_value=["SYN-1-0"]):
+        rij = ("SYN-1-0", datetime.date(2021, 3, 1), datetime.time(10, 0), "ACME", "NL1", "EAM", 10.0, 10.0, 1.0)
+        with app.test_request_context(), patch.object(po, "db_get_order_id_rijen", return_value=[rij]):
             po._meld_datakwaliteit("ZZTEST", df)
             sleutels = {m["sleutel"] for m in haal_meldingen() if m["categorie"] == CATEGORIE_DATA}
         self.assertEqual(sleutels, {"data:ontbrekend:tijd", "data:synthetisch"})
 
-        with app.test_request_context(), patch.object(po, "db_get_order_ids", side_effect=RuntimeError("db weg")):
+        with app.test_request_context(), patch.object(po, "db_get_order_id_rijen", side_effect=RuntimeError("db weg")):
             po._meld_datakwaliteit("ZZTEST", df)
 
 

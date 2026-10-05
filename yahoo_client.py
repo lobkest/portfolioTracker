@@ -6,6 +6,7 @@ import pandas as pd
 import yfinance as yf
 
 from diagnostiek import meld, CATEGORIE_KOERSEN, INFO, LET_OP, FOUT
+from transactie_utils import getal_nl
 
 
 # Lock: de tellers worden ook vanuit worker-threads opgehoogd.
@@ -13,7 +14,7 @@ _yahoo_call_lock = threading.Lock()
 _yahoo_call_teller = {}
 
 # Globaal zodat worker-threads meetellen; melden gebeurt vanuit de hoofdthread.
-_yahoo_retry_teller = {"retries": 0, "mislukt": 0}
+_yahoo_retry_teller = {"retries": 0, "mislukt": 0, "wachttijd": 0.0}
 DIAGNOSTIEK_SLEUTEL_YAHOO_KERN = "yahoo_kern"
 DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING = "yahoo_verrijking"
 
@@ -23,6 +24,7 @@ def reset_yahoo_call_teller():
         _yahoo_call_teller.clear()
         _yahoo_retry_teller["retries"] = 0
         _yahoo_retry_teller["mislukt"] = 0
+        _yahoo_retry_teller["wachttijd"] = 0.0
 
 
 def _tel_yahoo_call(soort):
@@ -37,25 +39,27 @@ def log_yahoo_call_samenvatting():
     print(f"[timing] Yahoo-calls sinds laatste reset: {totaal} totaal -> {samenvatting}")
 
 
-def _tel_yahoo_retry(soort):
+def _tel_yahoo_retry(soort, wachttijd=0.0):
     with _yahoo_call_lock:
         _yahoo_retry_teller[soort] += 1
+        _yahoo_retry_teller["wachttijd"] += wachttijd
 
 
 def yahoo_teller_stand():
-    """(calls, retries, mislukt) sinds de laatste reset."""
+    """(calls, retries, mislukt, wachttijd in seconden) sinds de laatste reset."""
     with _yahoo_call_lock:
         return (sum(_yahoo_call_teller.values()), _yahoo_retry_teller["retries"],
-                _yahoo_retry_teller["mislukt"])
+                _yahoo_retry_teller["mislukt"], _yahoo_retry_teller["wachttijd"])
 
 
-def meld_yahoo_samenvatting(sleutel, omschrijving, vanaf=(0, 0, 0)):
+def meld_yahoo_samenvatting(sleutel, omschrijving, vanaf=(0, 0, 0, 0.0)):
     """`vanaf` is een eerdere yahoo_teller_stand(). Alleen vanuit de hoofdthread aanroepen."""
     # max(0, ...): een reset door een andere request tussendoor geeft anders een negatief aantal.
-    calls, retries, mislukt = (max(0, nu - toen) for nu, toen in zip(yahoo_teller_stand(), vanaf))
+    calls, retries, mislukt, wachttijd = (max(0, nu - toen) for nu, toen in zip(yahoo_teller_stand(), vanaf))
     niveau = FOUT if mislukt > 0 else LET_OP if retries > 0 else INFO
     meld(CATEGORIE_KOERSEN, niveau,
-         f"Yahoo-calls ({omschrijving}): {calls}, retries: {retries}, mislukt (na eventuele retries): {mislukt}.",
+         f"Yahoo-calls ({omschrijving}): {calls}, retries: {retries} (wachttijd {getal_nl(wachttijd, 1)} s), "
+         f"mislukt (na eventuele retries): {mislukt}.",
          sleutel=sleutel)
 
 
@@ -82,7 +86,7 @@ def _met_rate_limit_retry(actie, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LI
         except Exception as e:
             if _is_rate_limit_fout(e) and poging < pogingen:
                 wacht = wachttijd * poging
-                _tel_yahoo_retry("retries")
+                _tel_yahoo_retry("retries", wacht)
                 time.sleep(wacht)
                 continue
             _tel_yahoo_retry("mislukt")
@@ -126,7 +130,7 @@ def download_koersen_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOA
             return close, splits
         except Exception:
             if poging < pogingen:
-                _tel_yahoo_retry("retries")
+                _tel_yahoo_retry("retries", wachttijd)
                 time.sleep(wachttijd)
             else:
                 _tel_yahoo_retry("mislukt")

@@ -566,8 +566,8 @@ def backfill_verouderde_tickers(code, forceer=False):
     return gecorrigeerd
 
 
-def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
-    """Waarschuwingstekst of None, voor elk bezoek: geen live zoekopdracht, normaal een cache-hit.
+def prijswaarschuwing_delen(ticker, transacties_van_dit_isin, isin=None):
+    """{koers, openfigi}: per reden een tekst of None. Voor elk bezoek: geen live zoekopdracht, normaal een cache-hit.
     Met isin ook de OpenFIGI-root-check."""
     geldige_transacties = _geldige_transacties(transacties_van_dit_isin)
     if not ticker or not geldige_transacties:
@@ -588,32 +588,41 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
                 f"controleer op het Ticker-zekerheid-tabblad."
             )
 
+    delen = {"koers": boodschap, "openfigi": None}
     if not ticker or not isin:
-        return boodschap
+        return delen
 
     openfigi = haal_openfigi_resultaten(isin)
     matches = _openfigi_root_matches(ticker, openfigi["resultaten"])
     if matches is None or matches > 0:
-        return boodschap
+        return delen
 
-    extra_waarschuwing = (
+    delen["openfigi"] = (
         f"Ticker-root '{ticker.split('.')[0]}' komt niet voor in OpenFIGI's "
         f"resultaten voor deze ISIN — controleer op het Ticker-zekerheid-tabblad."
     )
-    return f"{boodschap}\n{extra_waarschuwing}" if boodschap else extra_waarschuwing
+    return delen
+
+
+def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
+    """Waarschuwingstekst (alle redenen onder elkaar) of None."""
+    delen = prijswaarschuwing_delen(ticker, transacties_van_dit_isin, isin)
+    return "\n".join(t for t in delen.values() if t) or None
 
 
 def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
-    """[{ticker, naam, boodschap}]; zonder 'isin'-kolom geen OpenFIGI-check."""
+    """[{ticker, naam, boodschap, redenen}]; redenen ⊆ ["koers", "openfigi"]. Zonder 'isin'-kolom geen OpenFIGI-check."""
     heeft_isin_kolom = "isin" in transacties_df.columns
     waarschuwingen = []
     for ticker, groep in transacties_df.dropna(subset=["ticker"]).groupby("ticker"):
         transacties_van_ticker = [{"datum": d, "koers": k} for d, k in zip(groep["datum"], groep["koers"])]
         isin = groep["isin"].iloc[0] if heeft_isin_kolom and not groep.empty else None
-        boodschap = prijswaarschuwing_voor_ticker(ticker, transacties_van_ticker, isin)
-        if boodschap:
+        delen = prijswaarschuwing_delen(ticker, transacties_van_ticker, isin)
+        redenen = [reden for reden, tekst in delen.items() if tekst]
+        if redenen:
             waarschuwingen.append({
-                "ticker": ticker, "naam": ticker_namen.get(ticker, ticker), "boodschap": boodschap,
+                "ticker": ticker, "naam": ticker_namen.get(ticker, ticker),
+                "boodschap": "\n".join(delen[r] for r in redenen), "redenen": redenen,
             })
     return waarschuwingen
 

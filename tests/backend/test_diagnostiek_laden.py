@@ -112,7 +112,8 @@ class TestYahooTellers(_MetRequest):
             return "ok"
 
         self.assertEqual(yahoo_client._met_rate_limit_retry(actie), ("ok", None))
-        self.assertEqual(yahoo_client.yahoo_teller_stand()[1:], (1, 0))
+        # Eerste retry wacht de basiswachttijd (oplopende backoff: 1 x basis).
+        self.assertEqual(yahoo_client.yahoo_teller_stand()[1:], (1, 0, yahoo_client.RATE_LIMIT_WACHTTIJD_BASIS))
 
     @patch("yahoo_client.time.sleep")
     def test_andere_fout_direct_mislukt_zonder_retry(self, mock_sleep):
@@ -123,7 +124,7 @@ class TestYahooTellers(_MetRequest):
 
         self.assertEqual(yahoo_client._met_rate_limit_retry(actie), (None, fout))
         mock_sleep.assert_not_called()
-        self.assertEqual(yahoo_client.yahoo_teller_stand()[1:], (0, 1))
+        self.assertEqual(yahoo_client.yahoo_teller_stand()[1:], (0, 1, 0.0))
 
     @patch("yahoo_client.time.sleep")
     @patch("yahoo_client.yf.download")
@@ -132,22 +133,25 @@ class TestYahooTellers(_MetRequest):
         close, splits = yahoo_client.download_koersen_met_retry("AAPL", "2024-01-01")
         self.assertTrue(close.empty)
         self.assertEqual(splits, {})
-        self.assertEqual(yahoo_client.yahoo_teller_stand(), (3, 2, 1))
+        # 2 retries met vaste wachttijd.
+        self.assertEqual(yahoo_client.yahoo_teller_stand(), (3, 2, 1, 2 * yahoo_client.BULK_DOWNLOAD_WACHTTIJD))
 
     def test_reset_zet_tellers_op_nul(self):
-        yahoo_client._tel_yahoo_retry("retries")
+        yahoo_client._tel_yahoo_retry("retries", 8)
         yahoo_client._tel_yahoo_call("x")
         yahoo_client.reset_yahoo_call_teller()
-        self.assertEqual(yahoo_client.yahoo_teller_stand(), (0, 0, 0))
+        self.assertEqual(yahoo_client.yahoo_teller_stand(), (0, 0, 0, 0.0))
 
     def test_melding_niveaus(self):
         _, meldingen, _ = self._in_request(yahoo_client.meld_yahoo_samenvatting, "k", "upload")
         self.assertEqual(meldingen[0]["niveau"], INFO)
         self.assertEqual(meldingen[0]["tekst"],
-                         "Yahoo-calls (upload): 0, retries: 0, mislukt (na eventuele retries): 0.")
-        yahoo_client._tel_yahoo_retry("retries")
+                         "Yahoo-calls (upload): 0, retries: 0 (wachttijd 0 s), mislukt (na eventuele retries): 0.")
+        yahoo_client._tel_yahoo_retry("retries", 8)
+        yahoo_client._tel_yahoo_retry("retries", 16)
         _, meldingen, _ = self._in_request(yahoo_client.meld_yahoo_samenvatting, "k", "upload")
         self.assertEqual(meldingen[0]["niveau"], LET_OP)
+        self.assertIn("retries: 2 (wachttijd 24 s)", meldingen[0]["tekst"])
         yahoo_client._tel_yahoo_retry("mislukt")
         _, meldingen, _ = self._in_request(yahoo_client.meld_yahoo_samenvatting, "k", "upload")
         self.assertEqual(meldingen[0]["niveau"], FOUT)
@@ -237,8 +241,8 @@ class TestKoersdekking(_MetRequest):
         self.assertEqual(len(meldingen), 1)
         m = meldingen[0]
         self.assertEqual((m["categorie"], m["niveau"], m["sleutel"]), (CATEGORIE_KOERSEN, LET_OP, "koers_later:LAAT"))
-        self.assertIn("beginnen pas op 2024-01-10", m["tekst"])
-        self.assertIn("eerste transactie was op 2024-01-02", m["tekst"])
+        self.assertIn("beginnen pas op 10-01-2024", m["tekst"])
+        self.assertIn("eerste transactie was op 02-01-2024", m["tekst"])
 
     def test_binnen_marge_geen_melding(self):
         # Zaterdag gekocht, eerste koers maandag na een lang weekend: 5 dagen.
@@ -279,7 +283,7 @@ class TestSplitMeldingen(_MetRequest):
         self.assertEqual(uit["adj_aantal"].tolist(), [40.0, 30.0, 40.0])
         self.assertEqual(meldingen, [{
             "categorie": CATEGORIE_SPLITS, "niveau": INFO,
-            "tekst": "Split voor ACME (US1) op 02-02-2024: factor 4.0000.", "sleutel": "split:US1:2024-02-02",
+            "tekst": "Split voor ACME (US1) op 02-02-2024: factor 4.", "sleutel": "split:US1:2024-02-02",
         }])
 
     def test_geen_conversierij_let_op(self):
@@ -350,7 +354,8 @@ class TestCacheHitNieuweMeldingen(_MetRequest):
         mock_conn.side_effect = lambda: _fake_conn()
         index = pd.date_range("2024-01-01", "2024-02-29", freq="D")
         mock_get_prices.return_value = pd.DataFrame(
-            {"LAAT": [100.0 if d >= pd.Timestamp("2024-02-01") else float("nan") for d in index]}, index=index,
+            {"LAAT": [100.0 + i if d >= pd.Timestamp("2024-02-01") else float("nan") for i, d in enumerate(index)]},
+            index=index,
         )
 
         _, eerste, _ = self._in_request(po._haal_portfolio_basis, TEST_CODE)
