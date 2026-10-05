@@ -31,6 +31,7 @@ function toonRendement() {
 }
 
 function toonRendementEuro() {
+    markeerVergelijkKnoppen();
     const d = huidigeData.chart_data;
     const datasets = [{ label: "Rendement (€)", data: d.rendement, borderColor: "#2c7a4b" }];
 
@@ -142,7 +143,41 @@ function ververEigenAandeelSelect() {
     if (huidigeData.tickers.some(t => t.ticker === huidigeKeuze)) {
         select.value = huidigeKeuze;
     }
+    bouwVergelijkKnoppen();
 }
+
+// Website: knoppen i.p.v. de dropdowns; de select blijft de bron van de keuze (CSS verbergt de een of de ander).
+// Nogmaals klikken op de actieve knop zet de keuze terug op "Geen".
+function bouwVergelijkKnoppen() {
+    document.querySelectorAll("[data-vergelijk-knoppen]").forEach(houder => {
+        const select = document.getElementById(houder.dataset.vergelijkKnoppen);
+        const knoppen = Array.from(select.options).filter(optie => optie.value !== "").map(optie => {
+            const knop = document.createElement("button");
+            knop.type = "button";
+            knop.className = `keuzeKnop vergelijkKnop ${houder.dataset.kleur}`;
+            knop.dataset.waarde = optie.value;
+            knop.textContent = optie.textContent;
+            knop.addEventListener("click", () => {
+                select.value = select.value === optie.value ? "" : optie.value;
+                select.dispatchEvent(new Event("change"));
+            });
+            return knop;
+        });
+        houder.replaceChildren(...knoppen);
+    });
+    markeerVergelijkKnoppen();
+}
+
+function markeerVergelijkKnoppen() {
+    document.querySelectorAll("[data-vergelijk-knoppen]").forEach(houder => {
+        const gekozen = document.getElementById(houder.dataset.vergelijkKnoppen).value;
+        houder.querySelectorAll(".vergelijkKnop").forEach(knop => {
+            knop.classList.toggle("actief", knop.dataset.waarde === gekozen);
+        });
+    });
+}
+
+bouwVergelijkKnoppen();
 
 document.getElementById("benchmarkSelect").addEventListener("change", (e) => {
     wisselBenchmark(e.target.value);

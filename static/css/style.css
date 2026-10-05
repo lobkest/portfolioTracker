@@ -672,6 +672,41 @@ body {
     cursor: not-allowed;
 }
 
+/* Rendement-vergelijking: dezelfde tinten als de lijnen in de grafiek (benchmark oranje, eigen aandeel paars). */
+.vergelijkKnoppen {
+    display: none;
+}
+
+.vergelijkKnop.benchmark {
+    color: #eb6834;
+    border-color: #eb6834;
+}
+
+.vergelijkKnop.eigen {
+    color: #8856a7;
+    border-color: #8856a7;
+}
+
+.vergelijkKnop.benchmark:hover:not(:disabled) {
+    background-color: #fdeee8;
+}
+
+.vergelijkKnop.eigen:hover:not(:disabled) {
+    background-color: #f1eaf6;
+}
+
+.vergelijkKnop.benchmark.actief,
+.vergelijkKnop.benchmark.actief:hover {
+    background-color: #eb6834;
+    color: white;
+}
+
+.vergelijkKnop.eigen.actief,
+.vergelijkKnop.eigen.actief:hover {
+    background-color: #8856a7;
+    color: white;
+}
+
 /* Geen zoom/pan op Top-bedrijven: vegen over de (hoge) grafiek scrolt de pagina. */
 #bedrijvenChart {
     touch-action: pan-y;
@@ -679,6 +714,8 @@ body {
 
 /* ETF-overlap: matrix van ETF x ETF. */
 .overlapMatrix {
+    width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 0.85em;
 }
@@ -686,13 +723,12 @@ body {
 .overlapMatrix th {
     padding: 4px 8px;
     text-align: center;
-    white-space: nowrap;
-    max-width: 140px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
 }
 
+/* Eerste kolom (namen) breder dan de gelijke cijferkolommen. */
 .overlapMatrix th.rijKop {
+    width: 22%;
     text-align: left;
 }
 
@@ -1014,8 +1050,17 @@ body {
         min-height: 380px;
     }
 
-    #aandeelSelect {
+    #aandeelSelect,
+    #benchmarkSelect,
+    #eigenAandeelSelect {
         display: none !important;
+    }
+
+    .vergelijkKnoppen {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 6px;
     }
 
     .aandeelKnoppen {
@@ -1070,6 +1115,23 @@ body {
 
     .aandeelKnoppen {
         display: none;
+    }
+
+    /* ETF-overlap: op een smal scherm de oude, scrollbare matrix. */
+    .overlapMatrix {
+        width: auto;
+        table-layout: auto;
+    }
+
+    .overlapMatrix th {
+        white-space: nowrap;
+        max-width: 140px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .overlapMatrix th.rijKop {
+        width: auto;
     }
 
     /* Compacter, zodat de hele startpagina zonder scrollen op een telefoonscherm past. */

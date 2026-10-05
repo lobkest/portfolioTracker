@@ -1,5 +1,11 @@
 // Tabblad ETF-overlap: matrix van ETF x ETF, met per klik de gedeelde holdings.
 
+let etfOverlapMetVerkocht = true;
+
+function resetEtfOverlap() {
+    etfOverlapMetVerkocht = true;
+}
+
 function renderEtfOverlapTabel() {
     const sectie = document.getElementById("etfOverlapSectie");
     const wacht = toonVerrijkingWachtstatusIndienNodig();
@@ -7,7 +13,14 @@ function renderEtfOverlapTabel() {
     if (wacht) return;
 
     const matrix = huidigeData.etf_overlap || {};
-    const etfs = Object.keys(matrix);
+    const verkocht = new Set((huidigeData.tickers || []).filter(t => t.nog_in_bezit === false).map(t => t.ticker));
+    const alleEtfs = Object.keys(matrix);
+    const etfs = etfOverlapMetVerkocht ? alleEtfs : alleEtfs.filter(t => !verkocht.has(t));
+
+    const verkochtKnop = document.getElementById("etfOverlapVerkochtBtn");
+    verkochtKnop.hidden = !alleEtfs.some(t => verkocht.has(t));
+    verkochtKnop.classList.toggle("actief", etfOverlapMetVerkocht);
+    verkochtKnop.setAttribute("aria-pressed", String(etfOverlapMetVerkocht));
 
     document.getElementById("etfOverlapTeWeinig").hidden = etfs.length >= 2;
     document.getElementById("etfOverlapMatrixBlok").hidden = etfs.length < 2;
@@ -20,7 +33,9 @@ function renderEtfOverlapTabel() {
     tabel.className = "overlapMatrix";
 
     const kopRij = document.createElement("tr");
-    kopRij.appendChild(document.createElement("th"));
+    const hoek = document.createElement("th");
+    hoek.className = "rijKop";
+    kopRij.appendChild(hoek);
     etfs.forEach(ticker => {
         const th = document.createElement("th");
         th.textContent = tickerNamen[ticker] || ticker;
@@ -145,3 +160,8 @@ function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
     }
     return wrapper;
 }
+
+document.getElementById("etfOverlapVerkochtBtn").addEventListener("click", () => {
+    etfOverlapMetVerkocht = !etfOverlapMetVerkocht;
+    renderEtfOverlapTabel();
+});

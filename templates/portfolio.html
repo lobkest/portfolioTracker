@@ -76,6 +76,7 @@
                         <option value="Nasdaq 100">Nasdaq 100</option>
                         <option value="AEX">AEX</option>
                     </select>
+                    <div class="vergelijkKnoppen" data-vergelijk-knoppen="benchmarkSelect" data-kleur="benchmark"></div>
                 </label>
                 <p id="benchmarkMelding" class="kleineMelding" data-verberg-buiten="rendement" style="display: none;"></p>
                 <label id="eigenAandeelSelectWrapper" class="margeOnder15" data-vereist-code="ja">
@@ -83,6 +84,7 @@
                     <select id="eigenAandeelSelect">
                         <option value="">Geen</option>
                     </select>
+                    <div class="vergelijkKnoppen" data-vergelijk-knoppen="eigenAandeelSelect" data-kleur="eigen"></div>
                 </label>
                 <p id="eigenAandeelMelding" class="kleineMelding" data-verberg-buiten="rendement" style="display: none;"></p>
                 <p id="xirrRendementMsg" data-verberg-buiten="rendement" style="display: none;"></p>
@@ -167,6 +169,7 @@
                         <p>Berekening: voor elk bedrijf dat in beide ETF's zit, telt het laagste van de twee gewichten mee (bv. Apple 7% in ETF A en 4% in ETF B telt voor 4%). Deze minima worden opgeteld tot het overlap-percentage. Bedrijven die maar in één van de twee ETF's zitten, tellen niet mee.</p>
                         <p>Een hoog percentage betekent dat de twee ETF's veel dezelfde bedrijven bevatten en dus minder spreiding opleveren dan je van twee losse fondsen zou verwachten. Bij minder dan 2 aangehouden ETF's wordt er geen matrix getoond.</p>
                     </details>
+                    <button id="etfOverlapVerkochtBtn" type="button" class="keuzeKnop margeOnder12" aria-pressed="true" hidden>Verkochte ETF's meenemen</button>
                     <p id="etfOverlapTeWeinig" class="grijsTekst" hidden>Minimaal 2 aangehouden ETF's nodig om overlap te berekenen.</p>
                     <div id="etfOverlapMatrixBlok" hidden>
                         <div id="etfOverlapMatrix" class="tabelWrapper"></div>
