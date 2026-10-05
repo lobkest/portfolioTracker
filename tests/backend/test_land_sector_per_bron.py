@@ -99,5 +99,43 @@ class TestLandSectorPerBron(unittest.TestCase):
         self.assertAlmostEqual(resultaat["sector"]["Industrials"], 100.0)
 
 
+class TestPerAandeel(unittest.TestCase):
+    def _bereken(self):
+        # Open aandeel AAPL, gesloten aandeel SHOP (1 gekocht, 1 verkocht), ETF_A.
+        transacties_df = pd.DataFrame({
+            "ticker": ["AAPL", "SHOP", "SHOP", "ETF_A"],
+            "aantal": [1.0, 1.0, -1.0, 1.0],
+        })
+        price_data = _price_data(["AAPL", "SHOP", "ETF_A"], waarde=100.0)
+        land_sector = {"AAPL": ("United States", "Technology"), "SHOP": ("Canada", "Technology")}
+        with patch.object(portfolio_verdeling, "get_etf_sector_verdeling", return_value={"Financial Services": 1.0}),              patch.object(portfolio_verdeling, "get_etf_holdings", return_value=[
+                 {"holding_naam": "X", "holding_ticker": "X", "gewicht": 1.0,
+                  "land": "Japan", "bron": "provider_csv"},
+             ]),              patch.object(portfolio_verdeling, "get_land_sector", side_effect=lambda t: land_sector[t]):
+            return compute_land_sector_verdeling(
+                transacties_df, price_data, {"AAPL": False, "SHOP": False, "ETF_A": True}
+            )
+
+    def test_open_aandeel(self):
+        self.assertEqual(self._bereken()["per_aandeel"]["AAPL"], {"land": "United States", "sector": "Technology"})
+
+    def test_gesloten_aandeel(self):
+        self.assertEqual(self._bereken()["per_aandeel"]["SHOP"], {"land": "Canada", "sector": "Technology"})
+
+    def test_etf_komt_er_niet_in(self):
+        resultaat = self._bereken()
+        self.assertNotIn("ETF_A", resultaat["per_aandeel"])
+        self.assertIn("ETF_A", resultaat["per_etf"])
+
+    def test_totalen_zonder_gesloten_positie(self):
+        resultaat = self._bereken()
+        self.assertEqual(resultaat["sector"], {"Technology": 100.0, "Financial Services": 100.0})
+        self.assertNotIn("Canada", resultaat["land"])
+        self.assertAlmostEqual(resultaat["land"]["United States"], 100.0)
+        self.assertAlmostEqual(resultaat["land"]["Japan"], 100.0)
+        self.assertEqual(resultaat["sector_per_bron"]["Technology"], {"AAPL": 100.0})
+        self.assertNotIn("Canada", resultaat["land_per_bron_top"])
+
+
 if __name__ == "__main__":
     unittest.main()

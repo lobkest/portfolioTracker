@@ -185,6 +185,7 @@ function herTekenVerrijkingTabbladIndienActief() {
     else if (view === "valuta") toonValuta();
     else if (view === "bedrijven") toonBedrijven();
     else if (view === "etfoverlap") renderEtfOverlapTabel();
+    else if (view === "peraandeel") toonPositieLandSector(document.getElementById("aandeelSelect").value);
 }
 
 // true = de aanroeper moet stoppen (nog aan het laden of mislukt).

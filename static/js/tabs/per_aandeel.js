@@ -1,4 +1,4 @@
-// Tabblad Per aandeel: waarde en geinvesteerd van een positie, met de land- en sectorverdeling bij een ETF.
+// Tabblad Per aandeel: waarde en geinvesteerd van een positie, met land en sector (bij een ETF de verdeling).
 
 function ververAandeelSelect() {
     const select = document.getElementById("aandeelSelect");
@@ -50,7 +50,29 @@ function toonPerAandeel(ticker) {
         { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },
         { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
     ]);
+    toonPositieLandSector(ticker);
+}
+
+function toonPositieLandSector(ticker) {
     toonEtfDrilldown(ticker);
+    toonAandeelLandSector(ticker);
+}
+
+function toonAandeelLandSector(ticker) {
+    const container = document.getElementById("aandeelLandSector");
+    const lsv = huidigeData.land_sector_verdeling;
+    const regels = aandeelLandSectorRegels(lsv && lsv.per_aandeel, ticker);
+    if (!regels) {
+        container.style.display = "none";
+        return;
+    }
+    document.getElementById("aandeelLandSectorLijst").replaceChildren(...regels.map(regel => {
+        const li = document.createElement("li");
+        if (regel.onbekend) li.className = "grijsTekst";
+        li.textContent = `${regel.label}: ${regel.tekst}`;
+        return li;
+    }));
+    container.style.display = "block";
 }
 
 function maakVerdelingLijst(titel, verdelingObj) {

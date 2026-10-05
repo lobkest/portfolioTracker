@@ -16,12 +16,13 @@ from db import (
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
-    check_corporate_action_rijen, check_isin_wissels,
+    check_corporate_action_rijen, check_isin_wissels, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
+    check_dagsprong, _naam_per_ticker,
 )
 from debug_utils import meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
-    CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, GOED, INFO, LET_OP,
+    CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, GOED, INFO, LET_OP,
 )
 from transactie_utils import _is_corporate_action_row
 from prijzen import get_prices
@@ -151,6 +152,20 @@ def _meld_datakwaliteit(code, transacties_df):
             meld(CATEGORIE_SPLITS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
         print(f"[diagnostiek] WARN datakwaliteit niet gecontroleerd ({e!a})")
+
+
+def _meld_plausibiliteit(transacties_df, price_data, per_ticker):
+    """Diagnostiek mag het laden nooit breken."""
+    try:
+        bevindingen = (
+            check_transactiekoers_vs_rekenkoers(transacties_df, price_data)
+            + check_waarde_vs_inleg(per_ticker, _naam_per_ticker(transacties_df))
+            + check_dagsprong(transacties_df, per_ticker)
+        )
+        for b in bevindingen:
+            meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        print(f"[diagnostiek] WARN plausibiliteit niet gecontroleerd ({e!a})")
 
 
 def _meld_koersdekking(transacties_df, price_data):
@@ -309,6 +324,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
 
     resultaat = compute_value_over_time(transacties_df, price_data)
     per_ticker = compute_per_ticker(transacties_df, price_data)
+    _meld_plausibiliteit(transacties_df, price_data, per_ticker)
     per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
     splits_per_ticker = db_get_koers_splits(list(per_ticker_aankoop))
     for ticker, reeks in per_ticker_aankoop.items():

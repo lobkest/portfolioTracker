@@ -316,6 +316,7 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
       land, land_europa (Europa samengevoegd): {land: €}, kleine landen in 'Overig' (taart)
       sector: {sector: €}
       per_etf: {ticker: {land, sector (fracties 0-1), land_bron}}
+      per_aandeel: {ticker: {land, sector}}, alle niet-ETF-tickers, ook gesloten posities
       land_per_bron_top, land_per_bron_europa_top: {land: {bron: €}}, top 10 + 'Overig' (staaf)
       sector_per_bron: {sector: {bron: €}}
     """
@@ -335,6 +336,7 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
     land = {}
     sector = {}
     per_etf = {}
+    per_aandeel = {}
     land_per_bron = {}
     sector_per_bron = {}
 
@@ -372,10 +374,16 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
             per_etf[ticker] = {"land": etf_land_pct, "sector": etf_sector_pct, "land_bron": land_bron}
         else:
             aandeel_land, aandeel_sector = get_land_sector(ticker)
+            per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
             optellen(land, aandeel_land, waarde)
             optellen_per_bron(land_per_bron, aandeel_land, ticker, waarde)
             optellen(sector, aandeel_sector, waarde)
             optellen_per_bron(sector_per_bron, aandeel_sector, ticker, waarde)
+
+    for ticker in huidige_holdings.index:
+        if ticker not in per_aandeel and not is_etf_map.get(ticker, False):
+            aandeel_land, aandeel_sector = get_land_sector(ticker)
+            per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
 
     land_europa_gegroepeerd = _groepeer_europa_samen(land)
     land_per_bron_europa = _groepeer_europa_samen_per_bron(land_per_bron)
@@ -387,6 +395,7 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
         ),
         "sector": sector,
         "per_etf": per_etf,
+        "per_aandeel": per_aandeel,
         "land_per_bron_top": _beperk_tot_top_n_per_bron(land_per_bron),
         "land_per_bron_europa_top": _beperk_tot_top_n_per_bron(land_per_bron_europa),
         "sector_per_bron": sector_per_bron,

@@ -255,7 +255,7 @@ class TestFindTickerMetSnellePrijscheckOpenfigiIntegratie(unittest.TestCase):
         ), patch.object(
             ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
-        ):
+        ), patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]):
             resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
                 "VANGUARD FTSE ALL-WORLD USD DIS", "LU1737085518", "EAM", transacties
             )
@@ -321,7 +321,7 @@ class TestVerifieerTickerMetPrijsOpenfigiIntegratie(unittest.TestCase):
         ), patch.object(
             ticker_zekerheid, "haal_openfigi_resultaten",
             return_value={"resultaten": [{"ticker": "VWRL", "exchCode": "NA"}], "fout": None},
-        ):
+        ), patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]):
             resultaat = ticker_zekerheid.verifieer_ticker_met_prijs(
                 "VANGUARD FTSE ALL-WORLD USD DIS", "LU1737085518", "EAM", transacties
             )
@@ -400,6 +400,115 @@ class TestPrijswaarschuwingVoorTickerOpenfigiIntegratie(unittest.TestCase):
         self.assertIn("dagrange", boodschap)
         self.assertIn("OpenFIGI", boodschap)
         self.assertIn("\n", boodschap)
+
+
+PRIJS_OK = {
+    "yahoo_koers": 100.0, "bekende_koers": 100.0, "afwijking_pct": 0.5,
+    "niveau": "ok", "match": True, "binnen_dagrange": True,
+}
+
+
+def _openfigi(*roots):
+    return {"resultaten": [{"ticker": r, "exchCode": "GY"} for r in roots], "fout": None}
+
+
+class TestOpenfigiVoorAlternatievenVolledigeCheck(unittest.TestCase):
+    """verifieer_ticker_met_prijs(): de OpenFIGI-check komt vóór de beslissing over alternatieven."""
+
+    def _verifieer(self, openfigi):
+        from datetime import date
+        transacties = [{"datum": date(2023, 1, 10), "koers": 100.0}, {"datum": date(2023, 6, 10), "koers": 100.0}]
+        with patch.object(
+            ticker_zekerheid, "find_ticker_detailed",
+            return_value={"ticker": "VWCE.DE", "zekerheid": "zeker",
+                          "alternatieven": [{"symbol": "VGWD.DE", "exchange": "GER"}]},
+        ), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=PRIJS_OK), \
+             patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={}), \
+             patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None)), \
+             patch.object(ticker_zekerheid, "classify_ticker", return_value=True), \
+             patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]), \
+             patch.object(ticker_zekerheid, "haal_openfigi_resultaten", return_value=openfigi) as mock_haal:
+            resultaat = ticker_zekerheid.verifieer_ticker_met_prijs("USD DIS", "IE00B3RBWM25", "XET", transacties)
+        self.assertEqual(mock_haal.call_count, 1)
+        return resultaat
+
+    def test_root_ontbreekt_rekent_alternatieven_door(self):
+        resultaat = self._verifieer(_openfigi("VGWD"))
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertIs(resultaat["openfigi_root_bekend"], False)
+        self.assertTrue(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+        self.assertEqual([a["ticker"] for a in resultaat["alternatieven"]], ["VGWD.DE"])
+        self.assertEqual(resultaat["aanbevolen_alternatief"], "VGWD.DE")
+
+    def test_geen_openfigi_resultaten_slaat_alternatieven_over(self):
+        resultaat = self._verifieer({"resultaten": [], "fout": None})
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIsNone(resultaat["openfigi_root_bekend"])
+        self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+        self.assertEqual(resultaat["alternatieven"], [])
+
+    def test_root_gevonden_ongewijzigd(self):
+        resultaat = self._verifieer(_openfigi("VWCE"))
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIs(resultaat["openfigi_root_bekend"], True)
+        self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+        self.assertEqual(resultaat["alternatieven"], [])
+
+
+class TestOpenfigiVoorAlternatievenUpload(unittest.TestCase):
+    """find_ticker_met_snelle_prijscheck(): root-mismatch rekent alternatieven door; vervangen alleen
+    als alle datums kloppen én (beurs klopt of root staat in OpenFIGI)."""
+
+    def _snel(self, openfigi, alternatieven):
+        from datetime import date
+        transacties = [{"datum": date(2023, 1, 10), "koers": 100.0}, {"datum": date(2023, 6, 10), "koers": 100.0}]
+        with patch.object(
+            ticker_zekerheid, "find_ticker_detailed",
+            return_value={"ticker": "VWCE.DE", "zekerheid": "zeker", "alternatieven": alternatieven},
+        ), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", return_value=dict(PRIJS_OK)), \
+             patch.object(ticker_zekerheid, "_ticker_details_met_cache", return_value={}), \
+             patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None)), \
+             patch.object(ticker_zekerheid, "classify_ticker", return_value=True), \
+             patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]), \
+             patch.object(ticker_zekerheid, "haal_openfigi_resultaten", return_value=openfigi) as mock_haal:
+            resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
+                "USD DIS", "IE00B3RBWM25", "XET", transacties
+            )
+        self.assertEqual(mock_haal.call_count, 1)
+        return resultaat
+
+    def test_root_ontbreekt_alternatief_met_root_in_openfigi_vervangt(self):
+        resultaat = self._snel(_openfigi("VGWD"), [{"symbol": "VGWD.L", "exchange": "LSE"}])
+        self.assertEqual(resultaat["ticker"], "VGWD.L")
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIs(resultaat["openfigi_root_bekend"], True)
+        self.assertIsNone(resultaat["prijswaarschuwing"])
+
+    def test_root_ontbreekt_alternatief_op_juiste_beurs_vervangt(self):
+        resultaat = self._snel(_openfigi("VGWD"), [{"symbol": "ABCD.DE", "exchange": "GER"}])
+        self.assertEqual(resultaat["ticker"], "ABCD.DE")
+
+    def test_root_ontbreekt_maar_alternatief_zonder_beurs_of_root_vervangt_niet(self):
+        resultaat = self._snel(_openfigi("VGWD"), [{"symbol": "XYZ.L", "exchange": "LSE"}])
+        self.assertEqual(resultaat["ticker"], "VWCE.DE")
+        self.assertEqual(resultaat["zekerheid"], "onzeker")
+        self.assertEqual(resultaat["aanbevolen_alternatief"], "XYZ.L")
+        self.assertIn("OpenFIGI", resultaat["prijswaarschuwing"])
+
+    def test_geen_openfigi_resultaten_slaat_alternatieven_over(self):
+        with patch.object(ticker_zekerheid, "_zoek_betere_alternatieven") as mock_zoek:
+            resultaat = self._snel({"resultaten": [], "fout": None}, [{"symbol": "VGWD.L", "exchange": "LSE"}])
+        mock_zoek.assert_not_called()
+        self.assertEqual(resultaat["ticker"], "VWCE.DE")
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+
+    def test_root_gevonden_ongewijzigd(self):
+        with patch.object(ticker_zekerheid, "_zoek_betere_alternatieven") as mock_zoek:
+            resultaat = self._snel(_openfigi("VWCE"), [{"symbol": "VGWD.L", "exchange": "LSE"}])
+        mock_zoek.assert_not_called()
+        self.assertEqual(resultaat["ticker"], "VWCE.DE")
+        self.assertEqual(resultaat["zekerheid"], "zeker")
+        self.assertIs(resultaat["openfigi_root_bekend"], True)
 
 
 if __name__ == "__main__":

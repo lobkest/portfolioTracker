@@ -124,10 +124,11 @@ def _verzamel_extra_kandidaten(product, isin, bestaande_alternatieven, uitgeslot
     return extra
 
 
-def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, isin):
+def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, isin, openfigi=None):
     """Per nieuwe OpenFIGI-ticker-root één Yahoo-zoekopdracht; Yahoo kiest het koersbare symbool.
     Geeft (kandidaten, debug); debug is __TIJDELIJK, diagnostisch__ (zie CLAUDE.md: Yahoo en tickers)."""
-    openfigi = haal_openfigi_resultaten(isin)
+    if openfigi is None:
+        openfigi = haal_openfigi_resultaten(isin)
     if not openfigi["resultaten"]:
         return list(alternatieven_kandidaten), {
             "roots": [], "nieuwe_roots": [], "overgeslagen_roots": [], "yahoo_resultaten": {},
@@ -297,7 +298,7 @@ def _voeg_kaartvelden_toe(resultaat, beurs):
     }
 
 
-def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef):
+def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi=None):
     """Extra Yahoo-calls, dus alleen als de ticker niet "zeker" is."""
     # __TIJDELIJK, diagnostisch__: samen met maakOpenfigiKandidatenDebugBlok (tabs/ticker_zekerheid.js) verwijderen.
     if resultaat["zekerheid"] == "zeker":
@@ -310,7 +311,9 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef):
     # De restlijst van de zoekopdracht kan leeg zijn (BYD); alleen dan extra zoeken.
     if not kandidaten:
         kandidaten += _verzamel_extra_kandidaten(product, isin, kandidaten, resultaat["ticker"])
-    kandidaten, openfigi_debug_info = _verrijk_met_openfigi_kandidaten(kandidaten, resultaat["ticker"], isin)
+    kandidaten, openfigi_debug_info = _verrijk_met_openfigi_kandidaten(
+        kandidaten, resultaat["ticker"], isin, openfigi
+    )
     alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
         kandidaten, steekproef, BEURS_MAP.get(beurs, [])
     )
@@ -329,17 +332,28 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     inclusief doorgerekende alternatieven."""
     basis = find_ticker_detailed(product, isin, beurs)
     resultaat = _leeg_resultaat(basis["zekerheid"], beurs)
+    if basis["ticker"] is None:
+        return _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="waarschuwing")
 
-    if basis["ticker"] is not None:
-        steekproef = _kies_steekproef_transacties(transacties_van_dit_isin)
-        resultaat = {**resultaat, "ticker": basis["ticker"]}
-        resultaat = _voeg_prijsoordeel_toe(resultaat, steekproef)
-        resultaat = _voeg_kaartvelden_toe(resultaat, beurs)
-        resultaat = _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef)
-    return _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="waarschuwing")
+    steekproef = _kies_steekproef_transacties(transacties_van_dit_isin)
+    resultaat = {**resultaat, "ticker": basis["ticker"]}
+    resultaat = _voeg_prijsoordeel_toe(resultaat, steekproef)
+    resultaat = _voeg_kaartvelden_toe(resultaat, beurs)
+    # Vóór de alternatieven: een ontbrekende root maakt "zeker" onzeker, en dan moeten ze wél doorgerekend.
+    openfigi = haal_openfigi_resultaten(isin)
+    resultaat = _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="waarschuwing", openfigi=openfigi)
+    return _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi)
 
 
-def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwing"):
+def _openfigi_root_oordeel(ticker, openfigi):
+    """(matches, root_bekend); root_bekend None = geen oordeel (geen ticker, geen resultaten of fout)."""
+    if not ticker or openfigi is None:
+        return None, None
+    matches = _openfigi_root_matches(ticker, openfigi["resultaten"])
+    return matches, (None if matches is None else matches > 0)
+
+
+def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwing", openfigi=None):
     """Zet altijd openfigi_root_bekend/_matches. Root niet gevonden: waarschuwing erbij (nieuwe regel)
     en "zeker" wordt "onzeker"; de ticker zelf verandert nooit."""
     ticker = resultaat.get("ticker")
@@ -348,9 +362,9 @@ def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwi
         resultaat["openfigi_root_matches"] = None
         return resultaat
 
-    openfigi = haal_openfigi_resultaten(isin)
-    matches = _openfigi_root_matches(ticker, openfigi["resultaten"])
-    root_bekend = None if matches is None else matches > 0
+    if openfigi is None:
+        openfigi = haal_openfigi_resultaten(isin)
+    matches, root_bekend = _openfigi_root_oordeel(ticker, openfigi)
     resultaat["openfigi_root_bekend"] = root_bekend
     resultaat["openfigi_root_matches"] = matches
     if root_bekend is not False:
@@ -424,18 +438,39 @@ def _voeg_steekproef_toe(resultaat, geldige_transacties):
     }
 
 
-def _corrigeer_met_alternatief(resultaat, geldige_transacties, beurs):
-    """Rekent alleen bij een grote afwijking (of geen koersdata) de alternatieven door; vervangt de ticker
-    automatisch bij tier 1 of 2, anders hooguit een suggestie (zie CLAUDE.md: Yahoo en tickers)."""
+def _root_in_openfigi(ticker, openfigi):
+    return _openfigi_root_oordeel(ticker, openfigi)[1] is True
+
+
+def _corrigeer_met_alternatief(resultaat, geldige_transacties, beurs, isin=None, openfigi=None):
+    """Rekent bij een grote afwijking (of geen koersdata) of een ontbrekende OpenFIGI-root de alternatieven
+    door; vervangt de ticker automatisch bij tier 1 of 2, anders hooguit een suggestie (zie CLAUDE.md:
+    Yahoo en tickers). Alleen een root-mismatch: vervangen pas als alle datums kloppen én beurs of root klopt."""
     grootste_afwijking = _grootste_afwijking(resultaat["prijs_checks"])
-    if grootste_afwijking is not None and grootste_afwijking <= PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100:
+    prijsprobleem = grootste_afwijking is None or grootste_afwijking > PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100
+    root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
+    if not prijsprobleem and not root_ontbreekt:
         return resultaat
 
     steekproef = _kies_steekproef_transacties(geldige_transacties)
     verwachte_beurzen = BEURS_MAP.get(beurs, [])
-    alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
-        resultaat["alternatieven"], steekproef, verwachte_beurzen
-    )
+    kandidaten = list(resultaat["alternatieven"])
+    if root_ontbreekt:
+        kandidaten, _debug = _verrijk_met_openfigi_kandidaten(kandidaten, resultaat["ticker"], isin, openfigi)
+    alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(kandidaten, steekproef, verwachte_beurzen)
+
+    if not prijsprobleem:
+        gekozen = next(
+            (a for a in alternatieven
+             if steekproef and a.get("aantal_matches") == len(steekproef)
+             and (a.get("beurs") in verwachte_beurzen or _root_in_openfigi(a["ticker"], openfigi))),
+            None,
+        )
+        if gekozen:
+            return {**resultaat, "ticker": gekozen["ticker"], "zekerheid": "zeker", "prijswaarschuwing": None}
+        if aanbevolen_alternatief:
+            return {**resultaat, "aanbevolen_alternatief": aanbevolen_alternatief}
+        return resultaat
 
     # Tier 1. Alternatieven hebben geen 'beurs_klopt'-veld, dus zelf vergelijken.
     beurs_bevestigd = next(
@@ -469,10 +504,15 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
 
     resultaat = _begin_resultaat(product, isin, beurs, bekende_ticker)
     resultaat = _voeg_prijscheck_laatste_toe(resultaat, geldige_transacties)
-    if _moet_escaleren(resultaat):
+    openfigi = haal_openfigi_resultaten(isin) if resultaat["ticker"] else None
+    root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
+    escaleren = _moet_escaleren(resultaat)
+    if escaleren:
         resultaat = _voeg_steekproef_toe(resultaat, geldige_transacties)
-        resultaat = _corrigeer_met_alternatief(resultaat, geldige_transacties, beurs)
-    return _voeg_openfigi_check_toe(resultaat, isin)
+    if escaleren or (root_ontbreekt and geldige_transacties):
+        resultaat = _corrigeer_met_alternatief(resultaat, geldige_transacties, beurs, isin, openfigi)
+    # Pas hier: het oordeel moet over de uiteindelijke (eventueel vervangen) ticker gaan.
+    return _voeg_openfigi_check_toe(resultaat, isin, openfigi=openfigi)
 
 
 def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
