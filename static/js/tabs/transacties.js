@@ -21,6 +21,7 @@ const TRANSACTIES_KOLOMMEN = [
         renderTd: r => maakCel(r.tijd === null ? formatDatum(r.datum) : `${formatDatum(r.datum)} ${r.tijd}`),
     },
     { label: "Product", sleutel: "product", renderTd: r => maakCel(r.product) },
+    { label: "ISIN", sleutel: "isin", renderTd: r => maakCel(r.isin ?? "—") },
     {
         label: "Aantal",
         sleutel: "aantal",

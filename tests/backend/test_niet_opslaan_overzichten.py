@@ -12,11 +12,11 @@ from transactie_utils import formatteer_transacties_overzicht, transacties_overz
 class TestFormatteerTransactiesOverzicht(unittest.TestCase):
     def test_none_blijft_none_en_tijd_wordt_hh_mm(self):
         rows = [
-            (datetime.date(2024, 3, 5), datetime.time(9, 7, 30), "ASML", Decimal("2"), Decimal("700.5"), Decimal("-1401"), Decimal("1")),
-            (datetime.date(2024, 3, 4), None, "ASML", 1, None, 10, None),
+            (datetime.date(2024, 3, 5), datetime.time(9, 7, 30), "ASML", Decimal("2"), Decimal("700.5"), Decimal("-1401"), Decimal("1"), "NL0010273215"),
+            (datetime.date(2024, 3, 4), None, "ASML", 1, None, 10, None, None),
         ]
         a, b = formatteer_transacties_overzicht(rows)
-        self.assertEqual(a, {"datum": "2024-03-05", "tijd": "09:07", "product": "ASML", "aantal": 2.0,
+        self.assertEqual(a, {"datum": "2024-03-05", "tijd": "09:07", "product": "ASML", "isin": "NL0010273215", "aantal": 2.0,
                              "koers": 700.5, "totaal_eur": -1401.0, "transactiekosten": 1.0})
         self.assertIsNone(b["tijd"])
         self.assertIsNone(b["koers"])
@@ -25,7 +25,10 @@ class TestFormatteerTransactiesOverzicht(unittest.TestCase):
 
 class TestTransactiesUitDf(unittest.TestCase):
     def _df(self, rijen):
-        return pd.DataFrame(rijen, columns=["datum", "tijd", "product", "aantal", "koers", "totaal_eur", "transactiekosten"])
+        df = pd.DataFrame(rijen, columns=["datum", "tijd", "product", "aantal", "koers", "totaal_eur", "transactiekosten"])
+        df["echte_naam"] = df["product"]
+        df["isin"] = "NL0000000001"
+        return df
 
     def test_sorteert_aflopend_op_datum_en_tijd(self):
         df = self._df([

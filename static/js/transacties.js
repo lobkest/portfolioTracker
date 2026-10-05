@@ -13,6 +13,7 @@
             return sa < sb ? -1 : sa > sb ? 1 : 0;
         },
         product: (a, b) => String(a.product).localeCompare(String(b.product), "nl"),
+        isin: (a, b) => String(a.isin ?? "").localeCompare(String(b.isin ?? "")),
         aantal: (a, b) => a.aantal - b.aantal,
         koers: (a, b) => (a.koers ?? -Infinity) - (b.koers ?? -Infinity),
         totaal_eur: (a, b) => a.totaal_eur - b.totaal_eur,
