@@ -188,7 +188,7 @@ function renderGestapeldeStaafgrafiek(canvasId, categorieData, bronNamen, opts) 
         maintainAspectRatio: false,
         scales: { x: { stacked: true }, y: procentAs },
         plugins: {
-            legend: { position: "right" },
+            legend: { position: legendaPositie() },
             tooltip: { callbacks: tooltipCallbacks },
             datalabels: { display: false }
         }
@@ -212,4 +212,9 @@ function renderGestapeldeStaafgrafiek(canvasId, categorieData, bronNamen, opts) 
         options: chartOpties,
         plugins: [totalenPlugin]
     });
+}
+
+// Zelfde voorwaarde als de mobiele layout in style.css: onder de grafiek, anders ernaast.
+function legendaPositie() {
+    return window.matchMedia("(max-width: 768px), (max-width: 900px) and (orientation: landscape)").matches ? "bottom" : "right";
 }

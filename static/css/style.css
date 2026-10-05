@@ -583,6 +583,7 @@ body {
 
 .drilldownLijsten {
     display: flex;
+    flex-wrap: wrap;
     gap: 40px;
 }
 
@@ -1069,6 +1070,11 @@ body {
     input,
     button {
         min-height: 44px;
+    }
+
+    /* Een select is anders zo breed als zijn langste optie en duwt de pagina breder dan het scherm. */
+    select {
+        max-width: 100%;
     }
 
     .nieuweUploadLink {

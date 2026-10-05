@@ -39,7 +39,7 @@ function toonVerdeling() {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { position: "right" },
+                legend: { position: legendaPositie() },
                 tooltip: {
                     callbacks: {
                         label: (ctx) => {

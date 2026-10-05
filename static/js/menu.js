@@ -3,21 +3,21 @@
 (function (root) {
     "use strict";
 
-    // Instellingen is geen hoofdtab maar het tandwiel in de header.
+    // Het tandwiel krijgt U+FE0E (tekstvariant), anders tonen telefoons een kleur-emoji. Instellingen is geen hoofdtab maar het tandwiel in de header.
     const MENU_GROEPEN = [
         {
             id: "overzicht", label: "Overzicht", icoon: "⌂",
             views: [
                 { view: "portfolio", label: "Home" },
-                { view: "transacties", label: "Transacties" },
+                { view: "statistieken", label: "Statistieken" },
                 { view: "dividend", label: "Dividend" },
+                { view: "transacties", label: "Transacties" },
             ],
         },
         {
             id: "rendement", label: "Rendement", icoon: "↗",
             views: [
                 { view: "rendement", label: "Rendement" },
-                { view: "statistieken", label: "Statistieken" },
                 { view: "prognose", label: "Prognose" },
             ],
         },
@@ -25,10 +25,10 @@
             id: "samenstelling", label: "Samenstelling", icoon: "◔",
             views: [
                 { view: "verdeling", label: "Verdeling" },
+                { view: "bedrijven", label: "Top 10 bedrijven" },
                 { view: "land", label: "Land" },
                 { view: "sector", label: "Sector" },
                 { view: "valuta", label: "Valuta" },
-                { view: "bedrijven", label: "Top 10 bedrijven" },
                 { view: "etfoverlap", label: "ETF-overlap" },
             ],
         },
@@ -40,7 +40,7 @@
             ],
         },
         {
-            id: "instellingen", label: "Instellingen", icoon: "⚙", tandwiel: true,
+            id: "instellingen", label: "Instellingen", icoon: "⚙︎", tandwiel: true,
             views: [
                 { view: "instellingen", label: "Algemeen" },
                 { view: "instellingen-bijnamen", label: "Bijnamen" },
