@@ -62,7 +62,7 @@ class TestGefaseerdLaden(unittest.TestCase):
         self.portfolio_orchestratie = portfolio_orchestratie
         self._patchers = [
             patch.object(portfolio_orchestratie, "get_prices", return_value=_price_data()),
-            patch.object(portfolio_orchestratie, "ticker_waarschuwingen_voor_transacties", return_value=[]),
+            patch.object(portfolio_orchestratie, "ticker_waarschuwingen_voor_transacties", return_value=([], {})),
             patch.object(portfolio_orchestratie, "classify_tickers", return_value={"ETF_A": True, "AAPL": False}),
             patch.object(portfolio_orchestratie, "_verwarm_land_sector_cache_parallel", return_value=None),
             patch.object(portfolio_orchestratie, "compute_land_sector_verdeling", return_value={"land": {}, "sector": {}}),

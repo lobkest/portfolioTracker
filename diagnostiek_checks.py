@@ -10,7 +10,8 @@ import pandas as pd
 from diagnostiek import GOED, INFO, LET_OP
 from portfolio_calc import holdings_op_datums
 from split_correctie import vind_wisselparen
-from ticker_matching import BEURS_MAP, _openfigi_root_matches
+from ticker_matching import _openfigi_root_matches
+from ticker_zekerheid import BEURS_OTC_NA_DELISTING, beurs_status
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 
 MAX_BEVINDINGEN_PER_CHECK = 5
@@ -417,12 +418,26 @@ def openfigi_root_mismatches(isins_per_ticker, openfigi_cache):
     return mismatch
 
 
-def beurs_oordeel(degiro_beurs, yahoo_beurs):
-    """'zeker' (Yahoo-beurs past bij de DeGiro-beurs), 'beurs' (past niet) of 'onzeker' (niet te beoordelen)."""
-    verwacht = BEURS_MAP.get(degiro_beurs)
-    if not verwacht or not yahoo_beurs:
-        return "onzeker"
-    return "zeker" if yahoo_beurs in verwacht else "beurs"
+def beurs_oordeel(degiro_beurs, yahoo_beurs, prijs_checks=()):
+    """'zeker' (Yahoo-beurs past bij de DeGiro-beurs), 'beurs' (past niet), 'onzeker' (niet te beoordelen) of
+    BEURS_OTC_NA_DELISTING; via beurs_status(), dus hetzelfde oordeel als de Ticker-zekerheid-kaart."""
+    status = beurs_status(degiro_beurs, yahoo_beurs, list(prijs_checks))
+    if status == BEURS_OTC_NA_DELISTING:
+        return status
+    return {True: "zeker", False: "beurs", None: "onzeker"}[status]
+
+
+def check_otc_na_delisting(beurzen_per_ticker, oordeel_per_ticker, namen):
+    """beurzen_per_ticker: {ticker: (DeGiro-beurs, Yahoo-beurs)}."""
+    return [
+        _bevinding(
+            INFO,
+            f"{namen.get(ticker, ticker)} ({ticker}): Excel-beurs {beurzen_per_ticker[ticker][0]}, Yahoo "
+            f"{beurzen_per_ticker[ticker][1]}: nu OTC, waarschijnlijk na delisting (koers klopt).",
+            f"tickers:otc:{ticker}",
+        )
+        for ticker, oordeel in sorted(oordeel_per_ticker.items()) if oordeel == BEURS_OTC_NA_DELISTING
+    ]
 
 
 def check_dis_acc(strijdig, namen):
@@ -490,7 +505,8 @@ def check_ticker_samenvatting(oordeel_per_ticker, redenen_per_ticker):
     redenen = {t: set(redenen_per_ticker.get(t, ())) | ({"beurs"} if o == "beurs" else set())
                for t, o in oordeel_per_ticker.items()}
     met_waarschuwing = {t: r for t, r in redenen.items() if r}
-    zeker = sum(1 for t, o in oordeel_per_ticker.items() if o == "zeker" and t not in met_waarschuwing)
+    zeker = sum(1 for t, o in oordeel_per_ticker.items()
+                if o in ("zeker", BEURS_OTC_NA_DELISTING) and t not in met_waarschuwing)
     onzeker = len(oordeel_per_ticker) - zeker - len(met_waarschuwing)
     tekst = (f"{len(oordeel_per_ticker)} posities: {zeker} zeker, {onzeker} onzeker (beurs niet te controleren), "
              f"{len(met_waarschuwing)} met waarschuwing")
@@ -501,9 +517,9 @@ def check_ticker_samenvatting(oordeel_per_ticker, redenen_per_ticker):
     return [_bevinding(INFO if met_waarschuwing else GOED, tekst + ".", "tickers:samenvatting")]
 
 
-def ticker_bevindingen(transacties_df, details, openfigi_cache, waarschuwingen):
+def ticker_bevindingen(transacties_df, details, openfigi_cache, waarschuwingen, prijs_checks=None):
     """Alle Tickers-checks. details: db_get_ticker_details(); openfigi_cache: {isin: resultaten};
-    waarschuwingen: ticker_waarschuwingen_voor_transacties() (de lichte check van het laden)."""
+    waarschuwingen en prijs_checks: ticker_waarschuwingen_voor_transacties() (de lichte check van het laden)."""
     rijen = _gewone_rijen(transacties_df.dropna(subset=["ticker"])) if not transacties_df.empty else transacties_df
     if rijen.empty:
         return []
@@ -522,13 +538,15 @@ def ticker_bevindingen(transacties_df, details, openfigi_cache, waarschuwingen):
         redenen[t].add("openfigi")
     for t in strijdig:
         redenen[t].add("dis_acc")
-    oordeel = {t: beurs_oordeel(g["beurs"].iloc[0], (details.get(t) or {}).get("yahoo_beurs"))
-               for t, g in rijen.groupby("ticker")}
+    prijs_checks = prijs_checks or {}
+    beurzen = {t: (g["beurs"].iloc[0], (details.get(t) or {}).get("yahoo_beurs")) for t, g in rijen.groupby("ticker")}
+    oordeel = {t: beurs_oordeel(degiro, yahoo, prijs_checks.get(t, ())) for t, (degiro, yahoo) in beurzen.items()}
 
     return (check_dis_acc(strijdig, namen)
             + check_openfigi_root(mismatches, namen)
             + check_openfigi_leeg(posities_per_isin, openfigi_cache)
             + check_ticker_info_onvolledig({t: details[t] for t in namen if t in details}, namen)
+            + check_otc_na_delisting(beurzen, oordeel, namen)
             + check_ticker_samenvatting(oordeel, redenen))
 
 

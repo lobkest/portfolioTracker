@@ -30,6 +30,9 @@ function maakBeursRegel(excelBeurs, yahooBeurs, beursKlopt) {
     } else if (beursKlopt === true) {
         beursRegel.classList.add("positief");
         beursRegel.textContent = `✓ ${tekst}`;
+    } else if (beursKlopt === "otc_na_delisting") {
+        beursRegel.classList.add("positief");
+        beursRegel.textContent = `✓ ${tekst} (nu OTC, waarschijnlijk na delisting)`;
     } else {
         beursRegel.textContent = tekst;
     }

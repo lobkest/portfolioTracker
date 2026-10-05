@@ -14,10 +14,16 @@ BEURS_MAP = {
     # Tradegate verhandelt ook Amerikaanse aandelen die Yahoo alleen op de thuismarkt kent;
     # NMS/NYQ achteraan zodat een Duitse notering voorgaat.
     "TDG": ["GER", "MUN", "FRA", "NMS", "NYQ"], "LSE": ["LSE"], "XLON": ["LSE"],
-    "NYSE": ["NYQ"], "NASDAQ": ["NMS"], "ARCA": ["PCX"], "EPA": ["PAR"],
+    # Yahoo splitst Nasdaq in Global Select (NMS), Global Market (NGM) en Capital Market (NCM).
+    "NYSE": ["NYQ"], "NSY": ["NYQ"], "NASDAQ": ["NMS", "NGM", "NCM"], "NDQ": ["NMS", "NGM", "NCM"],
+    "ARCA": ["PCX"], "EPA": ["PAR"],
     "EBR": ["BRU"], "BME": ["MCE"], "BIT": ["MIL"], "SWX": ["SWX"],
-    "TSE": ["TOR"], "ASX": ["ASX"], "NDQ": ["NMS"],
+    "TSE": ["TOR"], "ASX": ["ASX"],
 }
+
+# Bewust niet in BEURS_MAP: dan kiest het zoeken OTC-noteringen (BBRYF) voor aandelen die gewoon op de beurs staan.
+AMERIKAANSE_BEURZEN = {"NDQ", "NSY", "NASDAQ", "NYSE"}
+OTC_BEURZEN = {"PNK", "OQB", "OQX"}
 
 # Op naam, alleen als fallback ná het zoeken (zie CLAUDE.md: Yahoo en tickers).
 MANUAL_TICKER_OVERRIDES = {

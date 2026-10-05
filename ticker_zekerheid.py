@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker
 from debug_utils import dprint
 from ticker_matching import (
-    find_ticker_detailed, BEURS_MAP, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
+    find_ticker_detailed, BEURS_MAP, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
 from ticker_prijscheck import vergelijk_prijs_op_datum, _prijscheck_is_probleem
 from transactie_utils import formatteer_datum_nl
@@ -276,15 +276,37 @@ def _voeg_prijsoordeel_toe(resultaat, steekproef):
     return {**resultaat, "prijs_checks": prijs_checks, "zekerheid": zekerheid, "waarschuwing": waarschuwing}
 
 
+BEURS_OTC_NA_DELISTING = "otc_na_delisting"
+
+
+def beurs_status(excel_beurs, yahoo_beurs, prijs_checks):
+    """True/False/None, of BEURS_OTC_NA_DELISTING: Amerikaanse beurs in Excel, OTC bij Yahoo
+    en alle bekende prijschecks kloppen (zoals XELA na de delisting van Nasdaq)."""
+    verwachte_beurzen = BEURS_MAP.get(excel_beurs, [])
+    if not (excel_beurs and yahoo_beurs and verwachte_beurzen):
+        return None
+    if yahoo_beurs in verwachte_beurzen:
+        return True
+    if excel_beurs in AMERIKAANSE_BEURZEN and yahoo_beurs in OTC_BEURZEN:
+        bekende_checks = [c for c in prijs_checks if c["match"] is not None]
+        if bekende_checks and not any(_prijscheck_is_probleem(c) for c in bekende_checks):
+            return BEURS_OTC_NA_DELISTING
+    return False
+
+
 def _voeg_kaartvelden_toe(resultaat, beurs):
     ticker = resultaat["ticker"]
     details = _ticker_details_met_cache(ticker)
     land, sector, top_holding_land = _land_sector_voor_weergave(ticker)
     yahoo_beurs = details.get("yahoo_beurs")
-    verwachte_beurzen = BEURS_MAP.get(beurs, [])
-    beurs_klopt = (yahoo_beurs in verwachte_beurzen) if (beurs and yahoo_beurs and verwachte_beurzen) else None
+    beurs_klopt = beurs_status(beurs, yahoo_beurs, resultaat["prijs_checks"])
+    zekerheid = resultaat["zekerheid"]
+    # "onzeker" kwam dan alleen doordat het zoeken geen beurs-match vond; de prijs is al bevestigd.
+    if beurs_klopt == BEURS_OTC_NA_DELISTING and zekerheid == "onzeker":
+        zekerheid = "zeker"
     return {
         **resultaat,
+        "zekerheid": zekerheid,
         "is_etf": classify_ticker(ticker),
         "land": land,
         "sector": sector,
@@ -566,27 +588,33 @@ def backfill_verouderde_tickers(code, forceer=False):
     return gecorrigeerd
 
 
-def prijswaarschuwing_delen(ticker, transacties_van_dit_isin, isin=None):
-    """{koers, openfigi}: per reden een tekst of None. Voor elk bezoek: geen live zoekopdracht, normaal een cache-hit.
-    Met isin ook de OpenFIGI-root-check."""
+def prijscheck_laatste(ticker, transacties_van_dit_isin):
+    """Prijscheck (met 'datum') op de laatste geldige transactie, of None. Normaal een cache-hit."""
     geldige_transacties = _geldige_transacties(transacties_van_dit_isin)
     if not ticker or not geldige_transacties:
+        return None
+    laatste = max(geldige_transacties, key=lambda t: t["datum"])
+    check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
+    return {**check, "datum": laatste["datum"]}
+
+
+def prijswaarschuwing_delen(ticker, transacties_van_dit_isin, isin=None, check=None):
+    """{koers, openfigi}: per reden een tekst of None. Voor elk bezoek: geen live zoekopdracht, normaal een cache-hit.
+    Met isin ook de OpenFIGI-root-check; check: al berekende prijscheck_laatste()."""
+    if check is None:
+        check = prijscheck_laatste(ticker, transacties_van_dit_isin)
+    if check is None or check["afwijking_pct"] is None or not _prijscheck_is_probleem(check):
         boodschap = None
+    elif check.get("binnen_dagrange") is False:
+        boodschap = (
+            f"Koers van {ticker} valt op {formatteer_datum_nl(check['datum'])} buiten de dagrange (high/low) van "
+            f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
+        )
     else:
-        laatste = max(geldige_transacties, key=lambda t: t["datum"])
-        check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
-        if check["afwijking_pct"] is None or not _prijscheck_is_probleem(check):
-            boodschap = None
-        elif check.get("binnen_dagrange") is False:
-            boodschap = (
-                f"Koers van {ticker} valt op {formatteer_datum_nl(laatste['datum'])} buiten de dagrange (high/low) van "
-                f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
-            )
-        else:
-            boodschap = (
-                f"Koers van {ticker} wijkt {check['afwijking_pct']:.1f}% af van Yahoo — "
-                f"controleer op het Ticker-zekerheid-tabblad."
-            )
+        boodschap = (
+            f"Koers van {ticker} wijkt {check['afwijking_pct']:.1f}% af van Yahoo — "
+            f"controleer op het Ticker-zekerheid-tabblad."
+        )
 
     delen = {"koers": boodschap, "openfigi": None}
     if not ticker or not isin:
@@ -611,20 +639,25 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
 
 
 def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
-    """[{ticker, naam, boodschap, redenen}]; redenen ⊆ ["koers", "openfigi"]. Zonder 'isin'-kolom geen OpenFIGI-check."""
+    """(waarschuwingen, prijs_checks). waarschuwingen: [{ticker, naam, boodschap, redenen}], redenen ⊆
+    ["koers", "openfigi"]; prijs_checks: {ticker: [prijscheck_laatste()]} voor Diagnostiek.
+    Zonder 'isin'-kolom geen OpenFIGI-check."""
     heeft_isin_kolom = "isin" in transacties_df.columns
     waarschuwingen = []
+    prijs_checks = {}
     for ticker, groep in transacties_df.dropna(subset=["ticker"]).groupby("ticker"):
         transacties_van_ticker = [{"datum": d, "koers": k} for d, k in zip(groep["datum"], groep["koers"])]
         isin = groep["isin"].iloc[0] if heeft_isin_kolom and not groep.empty else None
-        delen = prijswaarschuwing_delen(ticker, transacties_van_ticker, isin)
+        check = prijscheck_laatste(ticker, transacties_van_ticker)
+        prijs_checks[ticker] = [check] if check else []
+        delen = prijswaarschuwing_delen(ticker, transacties_van_ticker, isin, check=check)
         redenen = [reden for reden, tekst in delen.items() if tekst]
         if redenen:
             waarschuwingen.append({
                 "ticker": ticker, "naam": ticker_namen.get(ticker, ticker),
                 "boodschap": "\n".join(delen[r] for r in redenen), "redenen": redenen,
             })
-    return waarschuwingen
+    return waarschuwingen, prijs_checks
 
 
 def vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=None,

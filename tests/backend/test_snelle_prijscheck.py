@@ -288,14 +288,15 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
         })
         ticker_namen = {"AAPL": "Apple", "MSFT": "Microsoft"}
 
-        def fake_delen(ticker, transacties, isin=None):
+        def fake_delen(ticker, transacties, isin=None, check=None):
             if ticker == "AAPL":
                 return {"koers": "Koers van AAPL wijkt 15.0% af van Yahoo — controleer op het Ticker-zekerheid-tabblad.",
                         "openfigi": None}
             return {"koers": None, "openfigi": None}
 
-        with patch.object(ticker_zekerheid, "prijswaarschuwing_delen", side_effect=fake_delen):
-            waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
+        with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None), \
+                patch.object(ticker_zekerheid, "prijswaarschuwing_delen", side_effect=fake_delen):
+            waarschuwingen, _prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
 
         self.assertEqual(len(waarschuwingen), 1)
         self.assertEqual(waarschuwingen[0]["ticker"], "AAPL")
@@ -307,8 +308,9 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
         transacties_df = pd.DataFrame({
             "ticker": ["AAPL"], "datum": [date(2023, 6, 10)], "koers": [100.0],
         })
-        with patch.object(ticker_zekerheid, "prijswaarschuwing_delen", return_value={"koers": None, "openfigi": None}):
-            waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, {})
+        with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None), \
+                patch.object(ticker_zekerheid, "prijswaarschuwing_delen", return_value={"koers": None, "openfigi": None}):
+            waarschuwingen, _prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, {})
         self.assertEqual(waarschuwingen, [])
 
 

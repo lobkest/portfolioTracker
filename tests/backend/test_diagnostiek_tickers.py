@@ -91,6 +91,24 @@ class TestTickerInfoEnBeurs(unittest.TestCase):
         [b] = check_ticker_samenvatting({"A": "zeker"}, {})
         self.assertEqual(b["niveau"], GOED)
 
+    def test_xela_ndq_naar_pnk_met_kloppende_prijs_geen_beurs_mismatch(self):
+        df = pd.DataFrame({
+            "datum": [pd.Timestamp("2023-05-01")], "tijd": [M], "product": ["EXELA"], "echte_naam": ["EXELA"],
+            "isin": [XELA_NIEUW], "beurs": ["NDQ"], "ticker": ["XELA"], "aantal": [1], "koers": [1.0],
+            "totaal_eur": [-1.0], "transactiekosten": [-0.5], "waarde_eur": [-1.0], "order_id": ["o1"],
+        })
+        details = {"XELA": {"valuta": "USD", "quote_type": "EQUITY", "yahoo_beurs": "PNK"}}
+        prijs_checks = {"XELA": [{"match": True, "binnen_dagrange": True, "afwijking_pct": 0.5}]}
+        uit = ticker_bevindingen(df, details, {XELA_NIEUW: [{"ticker": "XELA"}]}, [], prijs_checks)
+        self.assertEqual([(b["niveau"], b["sleutel"]) for b in uit],
+                         [(INFO, "tickers:otc:XELA"), (GOED, "tickers:samenvatting")])
+        self.assertIn("nu OTC, waarschijnlijk na delisting", uit[0]["tekst"])
+        self.assertIn("1 zeker, 0 onzeker (beurs niet te controleren), 0 met waarschuwing", uit[1]["tekst"])
+
+        prijs_checks["XELA"][0].update(match=False, binnen_dagrange=False)
+        [samenvatting] = ticker_bevindingen(df, details, {XELA_NIEUW: [{"ticker": "XELA"}]}, [], prijs_checks)
+        self.assertIn("XELA: beurs", samenvatting["tekst"])
+
 
 def _excel(*rijen):
     return pd.DataFrame(rijen, columns=["ISIN", "Beurs", "Product", "Wisselkoers"])

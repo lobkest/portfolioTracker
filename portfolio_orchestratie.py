@@ -156,14 +156,15 @@ def _meld_datakwaliteit(code, transacties_df):
         print(f"[diagnostiek] WARN datakwaliteit niet gecontroleerd ({e!a})")
 
 
-def _meld_tickers(transacties_df, ticker_waarschuwingen):
-    """Alleen caches: ticker_info en openfigi_cache, geen Yahoo- of OpenFIGI-call. Mag het laden nooit breken."""
+def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
+    """Alleen caches en de prijschecks van de lichte check, geen Yahoo- of OpenFIGI-call. Mag het laden nooit breken."""
     try:
         met_ticker = transacties_df.dropna(subset=["ticker"])
         tickers = met_ticker["ticker"].unique().tolist()
         isins = met_ticker["isin"].dropna().unique().tolist()
         bevindingen = ticker_bevindingen(
-            transacties_df, db_get_ticker_details(tickers), db_get_cached_openfigi_voor_isins(isins), ticker_waarschuwingen)
+            transacties_df, db_get_ticker_details(tickers), db_get_cached_openfigi_voor_isins(isins), ticker_waarschuwingen,
+            prijs_checks)
         for b in bevindingen:
             meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
@@ -385,8 +386,8 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     )
 
     # Leest alleen de prijscheck-cache: normaal geen nieuwe Yahoo-calls.
-    ticker_waarschuwingen = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
-    _meld_tickers(transacties_df, ticker_waarschuwingen)
+    ticker_waarschuwingen, prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
+    _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks)
 
     if resource:
         mem_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
