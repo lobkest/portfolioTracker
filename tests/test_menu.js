@@ -1,23 +1,42 @@
-// Unit tests voor de rekenkern van het hamburger-menu (static/js/menu.js).
+// Unit tests voor de hoofdtabs/subtabs (static/js/menu.js) en de mobiele CSS.
 // Draait via Node's ingebouwde testrunner, geen extra dependency nodig:
 //   node --test tests/test_menu.js
 "use strict";
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { volgendeMenuOpenStatus, menuOpenStatusNaViewKeuze } = require("../static/js/menu.js");
+const { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen } = require("../static/js/menu.js");
 
-test("volgendeMenuOpenStatus: dicht -> open", () => {
-    assert.equal(volgendeMenuOpenStatus(false), true);
+const ALLE_VIEWS = MENU_GROEPEN.flatMap(g => g.views.map(v => v.view));
+
+test("elke tabblad-view uit portfolio.html (behalve xirr-rendement) zit in precies één groep", () => {
+    const html = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "templates", "portfolio.html"), "utf8");
+    const views = [...html.matchAll(/<div id="tab-([\w-]+)" data-views="/g)].map(m => m[1]);
+    assert.ok(views.length > 0);
+    assert.ok(!views.includes("xirr-rendement"));
+    for (const view of views) {
+        assert.equal(ALLE_VIEWS.filter(v => v === view).length, 1, view);
+    }
+    assert.deepEqual([...ALLE_VIEWS].sort(), [...views].sort());
 });
 
-test("volgendeMenuOpenStatus: open -> dicht", () => {
-    assert.equal(volgendeMenuOpenStatus(true), false);
+test("groepVanView: view naar groep, instellingen-views naar instellingen, onbekend naar null", () => {
+    assert.equal(groepVanView("dividend"), "overzicht");
+    assert.equal(groepVanView("land"), "samenstelling");
+    assert.equal(groepVanView("instellingen-diagnostiek"), "instellingen");
+    assert.equal(groepVanView("xirr-rendement"), null);
 });
 
-test("menuOpenStatusNaViewKeuze: sluit het menu ongeacht de status ervoor", () => {
-    assert.equal(menuOpenStatusNaViewKeuze(true), false);
-    assert.equal(menuOpenStatusNaViewKeuze(false), false);
+test("eersteView: eerste toegestane subtab van de groep", () => {
+    assert.equal(eersteView("overzicht", ALLE_VIEWS), "portfolio");
+    assert.equal(eersteView("instellingen", ["instellingen-ticker", "instellingen-diagnostiek"]), "instellingen-ticker");
+    assert.equal(eersteView("posities", ["dividend"]), null);
+    assert.equal(eersteView("bestaatniet", ALLE_VIEWS), null);
+});
+
+test("zichtbareGroepen: alleen groepen met minstens één toegestane view", () => {
+    assert.deepEqual(zichtbareGroepen(["land", "instellingen-ticker"]).map(g => g.id), ["samenstelling", "instellingen"]);
+    assert.deepEqual(zichtbareGroepen([]), []);
 });
 
 // --- Regressiebewaking mobiele CSS/viewport (geen DOM nodig: leest de bronbestanden) ---
@@ -54,15 +73,22 @@ test("desktop: font-size van invoervelden is buiten de media query niet gezet", 
     assert.doesNotMatch(buitenMedia, /(^|\n)(input|select|textarea)[^{]*\{[^}]*font-size/);
 });
 
-test("mobiel: sidebar is zelf scrollbaar, begrensd (dvh + vh-fallback) en lekt niet door", () => {
-    const sidebar = MOBIEL.match(/\.sidebar\s*\{([^}]*)\}/)[1];
-    assert.match(sidebar, /overflow-y:\s*auto/);
-    assert.match(sidebar, /overscroll-behavior:\s*contain/);
-    assert.match(sidebar, /height:\s*100vh;\s*[^}]*height:\s*100dvh/);
+test("mobiel: hoofdtabs zijn een vaste onderbalk met ruimte voor de safe-area", () => {
+    const balk = MOBIEL.match(/\.hoofdTabs\s*\{([^}]*)\}/)[1];
+    assert.match(balk, /position:\s*fixed/);
+    assert.match(balk, /bottom:\s*0/);
+    assert.match(balk, /padding-bottom:\s*env\(safe-area-inset-bottom\)/);
 });
 
-test("mobiel: achtergrond wordt vastgezet zolang het menu open is (body.menuOpen)", () => {
-    assert.match(MOBIEL, /body\.menuOpen,\s*body\.menuOpen \.content\s*\{[^}]*overflow:\s*hidden/);
+test("mobiel: de content krijgt padding-bottom zodat de onderbalk niets bedekt", () => {
+    const content = MOBIEL.match(/\.content\s*\{([^}]*)\}/)[1];
+    assert.match(content, /padding-bottom:\s*calc\([^)]*env\(safe-area-inset-bottom\)/);
+});
+
+test("mobiel: subtabs scrollen horizontaal", () => {
+    const sub = MOBIEL.match(/\.subTabs\s*\{([^}]*)\}/)[1];
+    assert.match(sub, /overflow-x:\s*auto/);
+    assert.match(sub, /flex-wrap:\s*nowrap/);
 });
 
 test("viewport-meta: apparaatbreedte en startschaal", () => {

@@ -142,9 +142,8 @@ document.getElementById("europaCheckbox").addEventListener("change", () => {
 // De keuze geldt voor Land, Sector én Valuta; de data staat al in huidigeData.
 document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
     landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
-    const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
-    const actieveView = actieveKnop ? actieveKnop.dataset.view : null;
-    if (actieveView === "land") toonLand();
-    else if (actieveView === "sector") toonSector();
-    else if (actieveView === "valuta") toonValuta();
+    const view = actieveViewNaam();
+    if (view === "land") toonLand();
+    else if (view === "sector") toonSector();
+    else if (view === "valuta") toonValuta();
 });

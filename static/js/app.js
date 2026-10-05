@@ -38,7 +38,6 @@ const TOON_PER_VIEW = {
     "etfoverlap": renderEtfOverlapTabel,
     "statistieken": toonStatistieken,
     "transacties": toonTransacties,
-    "xirr-rendement": toonRendementOverTijd,
     "prognose": toonPrognose,
     "dividend": toonDividend,
     "instellingen": () => {},  // leeg, want de instellingen zijn altijd hetzelfde voor elk portfolio
@@ -47,9 +46,57 @@ const TOON_PER_VIEW = {
     "instellingen-diagnostiek": toonDiagnostiek,
 };
 
+function toegestaneViews() {
+    return Object.keys(TOON_PER_VIEW).filter(v => huidigeData.code || !VIEWS_MET_CODE.includes(v));
+}
+
 function viewUitUrl() {
-    const toegestaan = Object.keys(TOON_PER_VIEW).filter(v => huidigeData.code || !VIEWS_MET_CODE.includes(v));
-    return viewUitHash(location.hash, toegestaan);
+    return viewUitHash(location.hash, toegestaneViews());
+}
+
+let actieveView = null;
+
+function maakHoofdTabKnop(groep) {
+    const knop = document.createElement("button");
+    knop.type = "button";
+    knop.className = "hoofdTab";
+    knop.dataset.groep = groep.id;
+    const icoon = document.createElement("span");
+    icoon.className = "hoofdTabIcoon";
+    icoon.textContent = groep.icoon;
+    const label = document.createElement("span");
+    label.textContent = groep.label;
+    knop.append(icoon, label);
+    return knop;
+}
+
+// Hoofdtabs en tandwiel komen uit MENU_GROEPEN; het tandwiel staat al in de HTML.
+MENU_GROEPEN.filter(g => !g.tandwiel).forEach(g => document.getElementById("hoofdTabs").appendChild(maakHoofdTabKnop(g)));
+
+document.querySelectorAll("[data-groep]").forEach(knop => {
+    knop.addEventListener("click", () => gaNaarView(eersteView(knop.dataset.groep, toegestaneViews())));
+});
+
+function ververMenu(view) {
+    const toegestaan = toegestaneViews();
+    const groepId = groepVanView(view);
+    const zichtbaar = zichtbareGroepen(toegestaan).map(g => g.id);
+    document.querySelectorAll("[data-groep]").forEach(knop => {
+        knop.hidden = !zichtbaar.includes(knop.dataset.groep);
+        knop.classList.toggle("actief", knop.dataset.groep === groepId);
+    });
+
+    const groep = MENU_GROEPEN.find(g => g.id === groepId);
+    const chips = (groep ? zichtbareViews(groep, toegestaan) : []).map(v => {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "subTab" + (v.view === view ? " actief" : "");
+        chip.dataset.view = v.view;
+        chip.textContent = v.label;
+        chip.addEventListener("click", () => gaNaarView(v.view));
+        return chip;
+    });
+    document.getElementById("subTabs").replaceChildren(...chips);
 }
 
 // Het tabblad staat in de URL-hash; de hashchange-listener wisselt de view.
@@ -74,9 +121,8 @@ function plaatsGrafiek(view) {
 function pasViewToe(view) {
     const content = document.querySelector(".content");
 
-    document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
-        btn.classList.toggle("actief", btn.dataset.view === view);
-    }); // Menu-knoppen: actief voor de huidige view
+    actieveView = view;
+    ververMenu(view);
 
     // data-views / data-vereist-code bepalen de zichtbaarheid; data-verberg-buiten: de toon-functie zet het zelf aan als dat nodig is.
     const heeftCode = Boolean(huidigeData.code);
@@ -104,10 +150,6 @@ function toonDashboard(data) {
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
 
-    VIEWS_MET_CODE.forEach(view => {
-        document.querySelector(`.menuBtn[data-view="${view}"]`).style.display = data.code ? "" : "none";
-    });
-
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
 
     if (!data.chart_data) {
@@ -130,8 +172,7 @@ function toonDashboard(data) {
 }
 
 function actieveViewNaam() {
-    const knop = document.querySelector(".menuBtn[data-view].actief");
-    return knop ? knop.dataset.view : null;
+    return actieveView;
 }
 
 // Anders gebeurt het tekenen vanzelf bij de volgende tabwissel.
@@ -195,34 +236,6 @@ function toonTickerWaarschuwingBanner(waarschuwingen) {
     banner.style.display = "block";
 }
 
-// Hamburgermenu: de status komt uit menu.js, hier alleen de DOM.
-let menuOpen = false;
-const hamburgerBtn = document.getElementById("hamburgerBtn");
-const sidebarMenu = document.getElementById("sidebarMenu");
-const menuOverlay = document.getElementById("menuOverlay");
-
-function pasMenuStatusToe(open) {
-    menuOpen = open;
-    sidebarMenu.classList.toggle("open", open);
-    menuOverlay.classList.toggle("open", open);
-    hamburgerBtn.setAttribute("aria-expanded", String(open));
-    hamburgerBtn.innerHTML = open ? "&times;" : "&#9776;";
-    document.body.classList.toggle("menuOpen", open);
-}
-
-hamburgerBtn.addEventListener("click", () => pasMenuStatusToe(volgendeMenuOpenStatus(menuOpen)));
-menuOverlay.addEventListener("click", () => pasMenuStatusToe(false));
-document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && menuOpen) pasMenuStatusToe(false);
-});
-
-document.querySelectorAll(".menuBtn[data-view]").forEach(btn => {
-    btn.addEventListener("click", () => {
-        gaNaarView(btn.dataset.view);
-        pasMenuStatusToe(menuOpenStatusNaViewKeuze());
-    });
-});
-
 // Ook de terug- en vooruit-knop van de browser komen hier langs.
 window.addEventListener("hashchange", () => {
     if (huidigeData && huidigeData.chart_data) wisselView(viewUitUrl());
@@ -234,7 +247,6 @@ document.getElementById("resetZoomBtn").addEventListener("click", () => {
 
 document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () => {
     gaNaarView("instellingen-ticker");
-    pasMenuStatusToe(menuOpenStatusNaViewKeuze());
 });
 
 // De code komt uit Flask (data-code); leeg op /analyse ('niet opslaan').

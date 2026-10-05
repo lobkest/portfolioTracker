@@ -10,7 +10,7 @@ const {
     portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, maakTabWisselaar, startMeldingTekst,
 } = require("../static/js/navigatie.js");
 
-const VIEWS = ["portfolio", "rendement", "xirr-rendement", "instellingen-ticker"];
+const VIEWS = ["portfolio", "rendement", "prognose", "instellingen-ticker"];
 
 test("portfolioPad: absoluut pad met de code", () => {
     assert.equal(portfolioPad("ABC"), "/p/ABC");
@@ -23,7 +23,11 @@ test("startPadMetMelding: startpagina met de sleutel in de query", () => {
 test("viewUitHash: geldige hash geeft die view, met of zonder #", () => {
     assert.equal(viewUitHash("#rendement", VIEWS), "rendement");
     assert.equal(viewUitHash("rendement", VIEWS), "rendement");
-    assert.equal(viewUitHash("#xirr-rendement", VIEWS), "xirr-rendement");
+    assert.equal(viewUitHash("#prognose", VIEWS), "prognose");
+});
+
+test("viewUitHash: de verwijderde hash #xirr-rendement valt terug op de standaard-view", () => {
+    assert.equal(viewUitHash("#xirr-rendement", VIEWS), STANDAARD_VIEW);
 });
 
 test("viewUitHash: lege of ontbrekende hash geeft de standaard-view", () => {
@@ -45,7 +49,7 @@ test("viewUitHash: view die niet in de lijst staat (bv. verborgen bij niet opsla
 test("viewInLijst: alleen een hele tabbladnaam telt, geen deel ervan", () => {
     assert.equal(viewInLijst("land sector", "land"), true);
     assert.equal(viewInLijst("land sector", "sector"), true);
-    assert.equal(viewInLijst("xirr-rendement", "rendement"), false);
+    assert.equal(viewInLijst("rendement-pct", "rendement"), false);
     assert.equal(viewInLijst("instellingen-bijnamen", "instellingen"), false);
     assert.equal(viewInLijst("land sector", "portfolio"), false);
 });
@@ -77,7 +81,7 @@ test("elementZichtbaar: data-vereist-code 'nee' is het spiegelbeeld (alleen bij 
 });
 
 test("elementZichtbaar: zonder data-views (binnen een tabblad-blok) telt alleen de code", () => {
-    for (const view of ["portfolio", "xirr-rendement"]) {
+    for (const view of ["portfolio", "prognose"]) {
         assert.equal(elementZichtbaar(undefined, VEREIST_CODE_JA, view, true), true);
         assert.equal(elementZichtbaar(undefined, VEREIST_CODE_JA, view, false), false);
         assert.equal(elementZichtbaar(undefined, VEREIST_CODE_NEE, view, true), false);
@@ -119,7 +123,7 @@ const tabbladVan = element => element.voorouders.find(v => (v.attrs.id || "").st
 const viewVanTabblad = tabblad => tabblad.attrs.id.slice("tab-".length);
 
 function menuViews(elementen) {
-    return elementen.filter(e => heeft(e, "data-view")).map(e => e.attrs["data-view"]);
+    return elementen.filter(e => (e.attrs.id || "").startsWith("tab-")).map(e => e.attrs["data-views"]);
 }
 
 test("portfolio.html: elke naam in data-views en data-verberg-buiten is een bestaand tabblad", () => {
@@ -142,7 +146,7 @@ test("portfolio.html: geen dubbele id's", () => {
     assert.deepEqual(dubbel, []);
 });
 
-test("portfolio.html: elk tabblad uit het menu heeft precies één eigen blok tab-<view>", () => {
+test("portfolio.html: elk tabblad heeft precies één eigen blok tab-<view>", () => {
     const elementen = leesPortfolioElementen();
     const blokken = elementen.filter(e => (e.attrs.id || "").startsWith("tab-"));
     assert.deepEqual(blokken.map(viewVanTabblad), menuViews(elementen));
@@ -167,7 +171,7 @@ test("portfolio.html: de gedeelde grafiek heeft een plek op de tabbladen met een
     const plekken = leesPortfolioElementen().filter(e => heeft(e, "data-grafiek-plek"));
     assert.deepEqual(
         plekken.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "xirr-rendement", "prognose", "dividend"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "prognose", "dividend"],
     );
 });
 
@@ -177,7 +181,7 @@ test("portfolio.html: de zoomknop staat alleen op de tabbladen met een zoombare 
     for (const plek of zoombaar) assert.ok(heeft(plek, "data-grafiek-plek"), "data-zoombaar zonder data-grafiek-plek");
     assert.deepEqual(
         zoombaar.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "xirr-rendement", "prognose", "dividend"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "prognose", "dividend"],
     );
     const zoomknop = elementen.find(e => e.attrs.id === "resetZoomBtn");
     assert.ok(zoomknop.voorouders.some(v => v.attrs.id === "chartWrapper"), "de zoomknop verhuist mee met de grafiek");
@@ -197,7 +201,7 @@ test("portfolio.html: data-vereist-code is 'ja' of 'nee'", () => {
     }
 });
 
-test("portfolio.html: code-tekst, benchmark-keuzes en de XIRR-grafiek vereisen een code; 'niet opgeslagen' juist geen", () => {
+test("portfolio.html: code-tekst, benchmark-keuzes en de €/%-schakelaar vereisen een code; 'niet opgeslagen' juist geen", () => {
     const elementen = leesPortfolioElementen();
     const vereist = id => elementen.find(e => e.attrs.id === id).attrs["data-vereist-code"];
     assert.equal(vereist("codeText"), VEREIST_CODE_JA);
@@ -207,8 +211,7 @@ test("portfolio.html: code-tekst, benchmark-keuzes en de XIRR-grafiek vereisen e
     for (const id of ["codeText", "nietOpgeslagenText"]) {
         assert.equal(tabbladVan(elementen.find(e => e.attrs.id === id)).attrs.id, "tab-portfolio", id);
     }
-    const xirrPlek = elementen.find(e => heeft(e, "data-grafiek-plek") && tabbladVan(e).attrs.id === "tab-xirr-rendement");
-    assert.equal(xirrPlek.attrs["data-vereist-code"], VEREIST_CODE_JA);
+    assert.equal(vereist("rendementWeergaveWrapper"), VEREIST_CODE_JA);
 });
 
 test("portfolio.html: 'laatst bijgewerkt' wordt buiten Portfolio-home verborgen", () => {

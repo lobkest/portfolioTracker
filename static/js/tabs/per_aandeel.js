@@ -80,8 +80,7 @@ function toonEtfDrilldown(ticker) {
 }
 
 document.getElementById("aandeelSelect").addEventListener("change", (e) => {
-    const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
-    if (actieveKnop && actieveKnop.dataset.view === "peraandeelaankoop") {
+    if (actieveViewNaam() === "peraandeelaankoop") {
         toonPerAandeelAankoop(e.target.value);
     } else {
         toonPerAandeel(e.target.value);

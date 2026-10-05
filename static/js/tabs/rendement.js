@@ -1,10 +1,12 @@
-// Tabblad Rendement: rendement over tijd, optioneel naast een benchmark of een eigen aandeel.
+// Tabblad Rendement: in € optioneel naast een benchmark of eigen aandeel, in % met XIRR en TWR (alleen met code).
 
 let benchmarkVergelijkingData = null;
 // Los van de benchmark: beide vergelijkingslijnen kunnen tegelijk zichtbaar zijn.
 let eigenAandeelVergelijkingData = null;
+let rendementWeergave = "euro";
 
 function resetRendement() {
+    rendementWeergave = "euro";
     benchmarkVergelijkingData = null;
     eigenAandeelVergelijkingData = null;
     document.getElementById("benchmarkSelect").value = "";
@@ -12,6 +14,23 @@ function resetRendement() {
 }
 
 function toonRendement() {
+    const procent = Boolean(huidigeData.code) && rendementWeergave === "pct";
+    document.querySelectorAll("#rendementWeergaveWrapper .segmentKnop").forEach(knop => {
+        knop.classList.toggle("actief", knop.dataset.weergave === rendementWeergave);
+    });
+    ["benchmarkSelectWrapper", "eigenAandeelSelectWrapper"].forEach(id => {
+        if (huidigeData.code) document.getElementById(id).style.display = procent ? "none" : "block";
+    });
+    if (procent) {
+        ["benchmarkMelding", "eigenAandeelMelding"].forEach(id => { document.getElementById(id).style.display = "none"; });
+        toonRendementOverTijd();
+    } else {
+        document.getElementById("xirrRendementMsg").style.display = "none";
+        toonRendementEuro();
+    }
+}
+
+function toonRendementEuro() {
     const d = huidigeData.chart_data;
     const datasets = [{ label: "Rendement (€)", data: d.rendement, borderColor: "#2c7a4b" }];
 
@@ -60,7 +79,7 @@ function toonRendement() {
 async function wisselBenchmark(benchmarkNaam) {
     if (!benchmarkNaam) {
         benchmarkVergelijkingData = null;
-        toonRendement();
+        toonRendementEuro();
         return;
     }
     toonLaadOverlay("Benchmark ophalen...");
@@ -78,7 +97,7 @@ async function wisselBenchmark(benchmarkNaam) {
         alert("Benchmarkvergelijking ophalen is mislukt.");
     } finally {
         verbergLaadOverlay();
-        toonRendement();
+        toonRendementEuro();
     }
 }
 
@@ -86,7 +105,7 @@ async function wisselBenchmark(benchmarkNaam) {
 async function wisselEigenAandeel(ticker) {
     if (!ticker) {
         eigenAandeelVergelijkingData = null;
-        toonRendement();
+        toonRendementEuro();
         return;
     }
     toonLaadOverlay("Vergelijking ophalen...");
@@ -105,7 +124,7 @@ async function wisselEigenAandeel(ticker) {
         alert("Vergelijking ophalen is mislukt.");
     } finally {
         verbergLaadOverlay();
-        toonRendement();
+        toonRendementEuro();
     }
 }
 
@@ -132,3 +151,50 @@ document.getElementById("benchmarkSelect").addEventListener("change", (e) => {
 document.getElementById("eigenAandeelSelect").addEventListener("change", (e) => {
     wisselEigenAandeel(e.target.value);
 });
+
+document.querySelectorAll("#rendementWeergaveWrapper .segmentKnop").forEach(knop => {
+    knop.addEventListener("click", () => {
+        rendementWeergave = knop.dataset.weergave;
+        toonRendement();
+    });
+});
+
+// Geen cache: elke keer opnieuw ophalen (licht, geen Yahoo-calls).
+async function toonRendementOverTijd() {
+    const msg = document.getElementById("xirrRendementMsg");
+    msg.style.display = "none";
+    msg.classList.remove("foutTekst");
+
+    toonLaadOverlay("Rendement over tijd berekenen...");
+    let res, data;
+    try {
+        res = await fetch(`/api/portfolio/${huidigeData.code}/rendement-over-tijd`);
+        data = await res.json();
+    } catch (e) {
+        msg.classList.add("foutTekst");
+        msg.textContent = "Kon rendement-over-tijd niet ophalen (netwerkfout).";
+        msg.style.display = "block";
+        return;
+    } finally {
+        verbergLaadOverlay();
+    }
+
+    if (rendementWeergave !== "pct") return;
+    if (!res.ok) {
+        msg.classList.add("foutTekst");
+        msg.textContent = data.error || "Rendement over tijd kon niet berekend worden.";
+        msg.style.display = "block";
+        return;
+    }
+    if (!data.labels || data.labels.length === 0) {
+        msg.textContent = "Nog geen data om te tonen.";
+        msg.style.display = "block";
+        return;
+    }
+
+    updateChart(data.labels, [
+        { label: "Rendement (%)", data: data.rendement_pct, borderColor: "#2c7a4b" },
+        { label: "XIRR (%)", data: data.xirr_pct, borderColor: "#3182bd" },
+        { label: "TWR (%)", data: data.twr_pct, borderColor: "#d9822b" }
+    ], formatPct);
+}

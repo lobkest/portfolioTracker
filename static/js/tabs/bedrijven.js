@@ -88,7 +88,8 @@ function tekenBedrijven() {
     const n = bedrijvenTopN;
     const { getoond, overigPct } = snijTopBedrijven(data, n);
 
-    document.getElementById("bedrijvenMenuBtn").textContent = bedrijvenTitel(n);
+    const subTab = document.querySelector('#subTabs [data-view="bedrijven"]');
+    if (subTab) subTab.textContent = bedrijvenTitel(n);
     document.getElementById("bedrijvenDekkingTekst").textContent =
         `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top ${n} + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
 
@@ -131,9 +132,8 @@ function tekenBedrijven() {
 
 // Top-bedrijven opnieuw tekenen (staand/liggend) bij het passeren van het mobiele breakpoint.
 window.matchMedia("(max-width: 768px)").addEventListener("change", () => {
-    const actieveKnop = document.querySelector(".menuBtn[data-view].actief");
     const data = huidigeData && huidigeData.bedrijven_verdeling;
-    if (actieveKnop && actieveKnop.dataset.view === "bedrijven" && data && data.top && data.top.length) {
+    if (actieveViewNaam() === "bedrijven" && data && data.top && data.top.length) {
         tekenBedrijven();
     }
 });

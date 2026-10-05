@@ -19,31 +19,12 @@
     </div>
 
     <div class="container dashboard" id="dashboardSection" style="display: none;">
-        <button id="hamburgerBtn" class="hamburgerBtn" aria-label="Menu openen" aria-expanded="false">&#9776;</button>
-        <div id="menuOverlay" class="menuOverlay"></div>
-        <div class="sidebar" id="sidebarMenu">
-            <a class="menuBtn" href="/">&larr; Nieuwe upload</a>
-            <hr>
-            <button class="menuBtn actief" data-view="portfolio">Portfolio-home</button>
-            <button class="menuBtn" data-view="rendement">Rendement</button>
-            <button class="menuBtn" data-view="peraandeel">Per aandeel</button>
-            <button class="menuBtn subMenuBtn" data-view="peraandeelaankoop">Per aandeel aankoop</button>
-            <button class="menuBtn" data-view="verdeling">Verdeling</button>
-            <button class="menuBtn subMenuBtn" data-view="land">Land</button>
-            <button class="menuBtn subMenuBtn" data-view="sector">Sector</button>
-            <button class="menuBtn subMenuBtn" data-view="valuta">Valuta</button>
-            <button class="menuBtn subMenuBtn" id="bedrijvenMenuBtn" data-view="bedrijven">Top 10 bedrijven</button>
-            <button class="menuBtn" data-view="etfoverlap">ETF-overlap</button>
-            <button class="menuBtn" data-view="statistieken">Statistieken</button>
-            <button class="menuBtn" data-view="transacties">Transacties</button>
-            <button class="menuBtn" data-view="xirr-rendement">XIRR &amp; rendement</button>
-            <button class="menuBtn" data-view="prognose">Prognose</button>
-            <button class="menuBtn" data-view="dividend">Dividend</button>
-            <button class="menuBtn" data-view="instellingen">Instellingen</button>
-            <button class="menuBtn subMenuBtn" data-view="instellingen-bijnamen">Bijnamen</button>
-            <button class="menuBtn subMenuBtn" data-view="instellingen-ticker">Ticker-zekerheid</button>
-            <button class="menuBtn subMenuBtn" data-view="instellingen-diagnostiek">Diagnostiek</button>
-        </div>
+        <header class="appKop">
+            <a class="nieuweUploadLink" href="/">&larr; Nieuwe upload</a>
+            <nav class="hoofdTabs" id="hoofdTabs" aria-label="Hoofdmenu"></nav>
+            <button class="instellingenKnop" id="instellingenKnop" type="button" data-groep="instellingen" aria-label="Instellingen">&#9881;</button>
+        </header>
+        <nav class="subTabs" id="subTabs" aria-label="Submenu"></nav>
 
         <div class="content">
             <div id="tickerWaarschuwingBanner" class="waarschuwingBanner" style="display: none;">
@@ -73,6 +54,12 @@
             </div>
 
             <div id="tab-rendement" data-views="rendement" style="display: none;">
+                <div id="rendementWeergaveWrapper" class="margeOnder15" data-vereist-code="ja">
+                    <div class="segmentKeuze" role="group" aria-label="Weergave">
+                        <button type="button" class="segmentKnop actief" data-weergave="euro">&euro;</button>
+                        <button type="button" class="segmentKnop" data-weergave="pct">%</button>
+                    </div>
+                </div>
                 <label id="benchmarkSelectWrapper" class="margeOnder15" data-vereist-code="ja">
                     Vergelijk met benchmark:
                     <select id="benchmarkSelect">
@@ -91,6 +78,7 @@
                 </label>
                 <p id="eigenAandeelMelding" class="kleineMelding" data-verberg-buiten="rendement" style="display: none;"></p>
                 <div data-grafiek-plek data-zoombaar></div>
+                <p id="xirrRendementMsg" data-verberg-buiten="rendement" style="display: none;"></p>
             </div>
 
             <div id="tab-peraandeel" data-views="peraandeel" style="display: none;">
@@ -196,12 +184,6 @@
                     </label>
                     <div id="transactiesTabel"></div>
                 </div>
-            </div>
-
-            <div id="tab-xirr-rendement" data-views="xirr-rendement" style="display: none;">
-                <div data-grafiek-plek data-zoombaar data-vereist-code="ja"></div>
-                <p data-vereist-code="nee">Dit tabblad is alleen beschikbaar voor een opgeslagen portfolio (niet bij een eenmalige, niet-opgeslagen analyse).</p>
-                <p id="xirrRendementMsg" data-verberg-buiten="xirr-rendement" style="display: none;"></p>
             </div>
 
             <div id="tab-prognose" data-views="prognose" style="display: none;">
@@ -319,7 +301,6 @@
     <script src="{{ url_for('static', filename='js/tabs/etf_overlap.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/statistieken.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/transacties.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/tabs/xirr_rendement.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/dividend.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/instellingen.js') }}"></script>

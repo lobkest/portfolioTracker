@@ -67,24 +67,9 @@ body {
 
 .dashboard {
     display: flex;
+    flex-direction: column;
     width: 900px;
     max-width: 100%;
-    gap: 20px;
-}
-
-/* Sidebar blijft op zijn plek terwijl de HELE pagina scrolt (position:
-   sticky t.o.v. de gewone document-flow) — geen eigen scrollcontainer met
-   een geforceerde hoogte, dat gaf een dubbele scrollbar (één voor de pagina,
-   één binnen de content-kolom). align-self: flex-start i.p.v. de flex-
-   default (stretch) zodat de sidebar-box zijn eigen (korte) hoogte
-   aanhoudt i.p.v. mee te rekken met de lange content-kolom ernaast. Op
-   mobiel wordt dit overschreven door het off-canvas paneel hieronder. */
-.sidebar {
-    width: 160px;
-    flex-shrink: 0;
-    position: sticky;
-    top: 20px;
-    align-self: flex-start;
 }
 
 .content {
@@ -100,46 +85,93 @@ body {
     opacity: 0;
 }
 
-.hamburgerBtn {
-    display: none;
+.appKop {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 12px;
 }
 
-.menuOverlay {
-    display: none;
+.nieuweUploadLink {
+    color: #333;
+    text-decoration: none;
+    font-size: 0.85em;
+    white-space: nowrap;
 }
 
-.menuBtn {
-    display: block;
-    width: 100%;
-    text-align: left;
+.hoofdTabs {
+    display: flex;
+    flex: 1;
+    gap: 4px;
+}
+
+/* Knoppen hebben globaal een groene achtergrond en marge; hier tabs zonder die vulling. */
+.hoofdTab,
+.instellingenKnop {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    padding: 10px 14px;
     background: none;
-    border: none;
-    padding: 10px 8px;
-    margin: 2px 0;
-    cursor: pointer;
-    border-radius: 4px;
+    color: #333;
+    border-bottom: 3px solid transparent;
+    border-radius: 4px 4px 0 0;
+}
+
+.hoofdTab:hover,
+.instellingenKnop:hover {
+    background-color: #eee;
     color: #333;
 }
 
-.menuBtn:hover {
-    background-color: #eee;
+.hoofdTab.actief,
+.hoofdTab.actief:hover,
+.instellingenKnop.actief,
+.instellingenKnop.actief:hover {
+    color: #2c7a4b;
+    font-weight: bold;
+    border-bottom-color: #2c7a4b;
 }
 
-/* De terug-link oogt als de knoppen eromheen (een <button> erft de paginafont niet). */
-a.menuBtn {
-    text-decoration: none;
-    font-size: 13.3333px;
+.instellingenKnop {
+    font-size: 1.3em;
+    padding: 4px 10px;
 }
 
-.menuBtn.actief {
-    background-color: #2c7a4b;
-    color: white;
+.subTabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
 }
 
-.subMenuBtn {
-    padding-left: 22px;
+.subTabs:empty {
+    display: none;
+}
+
+.subTab {
+    margin: 0;
+    padding: 6px 14px;
+    background: white;
+    color: #333;
+    border: 1px solid #ccc;
+    border-radius: 999px;
     font-size: 0.9em;
-    color: #666;
+    white-space: nowrap;
+}
+
+.subTab:hover {
+    background-color: #eee;
+    color: #333;
+}
+
+.subTab.actief,
+.subTab.actief:hover {
+    background-color: #2c7a4b;
+    border-color: #2c7a4b;
+    color: white;
 }
 
 .waarschuwingBanner {
@@ -149,6 +181,32 @@ a.menuBtn {
     border-radius: 4px;
     padding: 10px 14px;
     margin-bottom: 15px;
+}
+
+.segmentKeuze {
+    display: inline-flex;
+    border: 1px solid #2c7a4b;
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.segmentKnop {
+    margin: 0;
+    padding: 6px 18px;
+    background: white;
+    color: #2c7a4b;
+    border-radius: 0;
+}
+
+.segmentKnop:hover {
+    background-color: #e8f3ec;
+    color: #2c7a4b;
+}
+
+.segmentKnop.actief,
+.segmentKnop.actief:hover {
+    background-color: #2c7a4b;
+    color: white;
 }
 
 .laadOverlay {
@@ -900,7 +958,7 @@ a.menuBtn {
 /* De landscape-tak dekt ook telefoon-breedtes tussen 768 en 900px: in
    landscape is de "breedte" van een telefoon net zo groot als anders de
    hoogte (bv. iPhone 14 landscape = 844px), dus zonder deze tak zou de
-   hamburger-layout hieronder überhaupt niet aanslaan in landscape. */
+   mobiele layout hieronder überhaupt niet aanslaan in landscape. */
 @media (max-width: 768px), (max-width: 900px) and (orientation: landscape) {
     /* App-gevoel: geen pinch-zoom, geen horizontaal schuiven, geen rubber-banding. */
     html {
@@ -928,99 +986,78 @@ a.menuBtn {
         height: 100dvh;
         min-height: 0;
         gap: 0;
-        /* Ruimte voor de vaste hamburgerbalk bovenaan. */
-        padding-top: calc(56px + env(safe-area-inset-top));
+        padding-top: calc(16px + env(safe-area-inset-top));
     }
 
-    /* Hamburger-icoon: vaste balk bovenaan, blijft zichtbaar terwijl
-       .content eronder zelfstandig scrolt (z-index boven .sidebar zodat
-       'm ook dienstdoet als sluitknop als het menu open staat). */
-    .hamburgerBtn {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+    .appKop {
+        justify-content: space-between;
+        border-bottom: none;
+        margin-bottom: 0;
+    }
+
+    /* Hoofdtabs worden een vaste balk onderaan (duimbereik); .content scrolt erboven. */
+    .hoofdTabs {
         position: fixed;
-        top: 0;
         left: 0;
-        width: 56px;
-        height: calc(56px + env(safe-area-inset-top));
-        padding-top: env(safe-area-inset-top);
-        margin: 0;
-        background: white;
-        color: #2c7a4b;
-        font-size: 1.6em;
-        line-height: 1;
-        border: none;
-        border-bottom: 1px solid #eee;
-        border-radius: 0;
+        right: 0;
+        bottom: 0;
         z-index: 50;
-    }
-
-    /* Menu is standaard een off-canvas paneel (buiten beeld geschoven);
-       .open (via app.js) schuift het in. */
-    .sidebar {
-        position: fixed;
-        top: 0;
-        left: 0;
-        /* Begrensde hoogte via dvh (volgt de zichtbare viewport, dus niet
-           onder de adresbalk); 100vh is de fallback voor oudere browsers. */
-        height: 100vh;
-        height: 100dvh;
-        width: 240px;
-        max-width: 80vw;
+        gap: 0;
         background: white;
-        box-shadow: 2px 0 12px rgba(0, 0, 0, 0.2);
-        transform: translateX(-100%);
-        transition: transform 0.25s ease;
-        z-index: 40;
-        overflow-y: auto;
-        /* Scrollen aan de rand van het menu lekt niet door naar de pagina
-           erachter (en triggert geen pull-to-refresh/rubber-banding). */
-        overscroll-behavior: contain;
-        padding: calc(56px + env(safe-area-inset-top)) 8px calc(16px + env(safe-area-inset-bottom)) 8px;
+        border-top: 1px solid #ddd;
+        padding-bottom: env(safe-area-inset-bottom);
     }
 
-    .sidebar.open {
-        transform: translateX(0);
+    .hoofdTab {
+        flex: 1;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        min-height: 56px;
+        padding: 6px 2px;
+        font-size: 0.7em;
+        border-radius: 0;
+        border-bottom: none;
+        border-top: 3px solid transparent;
     }
 
-    .menuOverlay {
-        display: block;
-        position: fixed;
-        inset: 0;
-        background: rgba(0, 0, 0, 0.4);
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.2s ease;
-        z-index: 35;
+    .hoofdTab.actief,
+    .hoofdTab.actief:hover {
+        border-bottom: none;
+        border-top-color: #2c7a4b;
     }
 
-    .menuOverlay.open {
-        opacity: 1;
-        pointer-events: auto;
-        /* Slepen op de donkere achtergrond scrolt de pagina niet mee; een
-           tik (om het menu te sluiten) blijft gewoon werken. */
-        touch-action: none;
+    .hoofdTabIcoon {
+        font-size: 1.7em;
+        line-height: 1;
     }
 
-    /* Zolang het menu open is (app.js: pasMenuStatusToe zet deze class op
-       body) kan de pagina erachter niet scrollen. .content is op mobiel de
-       eigenlijke scroller (zie hieronder), dus die wordt ook vastgezet --
-       de scrollpositie blijft behouden, ook een lopende momentum-scroll
-       stopt. */
-    body.menuOpen,
-    body.menuOpen .content {
-        overflow: hidden;
+    /* Horizontaal scrollbare rij chips; de scrollbalk blijft verborgen. */
+    .subTabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        flex-shrink: 0;
+        padding-bottom: 4px;
+        margin-bottom: 8px;
+        scrollbar-width: none;
+    }
+
+    .subTabs::-webkit-scrollbar {
+        display: none;
+    }
+
+    .subTab {
+        flex-shrink: 0;
     }
 
     /* Op mobiel heeft .dashboard wél een vaste hoogte (100dvh, zie hierboven)
-       zodat de vaste hamburgerbalk en het off-canvas menu correct t.o.v. het
-       scherm blijven staan — .content scrolt daarom hier WEL zelfstandig
+       zodat de vaste onderbalk correct t.o.v. het scherm blijft staan — .content scrolt daarom hier WEL zelfstandig
        binnen die hoogte (i.t.t. desktop, waar de hele pagina scrolt). */
     .content {
         flex-grow: 1;
         min-height: 0;
         overflow-y: auto;
+        padding-bottom: calc(72px + env(safe-area-inset-bottom));
     }
 
     .chart-wrapper {
@@ -1034,7 +1071,7 @@ a.menuBtn {
         min-height: 44px;
     }
 
-    a.menuBtn {
+    .nieuweUploadLink {
         display: flex;
         align-items: center;
         min-height: 44px;
