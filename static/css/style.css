@@ -1011,6 +1011,48 @@ body {
         order: -1;
     }
 
+    /* Compacter, zodat de hele startpagina zonder scrollen op een telefoonscherm past. */
+    .startContainer {
+        padding-top: calc(8px + env(safe-area-inset-top));
+        padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    }
+
+    .startContainer h1 {
+        font-size: 1.3em;
+        margin: 4px 0 8px;
+    }
+
+    .startContainer > p:not(#startMelding):not(#errorMsg) {
+        display: none;
+    }
+
+    .startContainer p:empty {
+        display: none;
+    }
+
+    .startContainer label,
+    .startContainer .labelRij {
+        margin-top: 8px;
+        font-size: 0.9em;
+    }
+
+    .startContainer .labelRij > label {
+        margin-top: 0;
+    }
+
+    .startContainer input,
+    .startContainer button {
+        margin-top: 3px;
+    }
+
+    .startContainer button[type="submit"] {
+        margin-top: 10px;
+    }
+
+    .startContainer hr {
+        margin: 12px 0 4px;
+    }
+
     .dashboard {
         flex-direction: column;
         width: 100%;
