@@ -830,6 +830,41 @@ body {
     margin: 2px 6px 2px 0;
 }
 
+.bijnaamRij + .bijnaamRij {
+    margin-top: 22px;
+    padding-top: 14px;
+    border-top: 1px solid #ddd;
+}
+
+.bijnaamKop {
+    margin-bottom: 8px;
+    font-size: 1.25em;
+    font-weight: bold;
+}
+
+.bijnaamRegel {
+    display: grid;
+    grid-template-columns: 90px auto;
+    justify-content: start;
+    align-items: center;
+}
+
+.bijnaamRegel .bijnaamKnop {
+    justify-self: start;
+    background-color: #e3f1e8;
+    color: #1d5a37;
+    border: 1px solid #b9d9c5;
+}
+
+.bijnaamRegel .bijnaamKnop:hover {
+    background-color: #cfe7d8;
+}
+
+.bijnaamRegel .bijnaamKnop:disabled {
+    opacity: 0.6;
+    cursor: default;
+}
+
 .bijnaamStatus {
     margin-left: 8px;
 }

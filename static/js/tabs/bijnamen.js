@@ -144,14 +144,15 @@ function renderBijnamen() {
 
         const kop = document.createElement("div");
         kop.textContent = t.ticker;
-        kop.className = "kleinLabel";
+        kop.className = "bijnaamKop";
         rij.appendChild(kop);
 
         NAAM_BRONNEN.forEach(bron => {
             const regel = document.createElement("div");
+            regel.className = "bijnaamRegel";
             const label = document.createElement("span");
             label.className = "kleinLabel";
-            label.textContent = `${bron.label}: `;
+            label.textContent = `${bron.label}:`;
             regel.appendChild(label);
             regel.appendChild(bron.vereistYahoo && yahooNamenStatus !== "klaar" ? document.createTextNode("...") : maakNaamKnop(bron, t));
             rij.appendChild(regel);
