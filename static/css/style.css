@@ -924,10 +924,6 @@ body {
     padding: 2px 14px 2px 0;
 }
 
-.kleineTabel td.icoonCel {
-    padding: 1px;
-}
-
 .kleineTabel tr.aanbevolen {
     background: #eaf6ee;
 }
@@ -1024,10 +1020,6 @@ body {
 
 .negatief {
     color: #9C0006;
-}
-
-.mild {
-    color: #B8860B;
 }
 
 .gedempt {

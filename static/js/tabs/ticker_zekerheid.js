@@ -52,7 +52,7 @@ function maakPrijscontroleTabel(prijsChecks) {
     wrapper.appendChild(tabel);
 
     const kop = document.createElement("tr");
-    ["Datum", "Excel-koers", "Yahoo-koers", "High", "Low", "Binnen dagrange", "Afwijking", ""].forEach(tekst => {
+    ["Datum", "Excel-koers", "Yahoo-koers", "High", "Low", "Binnen dagrange", "Afwijking"].forEach(tekst => {
         const th = document.createElement("th");
         th.textContent = tekst;
         kop.appendChild(th);
@@ -104,26 +104,6 @@ function maakPrijscontroleTabel(prijsChecks) {
         const afwijkingTd = document.createElement("td");
         afwijkingTd.textContent = c.afwijking_pct != null ? `${c.afwijking_pct.toFixed(1)}%` : "-";
         rij.appendChild(afwijkingTd);
-
-        const iconTd = document.createElement("td");
-        if (c.niveau === "ok") {
-            iconTd.textContent = "✓";
-            iconTd.className = "icoonCel positief";
-            iconTd.title = "Prijs komt overeen";
-        } else if (c.niveau === "mild") {
-            iconTd.textContent = "🔍";
-            iconTd.className = "icoonCel mild";
-            iconTd.title = "Klein verschil — waarschijnlijk normaal (Yahoo's slotkoers vs. een "
-                + "intraday-transactieprijs), geen reden om de ticker te wantrouwen";
-        } else if (c.niveau === "waarschuwing") {
-            iconTd.textContent = "⚠️";
-            iconTd.className = "icoonCel negatief";
-            iconTd.title = "Grote afwijking — mogelijk toch de verkeerde ticker";
-        } else {
-            iconTd.textContent = "?";
-            iconTd.className = "icoonCel gedempt";
-        }
-        rij.appendChild(iconTd);
         tabel.appendChild(rij);
     });
 
