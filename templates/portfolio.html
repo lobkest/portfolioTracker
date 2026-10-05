@@ -24,7 +24,10 @@
             <nav class="hoofdTabs" id="hoofdTabs" aria-label="Hoofdmenu"></nav>
             <button class="instellingenKnop" id="instellingenKnop" type="button" data-groep="instellingen" aria-label="Instellingen">&#9881;&#xFE0E;</button>
         </header>
-        <nav class="subTabs" id="subTabs" aria-label="Submenu"></nav>
+        <div class="subRij">
+            <nav class="subTabs" id="subTabs" aria-label="Submenu"></nav>
+            <button id="resetZoomBtn" class="zoomResetKnop" type="button" style="display: none;">Zoom resetten</button>
+        </div>
 
         <div class="content">
             <div id="tickerWaarschuwingBanner" class="waarschuwingBanner" style="display: none;">
@@ -39,7 +42,6 @@
 
             <!-- De ene gedeelde grafiek: plaatsGrafiek() verhuist dit blok naar het data-grafiek-plek van het tabblad. -->
             <div id="chartWrapper" style="display: none;">
-                <button id="resetZoomBtn" class="margeOnder10">Zoom resetten</button>
                 <div class="chart-wrapper">
                     <canvas id="rendementChart"></canvas>
                 </div>

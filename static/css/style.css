@@ -155,11 +155,27 @@ body {
     padding: 4px 10px;
 }
 
+.subRij {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
 .subTabs {
     display: flex;
+    flex: 1;
+    min-width: 0;
     flex-wrap: wrap;
     gap: 8px;
-    margin-bottom: 16px;
+}
+
+.zoomResetKnop {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 6px 14px;
+    font-size: 0.9em;
+    white-space: nowrap;
 }
 
 .subTabs:empty {
@@ -1151,7 +1167,6 @@ body {
         overflow-x: auto;
         flex-shrink: 0;
         padding-bottom: 4px;
-        margin-bottom: 8px;
         scrollbar-width: none;
     }
 
@@ -1161,6 +1176,10 @@ body {
 
     .subTab {
         flex-shrink: 0;
+    }
+
+    .subRij {
+        margin-bottom: 8px;
     }
 
     /* Op mobiel heeft .dashboard wél een vaste hoogte (100dvh, zie hierboven)

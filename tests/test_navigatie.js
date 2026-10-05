@@ -184,7 +184,7 @@ test("portfolio.html: de zoomknop staat alleen op de tabbladen met een zoombare 
         ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "prognose", "dividend"],
     );
     const zoomknop = elementen.find(e => e.attrs.id === "resetZoomBtn");
-    assert.ok(zoomknop.voorouders.some(v => v.attrs.id === "chartWrapper"), "de zoomknop verhuist mee met de grafiek");
+    assert.ok(zoomknop.voorouders.some(v => (v.attrs.class || "").split(" ").includes("subRij")), "de zoomknop staat in de rij met subtabs");
 });
 
 test("portfolio.html: de gedeelde grafiek zelf staat buiten de tabblad-blokken en bevat het canvas", () => {

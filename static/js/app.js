@@ -113,9 +113,9 @@ function plaatsGrafiek(view) {
     const wrapper = document.getElementById("chartWrapper");
     const plek = document.querySelector(`#tab-${view} [data-grafiek-plek]`);
     wrapper.style.display = plek ? "block" : "none";
-    if (!plek) return;
-    plek.appendChild(wrapper);
-    document.getElementById("resetZoomBtn").style.display = plek.hasAttribute("data-zoombaar") ? "block" : "none";
+    const zoomKnop = document.getElementById("resetZoomBtn");
+    zoomKnop.style.display = plek && plek.hasAttribute("data-zoombaar") ? "block" : "none";
+    if (plek) plek.appendChild(wrapper);
 }
 
 function pasViewToe(view) {
