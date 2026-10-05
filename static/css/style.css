@@ -65,6 +65,21 @@ body {
     width: 100%;
 }
 
+.startContainer {
+    max-width: 900px;
+}
+
+/* Desktop: upload en code naast elkaar; de scheidingslijn tussen de twee formulieren is dan overbodig. */
+.startFormulieren {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 40px;
+}
+
+.startFormulieren hr {
+    display: none;
+}
+
 .dashboard {
     display: flex;
     flex-direction: column;
@@ -978,6 +993,22 @@ body {
     .container {
         padding: 16px;
         border-radius: 0;
+    }
+
+    /* Onder elkaar, met het code-formulier bovenaan. */
+    .startFormulieren {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+    }
+
+    .startFormulieren hr {
+        display: block;
+        width: 100%;
+    }
+
+    #codeForm {
+        order: -1;
     }
 
     .dashboard {

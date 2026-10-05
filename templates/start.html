@@ -1,11 +1,12 @@
 {% extends "basis.html" %}
 
 {% block inhoud %}
-    <div class="container">
+    <div class="container startContainer">
         <h1>Portfolio Dashboard</h1>
         <p>Upload je portfoliogegevens om te starten.</p>
         <p id="startMelding" role="status" style="font-weight: bold;"></p>
 
+        <div class="startFormulieren">
         <form id="uploadForm">
             <label for="naam">Naam (optioneel)</label>
             <input type="text" id="naam" name="naam" placeholder="Bijv. Mijn portfolio">
@@ -53,6 +54,7 @@
 
             <button type="submit">Ophalen</button>
         </form>
+        </div>
 
         <p id="errorMsg" style="color: #9C0006;"></p>
     </div>
