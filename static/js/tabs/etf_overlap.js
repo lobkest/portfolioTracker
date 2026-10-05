@@ -20,6 +20,7 @@ function renderEtfOverlapTabel() {
     const verkochtKnop = document.getElementById("etfOverlapVerkochtBtn");
     verkochtKnop.hidden = !alleEtfs.some(t => verkocht.has(t));
     verkochtKnop.classList.toggle("actief", etfOverlapMetVerkocht);
+    verkochtKnop.textContent = `Verkochte ETF's meenemen (${etfOverlapMetVerkocht ? "aan" : "uit"})`;
     verkochtKnop.setAttribute("aria-pressed", String(etfOverlapMetVerkocht));
 
     document.getElementById("etfOverlapTeWeinig").hidden = etfs.length >= 2;
@@ -29,6 +30,10 @@ function renderEtfOverlapTabel() {
     const tickerNamen = {};
     (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
 
+    // De matrix is symmetrisch: alleen de driehoek boven de diagonaal, dus geen eerste kolom en laatste rij.
+    const rijEtfs = etfs.slice(0, -1);
+    const kolomEtfs = etfs.slice(1);
+
     const tabel = document.createElement("table");
     tabel.className = "overlapMatrix";
 
@@ -36,7 +41,7 @@ function renderEtfOverlapTabel() {
     const hoek = document.createElement("th");
     hoek.className = "rijKop";
     kopRij.appendChild(hoek);
-    etfs.forEach(ticker => {
+    kolomEtfs.forEach(ticker => {
         const th = document.createElement("th");
         th.textContent = tickerNamen[ticker] || ticker;
         th.title = tickerNamen[ticker] || ticker;
@@ -44,7 +49,7 @@ function renderEtfOverlapTabel() {
     });
     tabel.appendChild(kopRij);
 
-    etfs.forEach(rijTicker => {
+    rijEtfs.forEach((rijTicker, rijIndex) => {
         const tr = document.createElement("tr");
         const rijKop = document.createElement("th");
         rijKop.textContent = tickerNamen[rijTicker] || rijTicker;
@@ -52,11 +57,10 @@ function renderEtfOverlapTabel() {
         rijKop.className = "rijKop";
         tr.appendChild(rijKop);
 
-        etfs.forEach(kolTicker => {
+        kolomEtfs.forEach((kolTicker, kolIndex) => {
             const td = document.createElement("td");
-            if (rijTicker === kolTicker) {
-                td.textContent = "—";
-                td.className = "diagonaal";
+            if (kolIndex + 1 <= rijIndex) {
+                td.className = "leeg";
             } else {
                 const pct = matrix[rijTicker][kolTicker] * 100;
                 td.textContent = `${pct.toFixed(0)}%`;

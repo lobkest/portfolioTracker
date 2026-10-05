@@ -738,8 +738,8 @@ body {
     border: 1px solid #eee;
 }
 
-.overlapMatrix td.diagonaal {
-    color: #ccc;
+.overlapMatrix td.leeg {
+    border: none;
 }
 
 .overlapMatrix td.klikbaar {
