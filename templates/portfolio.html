@@ -46,14 +46,20 @@
             </div>
 
             <div id="tab-portfolio" data-views="portfolio" style="display: none;">
+                <div class="tabSplit">
+                <div class="tabInfo">
                 <p id="codeText" data-vereist-code="ja">Code: <strong id="dashCode"></strong> — bewaar deze om later terug te komen.</p>
                 <p id="nietOpgeslagenText" data-vereist-code="nee">Niet opgeslagen — deze analyse is eenmalig, er is geen code en niets is bewaard.</p>
                 <div id="homeTotalenSectie"></div>
                 <p id="laatstBijgewerktText" class="kleineMelding margeOnder15" data-verberg-buiten="portfolio" style="display: none;"></p>
-                <div data-grafiek-plek data-zoombaar></div>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
             </div>
 
             <div id="tab-rendement" data-views="rendement" style="display: none;">
+                <div class="tabSplit">
+                <div class="tabInfo">
                 <div id="rendementWeergaveWrapper" class="margeOnder15" data-vereist-code="ja">
                     <div class="segmentKeuze" role="group" aria-label="Weergave">
                         <button type="button" class="segmentKnop actief" data-weergave="euro">&euro;</button>
@@ -77,20 +83,29 @@
                     </select>
                 </label>
                 <p id="eigenAandeelMelding" class="kleineMelding" data-verberg-buiten="rendement" style="display: none;"></p>
-                <div data-grafiek-plek data-zoombaar></div>
                 <p id="xirrRendementMsg" data-verberg-buiten="rendement" style="display: none;"></p>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
             </div>
 
             <div id="tab-peraandeel" data-views="peraandeel" style="display: none;">
-                <div data-grafiek-plek data-zoombaar></div>
+                <div class="tabSplit">
+                <div class="tabInfo">
+                <div class="aandeelKnoppen" data-aandeel-knoppen></div>
                 <div id="etfDrilldown" class="margeBoven20" data-verberg-buiten="peraandeel" style="display: none;">
                     <div class="sectieTitel">Land- en sectorverdeling van deze ETF</div>
                     <div id="etfDrilldownBron" class="drilldownBron"></div>
                     <div id="etfDrilldownLijsten" class="drilldownLijsten"></div>
                 </div>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
             </div>
 
             <div id="tab-peraandeelaankoop" data-views="peraandeelaankoop" style="display: none;">
+                <div class="tabSplit">
+                <div class="tabInfo">
                 <p id="peraandeelAankoopTitel" class="vet margeOnder10" data-verberg-buiten="peraandeelaankoop" style="display: none;"></p>
                 <div id="meerHistorieKnoppen" class="knoppenRij" data-verberg-buiten="peraandeelaankoop" style="display: none;">
                     <button id="meerHistorie6mBtn" type="button" data-periode="6m">+6 maanden</button>
@@ -99,7 +114,10 @@
                     <button id="meerHistorieTotNuBtn" type="button" data-periode="totnu">Tot nu</button>
                     <span id="meerHistorieMsg" class="kleineMelding" style="display: none;"></span>
                 </div>
-                <div data-grafiek-plek data-zoombaar></div>
+                <div class="aandeelKnoppen" data-aandeel-knoppen></div>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
             </div>
 
             <div id="tab-verdeling" data-views="verdeling" style="display: none;">
@@ -124,12 +142,18 @@
             </div>
 
             <div id="tab-bedrijven" data-views="bedrijven" style="display: none;">
-                <div id="bedrijvenSectie" class="margeOnder10" style="display: none;">
-                    <p id="bedrijvenDekkingTekst" class="kleineMelding"></p>
-                    <div id="bedrijvenTopNKeuze"></div>
+                <div class="tabSplit">
+                <div class="tabInfo">
+                    <div id="bedrijvenSectie" class="margeOnder10" style="display: none;">
+                        <p id="bedrijvenDekkingTekst" class="kleineMelding"></p>
+                        <div id="bedrijvenTopNKeuze"></div>
+                    </div>
                 </div>
-                <div id="bedrijvenChartWrapper" class="chart-wrapper" data-verberg-buiten="bedrijven" style="display: none;">
-                    <canvas id="bedrijvenChart"></canvas>
+                <div class="tabGrafiek">
+                    <div id="bedrijvenChartWrapper" class="chart-wrapper" data-verberg-buiten="bedrijven" style="display: none;">
+                        <canvas id="bedrijvenChart"></canvas>
+                    </div>
+                </div>
                 </div>
             </div>
 
@@ -187,7 +211,8 @@
             </div>
 
             <div id="tab-prognose" data-views="prognose" style="display: none;">
-                <div data-grafiek-plek data-zoombaar></div>
+                <div class="tabSplit">
+                <div class="tabInfo">
                 <p class="prognoseUitleg">Projectie op basis van je huidige portfoliowaarde en -geschiedenis, aangevuld met instelbare aannames voor de toekomst. Rendement wordt maandelijks samengesteld; inleg wordt telkens ná de groei van die periode toegevoegd.</p>
                 <div class="prognoseVelden">
                     <div class="prognoseVeld">
@@ -219,9 +244,14 @@
                 <p id="prognoseFoutmelding" class="foutTekst prognoseMelding" style="display: none;"></p>
                 <p id="prognoseWaarschuwing" class="waarschuwingTekst prognoseMelding" style="display: none;"></p>
                 <p class="prognoseVoetnoot">Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).</p>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
             </div>
 
             <div id="tab-dividend" data-views="dividend" style="display: none;">
+                <div class="tabSplit">
+                <div class="tabInfo">
                 <p id="dividendLaden" hidden>Bezig met laden...</p>
                 <p id="dividendFout" class="foutTekst" hidden>Kon dividendgegevens niet ophalen.</p>
                 <div id="dividendGeenOverzicht" hidden>
@@ -232,7 +262,9 @@
                     <div id="dividendTotaal" class="dividendTotaal"></div>
                     <div id="dividendPerTicker"></div>
                 </div>
-                <div data-grafiek-plek data-zoombaar></div>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
                 <div id="dividendUitkeringenSectie" class="margeBoven20" hidden>
                     <h3>Alle uitkeringen</h3>
                     <div id="dividendUitkeringenTabel" class="scrollbareTabel"></div>

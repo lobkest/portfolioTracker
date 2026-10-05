@@ -13,6 +13,35 @@ function ververAandeelSelect() {
     if (huidigeData.tickers.some(t => t.ticker === huidigeKeuze)) {
         select.value = huidigeKeuze;
     }
+    bouwAandeelKnoppen();
+}
+
+// Website: knoppen naast de grafiek in plaats van de dropdown; die blijft de bron van de keuze (CSS verbergt de een of de ander).
+function bouwAandeelKnoppen() {
+    const select = document.getElementById("aandeelSelect");
+    document.querySelectorAll("[data-aandeel-knoppen]").forEach(houder => {
+        const knoppen = Array.from(select.options).map(optie => {
+            const knop = document.createElement("button");
+            knop.type = "button";
+            knop.className = "keuzeKnop";
+            knop.dataset.ticker = optie.value;
+            knop.textContent = optie.textContent;
+            knop.addEventListener("click", () => {
+                select.value = optie.value;
+                select.dispatchEvent(new Event("change"));
+            });
+            return knop;
+        });
+        houder.replaceChildren(...knoppen);
+    });
+    markeerAandeelKnoppen();
+}
+
+function markeerAandeelKnoppen() {
+    const gekozen = document.getElementById("aandeelSelect").value;
+    document.querySelectorAll("[data-aandeel-knoppen] .keuzeKnop").forEach(knop => {
+        knop.classList.toggle("actief", knop.dataset.ticker === gekozen);
+    });
 }
 
 function toonPerAandeel(ticker) {
@@ -80,6 +109,7 @@ function toonEtfDrilldown(ticker) {
 }
 
 document.getElementById("aandeelSelect").addEventListener("change", (e) => {
+    markeerAandeelKnoppen();
     if (actieveViewNaam() === "peraandeelaankoop") {
         toonPerAandeelAankoop(e.target.value);
     } else {

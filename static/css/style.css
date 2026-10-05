@@ -2,7 +2,7 @@
    1. Basis: reset, elementen, [hidden]
    2. Layout en menu
    3. Gedeelde componenten: tekst, formulieren, grafiek, tabellen, badges, tegels
-   4. Per tabblad (menuvolgorde)
+   4. Per tabblad (menuvolgorde), plus de website-indeling met grafiek rechts
    5. Hulpklassen die moeten winnen: kleuren en marges (daarom na 3 en 4)
    6. Mobiel
 */
@@ -83,8 +83,8 @@ body {
 .dashboard {
     display: flex;
     flex-direction: column;
-    width: 900px;
-    max-width: 100%;
+    width: calc(100% - 40px);
+    max-width: none;
 }
 
 .content {
@@ -969,6 +969,41 @@ body {
 
 .margeLinks10 { margin-left: 10px; }
 
+/* Website: informatie en instellingen links, grafiek rechts. Op mobiel blijft .tabSplit gewoon blokken onder elkaar. */
+@media (min-width: 769px) and (not ((max-width: 900px) and (orientation: landscape))) {
+    .tabSplit {
+        display: grid;
+        grid-template-columns: minmax(280px, 1fr) minmax(0, 2.2fr);
+        gap: 32px;
+        align-items: start;
+    }
+
+    .tabInfo,
+    .tabGrafiek {
+        min-width: 0;
+    }
+
+    .tabInfo select {
+        max-width: 100%;
+    }
+
+    .tabSplit .chart-wrapper {
+        height: calc(100vh - 230px);
+        min-height: 380px;
+    }
+
+    #aandeelSelect {
+        display: none !important;
+    }
+
+    .aandeelKnoppen {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 20px;
+    }
+}
+
 /* --- 6. Mobiel --- */
 
 /* De landscape-tak dekt ook telefoon-breedtes tussen 768 en 900px: in
@@ -1009,6 +1044,10 @@ body {
 
     #codeForm {
         order: -1;
+    }
+
+    .aandeelKnoppen {
+        display: none;
     }
 
     /* Compacter, zodat de hele startpagina zonder scrollen op een telefoonscherm past. */
