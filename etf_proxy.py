@@ -263,7 +263,6 @@ def _bepaal_proxy(ticker, holdings, categorie):
         kandidaat_holdings = list(executor.map(
             fetch_ishares_holdings_via_productpagina, [k["product_url"] for k in kandidaten]))
     if all(h is None for h in kandidaat_holdings):
-        print(f"[etf-proxy] WARN '{ticker}': holdings van geen enkele kandidaat opgehaald")
         return None
 
     bron_top10 = [{"naam": h["holding_naam"], "ticker": h.get("holding_ticker"), "gewicht_pct": h["gewicht"] * 100}
@@ -305,6 +304,9 @@ def land_proxies_voor_etfs(isin_per_etf):
             continue
         resultaat = _bepaal_proxy(ticker, holdings, (details.get(ticker) or {}).get("category"))
         if resultaat is None:
+            # Niet cachen; de rij is alleen voor de melding in Diagnostiek.
+            resultaten[ticker] = _resultaat({"gekozen": None, "beste": None, "reden": None}, 0,
+                                            reden="iShares niet bereikbaar, volgende keer opnieuw")
             continue
         db_save_etf_proxy(isin, resultaat)
         resultaten[ticker] = resultaat

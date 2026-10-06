@@ -72,35 +72,36 @@ def _woorden_varianten(product, min_woorden=2):
     return [" ".join(woorden[:n]) for n in range(len(woorden), min_woorden - 1, -1)]
 
 
-def _zoek_product_progressief(product, beurs, targets, min_woorden=2):
-    """Kort de naam in tot er een match op de verwachte beurs is; anders het eerste resultaat
-    van de eerste poging die iets vond. Geeft (symbol, zekerheid, alternatieven)."""
-    varianten = _woorden_varianten(product, min_woorden)
-    eerste_quotes, eerste_query = None, None
+def _noteer_stap(stappen, query, quotes, match):
+    if stappen is not None:
+        stappen.append({
+            "query": query,
+            "resultaten": [[q.get("symbol"), q.get("exchange")] for q in quotes],
+            "beurs_match": match[0] if match else None,
+        })
 
-    for i, variant in enumerate(varianten):
+
+def _zoek_product_progressief(product, beurs, targets, min_woorden=2, stappen=None):
+    """Kort de naam in tot er een match op de verwachte beurs is; anders het eerste resultaat
+    van de eerste poging die iets vond. Geeft (symbol, zekerheid, alternatieven).
+    stappen: optionele lijst waar elke zoekopdracht aan wordt toegevoegd (voor de Diagnostiek)."""
+    varianten = _woorden_varianten(product, min_woorden)
+    eerste_quotes = None
+
+    for variant in varianten:
         quotes = _yahoo_search(variant)
-        dprint(f"[ticker]   poging {i + 1}/{len(varianten)} ({len(variant.split())} woorden): "
-               f"query='{variant}' -> {[(q.get('symbol'), q.get('exchange')) for q in quotes]}")
+        match = _kies_beurs_match(quotes, targets)
+        _noteer_stap(stappen, variant, quotes, match)
 
         if eerste_quotes is None and quotes:
-            eerste_quotes, eerste_query = quotes, variant
+            eerste_quotes = quotes
 
-        match = _kies_beurs_match(quotes, targets)
         if match:
-            symbol, exch = match
-            dprint(f"[ticker]   OK beurs-match ({len(variant.split())} woorden): "
-                   f"'{variant}' -> {symbol} ({exch})")
+            symbol, _exch = match
             return symbol, "zeker", _alternatieven_naast(quotes, symbol)
 
     if eerste_quotes:
         symbol, alternatieven = _onzeker_fallback(eerste_quotes)
-        dprint(f"[ticker]   WARN '{product}': GEEN match voor beurs '{beurs}' (verwacht {targets}) na "
-               f"{len(varianten)} poging(en) (progressief ingekort tot {min_woorden} woorden) - "
-               f"val terug op eerste resultaat van query '{eerste_query}': "
-               f"{symbol} ({eerste_quotes[0].get('exchange')}) - mogelijk fout! "
-               f"Alle kandidaten van die zoekopdracht: "
-               f"{[(q.get('symbol'), q.get('exchange')) for q in eerste_quotes]}")
         return symbol, "onzeker", alternatieven
 
     return None, None, []
@@ -113,20 +114,16 @@ def _alternatieven_naast(quotes, symbol):
     ]
 
 
-def _zoek_op_isin(isin, targets, beurs):
+def _zoek_op_isin(isin, targets, beurs, stappen=None):
     """Zelfde uitkomst als _zoek_product_progressief(): (symbol, zekerheid, alternatieven)."""
     quotes = _yahoo_search(isin)
     match = _kies_beurs_match(quotes, targets)
+    _noteer_stap(stappen, isin, quotes, match)
     if match:
-        symbol, exch = match
-        dprint(f"[ticker]   query='{isin}': exact beurs-match {symbol} ({exch})")
+        symbol, _exch = match
         return symbol, "zeker", _alternatieven_naast(quotes, symbol)
     if quotes:
         symbol, alternatieven = _onzeker_fallback(quotes)
-        dprint(f"[ticker]   WARN query='{isin}': GEEN match voor beurs '{beurs}' (verwacht {targets}), "
-               f"val terug op eerste resultaat {symbol} ({quotes[0].get('exchange')}) - "
-               f"mogelijk fout! Alle kandidaten: "
-               f"{[(q.get('symbol'), q.get('exchange')) for q in quotes]}")
         return symbol, "onzeker", alternatieven
     return None, None, []
 
@@ -155,8 +152,9 @@ def _als_resultaat(kandidaat):
 
 
 def find_ticker_detailed(product, isin, beurs):
-    """{ticker, zekerheid, alternatieven}. zekerheid: "zeker" (override of beurs-match),
-    "onzeker" (eerste zoekresultaat) of "geen_match"."""
+    """{ticker, zekerheid, alternatieven, zoekstappen}. zekerheid: "zeker" (override of beurs-match),
+    "onzeker" (eerste zoekresultaat) of "geen_match". zoekstappen ([{query, resultaten, beurs_match}])
+    alleen als er bij Yahoo gezocht is."""
     if _is_corporate_action_row({"beurs": beurs, "product": product}):
         return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
 
@@ -166,20 +164,22 @@ def find_ticker_detailed(product, isin, beurs):
         return {"ticker": isin_override, "zekerheid": "zeker", "alternatieven": []}
 
     targets = BEURS_MAP.get(beurs, [])
-    kandidaat = _zoek_product_progressief(product, beurs, targets)
+    stappen = []
+    kandidaat = _zoek_product_progressief(product, beurs, targets, stappen=stappen)
 
     # ISIN alleen als de naam nog niet "zeker" gaf (scheelt een call).
     if kandidaat[1] != "zeker":
-        kandidaat = _kies_beste(kandidaat, _zoek_op_isin(isin, targets, beurs))
+        kandidaat = _kies_beste(kandidaat, _zoek_op_isin(isin, targets, beurs, stappen=stappen))
 
     # Pas ná het zoeken: een naam-override is niet beurs-specifiek.
     if kandidaat[1] != "zeker":
         override_ticker = _naam_override(product)
         if override_ticker:
-            dprint(f"[ticker] '{product}' -> override '{override_ticker}' (geen exacte beurs-match via search)")
-            return {"ticker": override_ticker, "zekerheid": "zeker", "alternatieven": []}
+            stappen.append({"query": "handmatige override op naam", "resultaten": [[override_ticker, None]],
+                            "beurs_match": override_ticker})
+            return {"ticker": override_ticker, "zekerheid": "zeker", "alternatieven": [], "zoekstappen": stappen}
 
-    return _als_resultaat(kandidaat)
+    return {**_als_resultaat(kandidaat), "zoekstappen": stappen}
 
 
 # OpenFIGI verandert nooit welke ticker wordt opgeslagen (zie CLAUDE.md: Yahoo en tickers).

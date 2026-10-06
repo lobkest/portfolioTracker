@@ -498,6 +498,47 @@ def db_save_prijscheck(ticker, datum, koers, valuta, high=None, low=None):
     conn.close()
 
 
+def db_get_cached_prijschecks(ticker, datums):
+    """{datum: (yahoo_slotkoers, valuta, high, low)} voor de datums die al in de cache staan."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT datum, yahoo_slotkoers, valuta, high, low FROM ticker_prijscheck WHERE ticker = %s AND datum = ANY(%s)",
+        (ticker, list(datums)),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {
+        datum: (
+            float(koers) if koers is not None else None,
+            valuta,
+            float(high) if high is not None else None,
+            float(low) if low is not None else None,
+        )
+        for datum, koers, valuta, high, low in rows
+    }
+
+
+def db_save_prijschecks(ticker, rijen):
+    """rijen: [(datum, koers, valuta, high, low)]; zelfde upsert als db_save_prijscheck(), in één statement."""
+    if not rijen:
+        return
+    conn = db_connect()
+    cur = conn.cursor()
+    execute_values(
+        cur,
+        "INSERT INTO ticker_prijscheck (ticker, datum, yahoo_slotkoers, valuta, high, low) VALUES %s "
+        "ON CONFLICT (ticker, datum) DO UPDATE SET yahoo_slotkoers = EXCLUDED.yahoo_slotkoers, "
+        "valuta = EXCLUDED.valuta, high = EXCLUDED.high, low = EXCLUDED.low, "
+        "opgehaald_op = CURRENT_TIMESTAMP",
+        [(ticker, datum, koers, valuta, high, low) for datum, koers, valuta, high, low in rijen],
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def db_get_cached_splits(ticker):
     """{iso_datum: ratio} of None. Verloopt wel: een ticker kan later nog splitsen."""
     conn = db_connect()
@@ -619,12 +660,10 @@ def db_wijzig_portfolio_code(oude_code, nieuwe_code):
         conn.close()
 
 
-def db_save_dividenden(code, records):
+def db_save_dividenden(cur, code, records):
     """Bewust een upsert, zie CLAUDE.md: DeGiro-bestanden."""
     if not records:
         return
-    conn = db_connect()
-    cur = conn.cursor()
     execute_values(
         cur,
         "INSERT INTO dividenden (code, dividend_id, datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd) "
@@ -639,9 +678,6 @@ def db_save_dividenden(code, records):
             for r in records
         ],
     )
-    conn.commit()
-    cur.close()
-    conn.close()
 
 
 def db_get_dividenden(code):

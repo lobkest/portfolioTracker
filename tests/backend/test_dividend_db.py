@@ -54,11 +54,15 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         cur.close()
         conn.close()
 
+    def _sla_op(self, records):
+        from db import db_save_dividenden, db_transactie
+        with db_transactie() as cur:
+            db_save_dividenden(cur, self.TEST_CODE, records)
+
     def test_opgeslagen_dividend_komt_terug_in_de_samenvatting(self):
-        from db import db_save_dividenden
         from dividend import bereken_dividend_samenvatting
 
-        db_save_dividenden(self.TEST_CODE, [{
+        self._sla_op([{
             "dividend_id": "TEST-EUR-1", "datum": date(2024, 1, 1),
             "product": "TEST BV", "isin": "NL0000000001", "valuta": "EUR",
             "bruto_eur": 5.0, "belasting_eur": 0.0, "netto_eur": 5.0,
@@ -75,7 +79,6 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # dividend_id opnieuw opslaan met de gecorrigeerde waarde. Met
         # ON CONFLICT DO NOTHING zou de eerste (foutieve) waarde blijven
         # staan; met de upsert-fix moet de tweede (juiste) waarde winnen.
-        from db import db_save_dividenden
         from dividend import bereken_dividend_samenvatting
 
         foutief = [{
@@ -83,7 +86,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
             "product": "TEST ETF", "isin": "IE0000000002", "valuta": "USD",
             "bruto_eur": None, "belasting_eur": 0.0, "netto_eur": None,
         }]
-        db_save_dividenden(self.TEST_CODE, foutief)
+        self._sla_op(foutief)
 
         # Tussentijds al herberekend voor code MOL was dit de daadwerkelijke
         # bug: de samenvatting bleef €0,00 tonen ondanks een correcte
@@ -96,7 +99,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
             "product": "TEST ETF", "isin": "IE0000000002", "valuta": "USD",
             "bruto_eur": 4.2, "belasting_eur": 0.0, "netto_eur": 4.2,
         }]
-        db_save_dividenden(self.TEST_CODE, gecorrigeerd)
+        self._sla_op(gecorrigeerd)
 
         samenvatting = bereken_dividend_samenvatting(self.TEST_CODE)
         self.assertIsNotNone(samenvatting)
@@ -107,7 +110,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # (uitkeringslijst-feature, 2026-09-11): moet ongeaggregeerd per
         # uitkering teruggeven, nieuwste eerst, en een rij met
         # netto_eur=None (onbekende valutaconversie) NIET wegfilteren.
-        from db import db_connect, db_save_dividenden
+        from db import db_connect
         from dividend import bereken_dividend_samenvatting
 
         # Eén ISIN heeft een gekoppelde transactie (dus een bijnaam/ticker
@@ -124,7 +127,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         cur.close()
         conn.close()
 
-        db_save_dividenden(self.TEST_CODE, [
+        self._sla_op([
             {
                 "dividend_id": "TEST-LIJST-1", "datum": date(2024, 1, 1),
                 "product": "TEST BV", "isin": "NL0000000001", "valuta": "EUR",

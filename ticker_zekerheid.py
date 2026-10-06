@@ -5,7 +5,7 @@ from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker
 from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
-from ticker_prijscheck import vergelijk_prijs_op_datum, _prijscheck_is_probleem
+from ticker_prijscheck import vergelijk_prijs_op_datum, vergelijk_prijzen_op_datums, _prijscheck_is_probleem
 from transactie_utils import formatteer_datum_nl
 from ticker_classificatie import (
     classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
@@ -30,6 +30,7 @@ def _naar_basis_vorm(beurs, resultaat):
         "prijs_checks": resultaat.get("prijs_checks", []), "alternatieven": [],
         "openfigi_root_bekend": resultaat.get("openfigi_root_bekend"),
         "openfigi_root_matches": resultaat.get("openfigi_root_matches"),
+        "zoekstappen": resultaat.get("zoekstappen", []),
     }
     if resultaat.get("aanbevolen_alternatief"):
         basis["aanbevolen_alternatief"] = resultaat["aanbevolen_alternatief"]
@@ -221,14 +222,25 @@ def _leeg_resultaat(zekerheid, beurs):
     }
 
 
-def _voeg_prijsoordeel_toe(resultaat, steekproef):
-    """Checkt de steekproef; een "zekere" ticker zonder (kloppende) koersdata wordt "onzeker" met een waarschuwing."""
+def _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin):
+    """Checkt de steekproef, en alle transacties zodra één steekproefdatum buiten de dagrange valt; een "zekere"
+    ticker zonder (kloppende) koersdata wordt "onzeker" met een waarschuwing."""
     ticker = resultaat["ticker"]
     prijs_checks = []
     for t in steekproef:
         check = vergelijk_prijs_op_datum(ticker, t["datum"], float(t["koers"]))
         check["datum"] = str(t["datum"])
         prijs_checks.append(check)
+
+    if any(c.get("binnen_dagrange") is False for c in prijs_checks):
+        al_gecheckt = {id(t) for t in steekproef}
+        rest = [t for t in _geldige_transacties(transacties_van_dit_isin) if id(t) not in al_gecheckt]
+        if rest:
+            for t, check in zip(rest, vergelijk_prijzen_op_datums(ticker, rest)):
+                check["datum"] = str(t["datum"])
+                prijs_checks.append(check)
+            # Op datum: de frontend leest de laatste dagrange van achteren.
+            prijs_checks.sort(key=lambda c: c["datum"])
 
     bekende_checks = [c for c in prijs_checks if c["match"] is not None]
     problemen = [c for c in bekende_checks if _prijscheck_is_probleem(c)]
@@ -344,7 +356,7 @@ def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
 
     steekproef = _kies_steekproef_transacties(transacties_van_dit_isin)
     resultaat = {**resultaat, "ticker": basis["ticker"]}
-    resultaat = _voeg_prijsoordeel_toe(resultaat, steekproef)
+    resultaat = _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin)
     resultaat = _voeg_kaartvelden_toe(resultaat, beurs)
     # Vóór de alternatieven: een ontbrekende root maakt "zeker" onzeker, en dan moeten ze wél doorgerekend.
     openfigi = haal_openfigi_resultaten(isin)

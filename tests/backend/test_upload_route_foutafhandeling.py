@@ -23,6 +23,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from upload_verwerking import VERWACHTE_KOLOMMEN
 
+BESTAND_REKENING = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files",
+                                "Account_test.xlsx")
+
 try:
     from db_helper import vereist_database
 except ImportError:
@@ -146,12 +149,24 @@ class TestUploadOpslaan(unittest.TestCase):
         self.addCleanup(p.stop)
         return mock
 
-    def _post(self, bestaand, herbepaal=False):
+    def _post(self, bestaand, herbepaal=False, rekening=False):
         self.mock_vind.return_value = ("ABC" if bestaand else "NEW", bestaand, pd.DataFrame())
         data = {"bestand1": (_maak_transacties_excel(n_posities=1), "transacties.xlsx")}
         if herbepaal:
             data["herbepaal_alle_tickers"] = "on"
+        if rekening:
+            with open(BESTAND_REKENING, "rb") as f:
+                data["bestand2"] = (BytesIO(f.read()), "rekening.xlsx")
         return self.client.post("/upload", data=data, content_type="multipart/form-data")
+
+    def test_fout_bij_dividend_draait_ook_de_transacties_terug(self):
+        with patch.object(self.app_module, "sla_dividend_bestand_op", side_effect=RuntimeError("gesimuleerde fout")):
+            res = self._post(bestaand=True, rekening=True)
+        self.assertEqual(res.status_code, 500)
+        self.mock_voeg_toe.assert_called_once()
+        self.conn.commit.assert_not_called()
+        self.conn.rollback.assert_called_once()
+        self.conn.close.assert_called_once()
 
     def test_succes_commit_en_sluit_voor_de_kern(self):
         res = self._post(bestaand=True)

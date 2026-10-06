@@ -225,6 +225,13 @@ class TestKoersenMeldingen(_MetRequest):
 
 
 class TestKoersdekking(_MetRequest):
+    def setUp(self):
+        super().setUp()
+        # De testdata heeft geen kolom 'aantal'; de stilstand-check heeft zijn eigen tests.
+        patcher = patch.object(po, "check_koers_stilstand", return_value=[])
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _df(self, rijen):
         return pd.DataFrame(rijen, columns=["datum", "ticker", "beurs", "product"])
 
@@ -354,8 +361,8 @@ class TestEtfHoldingsMeldingen(_MetRequest):
     def test_cache_fout_geen_crash(self):
         land_sector = {"per_etf": {"X.AS": {"land": {"Unknown": 1.0}, "land_bron": "yfinance_top10"}}}
         with patch.object(po, "get_etf_holdings_uit_cache", side_effect=RuntimeError("geen db")):
-            _, meldingen, uitvoer = self._in_request(po._meld_etf_holdings, land_sector)
-        self.assertIn("WARN", uitvoer)
+            _, meldingen, _ = self._in_request(po._meld_etf_holdings, land_sector)
+        self.assertIn("check_mislukt:Land-dekking van 'X.AS'", _per_sleutel(meldingen))
         self.assertIn("etf_land_onbekend:X.AS", _per_sleutel(meldingen))
 
 

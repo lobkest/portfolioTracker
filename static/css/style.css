@@ -493,7 +493,13 @@ body {
 }
 
 .chart-wrapper {
+    position: relative;
     height: 400px;
+}
+
+/* Alleen op mobiel, zie sectie Mobiel. */
+.zoomIcoonKnop {
+    display: none;
 }
 
 /* Zoom/pan-plugin handelt touch-gestures op de grafiek zelf af; voorkomt
@@ -1310,6 +1316,29 @@ body {
     .chart-wrapper {
         height: 50vh;
         height: 50dvh;
+    }
+
+    /* !important: plaatsGrafiek() zet de knop met een inline display aan. */
+    .zoomResetKnop {
+        display: none !important;
+    }
+
+    .zoomIcoonKnop:not([hidden]) {
+        position: absolute;
+        top: 4px;
+        right: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        min-height: 36px;
+        margin: 0;
+        padding: 0;
+        border-radius: 50%;
+        font-size: 20px;
+        line-height: 1;
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
     }
 
     select,

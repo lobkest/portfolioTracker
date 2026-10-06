@@ -143,10 +143,7 @@ function toonPerAandeelAankoop(ticker) {
                     },
                     filter: (ctx) => ctx.dataset.yAxisID === "y" || ctx.dataset.yAxisID === "y1",
                 },
-                zoom: {
-                    pan: { enabled: true, mode: "x" },
-                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" }
-                },
+                zoom: zoomOpties(),
                 datalabels: { display: false },
                 annotation: { annotations: annotaties },
             },

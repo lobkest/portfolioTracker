@@ -6,7 +6,7 @@ import psycopg2
 
 from debug_utils import meet_tijd
 from diagnostiek import (
-    meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND,
+    meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
     GOED, INFO, LET_OP, FOUT,
 )
 from split_correctie import vind_wisselparen
@@ -129,6 +129,22 @@ def _bouw_posities(df):
     ]
 
 
+def _meld_zoekstappen(product, isin, beurs, ticker, stappen):
+    """Welke Yahoo-zoekopdrachten zijn geprobeerd; nodig als de naamspelling de verkeerde notering oplevert."""
+    if not stappen:
+        return
+    rijen = [
+        [stap["query"],
+         ", ".join(f"{s} ({e})" if e else str(s) for s, e in stap["resultaten"]) or "geen resultaten",
+         stap["beurs_match"] or "–"]
+        for stap in stappen
+    ]
+    meld(CATEGORIE_TICKERS, INFO,
+         f"{product} ({isin}, {beurs}): {len(stappen)} zoekopdracht(en) bij Yahoo, gekozen ticker: {ticker or 'geen'}.",
+         sleutel=f"zoekstappen:{isin}:{beurs}",
+         tabel={"kolommen": ["Zoekopdracht", "Resultaten (beurs)", "Match op verwachte beurs"], "rijen": rijen})
+
+
 def ticker_resolutie_niet_opslaan(df):
     """Lichte ticker-check per (ISIN, Beurs). Geeft (ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)."""
     posities_voor_check = _bouw_posities(df)
@@ -143,6 +159,7 @@ def ticker_resolutie_niet_opslaan(df):
             resultaat["isin"] = isin
             resultaat["naam"] = naam_positie
             resultaat["echte_naam"] = naam_positie
+            _meld_zoekstappen(naam_positie, isin, beurs_val, resultaat["ticker"], resultaat.pop("zoekstappen", None))
             ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
             ticker_zekerheid.append(resultaat)
             ticker_posities_ruw.append({
@@ -194,9 +211,10 @@ def bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticke
 
 
 def vul_synthetische_order_ids_aan(df):
-    """Vult ontbrekende Order ID's aan met synthetische ID's."""
+    """Vult ontbrekende Order ID's aan met synthetische ID's en maakt die van deelorders uniek."""
     def basis_hash(row):
-        basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
+        # Zonder Product: DeGiro hernoemt producten soms (BYD CO LTD -> BYD COMPANY LIMITED).
+        basis = f"{row['Datum']}|{row['Tijd']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
         return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
 
     heeft_order_id = df["Order ID"].notna()
@@ -206,6 +224,17 @@ def vul_synthetische_order_ids_aan(df):
         synthetische_ids = synthetische_ids + "-" + volgnummer.astype(str)
         df.loc[~heeft_order_id, "Order ID"] = synthetische_ids
 
+    return _maak_deelorder_ids_uniek(df)
+
+
+def _maak_deelorder_ids_uniek(df):
+    # zie CLAUDE.md: DeGiro-bestanden
+    volgnummer = df.groupby("Order ID").cumcount()
+    herhaald = volgnummer > 0
+    if herhaald.any():
+        df.loc[herhaald, "Order ID"] = (
+            df.loc[herhaald, "Order ID"].astype(str) + "-" + volgnummer[herhaald].astype(str)
+        )
     return df
 
 
@@ -219,7 +248,7 @@ def _meld_order_ids(order_ids):
     else:
         meld(CATEGORIE_ORDER_IDS, INFO,
              f"{aantal_rijen - aantal_echt} van {aantal_rijen} transacties zonder Order ID; die krijgen "
-             f"een synthetische ID en worden bij een volgende upload herkend aan datum, tijd, product, "
+             f"een synthetische ID en worden bij een volgende upload herkend aan datum, tijd, ISIN, "
              f"aantal en bedrag.",
              sleutel=DIAGNOSTIEK_SLEUTEL_ORDER_IDS)
 
@@ -280,13 +309,15 @@ def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
 def _probeer_andere_productnamen(groep, transacties, bekende_ticker):
     """De eerste productnaam gaf niets: probeer de namen van de andere rijen."""
     detail = {"ticker": None}
+    stappen = []
     for _, row in groep.iterrows():
         detail = find_ticker_met_snelle_prijscheck(
             row["Product"], row["ISIN"], row["Beurs"], transacties, bekende_ticker,
         )
+        stappen += detail.get("zoekstappen") or []
         if detail["ticker"]:
             break
-    return detail
+    return {**detail, "zoekstappen": stappen}
 
 
 def _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers):
@@ -301,10 +332,13 @@ def _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers)
     resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
 
     ticker_by_isin_beurs = {}
-    for (_naam, isin, beurs, transacties), detail in zip(posities, resultaten):
+    for (naam, isin, beurs, transacties), detail in zip(posities, resultaten):
         key = (isin, beurs)
+        stappen = list(detail.get("zoekstappen") or [])
         if not detail["ticker"]:
             detail = _probeer_andere_productnamen(groepen[key], transacties, bekende_tickers.get(key))
+            stappen += detail["zoekstappen"]
+        _meld_zoekstappen(naam, isin, beurs, detail["ticker"], stappen)
         ticker_by_isin_beurs[key] = detail["ticker"]
 
     return ticker_by_isin_beurs
@@ -383,10 +417,11 @@ def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
              sleutel=DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD)
 
 
-def sla_dividend_bestand_op(code, rekening_df):
+def sla_dividend_bestand_op(cur, code, rekening_df):
+    """In de transactie van de aanroeper: samen met de transacties opgeslagen of geen van beide."""
     with meet_tijd("dividend_bestand_verwerken"):
         dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
-        db_save_dividenden(code, dividend_records)
+        db_save_dividenden(cur, code, dividend_records)
     _meld_dividend_records(dividend_records)
 
 

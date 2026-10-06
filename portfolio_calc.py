@@ -2,7 +2,7 @@
 import numpy as np
 import pandas as pd
 
-from diagnostiek import meld, CATEGORIE_SPLITS, INFO, LET_OP
+from diagnostiek import meld, CATEGORIE_KOERSEN, CATEGORIE_SPLITS, INFO, LET_OP
 from split_correctie import (
     DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, vind_wisselparen,
 )
@@ -210,10 +210,11 @@ def compute_value_over_time(transacties_df, price_data):
         laatste_koersdatum = price_data.index.max()
         na_laatste_koers = transacties_df[pd.to_datetime(transacties_df["datum"]) > laatste_koersdatum]
         if not na_laatste_koers.empty:
-            print(f"[waarde] WARN {len(na_laatste_koers)} transactie(s) met datum na de laatste "
-                  f"beschikbare koersdatum ({laatste_koersdatum.date()}) - deze tellen NIET mee "
-                  f"in de waarde-tijdreeks (price_data.index loopt niet ver genoeg door). "
-                  f"Mogelijk is de koersencache verouderd.")
+            meld(CATEGORIE_KOERSEN, LET_OP,
+                 f"{len(na_laatste_koers)} transactie(s) na de laatste koersdatum "
+                 f"({formatteer_datum_nl(laatste_koersdatum)}) tellen niet mee in de waarde-tijdreeks; "
+                 f"mogelijk is de koerscache verouderd.",
+                 sleutel="na_laatste_koersdatum")
 
     holdings = {t: 0.0 for t in tickers}
     invested = 0.0

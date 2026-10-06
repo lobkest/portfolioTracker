@@ -2,7 +2,10 @@
 import pandas as pd
 import yfinance as yf
 
-from db import db_get_cached_splits, db_save_splits, db_get_cached_prijscheck, db_save_prijscheck
+from db import (
+    db_get_cached_splits, db_save_splits, db_get_cached_prijscheck, db_save_prijscheck,
+    db_get_cached_prijschecks, db_save_prijschecks,
+)
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
 from prijzen import FX_PAAR_PER_VALUTA, _fx_prijzen_serie
 from ticker_classificatie import _ticker_details_met_cache
@@ -89,7 +92,10 @@ def _haal_splits_op(ticker):
 
 def _cumulatieve_split_factor(ticker, vanaf_datum):
     """Product van alle splitratio's na 'vanaf_datum'; nodig omdat Yahoo's Close/High/Low altijd split-gecorrigeerd zijn (zie CLAUDE.md: Yahoo en tickers)."""
-    splits = _haal_splits_op(ticker)
+    return _split_factor_uit(_haal_splits_op(ticker), vanaf_datum)
+
+
+def _split_factor_uit(splits, vanaf_datum):
     if not splits:
         return 1.0
     vanaf_datum = pd.Timestamp(vanaf_datum)
@@ -131,6 +137,11 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         valuta = _ticker_details_met_cache(ticker).get("valuta")
         db_save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
+    split_factor = _cumulatieve_split_factor(ticker, datum) if yahoo_koers is not None and bekende_koers else 1.0
+    return _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor)
+
+
+def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor):
     if yahoo_koers is None or not bekende_koers:
         return {
             "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
@@ -164,7 +175,6 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
             low_eur = low_eur / divisor * fx_koers
         valuta_conversie_toegepast = True
 
-    split_factor = _cumulatieve_split_factor(ticker, datum)
     yahoo_koers_gecorrigeerd = yahoo_koers_eur * split_factor
     if high_eur is not None and low_eur is not None:
         high_eur = high_eur * split_factor
@@ -197,6 +207,74 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         "low": low_eur if toon_gecorrigeerd else low,
         "binnen_dagrange": binnen_dagrange,
     }
+
+
+def _haal_koersen_en_dagranges_op(ticker, datums, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN,
+                                  wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
+    """{datum: (slotkoers, high, low)} van de eerste handelsdag op of na elke datum, in één download;
+    None bij een fout. Datums zonder koers binnen de buffer krijgen (None, None, None)."""
+    start = min(datums)
+    einddatum = pd.Timestamp(max(datums)) + pd.Timedelta(days=dagen_buffer)
+
+    def _actie():
+        _tel_yahoo_call("yf.download(slotkoers+dagrange, reeks)")
+        return yf.download(ticker, start=start, end=einddatum, auto_adjust=False, progress=False)[["Close", "High", "Low"]]
+
+    raw, fout = _met_rate_limit_retry(_actie, pogingen, wachttijd)
+    if fout is not None:
+        return None
+
+    if isinstance(raw.columns, pd.MultiIndex):
+        # yf.download geeft bij 1 ticker soms toch multi-index-kolommen terug.
+        raw.columns = raw.columns.get_level_values(0)
+
+    geldig = raw.dropna()
+    geldig.index = pd.to_datetime(geldig.index).tz_localize(None)
+    resultaat = {}
+    for datum in datums:
+        begin = pd.Timestamp(datum)
+        venster = geldig[(geldig.index >= begin) & (geldig.index < begin + pd.Timedelta(days=dagen_buffer))]
+        if venster.empty:
+            resultaat[datum] = (None, None, None)
+        else:
+            eerste = venster.iloc[0]
+            resultaat[datum] = (float(eerste["Close"]), float(eerste["High"]), float(eerste["Low"]))
+    return resultaat
+
+
+def vergelijk_prijzen_op_datums(ticker, transacties):
+    """vergelijk_prijs_op_datum() voor elke {datum, koers}, in dezelfde volgorde; ontbrekende datums met één
+    Yahoo-download in plaats van één per datum."""
+    datums = sorted({pd.Timestamp(t["datum"]).date() for t in transacties})
+    cache = db_get_cached_prijschecks(ticker, datums)
+    # Rij met koers maar zonder dagrange telt als ontbrekend, net als in vergelijk_prijs_op_datum().
+    ontbrekend = [
+        d for d in datums
+        if d not in cache or (cache[d][0] is not None and cache[d][2] is None and cache[d][3] is None)
+    ]
+    if ontbrekend:
+        valuta = _ticker_details_met_cache(ticker).get("valuta")
+        gedownload = _haal_koersen_en_dagranges_op(ticker, ontbrekend)
+        if gedownload is None:
+            for d in ontbrekend:
+                cache.setdefault(d, (None, valuta, None, None))
+        else:
+            rijen = []
+            for d in ontbrekend:
+                koers, high, low = gedownload[d]
+                rijen.append((d, koers, valuta, high, low))
+            db_save_prijschecks(ticker, rijen)
+            cache.update({d: (koers, valuta, high, low) for d, koers, valuta, high, low in rijen})
+
+    splits = _haal_splits_op(ticker)
+    checks = []
+    for t in transacties:
+        datum = pd.Timestamp(t["datum"]).date()
+        bekende_koers = float(t["koers"])
+        yahoo_koers, valuta, high, low = cache[datum]
+        split_factor = _split_factor_uit(splits, datum) if yahoo_koers is not None and bekende_koers else 1.0
+        checks.append(_beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor))
+    return checks
 
 
 def _prijscheck_is_probleem(check):

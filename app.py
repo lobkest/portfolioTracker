@@ -118,8 +118,11 @@ def _upload_impl():
     try:
         with meet_tijd("excel_inlezen_pandas"):
             df = voeg_koers_eur_toe(lees_transacties_excel(bestand1))
+        rekening_df = None
         bestand2 = _gekozen_bestand("bestand2")
-        rekening_df = lees_rekeningoverzicht(bestand2) if bestand2 else None
+        if bestand2:
+            with meet_tijd("rekeningoverzicht_inlezen"):
+                rekening_df = lees_rekeningoverzicht(bestand2)
     except OngeldigExcelBestand as e:
         return jsonify({"error": str(e)}), 400
 
@@ -169,10 +172,11 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
         if bestaand and herbepaal_alle_tickers:
             _herbepaal_tickers(code)
         voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
-    if rekening_df is not None:
-        sla_dividend_bestand_op(code, rekening_df)
-    result = _kern_na_opslaan(code)
-    meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
+        if rekening_df is not None:
+            sla_dividend_bestand_op(cur, code, rekening_df)
+    with db_deel_verbinding():
+        result = _kern_na_opslaan(code)
+        _meld_valuta_na_opslaan(df, code)
     return result
 
 
@@ -184,10 +188,14 @@ def _herbepaal_tickers(code):
 
 
 def _kern_na_opslaan(code):
-    """Pas aanroepen ná alle mutaties: wist de basis-cache en bouwt de kern opnieuw op."""
+    """Pas aanroepen ná alle mutaties, binnen db_deel_verbinding(): wist de basis-cache en bouwt de kern opnieuw op."""
     wis_portfolio_basis_cache(code)
-    with db_deel_verbinding():
-        return build_portfolio_response(code)
+    return build_portfolio_response(code)
+
+
+def _meld_valuta_na_opslaan(excel_df, code):
+    with meet_tijd("valuta_consistentie"):
+        meld_valuta_consistentie(excel_df, ticker_per_isin_beurs_uit_basis(code))
 
 
 def _gekozen_bestand(veld):
@@ -239,7 +247,8 @@ def _bijwerken_impl(code):
     rekening_df = None
     if not fout and bestand2:
         try:
-            rekening_df = lees_rekeningoverzicht(bestand2)
+            with meet_tijd("rekeningoverzicht_inlezen"):
+                rekening_df = lees_rekeningoverzicht(bestand2)
         except OngeldigExcelBestand as e:
             return jsonify({"error": str(e)}), 400
         fout = controleer_eigen_rekeningoverzicht(order_ids_uit_rekeningoverzicht_df(rekening_df), opgeslagen | nieuw)
@@ -248,14 +257,15 @@ def _bijwerken_impl(code):
 
     rows_to_insert = df[df["Order ID"].isin(toe_te_voegen)] if df is not None else pd.DataFrame()
     meld_portfolio_opslaan(True, rows_to_insert)
-    if not rows_to_insert.empty:
+    if not rows_to_insert.empty or rekening_df is not None:
         with db_transactie() as cur:
             voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers=False)
-    if rekening_df is not None:
-        sla_dividend_bestand_op(code, rekening_df)
-    result = _kern_na_opslaan(code)
-    if df is not None:
-        meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
+            if rekening_df is not None:
+                sla_dividend_bestand_op(cur, code, rekening_df)
+    with db_deel_verbinding():
+        result = _kern_na_opslaan(code)
+        if df is not None:
+            _meld_valuta_na_opslaan(df, code)
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
     result["bijwerken"] = {
         "nieuwe_transacties": len(rows_to_insert),

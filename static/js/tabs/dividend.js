@@ -95,10 +95,7 @@ function toonDividendChart(cumulatief) {
                         label: (ctx) => `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
                     }
                 },
-                zoom: {
-                    pan: { enabled: true, mode: "x" },
-                    zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: "x" }
-                },
+                zoom: zoomOpties(),
                 datalabels: { display: false }
             }
         }

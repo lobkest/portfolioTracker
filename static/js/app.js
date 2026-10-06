@@ -116,6 +116,7 @@ function plaatsGrafiek(view) {
     wrapper.style.display = plek ? "block" : "none";
     const zoomKnop = document.getElementById("resetZoomBtn");
     zoomKnop.style.display = plek && plek.hasAttribute("data-zoombaar") ? "block" : "none";
+    werkZoomIcoonBij(null);
     if (plek) plek.appendChild(wrapper);
 }
 
@@ -255,9 +256,8 @@ window.addEventListener("hashchange", () => {
     if (huidigeData && huidigeData.chart_data) wisselView(viewUitUrl());
 });
 
-document.getElementById("resetZoomBtn").addEventListener("click", () => {
-    if (chart) chart.resetZoom();
-});
+document.getElementById("resetZoomBtn").addEventListener("click", resetZoom);
+document.getElementById("zoomIcoonKnop").addEventListener("click", resetZoom);
 
 document.getElementById("koersenOpnieuwKnop").addEventListener("click", () => {
     window.location.reload();

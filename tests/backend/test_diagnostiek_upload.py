@@ -279,9 +279,10 @@ class TestDividendMeldingen(_MetRequest):
         records = [self._record("EUR")]
         mock_verwerk.return_value = records
         rekening_df = pd.DataFrame()
-        _, meldingen, _ = self._in_request(uv.sla_dividend_bestand_op, "ABC", rekening_df)
+        cur = MagicMock()
+        _, meldingen, _ = self._in_request(uv.sla_dividend_bestand_op, cur, "ABC", rekening_df)
         mock_verwerk.assert_called_once_with(rekening_df)
-        mock_save.assert_called_once_with("ABC", records)
+        mock_save.assert_called_once_with(cur, "ABC", records)
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 

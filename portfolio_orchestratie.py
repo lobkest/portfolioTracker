@@ -159,6 +159,11 @@ def splits_voor_grafiek(splits):
     return [{"datum": datum, "ratio": ratio} for datum, ratio in sorted(splits.items())]
 
 
+def _meld_check_mislukt(categorie, wat, e):
+    meld(categorie, LET_OP, f"{wat} niet gecontroleerd door een fout ({type(e).__name__}: {e!a}).",
+         sleutel=f"check_mislukt:{wat}")
+
+
 def _meld_datakwaliteit(code, transacties_df):
     """Diagnostiek mag het laden nooit breken."""
     try:
@@ -173,7 +178,7 @@ def _meld_datakwaliteit(code, transacties_df):
         for b in check_isin_wissels(transacties_df):
             meld(CATEGORIE_SPLITS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
-        print(f"[diagnostiek] WARN datakwaliteit niet gecontroleerd ({e!a})")
+        _meld_check_mislukt(CATEGORIE_DATA, "Datakwaliteit", e)
 
 
 def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
@@ -188,7 +193,7 @@ def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
         for b in bevindingen:
             meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
-        print(f"[diagnostiek] WARN tickers niet gecontroleerd ({e!a})")
+        _meld_check_mislukt(CATEGORIE_TICKERS, "Tickers", e)
 
 
 def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
@@ -199,7 +204,7 @@ def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
         for b in check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta):
             meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
-        print(f"[diagnostiek] WARN valuta-consistentie niet gecontroleerd ({e!a})")
+        _meld_check_mislukt(CATEGORIE_TICKERS, "Valuta-consistentie", e)
 
 
 def ticker_per_isin_beurs_uit_basis(code):
@@ -222,7 +227,7 @@ def _meld_plausibiliteit(transacties_df, price_data, per_ticker):
         for b in bevindingen:
             meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
-        print(f"[diagnostiek] WARN plausibiliteit niet gecontroleerd ({e!a})")
+        _meld_check_mislukt(CATEGORIE_PLAUSIBILITEIT, "Plausibiliteit", e)
 
 
 def _meld_koersdekking(transacties_df, price_data):
@@ -249,7 +254,7 @@ def _meld_koersdekking(transacties_df, price_data):
         for b in bevindingen:
             meld(CATEGORIE_KOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
-        print(f"[diagnostiek] WARN koersstilstand niet gecontroleerd ({e!a})")
+        _meld_check_mislukt(CATEGORIE_KOERSEN, "Koersstilstand", e)
 
 
 def _pct_nl(waarde):
@@ -263,7 +268,7 @@ def _meld_etf_onbekend_land(ticker, info, naam):
     try:
         holdings = get_etf_holdings_uit_cache(ticker)
     except Exception as e:
-        print(f"[diagnostiek] WARN holdings van '{ticker}' niet uit de cache ({e!a})")
+        _meld_check_mislukt(CATEGORIE_ETF_HOLDINGS, f"Land-dekking van '{ticker}'", e)
         holdings = []
     dekking = bereken_land_dekking(holdings)
     if dekking["onbekend_pct"] <= DREMPEL_ONBEKEND_LAND_PCT:
@@ -311,7 +316,8 @@ def _bepaal_land_proxies(transacties_df, is_etf_map):
     try:
         return land_proxies_voor_etfs(isin_per_etf)
     except Exception as e:
-        print(f"[etf-proxy] WARN land-proxy niet bepaald ({e!a})")
+        meld(CATEGORIE_ETF_HOLDINGS, LET_OP, f"Land-proxy niet bepaald door een fout ({type(e).__name__}: {e!a}).",
+             sleutel="etf_land_proxy_fout")
         return {}
 
 

@@ -43,6 +43,30 @@ function maakStrepenPatroon(kleurHex) {
     return pctx.createPattern(c, "repeat");
 }
 
+// Het ronde reset-icoon in de grafiek (alleen zichtbaar op mobiel, zie style.css).
+function werkZoomIcoonBij(c) {
+    document.getElementById("zoomIcoonKnop").hidden = !(c && c.isZoomedOrPanned());
+}
+
+// Voor de zoombare lijngrafieken op het gedeelde canvas. Een nieuwe grafiek is niet ingezoomd: icoon weg.
+function zoomOpties() {
+    werkZoomIcoonBij(null);
+    return {
+        pan: { enabled: true, mode: "x", onPanComplete: ({ chart: c }) => werkZoomIcoonBij(c) },
+        zoom: {
+            wheel: { enabled: true },
+            pinch: { enabled: true },
+            mode: "x",
+            onZoomComplete: ({ chart: c }) => werkZoomIcoonBij(c),
+        },
+    };
+}
+
+function resetZoom() {
+    if (chart) chart.resetZoom();
+    werkZoomIcoonBij(null);
+}
+
 // waardeFormatter: opmaak in de tooltip, standaard euro.
 function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
     if (chart) chart.destroy();
@@ -63,14 +87,7 @@ function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
                         label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y === null ? "—" : waardeFormatter(ctx.parsed.y)}`
                     }
                 },
-                zoom: {
-                    pan: { enabled: true, mode: "x" },
-                    zoom: {
-                        wheel: { enabled: true },
-                        pinch: { enabled: true },
-                        mode: "x"
-                    }
-                },
+                zoom: zoomOpties(),
                 datalabels: { display: false }
             }
         }

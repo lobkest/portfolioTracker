@@ -20,18 +20,18 @@ kolom) om te voorkomen dat de meerdere endpoints van één portfolio-opening
 Deze tests raken de database NIET aan -- db_connect, download_koersen_met_retry,
 db_save_koersen en yf.Ticker worden gemockt.
 """
-import io
 import os
 import sys
 import unittest
-from contextlib import redirect_stdout
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
+import diagnostiek
 import prijzen
 import portfolio_calc
 
@@ -201,8 +201,13 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
 
 
 class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
-    """Opdracht 3: transacties ná price_data.index.max() moeten niet meer
-    stil verdwijnen -- er komt nu een waarschuwing in de logs."""
+    """Transacties ná price_data.index.max() verdwijnen niet stil: er komt een melding in de Diagnostiek."""
+
+    def _meldingen(self, transacties_df, price_data):
+        with Flask(__name__).test_request_context():
+            result = portfolio_calc.compute_value_over_time(transacties_df, price_data)
+            sleutels = [m["sleutel"] for m in diagnostiek.haal_meldingen()]
+        return result, sleutels
 
     def test_transactie_na_laatste_koersdatum_wordt_gewaarschuwd_en_genegeerd(self):
         price_data = pd.DataFrame(
@@ -216,11 +221,9 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
             "totaal_eur": [-100.0, -110.0],
         })
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            result = portfolio_calc.compute_value_over_time(transacties_df, price_data)
+        result, sleutels = self._meldingen(transacties_df, price_data)
 
-        self.assertIn("na de laatste beschikbare koersdatum", buf.getvalue())
+        self.assertIn("na_laatste_koersdatum", sleutels)
         # bestaand (nog niet gewijzigd) gedrag: de transactie van 2024-01-05
         # valt buiten price_data.index en telt dus niet mee -- de
         # waarschuwing maakt dit nu zichtbaar i.p.v. stil te falen
@@ -238,11 +241,9 @@ class TestValueOverTimeStaleWaarschuwing(unittest.TestCase):
             "totaal_eur": [-100.0],
         })
 
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            portfolio_calc.compute_value_over_time(transacties_df, price_data)
+        _, sleutels = self._meldingen(transacties_df, price_data)
 
-        self.assertNotIn("na de laatste beschikbare koersdatum", buf.getvalue())
+        self.assertNotIn("na_laatste_koersdatum", sleutels)
 
 
 if __name__ == "__main__":
