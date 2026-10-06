@@ -30,6 +30,14 @@ function maakTotalenSectie(totalen) {
         rij.appendChild(maakStatTegel("Ontvangen dividend (netto)", formatteerEuro(totalen.dividend_netto)));
     }
 
+    if (totalen.rendement_incl_dividend_eur !== null && totalen.rendement_incl_dividend_eur !== undefined) {
+        rij.appendChild(maakStatTegel(
+            "Totaal incl. dividend (wat DeGiro laat zien)",
+            formatteerEuro(totalen.rendement_incl_dividend_eur),
+            klasseVoorRendement(totalen.rendement_incl_dividend_eur)
+        ));
+    }
+
     if (totalen.all_time_high && totalen.all_time_high.waarde !== null) {
         rij.appendChild(maakStatTegel(
             "Hoogste rendement",

@@ -95,8 +95,14 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
         },
         {
             label: "Dividend ontvangen",
-            waarde: p => p.dividend_ontvangen || 0,
-            renderTd: p => maakCel(formatteerEuro(p.dividend_ontvangen || 0)),
+            // Deels verkocht: het dividend is per ticker en staat al bij de open positie.
+            waarde: p => p.nog_in_bezit ? null : (p.dividend_ontvangen || 0),
+            renderTd: p => {
+                if (!p.nog_in_bezit) return maakCel(formatteerEuro(p.dividend_ontvangen || 0));
+                const td = maakCel("zie hierboven");
+                td.className = "grijsTekst";
+                return td;
+            },
         },
     ];
     return maakSorteerbareTabel(kolommen, geslotenPosities, { legeTekst: "Geen verkochte of deels verkochte posities." });

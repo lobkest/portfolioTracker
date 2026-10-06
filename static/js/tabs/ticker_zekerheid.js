@@ -130,7 +130,7 @@ function laatsteDagrangeUitChecks(prijsChecks) {
     return null;
 }
 
-// isEtf bepaalt de kolommen: high/low voor ETF's, land/sector voor aandelen.
+// isEtf bepaalt de kolommen: land/sector alleen voor aandelen.
 function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
     const wrapper = document.createElement("div");
     wrapper.className = "tabelWrapper";
@@ -140,7 +140,7 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
     wrapper.appendChild(tabel);
 
     const kolomLabels = isEtf
-        ? ["Ticker", "Beurs", "High", "Low", "Valuta", "Binnen dagrange", ""]
+        ? ["Ticker", "Beurs", "Valuta", "Binnen dagrange", ""]
         : ["Ticker", "Beurs", "Land", "Sector", "Valuta", "Binnen dagrange", ""];
 
     const kop = document.createElement("tr");
@@ -163,11 +163,7 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
             ? `${alt.aantal_matches}/${alt.aantal_gecontroleerd}`
             : "geen prijsdata";
         const waarden = isEtf
-            ? [
-                alt.ticker, alt.beurs || "onbekend",
-                alt.high != null ? alt.high.toFixed(3) : "-", alt.low != null ? alt.low.toFixed(3) : "-",
-                alt.valuta || "onbekend", dagrangeTekst,
-            ]
+            ? [alt.ticker, alt.beurs || "onbekend", alt.valuta || "onbekend", dagrangeTekst]
             : [
                 alt.ticker, alt.beurs || "onbekend", alt.land || "onbekend", alt.sector || "onbekend",
                 alt.valuta || "onbekend", dagrangeTekst,

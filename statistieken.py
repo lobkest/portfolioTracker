@@ -456,6 +456,9 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "transactiekosten_beschikbaar": kosten_info["beschikbaar"],
             # None = geen rekeningoverzicht; los van rendement_eur, dat is exclusief dividend.
             "dividend_netto": dividend_totaal_netto,
+            "rendement_incl_dividend_eur": (
+                round(totaal["rendement_eur"] + dividend_totaal_netto, 2) if dividend_totaal_netto is not None else None
+            ),
         },
         "jaren": jaren,
         "geavanceerd": {

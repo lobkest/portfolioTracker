@@ -182,12 +182,6 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
         alt_is_etf = classify_ticker(alt_ticker)
         alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
         alt_beurs_klopt = (alt.get("exchange") in verwachte_beurzen) if verwachte_beurzen else None
-        # Meest recente dagrange, voor de ETF-weergave (high/low i.p.v. land/sector).
-        alt_high, alt_low = next(
-            ((c["high"], c["low"]) for c in reversed(alt_checks)
-             if c.get("high") is not None and c.get("low") is not None),
-            (None, None),
-        )
 
         alternatieven.append({
             "ticker": alt_ticker,
@@ -195,8 +189,6 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             "is_etf": alt_is_etf,
             "land": alt_land,
             "sector": alt_sector,
-            "high": alt_high,
-            "low": alt_low,
             "valuta": alt_details.get("valuta"),
             "aantal_matches": sum(1 for m in alt_matches if m),
             "aantal_gecontroleerd": len(alt_matches),
