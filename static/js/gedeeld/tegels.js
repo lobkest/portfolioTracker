@@ -32,7 +32,7 @@ function maakTotalenSectie(totalen) {
 
     if (totalen.kassaldo_eur !== null && totalen.kassaldo_eur !== undefined) {
         rij.appendChild(maakStatTegel(
-            `Vrije ruimte (cash, per ${formatDatum(totalen.kassaldo_per_datum)})`,
+            "Vrije ruimte (cash)",
             formatteerEuro(totalen.kassaldo_eur)
         ));
     }

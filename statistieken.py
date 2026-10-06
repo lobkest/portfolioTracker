@@ -334,15 +334,11 @@ def bereken_totale_transactiekosten(transacties_df):
     return {"totaal": round(abs(float(kosten.sum())), 2), "beschikbaar": True}
 
 
-def bereken_totaal_degiro(waarde, kassaldo, eerste_transactiedatum, laatste_transactiedatum):
-    """Waarde + cash − netto gestort, zoals DeGiro's totaal. None als het rekeningoverzicht niet alle
-    transacties dekt: dan ontbreken stortingen of aankopen en klopt het verschil niet."""
-    if not kassaldo or not kassaldo["vanaf_opening"]:
+def bereken_totaal_degiro(rendement_eur, dividend_netto, kassaldo):
+    """Rendement + dividend + cash, zoals de DeGiro-app het totaal toont. None zonder rekeningoverzicht."""
+    if not kassaldo:
         return None
-    if (pd.Timestamp(kassaldo["eerste_datum"]) > pd.Timestamp(eerste_transactiedatum)
-            or pd.Timestamp(kassaldo["per_datum"]) < pd.Timestamp(laatste_transactiedatum)):
-        return None
-    return round(waarde + kassaldo["saldo_eur"] - kassaldo["netto_gestort_eur"], 2)
+    return round(rendement_eur + (dividend_netto or 0.0) + kassaldo["saldo_eur"], 2)
 
 
 def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None,
@@ -469,11 +465,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "dividend_netto": dividend_totaal_netto,
             "kassaldo_eur": kassaldo["saldo_eur"] if kassaldo else None,
             "kassaldo_per_datum": kassaldo["per_datum"].isoformat() if kassaldo else None,
-            "totaal_degiro_eur": (
-                bereken_totaal_degiro(totaal_waarde, kassaldo,
-                                      transacties_df["datum"].min(), transacties_df["datum"].max())
-                if not transacties_df.empty else None
-            ),
+            "totaal_degiro_eur": bereken_totaal_degiro(totaal["rendement_eur"], dividend_totaal_netto, kassaldo),
         },
         "jaren": jaren,
         "geavanceerd": {

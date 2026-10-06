@@ -812,7 +812,7 @@ getallen uit, geen DB/netwerk), daardoor met de hand na te rekenen en goed te te
 | `bereken_benchmark_vergelijking()` | simuleert dezelfde cashflows in een benchmark | `transacties_df, resultaat, koersen` → dict of `None` | `benchmark_vergelijking()` |
 | `bereken_rendement_over_tijd()` | rendement%/XIRR%/TWR% per maandeinde (+ laatste datum) | `transacties_df, resultaat` → dict met lijsten | `rendement_over_tijd()` |
 | `bereken_totale_transactiekosten()` | som van `transactiekosten`; `beschikbaar=False` als de kolom leeg is | `transacties_df` → dict | `bereken_statistieken()` |
-| `bereken_totaal_degiro()` | DeGiro's totaal: `waarde + kassaldo − netto gestort`; `None` als het rekeningoverzicht niet vanaf de opening loopt (`vanaf_opening`) of niet alle transacties dekt (begint na de eerste of eindigt vóór de laatste transactie) | waarde, kassaldo-dict, eerste en laatste transactiedatum → getal of `None` | `bereken_statistieken()` |
+| `bereken_totaal_degiro()` | totaal zoals de DeGiro-app het toont: `rendement_eur + dividend_netto + kassaldo`; `None` zonder kassaldo (geen rekeningoverzicht) | rendement, dividend (of `None`), kassaldo-dict → getal of `None` | `bereken_statistieken()` |
 | `bereken_statistieken()` | orkestratie voor het Statistieken-tabblad; `totalen` bevat ook `dividend_netto`, `kassaldo_eur`, `kassaldo_per_datum` en `totaal_degiro_eur` (de tegels op home en Statistieken) | `transacties_df, price_data, resultaat, ..., kassaldo` → dict | `analyze_transacties_kern()` |
 
 Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", "AEX": "IAEA.AS"}`.
@@ -871,7 +871,7 @@ dekt "iDEAL Deposit", "Reservation iDEAL", "flatex Storting", "flatex terugstort
   "Overboeking van/naar uw geldrekening bij flatexDEGIRO Bank" (lege `Mutatie`, bedrag alleen in de tekst). Netto doet zo'n paar niets, maar de tussensaldi zijn
   onzin (soms negatief) en de volgorde van de twee rijen binnen één minuut wisselt. Het saldo van de bovenste rij is dus niet betrouwbaar. `bereken_kassaldo()`
   laat de sweeprijen weg, rekent per rij `saldo − cumulatieve mutatie` uit (het beginsaldo vóór het bestand) en neemt de waarde die het vaakst voorkomt.
-  Een export vanaf de opening van de rekening heeft beginsaldo 0 (`vanaf_opening`); alleen dan is netto gestort compleet en toont de frontend het DeGiro-totaal.
+  Een export vanaf de opening van de rekening heeft beginsaldo 0 (`vanaf_opening`). `netto_gestort_eur`, `eerste_datum` en `vanaf_opening` worden opgeslagen maar nu nergens gebruikt.
   Alleen EUR telt mee: een saldo in vreemde valuta is met AutoFX normaal 0.
 
 ---
@@ -1469,7 +1469,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 
 | Menu (`data-view`) | Bestand in `tabs/` | Tekent | Data/API | Grafiek of tabel |
 |---|---|---|---|---|
-| Portfolio-home (`portfolio`) | `portfolio.js` | `toonPortfolio()` | `huidigeData.chart_data` en `statistieken.totalen`; komt uit `/upload` of `GET /api/portfolio/<code>` | lijngrafiek Waarde + Geïnvesteerd via `updateChart()`; tegels `maakTotalenSectie()` (o.a. "Ontvangen dividend (netto)", "Vrije ruimte (cash, per ...)" en "Totaal (rendement + dividend + cash) (wat DeGiro laat zien)"; elk alleen als het veld niet `null` is); regel "Koersen laatst opgehaald ..." |
+| Portfolio-home (`portfolio`) | `portfolio.js` | `toonPortfolio()` | `huidigeData.chart_data` en `statistieken.totalen`; komt uit `/upload` of `GET /api/portfolio/<code>` | lijngrafiek Waarde + Geïnvesteerd via `updateChart()`; tegels `maakTotalenSectie()` (o.a. "Ontvangen dividend (netto)", "Vrije ruimte (cash)" en "Totaal (rendement + dividend + cash) (wat DeGiro laat zien)"; elk alleen als het veld niet `null` is); regel "Koersen laatst opgehaald ..." |
 | Rendement (`rendement`) | `rendement.js` | `toonRendement()`; `wisselBenchmark()`, `wisselEigenAandeel()` | `chart_data.rendement`; optioneel `GET .../benchmark-vergelijking?benchmark=` of `?eigen_ticker=` | lijngrafiek (`updateChart()`), met een gestippelde extra lijn per gekozen vergelijking |
 | Per aandeel (`peraandeel`) | `per_aandeel.js` | `toonPerAandeel(ticker)`, `toonEtfDrilldown()`, `toonAandeelLandSector()` | `per_ticker[ticker]`, `land_sector_verdeling.per_etf` en `.per_aandeel` (verrijking) | lijngrafiek Waarde/Geïnvesteerd + bij een ETF twee lijstjes land/sector (met de landbron; bij een proxy `landProxyBijschrift()`), bij een aandeel het blok Land/Sector (`aandeelLandSectorRegels()`) |
 | Per aandeel aankoop (`peraandeelaankoop`) | `per_aandeel_aankoop.js` | `toonPerAandeelAankoop(ticker)`, `laadMeerHistorie()` | `per_ticker_aankoop[ticker]`; knoppen "+6 maanden/+1 jaar/+3 jaar/Tot nu" → `GET .../ticker-koers-bereik` | **eigen** `new Chart` (niet `updateChart()`): koers + trapvormige lijn "aantal aandelen" op een tweede y-as, aankoop-/verkoopmomenten en splits (`per_ticker_aankoop[ticker].splits`, label via `splitLabel()`) als verticale annotatielijnen (annotation-plugin) |
