@@ -12,8 +12,8 @@ from portfolio_admin import (
     controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
 )
-from dividend import lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df
-from upload_verwerking import _lees_transacties_excel, _adjust_transaction_exchange_rates, _create_synthetic_order_ids
+from dividend import lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df, MELDING_GEEN_REKENINGOVERZICHT
+from upload_verwerking import OngeldigExcelBestand, _lees_transacties_excel, _adjust_transaction_exchange_rates, _create_synthetic_order_ids
 
 TEST_FILES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files")
 BESTAND_TRANSACTIES = os.path.join(TEST_FILES, "Transactions_test.xlsx")
@@ -77,6 +77,11 @@ class TestOrderIdsUitRekeningoverzicht(unittest.TestCase):
         self.assertEqual(len(ids), 10)
         self.assertLessEqual(ids, _transactie_ids())
 
+    def test_transactiebestand_is_geen_rekeningoverzicht(self):
+        with open(BESTAND_TRANSACTIES, "rb") as f:
+            with self.assertRaises(OngeldigExcelBestand):
+                lees_rekeningoverzicht(f)
+
 
 class TestBijwerkenRoute(unittest.TestCase):
     def setUp(self):
@@ -104,13 +109,13 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.addCleanup(p.stop)
         return mock
 
-    def _post(self, transacties=True, rekening=False):
+    def _post(self, transacties=True, rekening=False, rekening_pad=BESTAND_REKENING):
         data = {}
         if transacties:
             with open(BESTAND_TRANSACTIES, "rb") as f:
                 data["bestand1"] = (io.BytesIO(f.read()), "transacties.xlsx")
         if rekening:
-            with open(BESTAND_REKENING, "rb") as f:
+            with open(rekening_pad, "rb") as f:
                 data["bestand2"] = (io.BytesIO(f.read()), "rekening.xlsx")
         return self.client.post(f"/api/portfolio/{TEST_CODE}/bijwerken", data=data,
                                 content_type="multipart/form-data")
@@ -160,6 +165,13 @@ class TestBijwerkenRoute(unittest.TestCase):
         res = self._post(transacties=False, rekening=True)
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.get_json()["error"], self.app_module.MELDING_REKENING_ONBEKENDE_TRANSACTIES)
+        self._assert_niets_opgeslagen()
+
+    def test_transactiebestand_als_rekeningoverzicht_geeft_400_zonder_opslaan(self):
+        self.mock_order_id_sets.return_value = {TEST_CODE.upper(): self.transactie_ids}
+        res = self._post(rekening=True, rekening_pad=BESTAND_TRANSACTIES)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.get_json()["error"], MELDING_GEEN_REKENINGOVERZICHT)
         self._assert_niets_opgeslagen()
 
     def test_superset_slaat_alleen_de_nieuwe_rijen_op(self):

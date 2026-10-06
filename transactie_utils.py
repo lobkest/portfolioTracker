@@ -4,6 +4,10 @@ import datetime
 import pandas as pd
 
 
+class OngeldigExcelBestand(Exception):
+    pass
+
+
 def _is_corporate_action_row(row):
     beurs = str(row.get("beurs", "")).strip().upper()
     product = str(row.get("product", "")).upper()

@@ -11,7 +11,7 @@ from diagnostiek import (
     GOED, INFO, LET_OP, FOUT,
 )
 from split_correctie import vind_wisselparen
-from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
+from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, OngeldigExcelBestand
 from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
     find_ticker_met_snelle_prijscheck,
@@ -48,10 +48,6 @@ DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG = "dividend_zonder_conversie_overig"
 
 # Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
-
-
-class OngeldigExcelBestand(Exception):
-    pass
 
 
 def _normaliseer_tijd(waarde):

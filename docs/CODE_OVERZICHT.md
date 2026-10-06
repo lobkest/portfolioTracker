@@ -811,7 +811,7 @@ opgeslagen dividenden samenvatten voor de UI.
 | `_clusters_binnen_venster()` | groepeert op datum gesorteerde items zolang twee opeenvolgende ≤ `max_dagen` uit elkaar liggen | items, dagen → lijst clusters | `verwerk_rekeningoverzicht_df()` |
 | `verwerk_rekeningoverzicht_df()` | het eigenlijke rekenwerk: netten per (Datum, ISIN), omrekenen naar EUR, gepoolde conversies, `herinvesteerd`-vlag | DataFrame → lijst records | `verwerk_rekeningoverzicht()` |
 | `verwerk_rekeningoverzicht()` | `lees_rekeningoverzicht()`, dan `verwerk_rekeningoverzicht_df()` | bestandsobject → lijst records | `_verwerk_dividend_bestand_indien_aanwezig()` |
-| `lees_rekeningoverzicht()` | Excel inlezen + kolommen hernoemen | bestandsobject → DataFrame | `verwerk_rekeningoverzicht()`, `_bijwerken_impl()` |
+| `lees_rekeningoverzicht()` | Excel inlezen, controle op `VERWACHTE_KOLOMMEN_REKENING` (anders `OngeldigExcelBestand`, in `/upload` en `/bijwerken` een 400 vóór er iets wordt opgeslagen), kolommen hernoemen | bestandsobject → DataFrame | `verwerk_rekeningoverzicht()`, `_upload_impl()`, `_bijwerken_impl()` |
 | `order_ids_uit_rekeningoverzicht_df()` | niet-lege waarden uit de kolom `Order Id` (`ORDER_ID_KOLOM_REKENING`) | DataFrame → set | `_bijwerken_impl()` |
 | `bereken_dividend_samenvatting()` | leest `dividenden` (via `db_get_dividenden()`), koppelt ISIN → ticker/bijnaam via `transacties`, bouwt `totaal_netto`, `per_ticker`, `cumulatief`, `lijst` | `code` → dict of `None` | `dividend()` (route), `analyze_transacties_kern()` |
 

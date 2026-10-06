@@ -4,8 +4,12 @@ import hashlib
 import pandas as pd
 
 from db import db_get_dividenden, db_get_isin_ticker_product
+from transactie_utils import OngeldigExcelBestand
 
 ORDER_ID_KOLOM_REKENING = "Order Id"
+VERWACHTE_KOLOMMEN_REKENING = ["Datum", "Omschrijving", "Mutatie", ORDER_ID_KOLOM_REKENING]
+MELDING_GEEN_REKENINGOVERZICHT = ("Dit lijkt geen DeGiro-rekeningoverzicht. Kies bij DeGiro "
+                                  "Inbox > Rekeningoverzicht > Excel.")
 
 
 def _koppel_valutaconversie_paren(df):
@@ -182,6 +186,8 @@ def lees_rekeningoverzicht(file_object):
     file_object.seek(0)
     df = pd.read_excel(file_object)
     df.columns = df.columns.str.strip()
+    if any(kolom not in df.columns for kolom in VERWACHTE_KOLOMMEN_REKENING):
+        raise OngeldigExcelBestand(MELDING_GEEN_REKENINGOVERZICHT)
     # Samengevoegde koppen, zie CLAUDE.md: DeGiro-bestanden.
     df = df.rename(columns={
         "Mutatie": "valuta_mutatie",

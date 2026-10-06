@@ -132,6 +132,14 @@ def _upload_impl():
             return jsonify({"error": str(e)}), 400 # als excel niet juiste kolommen heeft, wordt dit opgepakt als OngeldigExcelBestand
         df = _adjust_transaction_exchange_rates(df)
 
+    rekening_df = None
+    bestand2 = _gekozen_bestand("bestand2")
+    if bestand2:
+        try:
+            rekening_df = lees_rekeningoverzicht(bestand2)
+        except OngeldigExcelBestand as e:
+            return jsonify({"error": str(e)}), 400
+
     niet_opslaan = request.form.get("niet_opslaan") == "on"
     herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
     
@@ -157,7 +165,7 @@ def _upload_impl():
     cur = conn.cursor()
 
     code, match_code, rows_to_insert = _vind_of_maak_portfolio_code(cur, df, naam)
-    result = _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, herbepaal_alle_tickers)
+    result = _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, herbepaal_alle_tickers, rekening_df)
     response = jsonify(voeg_diagnostiek_toe(result))
     log_yahoo_call_samenvatting()
     return response
@@ -248,7 +256,10 @@ def _bijwerken_impl(code):
         fout, toe_te_voegen = controleer_eigen_transactiebestand(opgeslagen, nieuw, ids_andere_portfolios)
     rekening_df = None
     if not fout and bestand2:
-        rekening_df = lees_rekeningoverzicht(bestand2)
+        try:
+            rekening_df = lees_rekeningoverzicht(bestand2)
+        except OngeldigExcelBestand as e:
+            return jsonify({"error": str(e)}), 400
         fout = controleer_eigen_rekeningoverzicht(order_ids_uit_rekeningoverzicht_df(rekening_df), opgeslagen | nieuw)
     if fout:
         return jsonify({"error": MELDING_PER_EIGENDOMSFOUT[fout]}), 400
