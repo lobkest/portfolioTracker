@@ -68,6 +68,28 @@ class TestHaalKoersEnDagrangeOp(unittest.TestCase):
         self.assertEqual(resultaat, (None, None, None))
 
 
+class TestGeenDividendcorrectie(unittest.TestCase):
+    """auto_adjust=True verlaagt oude koersen met latere dividenden; de DeGiro-koers viel dan buiten de dagrange."""
+
+    def test_beide_downloads_gebruiken_auto_adjust_false(self):
+        fake_df = _fake_ohlc_dataframe(date(2024, 1, 1), close=100.0, high=105.0, low=95.0)
+        with patch.object(ticker_prijscheck.yf, "download", return_value=fake_df) as mock_download:
+            ticker_prijscheck._haal_dagrange_op("TDT.AS", date(2024, 1, 1))
+            _haal_koers_en_dagrange_op("TDT.AS", date(2024, 1, 1))
+
+        self.assertEqual(mock_download.call_count, 2)
+        for aanroep in mock_download.call_args_list:
+            self.assertIs(aanroep.kwargs.get("auto_adjust"), False)
+
+    def test_adj_close_wordt_niet_gebruikt(self):
+        fake_df = _fake_ohlc_dataframe(date(2024, 1, 1), close=100.0, high=105.0, low=95.0)
+        fake_df["Adj Close"] = 93.0
+        with patch.object(ticker_prijscheck.yf, "download", return_value=fake_df):
+            slotkoers, high, low = _haal_koers_en_dagrange_op("TDT.AS", date(2024, 1, 1))
+
+        self.assertEqual((slotkoers, high, low), (100.0, 105.0, 95.0))
+
+
 class TestVergelijkPrijsOpDatumÉénDownload(unittest.TestCase):
     """vergelijk_prijs_op_datum() moet in het cache-miss-pad nog maar 1
     yf.download()-aanroep per ticker/periode doen, in plaats van de 2

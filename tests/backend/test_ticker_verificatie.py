@@ -241,8 +241,8 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
 class TestSplitCorrectie(unittest.TestCase):
     """
     Bugfix: vergelijk_prijs_op_datum hield geen rekening met aandelensplits.
-    _haal_koers_en_dagrange_op gebruikt yf.download(..., auto_adjust=True), dat
-    historische slotkoersen aanpast naar de HUIDIGE aandelenbasis — een
+    Yahoo's Close/High/Low (ook met auto_adjust=False) zijn aangepast naar de
+    HUIDIGE aandelenbasis — een
     koers van vóór een latere split komt dus terug als (koers / cumulatieve
     split-ratio), terwijl de Excel/DEGIRO-transactieprijs de ruwe prijs van
     dat moment is. Zie het echte BYD/BY6.MU-geval: een oude transactiedatum
@@ -252,7 +252,7 @@ class TestSplitCorrectie(unittest.TestCase):
 
     def test_split_na_transactiedatum_corrigeert_een_grote_schijnbare_afwijking(self):
         # Simuleert een 3-voor-1-split op 2024-08-01: de Excel-prijs op
-        # 2024-06-21 was 90.0, Yahoo's (auto_adjust=True) slotkoers komt
+        # 2024-06-21 was 90.0, Yahoo's split-gecorrigeerde slotkoers komt
         # terug als 30.0 (=90.0 / 3, de aanpassing naar de huidige basis).
         # Ongecorrigeerd zou dit een afwijking van 66.7% zijn (comfortabel
         # "waarschuwing"-niveau); met de split-correctie moet dit ~0% zijn.

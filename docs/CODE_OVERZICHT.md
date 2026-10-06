@@ -1023,8 +1023,9 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 - `DAGRANGE_TOLERANTIE_EUR` (€ 0,50): per grens geldt de ruimste van 5% en € 0,50. Bij een goedkoop aandeel is 5% maar een paar cent (Nokia op 27-01-2021: high 3,632, koers 3,971 → toch binnen).
 - De %-afwijking t.o.v. de slotkoers (`afwijking_pct`, `niveau`, `match`) blijft in de dict als "is er koersdata" en als fallback zonder high/low, maar wordt niet meer getoond.
 - Zonder FX-omrekening leek bv. NFLX (Yahoo in USD) ~17% af te wijken; zonder splitcorrectie "week" een oude BYD-transactie 71% af.
-- Waarom de split-correctie nodig is: `auto_adjust=True` geeft historische koersen op de *huidige* aandelenbasis, terwijl DeGiro de destijds werkelijke prijs vermeldt.
-- De cache `ticker_prijscheck` is **permanent** en cachet ook mislukte lookups (`yahoo_slotkoers = NULL`); een rij zonder high/low wordt bij een volgend gebruik aangevuld.
+- Beide downloads gebruiken `auto_adjust=False`: Close/High/Low zijn dan niet dividend-gecorrigeerd. Met `auto_adjust=True` verlaagde Yahoo oude koersen met alle latere dividenden, waardoor bij uitkerende ETF's/aandelen de DeGiro-koers steeds verder boven de dagrange viel naarmate de transactie ouder was (TDT.AS op 06-12-2023: +6,7%). `Adj Close` wordt niet gebruikt.
+- Waarom de split-correctie nodig is: Yahoo's Close/High/Low staan (ook met `auto_adjust=False`) op de *huidige* aandelenbasis, terwijl DeGiro de destijds werkelijke prijs vermeldt.
+- De cache `ticker_prijscheck` is **permanent** en cachet ook mislukte lookups (`yahoo_slotkoers = NULL`); een rij zonder high/low wordt bij een volgend gebruik aangevuld. Verandert de manier waarop de prijscheck-koersen worden opgehaald (zoals `auto_adjust`), leeg dan de tabel met de hand in Neon (`TRUNCATE ticker_prijscheck;`), anders blijven al gecontroleerde datums de oude waarden houden. Na een deploy nog een keer legen: Render kan tot dan met de oude code hebben gecachet.
 - Geen FX-koers beschikbaar (andere valuta dan USD/GBP/GBp) → geen vergelijking (`match = None`), bewust geen rauwe vergelijking tussen verschillende valuta. Dit print een `[prijscheck] WARN`-regel.
 - Valuta onbekend (`None` in `ticker_info`) → de Yahoo-koers wordt als EUR behandeld, met een `[prijscheck] WARN`-regel.
 

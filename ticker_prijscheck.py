@@ -31,7 +31,7 @@ def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGE
 
     def _actie():
         _tel_yahoo_call("yf.download(dagrange)")
-        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["High", "Low"]]
+        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=False, progress=False)[["High", "Low"]]
 
     raw, fout = _met_rate_limit_retry(_actie, pogingen, wachttijd)
     if fout is not None:
@@ -55,7 +55,7 @@ def _haal_koers_en_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMI
 
     def _actie():
         _tel_yahoo_call("yf.download(slotkoers+dagrange)")
-        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=True, progress=False)[["Close", "High", "Low"]]
+        return yf.download(ticker, start=datum, end=einddatum, auto_adjust=False, progress=False)[["Close", "High", "Low"]]
 
     raw, fout = _met_rate_limit_retry(_actie, pogingen, wachttijd)
     if fout is not None:
@@ -90,7 +90,7 @@ def _haal_splits_op(ticker):
 
 
 def _cumulatieve_split_factor(ticker, vanaf_datum):
-    """Product van alle splitratio's na 'vanaf_datum'; nodig door auto_adjust (zie CLAUDE.md: Yahoo en tickers)."""
+    """Product van alle splitratio's na 'vanaf_datum'; nodig omdat Yahoo's Close/High/Low altijd split-gecorrigeerd zijn (zie CLAUDE.md: Yahoo en tickers)."""
     splits = _haal_splits_op(ticker)
     if not splits:
         return 1.0
