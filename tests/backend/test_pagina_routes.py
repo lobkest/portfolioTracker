@@ -15,10 +15,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class TestPaginaRoutes(unittest.TestCase):
     def setUp(self):
         import app as app_module
+        import db
         self.app_module = app_module
         self.client = app_module.app.test_client()
         patcher = patch.object(
-            app_module, "db_connect",
+            db, "db_connect",
             side_effect=AssertionError("pagina-route mag de database niet raken"),
         )
         patcher.start()

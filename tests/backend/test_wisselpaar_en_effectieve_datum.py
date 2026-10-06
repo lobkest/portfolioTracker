@@ -242,8 +242,8 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         df["wisselkoers"] = None
         df["datum"] = df["datum"].dt.date
         rijen = [tuple(r) for r in df[portfolio_orchestratie.TRANSACTIE_KOLOMMEN].itertuples(index=False)]
-        with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", rijen)),              patch.object(portfolio_orchestratie, "get_prices", side_effect=AssertionError("koersen opgehaald")),              patch.object(portfolio_orchestratie, "_haal_portfolio_basis", side_effect=AssertionError("basis geladen")):
-            groepen = dict(portfolio_orchestratie._ticker_zekerheid_groepen("ZZTEST"))
+        with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", rijen)),              patch.object(portfolio_orchestratie, "get_prices", side_effect=AssertionError("koersen opgehaald")),              patch.object(portfolio_orchestratie, "haal_portfolio_basis", side_effect=AssertionError("basis geladen")):
+            groepen = dict(portfolio_orchestratie.ticker_zekerheid_groepen("ZZTEST"))
         gezien = sorted(str(t["datum"])[:10] for g in groepen.values() for t in g["transacties"])
         self.assertEqual(gezien, ["2021-01-08", "2021-01-25", "2021-01-27"])
         self.assertEqual(set(groepen), {(OUD_ISIN, "NSQ"), (NIEUW_ISIN, "NSQ")})
@@ -253,7 +253,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         from unittest.mock import patch
         import portfolio_orchestratie
         with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=(None, None)):
-            self.assertIsNone(portfolio_orchestratie._ticker_zekerheid_groepen("ZZTEST"))
+            self.assertIsNone(portfolio_orchestratie.ticker_zekerheid_groepen("ZZTEST"))
 
 
 class TestWaardepadenOpRuwAantal(_MetRequest):

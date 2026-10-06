@@ -88,6 +88,22 @@ def db_connect():
     return gedeeld
 
 
+@contextmanager
+def db_transactie():
+    """Cursor voor één transactie: commit na het blok, rollback bij een exception; sluit altijd."""
+    conn = db_connect()
+    cur = conn.cursor()
+    try:
+        yield cur
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
+    finally:
+        cur.close()
+        conn.close()
+
+
 def db_init():
     conn = db_connect()
     cur = conn.cursor()
@@ -949,12 +965,35 @@ def db_zet_portfolio_naam(cur, code, naam):
     cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
 
 
-def db_get_order_id_sets(cur):
-    cur.execute("SELECT code, order_id FROM transacties WHERE order_id IS NOT NULL")
+def db_get_order_id_sets_met_overlap(cur, order_ids):
+    """{code: alle Order ID's} van alleen de portfolio's die minstens één van `order_ids` bevatten."""
+    if not order_ids:
+        return {}
+    cur.execute(
+        "SELECT code, order_id FROM transacties WHERE order_id IS NOT NULL AND code IN "
+        "(SELECT code FROM transacties WHERE order_id = ANY(%s))",
+        (list(order_ids),),
+    )
     sets = {}
     for code, order_id in cur.fetchall():
         sets.setdefault(code, set()).add(order_id)
     return sets
+
+
+def db_get_order_ids(cur, code):
+    cur.execute("SELECT order_id FROM transacties WHERE code = %s AND order_id IS NOT NULL", (code,))
+    return {order_id for (order_id,) in cur.fetchall()}
+
+
+def db_get_order_ids_bij_andere_portfolios(cur, code, order_ids):
+    """De Order ID's uit `order_ids` die al bij een andere portfolio dan `code` staan."""
+    if not order_ids:
+        return set()
+    cur.execute(
+        "SELECT DISTINCT order_id FROM transacties WHERE code <> %s AND order_id = ANY(%s)",
+        (code, list(order_ids)),
+    )
+    return {order_id for (order_id,) in cur.fetchall()}
 
 
 def db_get_bekende_tickers(cur, code):

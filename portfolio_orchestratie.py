@@ -63,7 +63,7 @@ _basis_cache = {}
 _basis_cache_lock = threading.Lock()
 
 
-def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
+def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     """(naam, split-gecorrigeerde transacties_df, price_data), of (None, None, None).
     Een cache-hit negeert `verversen`; aanroepers met verversen=False wissen de cache eerst."""
     nu = time.time()
@@ -94,8 +94,9 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     start_date = transacties_df["datum"].min()
     with meet_tijd(f"basis_koersen_ophalen ({len(tickers)} ticker(s))"):
         price_data = get_prices(tickers, start_date, verversen=verversen, gesloten_sinds=_gesloten_sinds(transacties_df)) if tickers else pd.DataFrame()
-    with meet_tijd("basis_effectieve_datums_en_koersdekking"):
-        transacties_df = _pas_effectieve_datums_toe(transacties_df)
+    with meet_tijd("basis_effectieve_datums"):
+        transacties_df = pas_effectieve_datums_toe(transacties_df)
+    with meet_tijd("basis_koersdekking"):
         _meld_koersdekking(transacties_df, price_data)
 
     with _basis_cache_lock:
@@ -117,14 +118,17 @@ def _gesloten_sinds(transacties_df):
     return {ticker: laatste[ticker] for ticker, stuks in aantal.items() if abs(stuks) <= 1e-6}
 
 
-def _pas_effectieve_datums_toe(transacties_df):
+def pas_effectieve_datums_toe(transacties_df):
     """Aantallen tellen mee vanaf Yahoo's splitdatum. Aanroepen ná get_prices(): de splits staan dan in de koersencache."""
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     if not tickers:
         return transacties_df
-    boekingen = bepaal_split_boekingen(transacties_df)
-    splits_per_ticker = db_get_koers_splits(tickers)
-    transacties_df, resultaat = bepaal_effectieve_datums(transacties_df, boekingen, splits_per_ticker)
+    with meet_tijd("effectieve_datums_boekingen"):
+        boekingen = bepaal_split_boekingen(transacties_df)
+    with meet_tijd("effectieve_datums_splits_lezen"):
+        splits_per_ticker = db_get_koers_splits(tickers)
+    with meet_tijd("effectieve_datums_koppelen"):
+        transacties_df, resultaat = bepaal_effectieve_datums(transacties_df, boekingen, splits_per_ticker)
     meld_split_koppeling(resultaat)
     # Hergebruikt door analyze_transacties_kern(): scheelt een tweede database-read.
     transacties_df.attrs["koers_splits"] = splits_per_ticker
@@ -200,7 +204,7 @@ def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
 
 def ticker_per_isin_beurs_uit_basis(code):
     """{(isin, beurs): ticker} uit de (net gebouwde, dus gecachete) basis van `code`."""
-    _naam, transacties_df, _prijzen = _haal_portfolio_basis(code)
+    _naam, transacties_df, _prijzen = haal_portfolio_basis(code)
     if transacties_df is None:
         return {}
     rijen = transacties_df.dropna(subset=["ticker", "isin"])
@@ -240,7 +244,9 @@ def _meld_koersdekking(transacties_df, price_data):
              f"positie met waarde 0 mee, terwijl de inleg al meetelt.",
              sleutel=f"koers_later:{ticker}")
     try:
-        for b in check_koers_stilstand(transacties_df, price_data):
+        with meet_tijd("koersdekking_stilstand_check"):
+            bevindingen = check_koers_stilstand(transacties_df, price_data)
+        for b in bevindingen:
             meld(CATEGORIE_KOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
         print(f"[diagnostiek] WARN koersstilstand niet gecontroleerd ({e!a})")
@@ -329,13 +335,13 @@ def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None, land_proxies=No
             _meld_etf_onbekend_land(ticker, info, naam)
 
 
-def _wis_portfolio_basis_cache(code):
+def wis_portfolio_basis_cache(code):
     """Aanroepen ná elke wijziging aan de transacties van `code`."""
     with _basis_cache_lock:
         _basis_cache.pop(code, None)
 
 
-def _laad_split_gecorrigeerde_transacties(code):
+def laad_split_gecorrigeerde_transacties(code):
     """Zonder koersen. Split-correctie over alle transacties: corporate-action-rijen hangen aan de ISIN."""
     naam, rows = db_get_portfolio_naam_en_transacties(code)
     if naam is None:
@@ -345,9 +351,9 @@ def _laad_split_gecorrigeerde_transacties(code):
     return compute_split_adjusted_shares(transacties_df)
 
 
-def _laad_transacties_en_resultaat(code):
+def laad_transacties_en_resultaat(code):
     """(transacties_df, resultaat); resultaat None zonder koersdata, (None, None) als de code niet bestaat."""
-    transacties_df = _laad_split_gecorrigeerde_transacties(code)
+    transacties_df = laad_split_gecorrigeerde_transacties(code)
     if transacties_df is None:
         return None, None
 
@@ -357,12 +363,12 @@ def _laad_transacties_en_resultaat(code):
     if price_data.empty:
         return transacties_df, None
 
-    transacties_df = _pas_effectieve_datums_toe(transacties_df)
+    transacties_df = pas_effectieve_datums_toe(transacties_df)
     resultaat = compute_value_over_time(transacties_df, price_data)
     return transacties_df, resultaat
 
 
-def _ticker_zekerheid_groepen(code):
+def ticker_zekerheid_groepen(code):
     """[((isin, beurs), {naam, echte_naam, beurs, isin, transacties})] zonder corporate-action- en wisselrijen, of None.
     Leest alleen de transacties (geen koersen, geen split-correctie). Zoek op echte_naam: product kan een bijnaam zijn."""
     naam_portfolio, rows = db_get_portfolio_naam_en_transacties(code)
@@ -413,7 +419,7 @@ def bepaal_korte_naam_voorstellen(code):
 
 
 def build_portfolio_response(code, verversen=True):
-    naam, transacties_df, price_data = _haal_portfolio_basis(code, verversen=verversen)
+    naam, transacties_df, price_data = haal_portfolio_basis(code, verversen=verversen)
     if naam is None:
         return None
     return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
@@ -433,7 +439,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         start_date = transacties_df["datum"].min()
         with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
             price_data = get_prices(tickers, start_date, verversen=verversen, gesloten_sinds=_gesloten_sinds(transacties_df))
-        transacties_df = _pas_effectieve_datums_toe(transacties_df)
+        transacties_df = pas_effectieve_datums_toe(transacties_df)
         _meld_koersdekking(transacties_df, price_data)
 
     ticker_namen = (
@@ -450,10 +456,14 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     laatste_koersdatum, laatst_opgehaald_op = db_get_laatste_koers_update(tickers)
 
     with meet_tijd("kern_berekeningen"):
-        resultaat = compute_value_over_time(transacties_df, price_data)
-        per_ticker = compute_per_ticker(transacties_df, price_data)
-        _meld_plausibiliteit(transacties_df, price_data, per_ticker)
-        per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
+        with meet_tijd("kern_waarde_over_tijd"):
+            resultaat = compute_value_over_time(transacties_df, price_data)
+        with meet_tijd("kern_per_ticker"):
+            per_ticker = compute_per_ticker(transacties_df, price_data)
+        with meet_tijd("kern_plausibiliteit"):
+            _meld_plausibiliteit(transacties_df, price_data, per_ticker)
+        with meet_tijd("kern_per_ticker_aankoop"):
+            per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
     splits_per_ticker = transacties_df.attrs.get("koers_splits")
     if splits_per_ticker is None:
         splits_per_ticker = db_get_koers_splits(list(per_ticker_aankoop))

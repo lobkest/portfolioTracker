@@ -2,6 +2,7 @@
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 
 import pandas as pd
 import yfinance as yf
@@ -161,22 +162,34 @@ def _download_ruwe_koersen_in_eur(tickers, vanaf, verversen):
     return _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen)
 
 
-def _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen):
+@contextmanager
+def _tel_tijd(tijden, sleutel):
+    start = time.perf_counter()
+    try:
+        yield
+    finally:
+        tijden[sleutel] = tijden.get(sleutel, 0.0) + time.perf_counter() - start
+
+
+def _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen, tijden=None):
     """({ticker: Series met RUWE koersen in EUR}, {ticker: {iso_datum: ratio}}), alleen voor tickers waarvan
     Yahoo koersen én splits teruggaf; een ticker zonder splitlijst wordt niet opgeslagen (de koers zou onbetrouwbaar zijn)."""
+    tijden = tijden if tijden is not None else {}
     if isinstance(close, pd.Series):
         close = close.to_frame(name=tickers[0] if isinstance(tickers, list) else tickers)
 
-    ruw = pd.DataFrame({
-        t: ruwe_koers(close[t], splits[t]) for t in close.columns if t in splits
-    })
-    # Pas ná het terugrekenen: een doorgetrokken koers is de laatste echte koers, nooit een ander moment.
-    ruw = ruw.ffill()
+    with _tel_tijd(tijden, "ruwe_koers"):
+        ruw = pd.DataFrame({
+            t: ruwe_koers(close[t], splits[t]) for t in close.columns if t in splits
+        })
+        # Pas ná het terugrekenen: een doorgetrokken koers is de laatste echte koers, nooit een ander moment.
+        ruw = ruw.ffill()
     gelukt = list(ruw.columns)
     for t in gelukt:
         eerste_ruw = ruw[t].first_valid_index()
         dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, gevraagd vanaf {vanaf}")
-    _converteer_naar_eur(ruw, gelukt, verversen=verversen)
+    with _tel_tijd(tijden, "valuta_en_fx"):
+        _converteer_naar_eur(ruw, gelukt, verversen=verversen)
     return ruw, {t: splits[t] for t in gelukt}
 
 
@@ -256,11 +269,24 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
         with meet_tijd(f"koersen_download_incrementeel ({len(stale)} ticker(s))"):
             stale_rows = []
             stale_splits = {}
+
+            def download_met_duur(t):
+                start = time.perf_counter()
+                resultaat = download_koersen_met_retry(t, stale[t])
+                return resultaat, time.perf_counter() - start
+
             # Alleen de netwerkcall parallel: de verwerking gebruikt de database en meldt aan de Diagnostiek (hoofdthread).
-            with ThreadPoolExecutor(max_workers=KOERS_VERVERS_THREADS) as executor:
-                downloads = list(executor.map(lambda t: download_koersen_met_retry(t, stale[t]), stale))
+            with meet_tijd(f"koersen_incrementeel_downloaden ({len(stale)} ticker(s), {KOERS_VERVERS_THREADS} threads)"):
+                with ThreadPoolExecutor(max_workers=KOERS_VERVERS_THREADS) as executor:
+                    downloads_met_duur = list(executor.map(download_met_duur, stale))
+            downloads = [download for download, _ in downloads_met_duur]
+            duren = [duur for _, duur in downloads_met_duur]
+            print(f"[timing] koersen_incrementeel_per_call: {len(duren)} calls, gemiddeld {sum(duren) / len(duren):.2f}s, "
+                  f"traagste {max(duren):.2f}s, samen {sum(duren):.2f}s")
+
+            tijden = {}
             for (t, vanaf), (close_t, splits_download) in zip(stale.items(), downloads):
-                ruw_t, splits_t = _ruwe_koersen_in_eur(close_t, splits_download, t, vanaf, verversen)
+                ruw_t, splits_t = _ruwe_koersen_in_eur(close_t, splits_download, t, vanaf, verversen, tijden)
                 if t not in ruw_t.columns or ruw_t[t].dropna().empty:
                     dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
                            f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
@@ -270,8 +296,11 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
                 stale_rows.extend(_rijen(ruw_t))
                 stale_splits.update(splits_t)
 
+            print(f"[timing] koersen_incrementeel_verwerken: "
+                  + ", ".join(f"{naam} {seconden:.2f}s" for naam, seconden in tijden.items()))
             if stale_rows:
-                db_save_koersen(stale_rows, stale_splits)
+                with meet_tijd(f"koersen_incrementeel_opslaan ({len(stale_rows)} rij(en))"):
+                    db_save_koersen(stale_rows, stale_splits)
                 stale_df = pd.DataFrame(stale_rows, columns=["ticker", "datum", "koers_eur"])
                 cached = pd.concat([cached, stale_df], ignore_index=True)
                 cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")

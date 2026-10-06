@@ -60,7 +60,7 @@ class TestKorteNamenRoutes(unittest.TestCase):
             "voorstellen": patch.object(m, "bepaal_korte_naam_voorstellen", return_value=voorstellen,
                                         side_effect=voorstel_fout),
             "wijzig": patch.object(m, "db_wijzig_bijnamen"),
-            "wis": patch.object(m, "_wis_portfolio_basis_cache"),
+            "wis": patch.object(m, "wis_portfolio_basis_cache"),
             "bouw": patch.object(m, "build_portfolio_response", return_value={"code": "ABC", "tickers": []}),
         }
 
@@ -119,7 +119,7 @@ class TestResetBijnaam(unittest.TestCase):
         with patch.object(m, "haal_long_names", return_value=long_names), \
              patch.object(m, "db_wijzig_bijnaam") as wijzig, \
              patch.object(m, "db_herstel_echte_naam") as herstel, \
-             patch.object(m, "_wis_portfolio_basis_cache"), \
+             patch.object(m, "wis_portfolio_basis_cache"), \
              patch.object(m, "build_portfolio_response", return_value={"code": "ABC"}):
             res = self.client.post("/api/portfolio/ABC/reset-bijnaam", json={"ticker": "ASML.AS"})
         return res, wijzig, herstel

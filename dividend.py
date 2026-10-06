@@ -178,10 +178,6 @@ def verwerk_rekeningoverzicht_df(df):
     return records
 
 
-def verwerk_rekeningoverzicht(file_object):
-    return verwerk_rekeningoverzicht_df(lees_rekeningoverzicht(file_object))
-
-
 def lees_rekeningoverzicht(file_object):
     file_object.seek(0)
     df = pd.read_excel(file_object)

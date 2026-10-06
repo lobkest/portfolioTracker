@@ -1,4 +1,5 @@
 """Split-correctie en de per-dag- en per-ticker-tijdreeksen (Home, Per aandeel, Per aandeel aankoop)."""
+import numpy as np
 import pandas as pd
 
 from debug_utils import dprint
@@ -265,173 +266,149 @@ def compute_value_over_time(transacties_df, price_data):
     return result
 
 
+def _aantal_verwerkt(datums, dagen):
+    """Per dag het aantal gebeurtenissen (gesorteerd op datum) met datum <= die dag."""
+    gebeurtenissen = pd.DatetimeIndex([pd.Timestamp(d) for d in datums]).to_numpy()
+    return np.searchsorted(gebeurtenissen, dagen.to_numpy(), side="right")
+
+
+def _holdings_per_dag(stukken, stuk_kolom, dagen):
+    """(holdings per dag, aantal verwerkte stukken per dag); holdings loopt op de effectieve datum."""
+    verwerkt = _aantal_verwerkt(stukken[stuk_kolom], dagen)
+    cumulatief = np.concatenate(([0.0], np.cumsum([float(a) for a in stukken["aantal"].tolist()])))
+    return cumulatief[verwerkt], verwerkt
+
+
+def _activiteit_per_dag(*verwerkt_per_soort):
+    """Dagen waarop minstens één gebeurtenis verwerkt is; vangt een koop + volledige verkoop op dezelfde dag."""
+    return np.any([np.diff(v, prepend=0) > 0 for v in verwerkt_per_soort], axis=0)
+
+
+def _crop_en_nog_in_bezit(holdings, activiteit):
+    """(slice, nog_in_bezit): van 1 dag voor de eerste activiteit/holdings tot de laatste, plus 1 dag erna als verkocht.
+    "Nog in bezit" op aantal stuks (zie CLAUDE.md: Data en rekenen)."""
+    aantal_dagen = len(holdings)
+    nog_in_bezit = bool(abs(holdings[-1]) > 1e-6) if aantal_dagen else False
+    posities = np.flatnonzero((np.abs(holdings) > 1e-6) | activiteit)
+    if len(posities) == 0:
+        return slice(0, 0), nog_in_bezit
+    begin = max(0, int(posities[0]) - 1)
+    eind = int(posities[-1])
+    if not nog_in_bezit:
+        eind = min(aantal_dagen - 1, eind + 1)
+    return slice(begin, eind + 1), nog_in_bezit
+
+
 def compute_per_ticker(transacties_df, price_data):
     """'geinvesteerd' is hier de GAK-kostenbasis van de aangehouden stukken."""
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
+    dagen = price_data.index
 
     result = {}
     for ticker in tickers:
         trades = transacties_df[transacties_df["ticker"] == ticker].reset_index(drop=True)
         stukken = _sorteer_chronologisch(trades, datum_kolom=_effectieve_datum_kolom(trades)).reset_index(drop=True)
         stuk_kolom = _effectieve_datum_kolom(stukken)
-        holdings = 0.0
-        aantal_lopend = 0.0       # kostenbasis loopt op de boekdatum, holdings op de effectieve datum
-        kostprijs_lopend = 0.0    # kostenbasis van de NU aangehouden stukken
-        trade_i = 0
-        stuk_i = 0
-        rows = []
-        prev_waarde = None
-        prev_invested = None
+        prijzen = price_data[ticker].to_numpy()
 
-        prijzen_array = price_data[ticker].to_numpy()
-        trade_datums = [pd.Timestamp(d) for d in trades["datum"]]
         trade_aantallen = trades["aantal"].tolist()
         trade_totalen = trades["totaal_eur"].tolist()
         trade_waarden = trades["waarde_eur"].tolist() if "waarde_eur" in trades.columns else [None] * len(trades)
-        stuk_datums = [pd.Timestamp(d) for d in stukken[stuk_kolom]]
-        stuk_aantallen = stukken["aantal"].tolist()
+        aantal_lopend = 0.0       # kostenbasis loopt op de boekdatum, holdings op de effectieve datum
+        kostprijs_lopend = 0.0    # kostenbasis van de NU aangehouden stukken
+        invested_na_trade = [0.0]
+        for i in range(len(trades)):
+            # GAK-methode, gelijk houden met bereken_holdings_en_gesloten() (zie CLAUDE.md: Data en rekenen).
+            delta_aantal = float(trade_aantallen[i])
+            # totaal_eur alleen voor de cashflow-check (splitrijen = 0) en de verkoopkant.
+            delta_cash = -float(trade_totalen[i])  # positief = geld uitgegeven (aankoop)
+            if delta_aantal > 0:
+                waarde_bron = trade_waarden[i] if pd.notna(trade_waarden[i]) else trade_totalen[i]
+                delta_cash_aankoop = -float(waarde_bron)
+                aantal_lopend += delta_aantal
+                kostprijs_lopend += delta_cash_aankoop
+            elif delta_aantal < 0:
+                if delta_cash != 0 and aantal_lopend > 0:
+                    gak_op_dat_moment = kostprijs_lopend / aantal_lopend
+                    verkocht_nu = min(-delta_aantal, aantal_lopend)
+                    kostprijs_lopend -= gak_op_dat_moment * verkocht_nu
+                aantal_lopend += delta_aantal
+            invested_na_trade.append(max(kostprijs_lopend, 0.0))  # epsilon-afronding kan net onder 0 uitkomen
 
-        for i, date in enumerate(price_data.index):
-            activiteit = False
-            while trade_i < len(trade_datums) and trade_datums[trade_i] <= date:
-                # GAK-methode, gelijk houden met bereken_holdings_en_gesloten() (zie CLAUDE.md: Data en rekenen).
-                delta_aantal = float(trade_aantallen[trade_i])
-                # totaal_eur alleen voor de cashflow-check (splitrijen = 0) en de verkoopkant.
-                delta_cash = -float(trade_totalen[trade_i])  # positief = geld uitgegeven (aankoop)
-                if delta_aantal > 0:
-                    waarde_bron = trade_waarden[trade_i] if pd.notna(trade_waarden[trade_i]) else trade_totalen[trade_i]
-                    delta_cash_aankoop = -float(waarde_bron)
-                    aantal_lopend += delta_aantal
-                    kostprijs_lopend += delta_cash_aankoop
-                elif delta_aantal < 0:
-                    if delta_cash != 0 and aantal_lopend > 0:
-                        gak_op_dat_moment = kostprijs_lopend / aantal_lopend
-                        verkocht_nu = min(-delta_aantal, aantal_lopend)
-                        kostprijs_lopend -= gak_op_dat_moment * verkocht_nu
-                    aantal_lopend += delta_aantal
+        trades_verwerkt = _aantal_verwerkt(trades["datum"], dagen)
+        holdings, stuk_verwerkt = _holdings_per_dag(stukken, stuk_kolom, dagen)
+        invested = np.array(invested_na_trade)[trades_verwerkt]
+        with np.errstate(invalid="ignore"):
+            waarde = np.where(np.isnan(prijzen), 0.0, holdings * prijzen)
 
-                trade_i += 1
-                activiteit = True
-            while stuk_i < len(stuk_datums) and stuk_datums[stuk_i] <= date:
-                holdings += float(stuk_aantallen[stuk_i])
-                stuk_i += 1
-                activiteit = True
-            prijs = prijzen_array[i]
-            waarde = holdings * prijs if pd.notna(prijs) else 0.0
-            invested = max(kostprijs_lopend, 0.0)  # epsilon-afronding kan net onder 0 uitkomen
+        _dprint_grote_sprongen(ticker, dagen, prijzen, waarde, invested, holdings)
 
-            # Grote sprong op 1 dag: helpt ISIN-migraties en verkeerde splits opsporen.
-            if prev_waarde is not None and prev_invested not in (None, 0):
-                if abs(invested - prev_invested) > 0.5 * abs(prev_invested) + 50:
-                    dprint(f"[per-ticker:{ticker}] grote sprong in geinvesteerd op {date.date()}: "
-                           f"{prev_invested:.2f} -> {invested:.2f}")
-                if pd.notna(prijs) and prev_waarde > 0 and abs(waarde - prev_waarde) > 0.5 * prev_waarde + 50 \
-                        and holdings != 0:
-                    dprint(f"[per-ticker:{ticker}] grote sprong in waarde op {date.date()}: "
-                           f"{prev_waarde:.2f} -> {waarde:.2f} (holdings={holdings:.4f}, prijs={prijs})")
-
-            rows.append({
-                "datum": date, "waarde": waarde, "geinvesteerd": invested,
-                "holdings": holdings, "activiteit": activiteit,
-            })
-            prev_waarde = waarde
-            prev_invested = invested
-
-        df_t = pd.DataFrame(rows).set_index("datum")
-
-        # "Nog in bezit" op aantal stuks (zie CLAUDE.md: Data en rekenen). "activiteit"
-        # vangt een koop + volledige verkoop op dezelfde dag.
-        nonzero_idx = df_t.index[(df_t["holdings"].abs() > 1e-6) | df_t["activiteit"]]
-        is_still_held = abs(df_t["holdings"].iloc[-1]) > 1e-6 if len(df_t) else False
-        if len(nonzero_idx) > 0:
-            all_dates = list(df_t.index)
-            start_pos = all_dates.index(nonzero_idx[0])
-            end_pos = all_dates.index(nonzero_idx[-1])
-
-            # 1 dag ervoor erbij, zodat de sprong vanaf 0 zichtbaar is
-            start_pos = max(0, start_pos - 1)
-
-            # 1 dag erna erbij, alleen als de positie verkocht is
-            if not is_still_held:
-                end_pos = min(len(all_dates) - 1, end_pos + 1)
-
-            df_t = df_t.iloc[start_pos:end_pos + 1]
-        else:
-            df_t = df_t.iloc[0:0]
-
+        bereik, nog_in_bezit = _crop_en_nog_in_bezit(holdings, _activiteit_per_dag(trades_verwerkt, stuk_verwerkt))
         result[ticker] = {
-            "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
-            "waarde": df_t["waarde"].round(2).tolist(),
-            "geinvesteerd": df_t["geinvesteerd"].round(2).tolist(),
-            "nog_in_bezit": bool(is_still_held),
+            "labels": dagen[bereik].strftime("%Y-%m-%d").tolist(),
+            "waarde": np.round(waarde[bereik], 2).tolist(),
+            "geinvesteerd": np.round(invested[bereik], 2).tolist(),
+            "nog_in_bezit": nog_in_bezit,
         }
     return result
+
+
+def _dprint_grote_sprongen(ticker, dagen, prijzen, waarde, invested, holdings):
+    """Grote sprong op 1 dag: helpt ISIN-migraties en verkeerde splits opsporen."""
+    if len(dagen) < 2:
+        return
+    vorige_invested, vorige_waarde = invested[:-1], waarde[:-1]
+    heeft_inleg = vorige_invested != 0
+    sprong_invested = heeft_inleg & (np.abs(invested[1:] - vorige_invested) > 0.5 * np.abs(vorige_invested) + 50)
+    with np.errstate(invalid="ignore"):
+        sprong_waarde = (
+            heeft_inleg & ~np.isnan(prijzen[1:]) & (vorige_waarde > 0)
+            & (np.abs(waarde[1:] - vorige_waarde) > 0.5 * vorige_waarde + 50) & (holdings[1:] != 0)
+        )
+    for i in np.flatnonzero(sprong_invested | sprong_waarde) + 1:
+        datum = dagen[i].date()
+        if sprong_invested[i - 1]:
+            dprint(f"[per-ticker:{ticker}] grote sprong in geinvesteerd op {datum}: "
+                   f"{invested[i - 1]:.2f} -> {invested[i]:.2f}")
+        if sprong_waarde[i - 1]:
+            dprint(f"[per-ticker:{ticker}] grote sprong in waarde op {datum}: "
+                   f"{waarde[i - 1]:.2f} -> {waarde[i]:.2f} (holdings={holdings[i]:.4f}, prijs={prijzen[i]})")
 
 
 def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
     """Kale koers, aantal aangehouden en aparte aankoop-/verkoopdatums per ticker; zelfde crop als compute_per_ticker()."""
     transacties_df = _sorteer_chronologisch(transacties_df.dropna(subset=["ticker"])).reset_index(drop=True)
     tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
+    dagen = price_data.index
 
     result = {}
     for ticker in tickers:
         trades = transacties_df[transacties_df["ticker"] == ticker].reset_index(drop=True)
         stukken = _sorteer_chronologisch(trades, datum_kolom=_effectieve_datum_kolom(trades)).reset_index(drop=True)
         stuk_kolom = _effectieve_datum_kolom(stukken)
-        holdings = 0.0
-        stuk_i = 0
-        rows = []
+        prijzen = price_data[ticker].to_numpy()
 
-        prijzen_array = price_data[ticker].to_numpy()
-        stuk_datums = [pd.Timestamp(d) for d in stukken[stuk_kolom]]
-        stuk_aantallen = stukken["aantal"].tolist()
-
-        for i, date in enumerate(price_data.index):
-            activiteit = False
-            while stuk_i < len(stuk_datums) and stuk_datums[stuk_i] <= date:
-                holdings += float(stuk_aantallen[stuk_i])
-                stuk_i += 1
-                activiteit = True
-            prijs = prijzen_array[i]
-            rows.append({
-                "datum": date,
-                "koers": float(prijs) if pd.notna(prijs) else None,
-                "holdings": holdings,
-                "activiteit": activiteit,
-            })
-
-        df_t = pd.DataFrame(rows).set_index("datum")
-
-        # Zelfde crop-logica als compute_per_ticker(); samen wijzigen.
-        nonzero_idx = df_t.index[(df_t["holdings"].abs() > 1e-6) | df_t["activiteit"]]
-        is_still_held = abs(df_t["holdings"].iloc[-1]) > 1e-6 if len(df_t) else False
-        if len(nonzero_idx) > 0:
-            all_dates = list(df_t.index)
-            start_pos = max(0, all_dates.index(nonzero_idx[0]) - 1)
-            end_pos = all_dates.index(nonzero_idx[-1])
-            if not is_still_held:
-                end_pos = min(len(all_dates) - 1, end_pos + 1)
-            df_t = df_t.iloc[start_pos:end_pos + 1]
-        else:
-            df_t = df_t.iloc[0:0]
+        holdings, stuk_verwerkt = _holdings_per_dag(stukken, stuk_kolom, dagen)
+        bereik, nog_in_bezit = _crop_en_nog_in_bezit(holdings, _activiteit_per_dag(stuk_verwerkt))
+        dagen_t = dagen[bereik]
 
         # Een omboeking bij een ISIN-wissel is geen aan- of verkoop.
         echte_trades = trades[~trades["is_wisselrij"].astype(bool)] if "is_wisselrij" in trades.columns else trades
         aankopen = echte_trades[echte_trades["aantal"] > 0]
         verkopen = echte_trades[echte_trades["aantal"] < 0]
-        if len(df_t) > 0:
+        if len(dagen_t) > 0:
             aankoop_datums_dt = pd.to_datetime(aankopen["datum"])
-            aankopen = aankopen[(aankoop_datums_dt >= df_t.index[0]) & (aankoop_datums_dt <= df_t.index[-1])]
+            aankopen = aankopen[(aankoop_datums_dt >= dagen_t[0]) & (aankoop_datums_dt <= dagen_t[-1])]
             verkoop_datums_dt = pd.to_datetime(verkopen["datum"])
-            verkopen = verkopen[(verkoop_datums_dt >= df_t.index[0]) & (verkoop_datums_dt <= df_t.index[-1])]
+            verkopen = verkopen[(verkoop_datums_dt >= dagen_t[0]) & (verkoop_datums_dt <= dagen_t[-1])]
 
         result[ticker] = {
-            "labels": [d.strftime("%Y-%m-%d") for d in df_t.index],
-            # pd.notna, niet "is not None": None wordt NaN in een float-kolom (breekt JSON).
-            "koers": [round(k, 4) if pd.notna(k) else None for k in df_t["koers"]],
-            "holdings": df_t["holdings"].round(6).tolist(),
-            "nog_in_bezit": bool(is_still_held),
+            "labels": dagen_t.strftime("%Y-%m-%d").tolist(),
+            # NaN breekt JSON: None.
+            "koers": [None if np.isnan(k) else round(float(k), 4) for k in prijzen[bereik]],
+            "holdings": np.round(holdings[bereik], 6).tolist(),
+            "nog_in_bezit": nog_in_bezit,
             "aankoop_datums": sorted(
                 d.strftime("%Y-%m-%d")
                 for d in pd.to_datetime(aankopen["datum"]).dt.normalize().unique()

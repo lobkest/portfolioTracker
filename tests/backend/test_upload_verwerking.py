@@ -10,8 +10,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from upload_verwerking import (
-    VERWACHTE_KOLOMMEN, OngeldigExcelBestand, _lees_transacties_excel, _adjust_transaction_exchange_rates,
-    _create_synthetic_order_ids, _kolom_of_naamloze_buurkolom,
+    VERWACHTE_KOLOMMEN, OngeldigExcelBestand, lees_transacties_excel, voeg_koers_eur_toe,
+    vul_synthetische_order_ids_aan, _kolom_of_naamloze_buurkolom,
 )
 
 BESTAND_Transactions = os.path.join(
@@ -34,7 +34,7 @@ def toon_df_bij_falen(df):
 class Test_Upload_verwerking(unittest.TestCase):
     def test_leest_echt_degiro_bestand_in(self):
         with open(BESTAND_Transactions, "rb") as f:
-            df = _lees_transacties_excel(f)
+            df = lees_transacties_excel(f)
 
         with toon_df_bij_falen(df):
             self.assertIn("Koers", df.columns)
@@ -55,7 +55,7 @@ class Test_Upload_verwerking(unittest.TestCase):
 
     def test_leest_order_ids_mee_in_df(self):
         with open(BESTAND_Transactions, "rb") as f:
-            df = _lees_transacties_excel(f)
+            df = lees_transacties_excel(f)
 
         with toon_df_bij_falen(df):
             self.assertIn("Order ID", df.columns)
@@ -65,12 +65,12 @@ class Test_Upload_verwerking(unittest.TestCase):
 
     def test_create_synthetic_order_ids_vult_synthetische_aan_en_is_uniek(self):
         with open(BESTAND_Transactions, "rb") as f:
-            df = _lees_transacties_excel(f)
+            df = lees_transacties_excel(f)
         echte_ids = df["Order ID"].dropna().tolist()
 
-        df = _create_synthetic_order_ids(df)
+        df = vul_synthetische_order_ids_aan(df)
 
-        print("Order IDs na _create_synthetic_order_ids:")
+        print("Order IDs na vul_synthetische_order_ids_aan:")
         print(df["Order ID"].tolist())
 
         with toon_df_bij_falen(df):
@@ -81,7 +81,7 @@ class Test_Upload_verwerking(unittest.TestCase):
 
     def test_leest_echt_degiro_bestand_in_warning(self):
         with open(BESTAND_Transactions, "rb") as f:
-            df = _lees_transacties_excel(f)
+            df = lees_transacties_excel(f)
 
         df = df.drop(columns=["Aantal"])
         buffer = io.BytesIO()
@@ -90,14 +90,14 @@ class Test_Upload_verwerking(unittest.TestCase):
 
         with toon_df_bij_falen(df):
             with self.assertRaises(OngeldigExcelBestand) as ctx:
-                _lees_transacties_excel(buffer)
+                lees_transacties_excel(buffer)
             self.assertIn("Ongeldig Excel-bestand", str(ctx.exception))
             self.assertIn("Aantal", str(ctx.exception))
 
     def test_normaliseer_transactie_kolommen(self):
         with open(BESTAND_Transactions, "rb") as f:
-            df = _lees_transacties_excel(f)
-            df = _adjust_transaction_exchange_rates(df)
+            df = lees_transacties_excel(f)
+            df = voeg_koers_eur_toe(df)
 
         with toon_df_bij_falen(df):
             self.assertIn("_koers_eur", df.columns)

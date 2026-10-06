@@ -3,9 +3,8 @@ import hashlib
 
 import pandas as pd
 import psycopg2
-from flask import request
 
-from debug_utils import dprint, meet_tijd
+from debug_utils import meet_tijd
 from diagnostiek import (
     meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND,
     GOED, INFO, LET_OP, FOUT,
@@ -22,7 +21,7 @@ from db import (
     db_get_product_per_ticker,
 )
 from ticker_classificatie import haal_long_names
-from dividend import verwerk_rekeningoverzicht, verwerk_rekeningoverzicht_df
+from dividend import verwerk_rekeningoverzicht_df
 
 VERWACHTE_KOLOMMEN = [
     "Datum", "Tijd", "Product", "ISIN", "Beurs", "Uitvoeringsplaats", "Aantal", "Koers",
@@ -58,7 +57,7 @@ def _normaliseer_tijd(waarde):
         return waarde.strftime("%H:%M:%S")
     return str(waarde)
 
-def _lees_transacties_excel(bestand1):
+def lees_transacties_excel(bestand1):
     bestand1.seek(0)
     df = pd.read_excel(bestand1)
     df.columns = df.columns.str.strip()
@@ -87,7 +86,7 @@ def _kolom_of_naamloze_buurkolom(df, kolomnaam):
     return df.iloc[:, positie]
 
 
-def _adjust_transaction_exchange_rates(df):
+def voeg_koers_eur_toe(df):
     """Voegt _koers_eur (EUR per stuk) toe."""
     wisselkoers = pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce")
     heeft_wisselkoers = wisselkoers.notna() & (wisselkoers != 0)
@@ -130,7 +129,7 @@ def _bouw_posities(df):
     ]
 
 
-def _ticker_resolutie_niet_opslaan_pad(df):
+def ticker_resolutie_niet_opslaan(df):
     """Lichte ticker-check per (ISIN, Beurs). Geeft (ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)."""
     posities_voor_check = _bouw_posities(df)
 
@@ -154,7 +153,7 @@ def _ticker_resolutie_niet_opslaan_pad(df):
     return ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw
 
 
-def _bepaal_product_per_ticker(df, ticker_by_isin_beurs, bestaand=None):
+def bepaal_product_per_ticker(df, ticker_by_isin_beurs, bestaand=None):
     """{ticker: product}: bestaande tickers houden hun product, nieuwe krijgen Yahoo's longName (anders de DeGiro-naam)."""
     bestaand = bestaand or {}
     echte_naam_per_ticker = {}
@@ -172,7 +171,7 @@ def _bepaal_product_per_ticker(df, ticker_by_isin_beurs, bestaand=None):
     return product_per_ticker
 
 
-def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker=None):
+def bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker=None):
     """Zelfde kolommen als TRANSACTIE_KOLOMMEN in db.py; samen wijzigen."""
     product_per_ticker = product_per_ticker or {}
     tickers = [ticker_by_isin_beurs.get((isin_val, beurs_val))
@@ -194,7 +193,7 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_tick
     })
 
 
-def _create_synthetic_order_ids(df):
+def vul_synthetische_order_ids_aan(df):
     """Vult ontbrekende Order ID's aan met synthetische ID's."""
     def basis_hash(row):
         basis = f"{row['Datum']}|{row['Tijd']}|{row['Product']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
@@ -225,28 +224,28 @@ def _meld_order_ids(order_ids):
              sleutel=DIAGNOSTIEK_SLEUTEL_ORDER_IDS)
 
 
-def _vind_of_maak_portfolio_code(cur, df, naam):
-    """Zoekt een bestaande portfolio met dezelfde Order ID's, of maakt een nieuwe aan."""
-    new_order_ids = set(df["Order ID"]) 
-    match_code, missing_ids = find_matching_code(cur, new_order_ids)
+def vind_of_maak_portfolio(cur, df, naam):
+    """(code, bestaand, rows_to_insert): een bestaande portfolio met dezelfde Order ID's, anders een nieuwe."""
+    match_code, missing_ids = find_matching_code(cur, set(df["Order ID"]))
+    bestaand = match_code is not None
 
-    if match_code:
+    if bestaand:
         code = match_code
         if naam:
             db_zet_portfolio_naam(cur, code, naam)
-        rows_to_insert = df[df["Order ID"].isin(missing_ids)] if missing_ids else df.iloc[0:0]
+        rows_to_insert = df[df["Order ID"].isin(missing_ids)]
     else:
         code = generate_code(cur)
         db_maak_portfolio(cur, code, naam or None)
         rows_to_insert = df
 
-    _meld_portfolio_opslaan(match_code, rows_to_insert)
-    return code, match_code, rows_to_insert
+    meld_portfolio_opslaan(bestaand, rows_to_insert)
+    return code, bestaand, rows_to_insert
 
 
-def _meld_portfolio_opslaan(match_code, rows_to_insert):
+def meld_portfolio_opslaan(bestaand, rows_to_insert):
     _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
-    if not match_code:
+    if not bestaand:
         tekst = f"Nieuwe portfolio aangemaakt met {len(rows_to_insert)} transacties."
     elif len(rows_to_insert):
         tekst = f"Bestaande portfolio aangevuld: {len(rows_to_insert)} nieuwe transacties."
@@ -290,9 +289,9 @@ def _probeer_andere_productnamen(groep, transacties, bekende_ticker):
     return detail
 
 
-def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers):
+def _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers):
     """Lichte check per (ISIN, Beurs); bekende tickers worden hergebruikt, tenzij het vinkje 'opnieuw bepalen' aan staat."""
-    groepen = list(rows_to_insert.groupby(["ISIN", "Beurs"]))
+    groepen = dict(list(rows_to_insert.groupby(["ISIN", "Beurs"])))
     posities = _bouw_posities(rows_to_insert)
 
     bekende_tickers = {}
@@ -302,18 +301,31 @@ def _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tick
     resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
 
     ticker_by_isin_beurs = {}
-    for (key, groep), (_naam, _isin, _beurs, transacties), detail in zip(groepen, posities, resultaten):
+    for (_naam, isin, beurs, transacties), detail in zip(posities, resultaten):
+        key = (isin, beurs)
         if not detail["ticker"]:
-            detail = _probeer_andere_productnamen(groep, transacties, bekende_tickers.get(key))
+            detail = _probeer_andere_productnamen(groepen[key], transacties, bekende_tickers.get(key))
         ticker_by_isin_beurs[key] = detail["ticker"]
 
     return ticker_by_isin_beurs
 
 
-def _product_per_ticker_opslaan_pad(cur, code, rows_to_insert, ticker_by_isin_beurs):
-    return _bepaal_product_per_ticker(
+def _product_per_ticker_opslaan(cur, code, rows_to_insert, ticker_by_isin_beurs):
+    return bepaal_product_per_ticker(
         rows_to_insert, ticker_by_isin_beurs, bestaand=db_get_product_per_ticker(cur, code),
     )
+
+
+def voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers):
+    """Ticker en product per nieuwe rij bepalen en invoegen, in de transactie van de aanroeper."""
+    if rows_to_insert.empty:
+        return
+    with meet_tijd("ticker_resolutie"):
+        ticker_by_isin_beurs = _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers)
+    with meet_tijd("long_names_ophalen"):
+        product_per_ticker = _product_per_ticker_opslaan(cur, code, rows_to_insert, ticker_by_isin_beurs)
+    with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
+        _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker)
 
 
 def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker=None):
@@ -372,11 +384,18 @@ def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
              sleutel=DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD)
 
 
-def _verwerk_dividend_bestand(code, rekening_df):
+def sla_dividend_bestand_op(code, rekening_df):
     with meet_tijd("dividend_bestand_verwerken"):
         dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
         db_save_dividenden(code, dividend_records)
     _meld_dividend_records(dividend_records)
+
+
+def verwerk_dividend_zonder_opslaan(rekening_df):
+    with meet_tijd("dividend_bestand_verwerken"):
+        dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
+    _meld_dividend_records(dividend_records)
+    return dividend_records
 
 
 def _meld_dividend_records(records):
@@ -404,14 +423,3 @@ def _meld_dividend_records(records):
     if rest > 0:
         meld(CATEGORIE_DIVIDEND, LET_OP, f"Nog {rest} uitkeringen zonder valutaconversie.",
              sleutel=DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG)
-
-
-def _verwerk_dividend_bestand_zonder_opslaan():
-    """Records van bestand 2 zonder database; None als het ontbreekt."""
-    bestand2 = request.files.get("bestand2")
-    if not bestand2 or bestand2.filename == "":
-        return None
-    with meet_tijd("dividend_bestand_verwerken"):
-        dividend_records = verwerk_rekeningoverzicht(bestand2)
-    _meld_dividend_records(dividend_records)
-    return dividend_records

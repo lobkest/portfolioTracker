@@ -11,7 +11,7 @@ helemaal niet voordat er per (ISIN, Beurs) gegroepeerd werd. Twee losse
 fixes, één test per fix:
 
 1. find_ticker_detailed() hergebruikt nu _is_corporate_action_row().
-2. _ticker_zekerheid_groepen() (achter /ticker-zekerheid/lijst en
+2. ticker_zekerheid_groepen() (achter /ticker-zekerheid/lijst en
    /ticker-zekerheid/positie) filtert nu voordat er gegroepeerd wordt.
 
 Draait geheel offline voor de find_ticker_detailed-tests (geen yahooquery/

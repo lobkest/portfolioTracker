@@ -4,7 +4,7 @@ Diagnostiek) en de Wisselkoersen-meldingen die erop aansluiten:
 - Excel-bron in _normaliseer_transactie_kolommen() (upload_verwerking.py)
 - Yahoo-FX-reeks in _fx_prijzen_serie() (prijzen.py)
 - meldingen bewaren/opnieuw meegeven bij een cache-hit in
-  _haal_portfolio_basis() (portfolio_orchestratie.py)
+  haal_portfolio_basis() (portfolio_orchestratie.py)
 
 De valuta-meldingen van _haal_valuta_op()/_converteer_naar_eur() staan in
 tests/test_valuta_waarschuwing.py.
@@ -151,7 +151,7 @@ class TestExcelWisselkoersMelding(unittest.TestCase):
 
     def _normaliseer(self, df):
         with self.app.test_request_context(), redirect_stdout(io.StringIO()):
-            uit = self.uv._adjust_transaction_exchange_rates(df)
+            uit = self.uv.voeg_koers_eur_toe(df)
             return uit, haal_meldingen()
 
     def test_kolom_met_waarden_geeft_goed_en_zelfde_koers_eur(self):
@@ -218,7 +218,7 @@ class TestFxReeksMelding(unittest.TestCase):
             self.assertEqual(self.prijzen._fx_bron("GBPEUR=X"), self.prijzen.FX_BRON_VERVERST)
 
 
-# Kolomvolgorde zoals de SELECT in _haal_portfolio_basis().
+# Kolomvolgorde zoals de SELECT in haal_portfolio_basis().
 TRANSACTIE_RIJ = ("2024-01-01", "TEST", "US0000000001", "NDQ", "TEST", 1.0, 100.0, -100.0, "TEST", None, None, None, None)
 TEST_CODE = "ZZTESTDIAGNOSTIEK"
 
@@ -233,17 +233,17 @@ def _fake_conn():
 
 
 class TestBasisCacheMeldingen(unittest.TestCase):
-    """Bij een cache-hit slaat _haal_portfolio_basis() get_prices() over;
+    """Bij een cache-hit slaat haal_portfolio_basis() get_prices() over;
     de meldingen van de miss moeten toch opnieuw meekomen."""
 
     def setUp(self):
         import portfolio_orchestratie
         self.po = portfolio_orchestratie
         self.app = Flask(__name__)
-        self.po._wis_portfolio_basis_cache(TEST_CODE)
+        self.po.wis_portfolio_basis_cache(TEST_CODE)
 
     def tearDown(self):
-        self.po._wis_portfolio_basis_cache(TEST_CODE)
+        self.po.wis_portfolio_basis_cache(TEST_CODE)
 
     @patch("portfolio_orchestratie._meld_datakwaliteit")
     @patch("portfolio_orchestratie.get_prices")
@@ -259,11 +259,11 @@ class TestBasisCacheMeldingen(unittest.TestCase):
 
         with self.app.test_request_context(), redirect_stdout(io.StringIO()):
             meld(CATEGORIE_WISSELKOERSEN, GOED, "van voor de basis", sleutel="excel")
-            self.po._haal_portfolio_basis(TEST_CODE)
+            self.po.haal_portfolio_basis(TEST_CODE)
             eerste = haal_meldingen()
 
         with self.app.test_request_context(), redirect_stdout(io.StringIO()):
-            self.po._haal_portfolio_basis(TEST_CODE)
+            self.po.haal_portfolio_basis(TEST_CODE)
             tweede = haal_meldingen()
 
         self.assertEqual(mock_get_prices.call_count, 1)  # tweede keer was een hit

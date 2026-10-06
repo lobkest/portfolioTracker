@@ -74,24 +74,24 @@ TICKERS = {("IE1", "EAM"): "CSPX.AS", ("NL1", "EAM"): "ASML.AS", ("KY1", "DEG"):
 class TestBepaalProductPerTicker(unittest.TestCase):
     def test_nieuwe_ticker_krijgt_long_name(self):
         with patch.object(uv, "haal_long_names", return_value={"CSPX.AS": "iShares Core S&P 500 UCITS ETF", "ASML.AS": "ASML Holding N.V."}) as mock:
-            uit = uv._bepaal_product_per_ticker(_df(), TICKERS)
+            uit = uv.bepaal_product_per_ticker(_df(), TICKERS)
         self.assertEqual(uit, {"CSPX.AS": "iShares Core S&P 500 UCITS ETF", "ASML.AS": "ASML Holding N.V."})
         mock.assert_called_once_with(["CSPX.AS", "ASML.AS"])
 
     def test_bestaande_ticker_houdt_zijn_product_en_wordt_niet_opgehaald(self):
         with patch.object(uv, "haal_long_names", return_value={"ASML.AS": "ASML Holding N.V."}) as mock:
-            uit = uv._bepaal_product_per_ticker(_df(), TICKERS, bestaand={"CSPX.AS": "Mijn S&P"})
+            uit = uv.bepaal_product_per_ticker(_df(), TICKERS, bestaand={"CSPX.AS": "Mijn S&P"})
         self.assertEqual(uit, {"CSPX.AS": "Mijn S&P", "ASML.AS": "ASML Holding N.V."})
         mock.assert_called_once_with(["ASML.AS"])
 
     def test_yahoo_fout_valt_terug_op_echte_naam(self):
         with patch.object(uv, "haal_long_names", return_value={"CSPX.AS": None, "ASML.AS": None}):
-            uit = uv._bepaal_product_per_ticker(_df(), TICKERS)
+            uit = uv.bepaal_product_per_ticker(_df(), TICKERS)
         self.assertEqual(uit, {"CSPX.AS": "ISHARES CORE S&P 500", "ASML.AS": "ASML HOLDING NV"})
 
     def test_rij_zonder_ticker_komt_niet_in_de_mapping(self):
         with patch.object(uv, "haal_long_names", return_value={}):
-            uit = uv._bepaal_product_per_ticker(_df(), TICKERS)
+            uit = uv.bepaal_product_per_ticker(_df(), TICKERS)
         self.assertNotIn(None, uit)
 
     def test_niet_opslaan_df_gebruikt_mapping_en_laat_deg_rij_staan(self):
@@ -100,7 +100,7 @@ class TestBepaalProductPerTicker(unittest.TestCase):
             uv.KOSTEN_KOLOM: -1.0, uv.WAARDE_KOLOM: -1.0, uv.WISSELKOERS_KOLOM: float("nan"),
         })
         mapping = {"CSPX.AS": "S&P 500", "ASML.AS": "ASML"}
-        uit = uv._bouw_transacties_df_niet_opslaan(df, TICKERS, mapping)
+        uit = uv.bouw_transacties_df_niet_opslaan(df, TICKERS, mapping)
         self.assertEqual(uit["product"].tolist(), ["S&P 500", "S&P 500", "ASML", "BYD CO LTD - NON TRADEABLE"])
         self.assertEqual(uit["echte_naam"].tolist(), df["Product"].tolist())
 

@@ -78,7 +78,7 @@ class _Omgeving:
             p.stop()
 
     def waarde(self):
-        _naam, transacties_df, prijs_data = portfolio_orchestratie._haal_portfolio_basis("ZZTESTSPLIT", forceer_vers=True)
+        _naam, transacties_df, prijs_data = portfolio_orchestratie.haal_portfolio_basis("ZZTESTSPLIT", forceer_vers=True)
         portfolio_orchestratie._basis_cache.pop("ZZTESTSPLIT", None)
         return compute_value_over_time(transacties_df, prijs_data), transacties_df, prijs_data
 

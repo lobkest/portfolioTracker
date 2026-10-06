@@ -3,8 +3,8 @@ Unit tests voor de dividend-verwerking (verwerk_rekeningoverzicht_df).
 
 Draait geheel offline: geen Excel-bestand, geen database — de tests bouwen
 een kleine, handgemaakte DataFrame die exact de kolomvorm nabootst die
-verwerk_rekeningoverzicht() na het inlezen/hernoemen van een echt DEGIRO-
-rekeningoverzicht doorgeeft (zie verwerk_rekeningoverzicht(): Mutatie -> valuta_mutatie,
+lees_rekeningoverzicht() na het inlezen/hernoemen van een echt DEGIRO-
+rekeningoverzicht doorgeeft (zie lees_rekeningoverzicht(): Mutatie -> valuta_mutatie,
 Unnamed: 8 -> mutatie).
 """
 import sys

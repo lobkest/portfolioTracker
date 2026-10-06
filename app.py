@@ -1,12 +1,13 @@
 import os
+import traceback
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 import pandas as pd
 from db import (
-    db_connect, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
+    db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
-    db_wis_etf_proxies_voor_portfolio, db_get_order_id_sets, db_reset_verbinding_teller, db_log_verbinding_samenvatting,
-    db_deel_verbinding,
+    db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
+    db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding,
 )
 from ticker_classificatie import haal_long_names
 from prijzen import get_prices
@@ -29,16 +30,15 @@ from portfolio_admin import (
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
 )
 from upload_verwerking import (
-    _lees_transacties_excel, _adjust_transaction_exchange_rates, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
-    _bouw_transacties_df_niet_opslaan, _create_synthetic_order_ids, _vind_of_maak_portfolio_code,
-    _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties, _bepaal_product_per_ticker,
-    _product_per_ticker_opslaan_pad, _verwerk_dividend_bestand,_verwerk_dividend_bestand_zonder_opslaan,
-    _meld_portfolio_opslaan,
+    lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
+    bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
+    voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
+    meld_portfolio_opslaan,
 )
 from portfolio_orchestratie import (
-    _haal_portfolio_basis, _wis_portfolio_basis_cache, _laad_transacties_en_resultaat,
-    _laad_split_gecorrigeerde_transacties, _pas_effectieve_datums_toe, continue_koersreeks,
-    _ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
+    haal_portfolio_basis, wis_portfolio_basis_cache, laad_transacties_en_resultaat,
+    laad_split_gecorrigeerde_transacties, pas_effectieve_datums_toe, continue_koersreeks,
+    ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
@@ -97,7 +97,6 @@ def upload():
     try:
         return _upload_impl()
     except Exception as e:
-        import traceback
         print(f"[upload] ONVERWACHTE FOUT: {e}")
         traceback.print_exc()
         return jsonify({
@@ -106,8 +105,48 @@ def upload():
         }), 500
 
 
-def _dividend_niet_opslaan(transacties_df):
-    dividend_records = _verwerk_dividend_bestand_zonder_opslaan()
+def _upload_impl():
+    reset_yahoo_call_teller()
+    bestand1 = _gekozen_bestand("bestand1")
+    if not bestand1:
+        return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
+
+    try:
+        with meet_tijd("excel_inlezen_pandas"):
+            df = voeg_koers_eur_toe(lees_transacties_excel(bestand1))
+        bestand2 = _gekozen_bestand("bestand2")
+        rekening_df = lees_rekeningoverzicht(bestand2) if bestand2 else None
+    except OngeldigExcelBestand as e:
+        return jsonify({"error": str(e)}), 400
+
+    naam = request.form.get("naam", "").strip()
+    if request.form.get("niet_opslaan") == "on":
+        result = _analyseer_zonder_opslaan(df, rekening_df, naam)
+    else:
+        herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
+        result = _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers)
+    meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
+    response = jsonify(voeg_diagnostiek_toe(result))
+    log_yahoo_call_samenvatting()
+    return response
+
+
+def _analyseer_zonder_opslaan(df, rekening_df, naam):
+    # Alleen de lichte ticker-check: de volledige liep hier over de gunicorn-timeout (zie CLAUDE.md: Yahoo en tickers).
+    ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = ticker_resolutie_niet_opslaan(df)
+    product_per_ticker = bepaal_product_per_ticker(df, ticker_by_isin_beurs)
+    transacties_df = bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
+    result = analyze_transacties(transacties_df, code=None, naam=naam or None)
+    meld_valuta_consistentie(df, ticker_by_isin_beurs)
+    result["ticker_zekerheid"] = ticker_zekerheid
+    result["ticker_posities_ruw"] = ticker_posities_ruw
+    result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
+    result["dividend"] = _dividend_niet_opslaan(transacties_df, rekening_df)
+    return result
+
+
+def _dividend_niet_opslaan(transacties_df, rekening_df):
+    dividend_records = verwerk_dividend_zonder_opslaan(rekening_df) if rekening_df is not None else None
     transactie_rows = [
         (r.isin, r.ticker, r.product)
         for r in transacties_df.itertuples(index=False) if r.ticker is not None
@@ -118,95 +157,32 @@ def _dividend_niet_opslaan(transacties_df):
     return {**samenvatting, "beschikbaar": True}
 
 
-def _upload_impl():
-    reset_yahoo_call_teller()
-    naam = request.form.get("naam", "").strip()
-    bestand1 = request.files.get("bestand1")
-
-    if not bestand1 or bestand1.filename == "":
-        return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
-
-    with meet_tijd("excel_inlezen_pandas"):
-        try:
-            df = _lees_transacties_excel(bestand1)
-        except OngeldigExcelBestand as e:
-            return jsonify({"error": str(e)}), 400 # als excel niet juiste kolommen heeft, wordt dit opgepakt als OngeldigExcelBestand
-        df = _adjust_transaction_exchange_rates(df)
-
-    rekening_df = None
-    bestand2 = _gekozen_bestand("bestand2")
-    if bestand2:
-        try:
-            rekening_df = lees_rekeningoverzicht(bestand2)
-        except OngeldigExcelBestand as e:
-            return jsonify({"error": str(e)}), 400
-
-    niet_opslaan = request.form.get("niet_opslaan") == "on"
-    herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
-    
-    if niet_opslaan:
-        # Alleen de lichte ticker-check: de volledige liep hier over de
-        # gunicorn-timeout (zie CLAUDE.md: Yahoo en tickers).
-        ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = _ticker_resolutie_niet_opslaan_pad(df)
-        product_per_ticker = _bepaal_product_per_ticker(df, ticker_by_isin_beurs)
-        transacties_df = _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
-        result = analyze_transacties(transacties_df, code=None, naam=naam or None)
-        meld_valuta_consistentie(df, ticker_by_isin_beurs)
-        result["ticker_zekerheid"] = ticker_zekerheid
-        result["ticker_posities_ruw"] = ticker_posities_ruw
-        result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
-        result["dividend"] = _dividend_niet_opslaan(transacties_df)
-        log_yahoo_call_samenvatting()
-        meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
-        return jsonify(voeg_diagnostiek_toe(result))
-
-    df = _create_synthetic_order_ids(df)
-
-    conn = db_connect()
-    cur = conn.cursor()
-
-    code, match_code, rows_to_insert = _vind_of_maak_portfolio_code(cur, df, naam)
-    result = _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, herbepaal_alle_tickers, rekening_df)
-    response = jsonify(voeg_diagnostiek_toe(result))
-    log_yahoo_call_samenvatting()
-    
-    return response
-
-
-def _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, herbepaal_alle_tickers, rekening_df=None):
-    """Gedeelde opslaan-stap van /upload en /bijwerken; commit en sluit de connectie. df is None zonder transactiebestand."""
-
-    if match_code and herbepaal_alle_tickers:
-        with meet_tijd("db_backfill_verouderde_tickers"):
-            backfill_verouderde_tickers(code)
-    if herbepaal_alle_tickers:
-        db_wis_etf_proxies_voor_portfolio(code)
-
-    if not rows_to_insert.empty:
-        with meet_tijd("ticker_resolutie"):
-            ticker_by_isin_beurs = _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)
-
-        with meet_tijd("long_names_ophalen"):
-            product_per_ticker = _product_per_ticker_opslaan_pad(cur, code, rows_to_insert, ticker_by_isin_beurs)
-
-        with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
-            _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker)
-
-    conn.commit()
-    cur.close()
-    conn.close()
-
+def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
+    df = vul_synthetische_order_ids_aan(df)
+    with db_transactie() as cur:
+        code, bestaand, rows_to_insert = vind_of_maak_portfolio(cur, df, naam)
+        if bestaand and herbepaal_alle_tickers:
+            _herbepaal_tickers(code)
+        voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
     if rekening_df is not None:
-        _verwerk_dividend_bestand(code, rekening_df)
-
-    # Pas ná alle mutaties hierboven wissen.
-    _wis_portfolio_basis_cache(code)
-    result = build_portfolio_response(code)
-    if df is not None:
-        meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
-    meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
-
+        sla_dividend_bestand_op(code, rekening_df)
+    result = _kern_na_opslaan(code)
+    meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
     return result
+
+
+def _herbepaal_tickers(code):
+    """'Ticker-informatie opnieuw bepalen': opgeslagen tickers herzoeken en land-proxy's opnieuw laten zoeken."""
+    with meet_tijd("db_backfill_verouderde_tickers"):
+        backfill_verouderde_tickers(code)
+    db_wis_etf_proxies_voor_portfolio(code)
+
+
+def _kern_na_opslaan(code):
+    """Pas aanroepen ná alle mutaties: wist de basis-cache en bouwt de kern opnieuw op."""
+    wis_portfolio_basis_cache(code)
+    with db_deel_verbinding():
+        return build_portfolio_response(code)
 
 
 def _gekozen_bestand(veld):
@@ -220,7 +196,6 @@ def bijwerken(code):
     try:
         return _bijwerken_impl(code.strip().upper())
     except Exception as e:
-        import traceback
         print(f"[bijwerken] ONVERWACHTE FOUT: {e}")
         traceback.print_exc()
         return jsonify({"error": "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."}), 500
@@ -238,26 +213,20 @@ def _bijwerken_impl(code):
         return jsonify({"error": "Kies minstens één bestand."}), 400
 
     df = None
-    nieuw = set()
     if bestand1:
         try:
-            df = _lees_transacties_excel(bestand1)
+            df = vul_synthetische_order_ids_aan(voeg_koers_eur_toe(lees_transacties_excel(bestand1)))
         except OngeldigExcelBestand as e:
             return jsonify({"error": str(e)}), 400
-        df = _create_synthetic_order_ids(_adjust_transaction_exchange_rates(df))
-        nieuw = set(df["Order ID"])
+    nieuw = set(df["Order ID"]) if df is not None else set()
 
-    conn = db_connect()
-    cur = conn.cursor()
-    order_id_sets = db_get_order_id_sets(cur)
-    cur.close()
-    conn.close()
-    opgeslagen = order_id_sets.pop(code, set())
-    ids_andere_portfolios = set().union(*order_id_sets.values())
+    with db_transactie() as cur:
+        opgeslagen = db_get_order_ids(cur, code)
+        bij_andere_portfolios = db_get_order_ids_bij_andere_portfolios(cur, code, nieuw)
 
     fout, toe_te_voegen = None, set()
     if df is not None:
-        fout, toe_te_voegen = controleer_eigen_transactiebestand(opgeslagen, nieuw, ids_andere_portfolios)
+        fout, toe_te_voegen = controleer_eigen_transactiebestand(opgeslagen, nieuw, bij_andere_portfolios)
     rekening_df = None
     if not fout and bestand2:
         try:
@@ -269,10 +238,16 @@ def _bijwerken_impl(code):
         return jsonify({"error": MELDING_PER_EIGENDOMSFOUT[fout]}), 400
 
     rows_to_insert = df[df["Order ID"].isin(toe_te_voegen)] if df is not None else pd.DataFrame()
-    conn = db_connect()
-    cur = conn.cursor()
-    _meld_portfolio_opslaan(code, rows_to_insert)
-    result = _sla_op_en_bouw_respons(conn, cur, df, code, code, rows_to_insert, False, rekening_df)
+    meld_portfolio_opslaan(True, rows_to_insert)
+    if not rows_to_insert.empty:
+        with db_transactie() as cur:
+            voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers=False)
+    if rekening_df is not None:
+        sla_dividend_bestand_op(code, rekening_df)
+    result = _kern_na_opslaan(code)
+    if df is not None:
+        meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
+    meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
     result["bijwerken"] = {
         "nieuwe_transacties": len(rows_to_insert),
         "dividend_verwerkt": rekening_df is not None,
@@ -288,11 +263,9 @@ def api_portfolio(code):
     reset_yahoo_call_teller()
     db_reset_verbinding_teller()
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
-        with meet_tijd("db_backfill_verouderde_tickers_ophalen"):
-            backfill_verouderde_tickers(code)
-        db_wis_etf_proxies_voor_portfolio(code)
+        _herbepaal_tickers(code)
         # Anders levert de _basis_cache de oude tickers.
-        _wis_portfolio_basis_cache(code)
+        wis_portfolio_basis_cache(code)
     with meet_tijd("ophalen_totaal"), db_deel_verbinding():
         result = build_portfolio_response(code)
     if result is None:
@@ -310,7 +283,7 @@ def portfolio_verrijking(code):
     # meldt alleen het verschil, dus de calls van déze request.
     yahoo_voor = yahoo_teller_stand()
     with db_deel_verbinding():
-        naam, transacties_df, price_data = _haal_portfolio_basis(code)
+        naam, transacties_df, price_data = haal_portfolio_basis(code)
     if naam is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
@@ -346,7 +319,7 @@ def benchmark_vergelijking(code):
     benchmark_naam = request.args.get("benchmark", "")
     eigen_ticker = request.args.get("eigen_ticker", "")
 
-    transacties_df, resultaat = _laad_transacties_en_resultaat(code)
+    transacties_df, resultaat = laad_transacties_en_resultaat(code)
     if transacties_df is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     if resultaat is None:
@@ -380,7 +353,7 @@ def benchmark_vergelijking(code):
 @app.route("/api/portfolio/<code>/rendement-over-tijd")
 def rendement_over_tijd(code):
     code = code.strip().upper()
-    transacties_df, resultaat = _laad_transacties_en_resultaat(code)
+    transacties_df, resultaat = laad_transacties_en_resultaat(code)
     if transacties_df is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     if resultaat is None:
@@ -393,8 +366,8 @@ def rendement_over_tijd(code):
 def ticker_koers_bereik(code):
     """Koersen van 1 ticker buiten de standaard-crop. Query-params: ticker, vanaf, tot (optioneel)."""
     code = code.strip().upper()
-    # Niet _haal_portfolio_basis(): die haalt koersen van alle tickers op.
-    transacties_df = _laad_split_gecorrigeerde_transacties(code)
+    # Niet haal_portfolio_basis(): die haalt koersen van alle tickers op.
+    transacties_df = laad_split_gecorrigeerde_transacties(code)
     if transacties_df is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
@@ -411,7 +384,7 @@ def ticker_koers_bereik(code):
     serie = price_data[ticker].dropna()
     if tot:
         serie = serie[serie.index <= pd.Timestamp(tot)]
-    transacties_df = _pas_effectieve_datums_toe(transacties_df)
+    transacties_df = pas_effectieve_datums_toe(transacties_df)
 
     return jsonify({
         "labels": [d.strftime("%Y-%m-%d") for d in serie.index],
@@ -426,7 +399,7 @@ def ticker_koers_bereik(code):
 def ticker_zekerheid_lijst(code):
     """Alleen de posities, zonder prijscontrole; die volgt per positie via /positie."""
     code = code.strip().upper()
-    groepen = _ticker_zekerheid_groepen(code)
+    groepen = ticker_zekerheid_groepen(code)
     if groepen is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
@@ -444,7 +417,7 @@ def ticker_zekerheid_positie(code):
     isin = request.args.get("isin", "")
     beurs = request.args.get("beurs", "")
 
-    groepen = _ticker_zekerheid_groepen(code)
+    groepen = ticker_zekerheid_groepen(code)
     if groepen is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
@@ -531,7 +504,7 @@ def set_bijnaam(code):
         return jsonify({"error": "Ticker en bijnaam zijn verplicht."}), 400
 
     db_wijzig_bijnaam(code, ticker, bijnaam)
-    _wis_portfolio_basis_cache(code)
+    wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
@@ -545,7 +518,7 @@ def set_bijnamen(code):
     schoon = {t: n.strip() for t, n in namen.items() if isinstance(n, str) and n.strip()}
     if schoon:
         db_wijzig_bijnamen(code, schoon)
-    _wis_portfolio_basis_cache(code)
+    wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
@@ -562,7 +535,7 @@ def reset_bijnaam(code):
         db_wijzig_bijnaam(code, ticker, long_name)
     else:
         db_herstel_echte_naam(code, ticker)
-    _wis_portfolio_basis_cache(code)
+    wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
@@ -595,7 +568,7 @@ def pas_korte_namen_toe(code):
     nieuwe_namen = {v["ticker"]: v["voorstel"] for v in voorstellen if v["voorstel"]}
     if nieuwe_namen:
         db_wijzig_bijnamen(code, nieuwe_namen)
-    _wis_portfolio_basis_cache(code)
+    wis_portfolio_basis_cache(code)
     return jsonify(build_portfolio_response(code, verversen=False))
 
 
@@ -603,7 +576,7 @@ def pas_korte_namen_toe(code):
 def verwijder_portfolio(code):
     code = code.strip().upper()
     db_delete_portfolio(code)
-    _wis_portfolio_basis_cache(code)
+    wis_portfolio_basis_cache(code)
     return jsonify({"success": True})
 
 
@@ -622,8 +595,8 @@ def wijzig_code(code):
     if not success:
         return jsonify({"error": foutmelding}), 400
 
-    _wis_portfolio_basis_cache(code)
-    _wis_portfolio_basis_cache(nieuwe_code)
+    wis_portfolio_basis_cache(code)
+    wis_portfolio_basis_cache(nieuwe_code)
     return jsonify(build_portfolio_response(nieuwe_code, verversen=False))
 
 if __name__ == "__main__":

@@ -359,7 +359,7 @@ class TestEtfHoldingsMeldingen(_MetRequest):
         self.assertIn("etf_land_onbekend:X.AS", _per_sleutel(meldingen))
 
 
-# Kolomvolgorde zoals de SELECT in _haal_portfolio_basis().
+# Kolomvolgorde zoals de SELECT in haal_portfolio_basis().
 TRANSACTIE_RIJ = (pd.Timestamp("2024-01-02").date(), "LAAT", "US0000000009", "NDQ", "LAAT", 1.0, 100.0, -100.0,
                   "LAAT", None, None, None, None)
 TEST_CODE = "ZZTESTDIAGLADEN"
@@ -377,10 +377,10 @@ def _fake_conn():
 class TestCacheHitNieuweMeldingen(_MetRequest):
     def setUp(self):
         super().setUp()
-        po._wis_portfolio_basis_cache(TEST_CODE)
+        po.wis_portfolio_basis_cache(TEST_CODE)
 
     def tearDown(self):
-        po._wis_portfolio_basis_cache(TEST_CODE)
+        po.wis_portfolio_basis_cache(TEST_CODE)
 
     @patch("portfolio_orchestratie._meld_datakwaliteit")
     @patch("portfolio_orchestratie.get_prices")
@@ -394,8 +394,8 @@ class TestCacheHitNieuweMeldingen(_MetRequest):
             index=index,
         )
 
-        _, eerste, _ = self._in_request(po._haal_portfolio_basis, TEST_CODE)
-        _, tweede, _ = self._in_request(po._haal_portfolio_basis, TEST_CODE)
+        _, eerste, _ = self._in_request(po.haal_portfolio_basis, TEST_CODE)
+        _, tweede, _ = self._in_request(po.haal_portfolio_basis, TEST_CODE)
 
         self.assertEqual(mock_get_prices.call_count, 1)
         self.assertIn("koers_later:LAAT", _per_sleutel(eerste))

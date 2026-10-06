@@ -2,6 +2,7 @@
 import pandas as pd
 from pyxirr import xirr
 
+from debug_utils import meet_tijd
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
 
 # Accumulerende UCITS-ETF's in EUR: geen dividend-boekhouding nodig. IAEA.AS heeft pas koersen vanaf 2020-07-29.
@@ -339,7 +340,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
     dividend_per_ticker = dividend_per_ticker or {}
     ticker_namen = ticker_namen or {}
     laatste_prijzen = price_data.iloc[-1] if not price_data.empty else pd.Series(dtype=float)
-    holdings, gesloten_posities = bereken_holdings_en_gesloten(transacties_df)
+    with meet_tijd("statistieken_holdings_en_gesloten"):
+        holdings, gesloten_posities = bereken_holdings_en_gesloten(transacties_df)
 
     posities = []
     for ticker, info in holdings.items():
@@ -424,13 +426,15 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
     if not resultaat.empty:
         eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
 
-    jaren = bereken_jaren_overzicht(resultaat, eerste_datum=eerste_datum)
+    with meet_tijd("statistieken_jaren"):
+        jaren = bereken_jaren_overzicht(resultaat, eerste_datum=eerste_datum)
     geldige_pcts = [j["winst_pct"] for j in jaren if j["winst_pct"] is not None]
     gemiddeld_jaarrendement = round(sum(geldige_pcts) / len(geldige_pcts), 2) if geldige_pcts else None
 
-    cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
-    xirr_fractie = bereken_xirr(cashflows) if cashflows else None
-    twr_fractie = bereken_twr(transacties_df, resultaat)
+    with meet_tijd("statistieken_xirr_en_twr"):
+        cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)
+        xirr_fractie = bereken_xirr(cashflows) if cashflows else None
+        twr_fractie = bereken_twr(transacties_df, resultaat)
 
     aantal_jaren = None
     if not resultaat.empty:

@@ -3,7 +3,7 @@ import random
 import re
 import string
 
-from db import db_get_order_id_sets, db_portfolio_bestaat_met_cursor
+from db import db_get_order_id_sets_met_overlap, db_portfolio_bestaat_met_cursor
 
 CODE_LENGTH = 3
 
@@ -23,7 +23,7 @@ def generate_code(cur, length=CODE_LENGTH):
 def find_matching_code(cur, new_order_ids):
     """Match als de Order ID's van een portfolio en de upload een deelverzameling van elkaar zijn.
     Geeft (code, ontbrekende_order_ids) of (None, None)."""
-    existing = db_get_order_id_sets(cur)
+    existing = db_get_order_id_sets_met_overlap(cur, new_order_ids)
     for code, ids in existing.items():
         if ids <= new_order_ids:
             return code, new_order_ids - ids

@@ -4,6 +4,7 @@ import io
 import os
 import sys
 import unittest
+from contextlib import nullcontext
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -13,7 +14,7 @@ from portfolio_admin import (
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
 )
 from dividend import lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df, MELDING_GEEN_REKENINGOVERZICHT
-from upload_verwerking import OngeldigExcelBestand, _lees_transacties_excel, _adjust_transaction_exchange_rates, _create_synthetic_order_ids
+from upload_verwerking import OngeldigExcelBestand, lees_transacties_excel, voeg_koers_eur_toe, vul_synthetische_order_ids_aan
 
 TEST_FILES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files")
 BESTAND_TRANSACTIES = os.path.join(TEST_FILES, "Transactions_test.xlsx")
@@ -25,8 +26,8 @@ ANDERE_CODE = "tst_andere"
 
 def _transactie_ids():
     with open(BESTAND_TRANSACTIES, "rb") as f:
-        df = _lees_transacties_excel(f)
-    return set(_create_synthetic_order_ids(_adjust_transaction_exchange_rates(df))["Order ID"])
+        df = lees_transacties_excel(f)
+    return set(vul_synthetische_order_ids_aan(voeg_koers_eur_toe(df))["Order ID"])
 
 
 def _rekening_ids():
@@ -92,16 +93,20 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.transactie_ids = _transactie_ids()
         patches = [
             patch.object(app_module, "db_portfolio_bestaat", return_value=True),
-            patch.object(app_module, "db_connect", return_value=MagicMock()),
+            patch.object(app_module, "db_transactie", side_effect=lambda: nullcontext(MagicMock())),
             patch.object(app_module, "reset_yahoo_call_teller"),
             patch.object(app_module, "log_yahoo_call_samenvatting"),
+            patch.object(app_module, "meld_valuta_consistentie"),
+            patch.object(app_module, "ticker_per_isin_beurs_uit_basis", return_value={}),
         ]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
-        self.mock_order_id_sets = self._start(patch.object(app_module, "db_get_order_id_sets"))
-        self.mock_opslaan = self._start(patch.object(app_module, "_sla_op_en_bouw_respons", return_value={}))
-        self.mock_insert = self._start(patch.object(app_module, "_insert_nieuwe_transacties"))
+        self.mock_opgeslagen = self._start(patch.object(app_module, "db_get_order_ids", return_value=set()))
+        self.mock_bij_andere = self._start(
+            patch.object(app_module, "db_get_order_ids_bij_andere_portfolios", return_value=set()))
+        self.mock_kern = self._start(patch.object(app_module, "_kern_na_opslaan", return_value={}))
+        self.mock_insert = self._start(patch.object(app_module, "voeg_nieuwe_transacties_toe"))
         self.mock_dividend_opslaan = self._start(patch.object(upload_verwerking, "db_save_dividenden"))
 
     def _start(self, p):
@@ -121,7 +126,7 @@ class TestBijwerkenRoute(unittest.TestCase):
                                 content_type="multipart/form-data")
 
     def _assert_niets_opgeslagen(self):
-        self.mock_opslaan.assert_not_called()
+        self.mock_kern.assert_not_called()
         self.mock_insert.assert_not_called()
         self.mock_dividend_opslaan.assert_not_called()
 
@@ -142,7 +147,7 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
 
     def test_ontbrekende_opgeslagen_transactie_slaat_niets_op(self):
-        self.mock_order_id_sets.return_value = {TEST_CODE.upper(): self.transactie_ids | {"ONTBREEKT-IN-BESTAND"}}
+        self.mock_opgeslagen.return_value = self.transactie_ids | {"ONTBREEKT-IN-BESTAND"}
         res = self._post()
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.get_json()["error"], self.app_module.MELDING_TRANSACTIES_ONTBREKEN)
@@ -150,10 +155,8 @@ class TestBijwerkenRoute(unittest.TestCase):
 
     def test_afgekeurd_transactiebestand_verwerkt_ook_het_rekeningoverzicht_niet(self):
         een_id = next(iter(self.transactie_ids))
-        self.mock_order_id_sets.return_value = {
-            TEST_CODE.upper(): self.transactie_ids - {een_id},
-            ANDERE_CODE: {een_id},
-        }
+        self.mock_opgeslagen.return_value = self.transactie_ids - {een_id}
+        self.mock_bij_andere.return_value = {een_id}
         res = self._post(rekening=True)
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.get_json()["error"], self.app_module.MELDING_NIET_VAN_DEZE_PORTFOLIO)
@@ -161,29 +164,43 @@ class TestBijwerkenRoute(unittest.TestCase):
         self._assert_niets_opgeslagen()
 
     def test_rekeningoverzicht_met_onbekende_transacties_slaat_niets_op(self):
-        self.mock_order_id_sets.return_value = {TEST_CODE.upper(): {"IETS-ANDERS"}}
+        self.mock_opgeslagen.return_value = {"IETS-ANDERS"}
         res = self._post(transacties=False, rekening=True)
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.get_json()["error"], self.app_module.MELDING_REKENING_ONBEKENDE_TRANSACTIES)
         self._assert_niets_opgeslagen()
 
     def test_transactiebestand_als_rekeningoverzicht_geeft_400_zonder_opslaan(self):
-        self.mock_order_id_sets.return_value = {TEST_CODE.upper(): self.transactie_ids}
+        self.mock_opgeslagen.return_value = self.transactie_ids
         res = self._post(rekening=True, rekening_pad=BESTAND_TRANSACTIES)
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.get_json()["error"], MELDING_GEEN_REKENINGOVERZICHT)
         self._assert_niets_opgeslagen()
 
+    def test_andere_portfolios_alleen_gevraagd_naar_ids_uit_het_bestand(self):
+        self.mock_opgeslagen.return_value = self.transactie_ids
+        self._post()
+        _cur, code, gevraagd = self.mock_bij_andere.call_args.args
+        self.assertEqual((code, gevraagd), (TEST_CODE.upper(), self.transactie_ids))
+
     def test_superset_slaat_alleen_de_nieuwe_rijen_op(self):
         nieuw = set(sorted(self.transactie_ids)[:2])
-        self.mock_order_id_sets.return_value = {TEST_CODE.upper(): self.transactie_ids - nieuw}
+        self.mock_opgeslagen.return_value = self.transactie_ids - nieuw
         res = self._post(rekening=True)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.get_json()["bijwerken"], {"nieuwe_transacties": 2, "dividend_verwerkt": True})
-        args = self.mock_opslaan.call_args.args
-        code, match_code, rows_to_insert, herbepaal = args[3], args[4], args[5], args[6]
-        self.assertEqual((code, match_code, herbepaal), (TEST_CODE.upper(), TEST_CODE.upper(), False))
+        _cur, code, rows_to_insert = self.mock_insert.call_args.args
+        self.assertEqual(code, TEST_CODE.upper())
+        self.assertEqual(self.mock_insert.call_args.kwargs, {"herbepaal_alle_tickers": False})
         self.assertEqual(set(rows_to_insert["Order ID"]), nieuw)
+        self.mock_kern.assert_called_once_with(TEST_CODE.upper())
+
+    def test_niets_nieuw_opent_geen_schrijftransactie(self):
+        self.mock_opgeslagen.return_value = self.transactie_ids
+        res = self._post()
+        self.assertEqual(res.status_code, 200)
+        self.mock_insert.assert_not_called()
+        self.assertEqual(self.app_module.db_transactie.call_count, 1)
 
 
 if __name__ == "__main__":

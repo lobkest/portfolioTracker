@@ -89,7 +89,7 @@ class TestOrderIdMeldingen(_MetRequest):
             "ISIN": ["X1", "X2"], "Aantal": [1.0, 2.0], "Totaal EUR": [-10.0, -20.0],
         })
         df["Order ID"] = [UUID_1, None]
-        uit, meldingen, _ = self._in_request(uv._create_synthetic_order_ids, df)
+        uit, meldingen, _ = self._in_request(uv.vul_synthetische_order_ids_aan, df)
         self.assertEqual(uit["Order ID"].iloc[0], UUID_1)
         self.assertTrue(uit["Order ID"].iloc[1].startswith("SYN-"))
         self.assertTrue(uit["Order ID"].iloc[1].endswith("-0"))
@@ -101,18 +101,18 @@ class TestPortfolioCodeMelding(_MetRequest):
         df = _rijen(3)
         with patch("upload_verwerking.find_matching_code", return_value=(match, missing_ids)), \
              patch("upload_verwerking.generate_code", return_value="NEW"):
-            return self._in_request(uv._vind_of_maak_portfolio_code, MagicMock(), df, "")
+            return self._in_request(uv.vind_of_maak_portfolio, MagicMock(), df, "")
 
     def test_nieuwe_portfolio(self):
-        (code, match, rijen), meldingen, _ = self._roep_aan(None, None)
-        self.assertEqual(code, "NEW")
+        (code, bestaand, rijen), meldingen, _ = self._roep_aan(None, None)
+        self.assertEqual((code, bestaand), ("NEW", False))
         self.assertEqual(len(rijen), 3)
         self.assertEqual(meldingen[0]["categorie"], CATEGORIE_OPSLAAN)
         self.assertEqual(meldingen[0]["tekst"], "Nieuwe portfolio aangemaakt met 3 transacties.")
 
     def test_bestaande_aangevuld(self):
-        (code, _, rijen), meldingen, _ = self._roep_aan("ABC", {"ID-1"})
-        self.assertEqual((code, len(rijen)), ("ABC", 1))
+        (code, bestaand, rijen), meldingen, _ = self._roep_aan("ABC", {"ID-1"})
+        self.assertEqual((code, bestaand, len(rijen)), ("ABC", True, 1))
         self.assertEqual(meldingen[0]["tekst"], "Bestaande portfolio aangevuld: 1 nieuwe transacties.")
 
     def test_bestaande_zonder_nieuwe(self):
@@ -277,43 +277,30 @@ class TestDividendMeldingen(_MetRequest):
         overig = _per_sleutel(meldingen)[uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG]
         self.assertEqual((overig["niveau"], overig["tekst"]), (LET_OP, "Nog 3 uitkeringen zonder valutaconversie."))
 
-    def _met_bestand2(self, functie, *args):
-        data = {"bestand2": (io.BytesIO(b"x"), "rekening.xlsx")}
-        with self.app.test_request_context(method="POST", data=data, content_type="multipart/form-data"), \
-             redirect_stdout(io.StringIO()):
-            functie(*args)
-            return haal_meldingen()
-
     @patch("upload_verwerking.db_save_dividenden")
     @patch("upload_verwerking.verwerk_rekeningoverzicht_df")
     def test_verwerk_bestand_meldt_en_slaat_ongewijzigd_op(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]
         mock_verwerk.return_value = records
         rekening_df = pd.DataFrame()
-        meldingen = self._met_bestand2(uv._verwerk_dividend_bestand, "ABC", rekening_df)
+        _, meldingen, _ = self._in_request(uv.sla_dividend_bestand_op, "ABC", rekening_df)
         mock_verwerk.assert_called_once_with(rekening_df)
         mock_save.assert_called_once_with("ABC", records)
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 
     @patch("upload_verwerking.db_save_dividenden")
-    @patch("upload_verwerking.verwerk_rekeningoverzicht")
-    def test_niet_opslaan_met_bestand2_meldt_zonder_op_te_slaan(self, mock_verwerk, mock_save):
+    @patch("upload_verwerking.verwerk_rekeningoverzicht_df")
+    def test_niet_opslaan_meldt_zonder_op_te_slaan(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]
         mock_verwerk.return_value = records
-        data = {"bestand2": (io.BytesIO(b"x"), "rekening.xlsx")}
-        with self.app.test_request_context(method="POST", data=data, content_type="multipart/form-data"),              redirect_stdout(io.StringIO()):
-            resultaat = uv._verwerk_dividend_bestand_zonder_opslaan()
-            meldingen = haal_meldingen()
+        rekening_df = pd.DataFrame()
+        resultaat, meldingen, _ = self._in_request(uv.verwerk_dividend_zonder_opslaan, rekening_df)
         self.assertEqual(resultaat, records)
+        mock_verwerk.assert_called_once_with(rekening_df)
         mock_save.assert_not_called()
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
-
-    def test_niet_opslaan_zonder_bestand2_niets(self):
-        resultaat, meldingen, _ = self._in_request(uv._verwerk_dividend_bestand_zonder_opslaan)
-        self.assertIsNone(resultaat)
-        self.assertEqual(meldingen, [])
 
 
 if __name__ == "__main__":
