@@ -236,16 +236,21 @@ def compute_value_over_time(transacties_df, price_data):
     stuk_i = 0
     stuk_kolom = _effectieve_datum_kolom(stukken)
 
-    # Arrays i.p.v. price_data.loc per iteratie (snelheid).
+    # Arrays en lijsten i.p.v. .loc per iteratie: .loc per dag was de helft van de laadtijd.
     prijs_per_ticker = {t: price_data[t].to_numpy() for t in tickers}
+    trade_datums = [pd.Timestamp(d) for d in transacties_df["datum"]]
+    trade_totalen = transacties_df["totaal_eur"].tolist()
+    stuk_datums = [pd.Timestamp(d) for d in stukken[stuk_kolom]]
+    stuk_tickers = stukken["ticker"].tolist()
+    stuk_aantallen = stukken["aantal"].tolist()
 
     for i, date in enumerate(price_data.index):
-        while trade_i < len(transacties_df) and pd.Timestamp(transacties_df.loc[trade_i, "datum"]) <= date:
-            invested += -float(transacties_df.loc[trade_i, "totaal_eur"])
+        while trade_i < len(trade_datums) and trade_datums[trade_i] <= date:
+            invested += -float(trade_totalen[trade_i])
             trade_i += 1
-        while stuk_i < len(stukken) and pd.Timestamp(stukken.loc[stuk_i, stuk_kolom]) <= date:
-            if stukken.loc[stuk_i, "ticker"] in holdings:
-                holdings[stukken.loc[stuk_i, "ticker"]] += float(stukken.loc[stuk_i, "aantal"])
+        while stuk_i < len(stuk_datums) and stuk_datums[stuk_i] <= date:
+            if stuk_tickers[stuk_i] in holdings:
+                holdings[stuk_tickers[stuk_i]] += float(stuk_aantallen[stuk_i])
             stuk_i += 1
 
         waarde = sum(
@@ -280,18 +285,22 @@ def compute_per_ticker(transacties_df, price_data):
         prev_invested = None
 
         prijzen_array = price_data[ticker].to_numpy()
+        trade_datums = [pd.Timestamp(d) for d in trades["datum"]]
+        trade_aantallen = trades["aantal"].tolist()
+        trade_totalen = trades["totaal_eur"].tolist()
+        trade_waarden = trades["waarde_eur"].tolist() if "waarde_eur" in trades.columns else [None] * len(trades)
+        stuk_datums = [pd.Timestamp(d) for d in stukken[stuk_kolom]]
+        stuk_aantallen = stukken["aantal"].tolist()
 
         for i, date in enumerate(price_data.index):
             activiteit = False
-            while trade_i < len(trades) and pd.Timestamp(trades.loc[trade_i, "datum"]) <= date:
-                row = trades.loc[trade_i]
-
+            while trade_i < len(trade_datums) and trade_datums[trade_i] <= date:
                 # GAK-methode, gelijk houden met bereken_holdings_en_gesloten() (zie CLAUDE.md: Data en rekenen).
-                delta_aantal = float(row["aantal"])
+                delta_aantal = float(trade_aantallen[trade_i])
                 # totaal_eur alleen voor de cashflow-check (splitrijen = 0) en de verkoopkant.
-                delta_cash = -float(row["totaal_eur"])  # positief = geld uitgegeven (aankoop)
+                delta_cash = -float(trade_totalen[trade_i])  # positief = geld uitgegeven (aankoop)
                 if delta_aantal > 0:
-                    waarde_bron = row["waarde_eur"] if pd.notna(row.get("waarde_eur")) else row["totaal_eur"]
+                    waarde_bron = trade_waarden[trade_i] if pd.notna(trade_waarden[trade_i]) else trade_totalen[trade_i]
                     delta_cash_aankoop = -float(waarde_bron)
                     aantal_lopend += delta_aantal
                     kostprijs_lopend += delta_cash_aankoop
@@ -304,8 +313,8 @@ def compute_per_ticker(transacties_df, price_data):
 
                 trade_i += 1
                 activiteit = True
-            while stuk_i < len(stukken) and pd.Timestamp(stukken.loc[stuk_i, stuk_kolom]) <= date:
-                holdings += float(stukken.loc[stuk_i, "aantal"])
+            while stuk_i < len(stuk_datums) and stuk_datums[stuk_i] <= date:
+                holdings += float(stuk_aantallen[stuk_i])
                 stuk_i += 1
                 activiteit = True
             prijs = prijzen_array[i]
@@ -375,11 +384,13 @@ def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
         rows = []
 
         prijzen_array = price_data[ticker].to_numpy()
+        stuk_datums = [pd.Timestamp(d) for d in stukken[stuk_kolom]]
+        stuk_aantallen = stukken["aantal"].tolist()
 
         for i, date in enumerate(price_data.index):
             activiteit = False
-            while stuk_i < len(stukken) and pd.Timestamp(stukken.loc[stuk_i, stuk_kolom]) <= date:
-                holdings += float(stukken.loc[stuk_i, "aantal"])
+            while stuk_i < len(stuk_datums) and stuk_datums[stuk_i] <= date:
+                holdings += float(stuk_aantallen[stuk_i])
                 stuk_i += 1
                 activiteit = True
             prijs = prijzen_array[i]

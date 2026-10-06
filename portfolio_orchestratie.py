@@ -93,14 +93,14 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
     with meet_tijd(f"basis_koersen_ophalen ({len(tickers)} ticker(s))"):
-        price_data = get_prices(tickers, start_date, verversen=verversen) if tickers else pd.DataFrame()
+        price_data = get_prices(tickers, start_date, verversen=verversen, gesloten_sinds=_gesloten_sinds(transacties_df)) if tickers else pd.DataFrame()
     with meet_tijd("basis_effectieve_datums_en_koersdekking"):
         transacties_df = _pas_effectieve_datums_toe(transacties_df)
         _meld_koersdekking(transacties_df, price_data)
 
     with _basis_cache_lock:
         _basis_cache[code] = {
-            "naam": naam, "transacties_df": transacties_df, "price_data": price_data, "op": nu,
+            "naam": naam, "transacties_df": transacties_df, "price_data": price_data, "op": time.time(),
             # Laadtijden niet: bij een cache-hit is die tijd niet besteed.
             "diagnostiek": [m for m in meldingen_sinds(meldingen_voor)
                             if m["categorie"] != CATEGORIE_LAADTIJDEN],
@@ -109,14 +109,25 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     return naam, transacties_df, price_data
 
 
+def _gesloten_sinds(transacties_df):
+    """{ticker: datum laatste transactie} voor posities zonder stukken; hun koersen hoeven niet meer ververst."""
+    met_ticker = transacties_df.dropna(subset=["ticker"])
+    aantal = met_ticker["aantal"].astype(float).groupby(met_ticker["ticker"]).sum()
+    laatste = pd.to_datetime(met_ticker["datum"]).groupby(met_ticker["ticker"]).max()
+    return {ticker: laatste[ticker] for ticker, stuks in aantal.items() if abs(stuks) <= 1e-6}
+
+
 def _pas_effectieve_datums_toe(transacties_df):
     """Aantallen tellen mee vanaf Yahoo's splitdatum. Aanroepen ná get_prices(): de splits staan dan in de koersencache."""
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     if not tickers:
         return transacties_df
     boekingen = bepaal_split_boekingen(transacties_df)
-    transacties_df, resultaat = bepaal_effectieve_datums(transacties_df, boekingen, db_get_koers_splits(tickers))
+    splits_per_ticker = db_get_koers_splits(tickers)
+    transacties_df, resultaat = bepaal_effectieve_datums(transacties_df, boekingen, splits_per_ticker)
     meld_split_koppeling(resultaat)
+    # Hergebruikt door analyze_transacties_kern(): scheelt een tweede database-read.
+    transacties_df.attrs["koers_splits"] = splits_per_ticker
     return transacties_df
 
 
@@ -342,7 +353,7 @@ def _laad_transacties_en_resultaat(code):
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
     start_date = transacties_df["datum"].min()
-    price_data = get_prices(tickers, start_date)
+    price_data = get_prices(tickers, start_date, gesloten_sinds=_gesloten_sinds(transacties_df))
     if price_data.empty:
         return transacties_df, None
 
@@ -421,18 +432,18 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             transacties_df = compute_split_adjusted_shares(transacties_df)
         start_date = transacties_df["datum"].min()
         with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
-            price_data = get_prices(tickers, start_date, verversen=verversen)
+            price_data = get_prices(tickers, start_date, verversen=verversen, gesloten_sinds=_gesloten_sinds(transacties_df))
         transacties_df = _pas_effectieve_datums_toe(transacties_df)
         _meld_koersdekking(transacties_df, price_data)
 
-    namen = (
+    ticker_namen = (
         transacties_df.dropna(subset=["ticker"])
         .drop_duplicates(subset=["ticker"], keep="last")
         .set_index("ticker")["product"]
         .to_dict()
     )
     koersstatus = bepaal_koersstatus(
-        tickers, set(price_data.columns), price_data.attrs.get("koersen_onvolledig", []), namen)
+        tickers, set(price_data.columns), price_data.attrs.get("koersen_onvolledig", []), ticker_namen)
     if price_data.empty:
         return {"code": code, "naam": naam, "chart_data": None, **koersstatus}
 
@@ -443,16 +454,12 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         per_ticker = compute_per_ticker(transacties_df, price_data)
         _meld_plausibiliteit(transacties_df, price_data, per_ticker)
         per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
-    splits_per_ticker = db_get_koers_splits(list(per_ticker_aankoop))
+    splits_per_ticker = transacties_df.attrs.get("koers_splits")
+    if splits_per_ticker is None:
+        splits_per_ticker = db_get_koers_splits(list(per_ticker_aankoop))
     for ticker, reeks in per_ticker_aankoop.items():
         reeks["splits"] = splits_voor_grafiek(splits_per_ticker.get(ticker, {}))
 
-    ticker_namen = (
-        transacties_df.dropna(subset=["ticker"])
-        .drop_duplicates(subset=["ticker"], keep="last")
-        .set_index("ticker")["product"]
-        .to_dict()
-    )
     echte_namen = (
         transacties_df.dropna(subset=["ticker"])
         .drop_duplicates(subset=["ticker"])
@@ -526,7 +533,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
             transacties_df = compute_split_adjusted_shares(transacties_df)
         start_date = transacties_df["datum"].min()
         with meet_tijd(f"koersen_ophalen_verrijking ({len(tickers)} ticker(s))"):
-            price_data = get_prices(tickers, start_date)
+            price_data = get_prices(tickers, start_date, gesloten_sinds=_gesloten_sinds(transacties_df))
 
     if price_data.empty:
         return {

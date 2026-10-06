@@ -252,7 +252,7 @@ class TestBasisCacheMeldingen(unittest.TestCase):
     def test_hit_geeft_meldingen_opnieuw_mee(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit):
         mock_conn.side_effect = lambda: _fake_conn()
 
-        def fake_get_prices(tickers, start_date, verversen=True):
+        def fake_get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
             meld(CATEGORIE_WISSELKOERSEN, GOED, "USD -> EUR via Yahoo", sleutel="USDEUR=X")
             return pd.DataFrame()
         mock_get_prices.side_effect = fake_get_prices

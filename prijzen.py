@@ -25,6 +25,9 @@ KOERS_TIJDBUDGET_SECONDEN = 20
 # Voorkomt dat de endpoints van één portfolio-opening Yahoo meermaals bevragen.
 DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
 
+# Een gesloten positie heeft koersen tot haar laatste transactie nodig; daarna (marge: weekend + definitieve slotkoers) niet meer.
+MARGE_GESLOTEN_POSITIE = pd.Timedelta(days=3)
+
 # Herkomst van koersen per request (op `g`), alleen voor de Diagnostiek.
 FX_PAREN = set(FX_PAAR_PER_VALUTA.values())
 FX_BRON_CACHE = "uit cache"
@@ -176,19 +179,21 @@ def _rijen(ruw):
     ]
 
 
-def get_prices(tickers, start_date, verversen=True):
+def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
     """RUWE koersen in EUR (de koers zoals hij die dag noteerde, zie CLAUDE.md: Data en rekenen), index = datum,
     kolommen = tickers. verversen=False slaat alleen de incrementele verversing over; nieuwe tickers worden altijd gedownload.
+    gesloten_sinds: {ticker: datum van de laatste transactie} van posities zonder stukken; die worden niet meer ververst
+    zodra de cache MARGE_GESLOTEN_POSITIE voorbij die datum loopt.
     Past de opbouw niet binnen KOERS_TIJDBUDGET_SECONDEN, dan staan de rest in .attrs["koersen_onvolledig"]."""
     tickers = [t for t in tickers if t]
     if not tickers:
         return pd.DataFrame()
 
     start_date = pd.Timestamp(start_date)
-    vandaag = pd.Timestamp.now().normalize()
 
     # Vroegste datum: gaat de cache ver genoeg terug? Laatste: is hij nog actueel?
-    datums, laatst_ververst_vandaag, koers_rijen = db_get_gecachte_koersen(tickers, vandaag.date(), start_date.date())
+    gesloten_sinds = gesloten_sinds or {}
+    datums, laatst_bijgewerkt, koers_rijen = db_get_gecachte_koersen(tickers, start_date.date())
     datums_cache = {t: (pd.Timestamp(eerste), pd.Timestamp(laatste)) for t, (eerste, laatste) in datums.items()}
     cached = pd.DataFrame(koers_rijen, columns=["ticker", "datum", "koers_eur"])
 
@@ -206,12 +211,13 @@ def get_prices(tickers, start_date, verversen=True):
             missing.append(t)
             continue
         # Elke opening verversen: een koers van vandaag kan tussentijds zijn.
-        laatste_fetch_vandaag = laatst_ververst_vandaag.get(t)
+        laatste_fetch = laatst_bijgewerkt.get(t)
         net_ververst = (
-            laatste_fetch_vandaag is not None
-            and pd.Timestamp.now() - pd.Timestamp(laatste_fetch_vandaag) < DREMPEL_HERGEBRUIK_KOERS
+            laatste_fetch is not None
+            and pd.Timestamp.now() - pd.Timestamp(laatste_fetch) < DREMPEL_HERGEBRUIK_KOERS
         )
-        if not net_ververst:
+        gesloten_en_compleet = t in gesloten_sinds and laatste > pd.Timestamp(gesloten_sinds[t]) + MARGE_GESLOTEN_POSITIE
+        if not net_ververst and not gesloten_en_compleet:
             stale[t] = laatste
             dprint(f"[koersen] '{t}' wordt ververst vanaf {laatste.date()} "
                    f"(bij elke opening, tenzij <2 min geleden al ververst)")

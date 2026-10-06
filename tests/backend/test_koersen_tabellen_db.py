@@ -40,7 +40,7 @@ class TestKoersenTabellen(unittest.TestCase):
             [(T1, date(2021, 1, 25), 0.8737), (T1, date(2021, 1, 26), 2.51), (T2, date(2021, 1, 26), 10.0)],
             {T1: {"2021-01-26": 1 / 3}, T2: {}},
         )
-        datums, vandaag, koersen = db_get_gecachte_koersen([T1, T2, T3], date(2021, 1, 27), date(2021, 1, 1))
+        datums, laatst_bijgewerkt, koersen = db_get_gecachte_koersen([T1, T2, T3], date(2021, 1, 1))
         self.assertEqual(datums, {T1: (date(2021, 1, 25), date(2021, 1, 26)), T2: (date(2021, 1, 26), date(2021, 1, 26))})
         self.assertEqual(vandaag, {})
         self.assertEqual(sorted((t, d, float(k)) for t, d, k in koersen),
@@ -49,7 +49,7 @@ class TestKoersenTabellen(unittest.TestCase):
     def test_start_datum_filtert_de_koersrijen(self):
         from db import db_save_koersen, db_get_gecachte_koersen
         db_save_koersen([(T1, date(2021, 1, 25), 1.0), (T1, date(2021, 1, 26), 2.0)], {T1: {}})
-        _, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 27), date(2021, 1, 26))
+        _, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 26))
         self.assertEqual([(d, float(k)) for _, d, k in koersen], [(date(2021, 1, 26), 2.0)])
 
     def test_splits_leeg_is_iets_anders_dan_onbekend(self):
@@ -64,7 +64,7 @@ class TestKoersenTabellen(unittest.TestCase):
         from db import db_save_koersen, db_get_gecachte_koersen, db_get_koers_splits
         db_save_koersen([(T1, date(2021, 1, 26), 1.0)], {T1: {"2021-01-26": 0.5}})
         db_save_koersen([(T1, date(2021, 1, 26), 1.5), (T1, date(2021, 1, 27), 2.0)], {T1: {"2022-07-26": 0.05}})
-        _, _, koersen = db_get_gecachte_koersen([T1], date(2021, 2, 1), date(2021, 1, 1))
+        _, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 1))
         self.assertEqual(sorted((d, float(k)) for _, d, k in koersen), [(date(2021, 1, 26), 1.5), (date(2021, 1, 27), 2.0)])
         self.assertEqual(db_get_koers_splits([T1])[T1], {"2021-01-26": 0.5, "2022-07-26": 0.05})
 
@@ -72,7 +72,7 @@ class TestKoersenTabellen(unittest.TestCase):
         from db import db_save_koersen, db_get_gecachte_koersen
         with self.assertRaises(Exception):
             db_save_koersen([(T1, date(2021, 1, 26), 1.0)], {T1: {"2021-01-26": None}})
-        datums, _, koersen = db_get_gecachte_koersen([T1], date(2021, 2, 1), date(2021, 1, 1))
+        datums, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 1))
         self.assertEqual((datums, koersen), ({}, []))
 
     def test_laatste_koers_update(self):

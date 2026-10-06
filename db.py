@@ -734,8 +734,8 @@ def db_save_koersen(rijen, splits_per_ticker):
         conn.close()
 
 
-def db_get_gecachte_koersen(tickers, vandaag, start_datum):
-    """Geeft ({ticker: (eerste_datum, laatste_datum)}, {ticker: bijgewerkt_op van vandaag}, [(ticker, datum, koers_eur)])."""
+def db_get_gecachte_koersen(tickers, start_datum):
+    """Geeft ({ticker: (eerste_datum, laatste_datum)}, {ticker: laatste bijgewerkt_op}, [(ticker, datum, koers_eur)])."""
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
@@ -744,11 +744,12 @@ def db_get_gecachte_koersen(tickers, vandaag, start_datum):
     )
     datums = {ticker: (eerste, laatste) for ticker, eerste, laatste in cur.fetchall()}
 
+    # Niet op de rij van vandaag: die bestaat buiten beurstijd (en in het weekend) niet, en dan werkte de 2-minutendrempel nooit.
     cur.execute(
-        "SELECT ticker, bijgewerkt_op FROM koersen WHERE ticker = ANY(%s) AND datum = %s",
-        (tickers, vandaag),
+        "SELECT ticker, MAX(bijgewerkt_op) FROM koersen WHERE ticker = ANY(%s) GROUP BY ticker",
+        (tickers,),
     )
-    bijgewerkt_vandaag = {ticker: bijgewerkt_op for ticker, bijgewerkt_op in cur.fetchall()}
+    laatst_bijgewerkt = {ticker: bijgewerkt_op for ticker, bijgewerkt_op in cur.fetchall()}
 
     cur.execute(
         "SELECT ticker, datum, koers_eur FROM koersen WHERE ticker = ANY(%s) AND datum >= %s",
@@ -757,7 +758,7 @@ def db_get_gecachte_koersen(tickers, vandaag, start_datum):
     koersen = cur.fetchall()
     cur.close()
     conn.close()
-    return datums, bijgewerkt_vandaag, koersen
+    return datums, laatst_bijgewerkt, koersen
 
 
 def db_get_koers_splits(tickers):
