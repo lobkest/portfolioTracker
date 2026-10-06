@@ -22,12 +22,18 @@ const TRANSACTIES_KOLOMMEN = [
     },
     { label: "Product", sleutel: "product", renderTd: r => maakCel(r.product) },
     { label: "ISIN", sleutel: "isin", renderTd: r => maakCel(r.isin ?? "—") },
+    { label: "Beurs", sleutel: "beurs", renderTd: r => maakCel(r.beurs ?? "—") },
     {
         label: "Aantal",
         sleutel: "aantal",
         renderTd: r => maakCel(r.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 })),
     },
     { label: "Koers", sleutel: "koers", renderTd: r => maakCel(r.koers === null ? "onbekend" : formatteerEuro(r.koers)) },
+    {
+        label: "Wisselkoers",
+        sleutel: "wisselkoers",
+        renderTd: r => maakCel(r.wisselkoers === null ? "—" : r.wisselkoers.toLocaleString("nl-NL", { maximumFractionDigits: 4 })),
+    },
     { label: "Totaal (EUR)", sleutel: "totaal_eur", renderTd: r => maakCel(formatteerEuro(r.totaal_eur)) },
     {
         label: "Transactiekosten (EUR)",

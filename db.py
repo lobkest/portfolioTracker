@@ -41,6 +41,7 @@ def db_init():
             waarde_eur NUMERIC,
             -- nodig om transacties op dezelfde dag chronologisch te sorteren (koop vóór verkoop)
             tijd TIME,
+            wisselkoers NUMERIC,
             UNIQUE (code, order_id)
         );
     """)
@@ -554,7 +555,7 @@ def db_get_transacties_overzicht(code):
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "SELECT datum, tijd, COALESCE(echte_naam, product), aantal, koers, totaal_eur, transactiekosten, isin "
+        "SELECT datum, tijd, COALESCE(echte_naam, product), aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers "
         "FROM transacties WHERE code = %s ORDER BY datum DESC, tijd DESC",
         (code,),
     )
@@ -783,7 +784,7 @@ def db_save_prijscheck_koers(ticker, datum, slotkoers, valuta, high=None, low=No
 
 TRANSACTIE_KOLOMMEN = [
     "datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur",
-    "echte_naam", "transactiekosten", "waarde_eur", "tijd",
+    "echte_naam", "transactiekosten", "waarde_eur", "tijd", "wisselkoers",
 ]
 
 
@@ -880,15 +881,15 @@ def db_laad_product_per_ticker(code):
 
 
 def db_insert_transactie(cur, code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
-                      order_id, echte_naam, transactiekosten, waarde_eur, tijd):
+                      order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers):
     """Geeft False als de rij al bestond (ON CONFLICT DO NOTHING)."""
     cur.execute(
         """INSERT INTO transacties
-                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (code, order_id) DO NOTHING""",
         (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
-         order_id, echte_naam, transactiekosten, waarde_eur, tijd),
+         order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers),
     )
     return cur.rowcount != 0
 

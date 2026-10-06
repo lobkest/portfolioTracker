@@ -47,19 +47,21 @@ def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
 
 
 def formatteer_transacties_overzicht(rows):
-    """rows: (datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin); tijd en kosten mogen None zijn."""
+    """rows: (datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers); tijd en kosten mogen None zijn."""
     return [
         {
             "datum": datum.strftime("%Y-%m-%d"),
             "tijd": tijd.strftime("%H:%M") if tijd is not None else None,
             "product": product,
             "isin": isin,
+            "beurs": beurs,
+            "wisselkoers": float(wisselkoers) if wisselkoers is not None else None,
             "aantal": float(aantal),
             "koers": float(koers) if koers is not None else None,
             "totaal_eur": float(totaal_eur),
             "transactiekosten": float(transactiekosten) if transactiekosten is not None else None,
         }
-        for datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin in rows
+        for datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers in rows
     ]
 
 
@@ -82,7 +84,8 @@ def transacties_overzicht_uit_df(transacties_df):
     rows = [
         (rij.datum, _naar_tijd_of_none(rij.tijd), rij.echte_naam if pd.notna(rij.echte_naam) else rij.product, rij.aantal,
          _getal_of_none(rij.koers), rij.totaal_eur, _getal_of_none(rij.transactiekosten),
-         rij.isin if pd.notna(rij.isin) else None)
+         rij.isin if pd.notna(rij.isin) else None, rij.beurs if pd.notna(rij.beurs) else None,
+         _getal_of_none(rij.wisselkoers))
         for rij in transacties_df.itertuples(index=False)
     ]
     # Zoals Postgres bij ORDER BY ... DESC: een ontbrekende tijd komt bovenaan.

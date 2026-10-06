@@ -14,9 +14,11 @@
         },
         product: (a, b) => String(a.product).localeCompare(String(b.product), "nl"),
         isin: (a, b) => String(a.isin ?? "").localeCompare(String(b.isin ?? "")),
+        beurs: (a, b) => String(a.beurs ?? "").localeCompare(String(b.beurs ?? "")),
         aantal: (a, b) => a.aantal - b.aantal,
         koers: (a, b) => (a.koers ?? -Infinity) - (b.koers ?? -Infinity),
         totaal_eur: (a, b) => a.totaal_eur - b.totaal_eur,
+        wisselkoers: (a, b) => (a.wisselkoers ?? -Infinity) - (b.wisselkoers ?? -Infinity),
         transactiekosten: (a, b) => (a.transactiekosten ?? -Infinity) - (b.transactiekosten ?? -Infinity),
     };
 

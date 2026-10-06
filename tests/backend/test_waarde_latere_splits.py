@@ -27,11 +27,11 @@ ISIN = "XX0000000001"
 D = datetime.date
 # Volgorde van TRANSACTIE_KOLOMMEN in db.py.
 KOLOMMEN = ("datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur",
-            "echte_naam", "transactiekosten", "waarde_eur", "tijd")
+            "echte_naam", "transactiekosten", "waarde_eur", "tijd", "wisselkoers")
 
 
 def _rij(datum, aantal, koers, totaal, beurs="NDQ", ticker=TICKER, isin=ISIN):
-    return (datum, "Test", isin, beurs, ticker, float(aantal), float(koers), float(totaal), "Test", 0.0, float(totaal), None)
+    return (datum, "Test", isin, beurs, ticker, float(aantal), float(koers), float(totaal), "Test", 0.0, float(totaal), None, None)
 
 
 class _Omgeving:

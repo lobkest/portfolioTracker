@@ -24,7 +24,7 @@ TEST_CODE = "ZZTESTBASISCACHE"
 # Kolomvolgorde exact zoals de SELECT in _haal_portfolio_basis(): ticker=None
 # zodat get_prices() wordt overgeslagen (lege tickerlijst -> geen netwerk-call
 # nodig om deze test te laten slagen).
-TRANSACTIE_RIJ = ("2024-01-01", "AAPL", "US0378331005", "NASDAQ", None, 1.0, 100.0, -100.0, "AAPL", None, None, None)
+TRANSACTIE_RIJ = ("2024-01-01", "AAPL", "US0378331005", "NASDAQ", None, 1.0, 100.0, -100.0, "AAPL", None, None, None, None)
 
 
 def _fake_conn():

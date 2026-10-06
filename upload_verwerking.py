@@ -194,6 +194,7 @@ def _bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_tick
         "transactiekosten": pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce"),
         "waarde_eur": df[WAARDE_KOLOM],
         "tijd": df["Tijd"],
+        "wisselkoers": pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce"),
     })
 
 
@@ -329,6 +330,7 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, 
         try:
             kosten_waarde = pd.to_numeric(row[KOSTEN_KOLOM], errors="coerce")
             waarde_eur_waarde = row[WAARDE_KOLOM]
+            wisselkoers_waarde = pd.to_numeric(row[WISSELKOERS_KOLOM], errors="coerce")
             ticker = ticker_by_isin_beurs[(row["ISIN"], row["Beurs"])]
             nieuw = db_insert_transactie(
                 cur, code, row["Datum"].date(), product_per_ticker.get(ticker, row["Product"]), row["ISIN"], row["Beurs"],
@@ -337,6 +339,7 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, 
                 float(kosten_waarde) if pd.notna(kosten_waarde) else None,
                 float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
                 _normaliseer_tijd(row["Tijd"]),
+                float(wisselkoers_waarde) if pd.notna(wisselkoers_waarde) else None,
             )
             ingevoegd += 1
             if nieuw:
