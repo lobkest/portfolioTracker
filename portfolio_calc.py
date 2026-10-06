@@ -2,7 +2,6 @@
 import numpy as np
 import pandas as pd
 
-from debug_utils import dprint
 from diagnostiek import meld, CATEGORIE_SPLITS, INFO, LET_OP
 from split_correctie import (
     DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, vind_wisselparen,
@@ -10,7 +9,7 @@ from split_correctie import (
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl, getal_nl
 
 
-def _vind_conversies(df, log=True):
+def _vind_conversies(df):
     """Per ISIN met corporate-action-rijen de conversies (conversierij koers 0) met hun ratio en bijbehorende rijen."""
     resultaat = []
     for isin, groep in df.groupby("isin"):
@@ -22,13 +21,6 @@ def _vind_conversies(df, log=True):
 
         product_naam = groep["product"].iloc[0] if "product" in groep.columns else "?"
         reden_geen_factor = "geen conversierij gevonden"
-        if log:
-            dprint(f"\n[split-detect] ISIN={isin} ('{product_naam}') heeft {len(ca_rows)} "
-                   f"corporate-action rij(en), onderzoeken...")
-            dprint(f"[split-detect]   alle rijen voor deze ISIN:")
-            for _, r in groep.iterrows():
-                dprint(f"    {r['datum']} | beurs={r.get('beurs')} | product={str(r.get('product'))[:50]} "
-                       f"| aantal={r.get('aantal')} | koers={r.get('koers')} | totaal_eur={r.get('totaal_eur')}")
 
         real_trades = groep[~is_ca]
         conversion_rows = real_trades[
@@ -42,9 +34,6 @@ def _vind_conversies(df, log=True):
             eerdere_trades = real_trades[(real_trades["datum"] < conv_date) & (real_trades["koers"] > 0)]
             shares_before = float(eerdere_trades["adj_aantal"].sum())
             if shares_before <= 0:
-                if log:
-                    dprint(f"[split-detect]   conversie op {conv_date}: shares_before={shares_before} "
-                           f"(<=0) - overgeslagen, kan geen ratio berekenen")
                 reden_geen_factor = "geen aandelen vóór de conversie"
                 continue
 
@@ -52,9 +41,6 @@ def _vind_conversies(df, log=True):
             in_venster = ca_rows[(ca_rows["datum"] > last_real_date) & (ca_rows["datum"] <= conv_date)]
             new_shares = float(in_venster.loc[in_venster["adj_aantal"] > 0, "adj_aantal"].sum())
             if new_shares <= 0:
-                if log:
-                    dprint(f"[split-detect]   conversie op {conv_date}: new_shares={new_shares} (<=0) "
-                           f"- overgeslagen")
                 reden_geen_factor = "geen nieuwe aandelen in de corporate-action-rijen"
                 continue
 
@@ -115,7 +101,6 @@ def compute_split_adjusted_shares(transacties_df):
                 & (df["datum"] < conv_date)
                 & (~df.apply(_is_corporate_action_row, axis=1))
             )
-            dprint(f"[split-detect]   pas ratio {ratio:.4f}x toe op {mask.sum()} eerdere rij(en)")
             df.loc[mask, "adj_aantal"] *= ratio
             conv_datum_tekst = pd.Timestamp(conv_date).strftime("%Y-%m-%d")
             meld(CATEGORIE_SPLITS, INFO,
@@ -142,7 +127,7 @@ def bepaal_split_boekingen(transacties_df):
     boekingen = []
     # Terug naar de ruwe aantallen: adj_aantal is daar al met de splitratio vermenigvuldigd.
     ongecorrigeerd = transacties_df.assign(adj_aantal=transacties_df["aantal"].astype(float))
-    for item in _vind_conversies(ongecorrigeerd, log=False):
+    for item in _vind_conversies(ongecorrigeerd):
         ticker = ticker_van.get(item["isin"])
         if ticker is None:
             continue
@@ -342,8 +327,6 @@ def compute_per_ticker(transacties_df, price_data):
         with np.errstate(invalid="ignore"):
             waarde = np.where(np.isnan(prijzen), 0.0, holdings * prijzen)
 
-        _dprint_grote_sprongen(ticker, dagen, prijzen, waarde, invested, holdings)
-
         bereik, nog_in_bezit = _crop_en_nog_in_bezit(holdings, _activiteit_per_dag(trades_verwerkt, stuk_verwerkt))
         result[ticker] = {
             "labels": dagen[bereik].strftime("%Y-%m-%d").tolist(),
@@ -353,27 +336,6 @@ def compute_per_ticker(transacties_df, price_data):
         }
     return result
 
-
-def _dprint_grote_sprongen(ticker, dagen, prijzen, waarde, invested, holdings):
-    """Grote sprong op 1 dag: helpt ISIN-migraties en verkeerde splits opsporen."""
-    if len(dagen) < 2:
-        return
-    vorige_invested, vorige_waarde = invested[:-1], waarde[:-1]
-    heeft_inleg = vorige_invested != 0
-    sprong_invested = heeft_inleg & (np.abs(invested[1:] - vorige_invested) > 0.5 * np.abs(vorige_invested) + 50)
-    with np.errstate(invalid="ignore"):
-        sprong_waarde = (
-            heeft_inleg & ~np.isnan(prijzen[1:]) & (vorige_waarde > 0)
-            & (np.abs(waarde[1:] - vorige_waarde) > 0.5 * vorige_waarde + 50) & (holdings[1:] != 0)
-        )
-    for i in np.flatnonzero(sprong_invested | sprong_waarde) + 1:
-        datum = dagen[i].date()
-        if sprong_invested[i - 1]:
-            dprint(f"[per-ticker:{ticker}] grote sprong in geinvesteerd op {datum}: "
-                   f"{invested[i - 1]:.2f} -> {invested[i]:.2f}")
-        if sprong_waarde[i - 1]:
-            dprint(f"[per-ticker:{ticker}] grote sprong in waarde op {datum}: "
-                   f"{waarde[i - 1]:.2f} -> {waarde[i]:.2f} (holdings={holdings[i]:.4f}, prijs={prijzen[i]})")
 
 
 def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):

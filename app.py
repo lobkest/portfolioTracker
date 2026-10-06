@@ -94,8 +94,10 @@ def analyse_pagina():
 @app.route("/upload", methods=["POST"])
 def upload():
     """Zet elke onverwachte fout om in een JSON-foutrespons; anders blijft de frontend hangen."""
+    db_reset_verbinding_teller()
     try:
-        return _upload_impl()
+        with meet_tijd("upload_totaal"):
+            return _upload_impl()
     except Exception as e:
         print(f"[upload] ONVERWACHTE FOUT: {e}")
         traceback.print_exc()
@@ -103,6 +105,8 @@ def upload():
             "error": "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
                      "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
         }), 500
+    finally:
+        db_log_verbinding_samenvatting()
 
 
 def _upload_impl():
@@ -160,7 +164,8 @@ def _dividend_niet_opslaan(transacties_df, rekening_df):
 def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
     df = vul_synthetische_order_ids_aan(df)
     with db_transactie() as cur:
-        code, bestaand, rows_to_insert = vind_of_maak_portfolio(cur, df, naam)
+        with meet_tijd("portfolio_zoeken_of_maken"):
+            code, bestaand, rows_to_insert = vind_of_maak_portfolio(cur, df, naam)
         if bestaand and herbepaal_alle_tickers:
             _herbepaal_tickers(code)
         voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
@@ -193,12 +198,16 @@ def _gekozen_bestand(veld):
 @app.route("/api/portfolio/<code>/bijwerken", methods=["POST"])
 def bijwerken(code):
     """Zelfde vangnet als /upload."""
+    db_reset_verbinding_teller()
     try:
-        return _bijwerken_impl(code.strip().upper())
+        with meet_tijd("bijwerken_totaal"):
+            return _bijwerken_impl(code.strip().upper())
     except Exception as e:
         print(f"[bijwerken] ONVERWACHTE FOUT: {e}")
         traceback.print_exc()
         return jsonify({"error": "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."}), 500
+    finally:
+        db_log_verbinding_samenvatting()
 
 
 def _bijwerken_impl(code):
@@ -220,7 +229,7 @@ def _bijwerken_impl(code):
             return jsonify({"error": str(e)}), 400
     nieuw = set(df["Order ID"]) if df is not None else set()
 
-    with db_transactie() as cur:
+    with meet_tijd("order_ids_ophalen"), db_transactie() as cur:
         opgeslagen = db_get_order_ids(cur, code)
         bij_andere_portfolios = db_get_order_ids_bij_andere_portfolios(cur, code, nieuw)
 

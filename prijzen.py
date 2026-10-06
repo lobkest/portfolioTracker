@@ -9,7 +9,7 @@ import yfinance as yf
 from flask import g, has_app_context
 
 from db import db_get_gecachte_koersen, db_get_ticker_details, db_save_koersen
-from debug_utils import dprint, meet_tijd
+from debug_utils import meet_tijd
 from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
 from split_correctie import ruwe_koers
 from yahoo_client import download_koersen_met_retry, _tel_yahoo_call
@@ -99,14 +99,11 @@ def _haal_valuta_op(t):
     try:
         _tel_yahoo_call("yf.Ticker.info(currency)")
         currency = yf.Ticker(t).info.get("currency")
-    except Exception as e:
-        print(f"[koersen] WARN {t}: valuta opvragen bij Yahoo mislukt ({e!a}) - "
-              f"koers NIET omgerekend, aanname EUR")
+    except Exception:
         meld(CATEGORIE_WISSELKOERSEN, LET_OP,
              f"Valuta van '{t}' niet op te halen bij Yahoo; aangenomen EUR (geen omrekening).", sleutel=t)
         return "EUR"
     if not currency:
-        print(f"[koersen] WARN {t}: Yahoo geeft geen valuta - koers NIET omgerekend, aanname EUR")
         meld(CATEGORIE_WISSELKOERSEN, LET_OP,
              f"Yahoo geeft geen valuta voor '{t}'; aangenomen EUR (geen omrekening).", sleutel=t)
         return "EUR"
@@ -116,8 +113,6 @@ def _haal_valuta_op(t):
 def _controleer_valuta(t, currency):
     """Een valuta zonder FX-paar telt mee alsof het EUR is, met een WARN."""
     if currency != "EUR" and currency not in FX_PAAR_PER_VALUTA:
-        print(f"[koersen] WARN {t}: valuta '{currency}' wordt niet ondersteund - "
-              f"koers NIET omgerekend, telt mee alsof het EUR is")
         meld(CATEGORIE_WISSELKOERSEN, LET_OP,
              f"Valuta {currency} van '{t}' wordt niet ondersteund; niet omgerekend, telt mee alsof het EUR is.",
              sleutel=t)
@@ -159,7 +154,7 @@ def _in_groepjes(lijst, grootte):
 
 def _download_ruwe_koersen_in_eur(tickers, vanaf, verversen):
     close, splits = download_koersen_met_retry(tickers, vanaf)
-    return _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen)
+    return _ruwe_koersen_in_eur(close, splits, tickers, verversen)
 
 
 @contextmanager
@@ -171,7 +166,7 @@ def _tel_tijd(tijden, sleutel):
         tijden[sleutel] = tijden.get(sleutel, 0.0) + time.perf_counter() - start
 
 
-def _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen, tijden=None):
+def _ruwe_koersen_in_eur(close, splits, tickers, verversen, tijden=None):
     """({ticker: Series met RUWE koersen in EUR}, {ticker: {iso_datum: ratio}}), alleen voor tickers waarvan
     Yahoo koersen én splits teruggaf; een ticker zonder splitlijst wordt niet opgeslagen (de koers zou onbetrouwbaar zijn)."""
     tijden = tijden if tijden is not None else {}
@@ -185,9 +180,6 @@ def _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen, tijden=None):
         # Pas ná het terugrekenen: een doorgetrokken koers is de laatste echte koers, nooit een ander moment.
         ruw = ruw.ffill()
     gelukt = list(ruw.columns)
-    for t in gelukt:
-        eerste_ruw = ruw[t].first_valid_index()
-        dprint(f"[koersen] '{t}': ruwe (niet-EUR-gecorrigeerde) data vanaf {eerste_ruw}, gevraagd vanaf {vanaf}")
     with _tel_tijd(tijden, "valuta_en_fx"):
         _converteer_naar_eur(ruw, gelukt, verversen=verversen)
     return ruw, {t: splits[t] for t in gelukt}
@@ -224,7 +216,6 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
     for t in tickers:
         if t not in datums_cache:
             missing.append(t)
-            dprint(f"[koersen] '{t}' nog niet in cache, wordt gedownload")
             continue
         eerste, laatste = datums_cache[t]
         # kleine marge voor weekenden/feestdagen rond de gevraagde startdatum
@@ -240,8 +231,6 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
         gesloten_en_compleet = t in gesloten_sinds and laatste > pd.Timestamp(gesloten_sinds[t]) + MARGE_GESLOTEN_POSITIE
         if not net_ververst and not gesloten_en_compleet:
             stale[t] = laatste
-            dprint(f"[koersen] '{t}' wordt ververst vanaf {laatste.date()} "
-                   f"(bij elke opening, tenzij <2 min geleden al ververst)")
 
     for t in tickers:
         _noteer_fx_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
@@ -285,11 +274,9 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
                   f"traagste {max(duren):.2f}s, samen {sum(duren):.2f}s")
 
             tijden = {}
-            for (t, vanaf), (close_t, splits_download) in zip(stale.items(), downloads):
-                ruw_t, splits_t = _ruwe_koersen_in_eur(close_t, splits_download, t, vanaf, verversen, tijden)
+            for t, (close_t, splits_download) in zip(stale, downloads):
+                ruw_t, splits_t = _ruwe_koersen_in_eur(close_t, splits_download, t, verversen, tijden)
                 if t not in ruw_t.columns or ruw_t[t].dropna().empty:
-                    dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
-                           f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")
                     continue
                 _noteer_fx_bron(t, FX_BRON_VERVERST)
                 _noteer_koers_bron(t, FX_BRON_VERVERST)
@@ -320,12 +307,6 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
     cached["datum"] = pd.to_datetime(cached["datum"])
     cached["koers_eur"] = cached["koers_eur"].astype(float)
     pivot = cached.pivot(index="datum", columns="ticker", values="koers_eur").sort_index().ffill()
-
-    for t in tickers:
-        if t not in pivot.columns:
-            continue
-        eerste_geldige = pivot[t].first_valid_index()
-        dprint(f"[koersen] {t}: eerste geldige koers op {eerste_geldige}, gevraagd vanaf {start_date}")
 
     _meld_koersen(tickers, set(pivot.columns) | set(onvolledig))
     pivot.attrs["koersen_onvolledig"] = onvolledig

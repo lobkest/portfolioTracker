@@ -207,35 +207,31 @@ class TestInsertMeldingen(_MetRequest):
         return self._in_request(uv._insert_nieuwe_transacties, _FakeCursor(uitkomsten), "ABC", rijen, tickers)
 
     def test_opgeslagen_en_genegeerd(self):
-        _, meldingen, uitvoer = self._insert([1, 1, 0])
+        _, meldingen, _ = self._insert([1, 1, 0])
         per = _per_sleutel(meldingen)
         self.assertEqual(per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN]["niveau"], GOED)
         self.assertEqual(per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN]["tekst"], "2 transacties opgeslagen.")
         self.assertEqual(per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD]["niveau"], INFO)
         self.assertTrue(per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD]["tekst"].startswith("1 transacties"))
         self.assertNotIn(uv.DIAGNOSTIEK_SLEUTEL_INSERT_MISLUKT, per)
-        self.assertNotIn("WARN", uitvoer)
 
     def test_python_fout_goed_plus_fout_zonder_rollback_zin(self):
-        _, meldingen, uitvoer = self._insert([1, KeyError("geheim detail")])
+        _, meldingen, _ = self._insert([1, KeyError("geheim detail")])
         per = _per_sleutel(meldingen)
         self.assertEqual(per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN]["niveau"], GOED)
         fout = per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_MISLUKT]
         self.assertEqual(fout["niveau"], FOUT)
         self.assertEqual(fout["tekst"], "1 transacties niet opgeslagen (eerste fout: KeyError).")
         self.assertNotIn("geheim detail", fout["tekst"])
-        self.assertIn("[upload] WARN 1 transactie(s) niet opgeslagen (eerste fout: KeyError)", uitvoer)
 
     def test_psycopg2_fout_alleen_fout_geen_goed(self):
-        _, meldingen, uitvoer = self._insert([1, 0, psycopg2.DatabaseError("x"), psycopg2.DatabaseError("y")])
+        _, meldingen, _ = self._insert([1, 0, psycopg2.DatabaseError("x"), psycopg2.DatabaseError("y")])
         per = _per_sleutel(meldingen)
         self.assertEqual(list(per), [uv.DIAGNOSTIEK_SLEUTEL_INSERT_MISLUKT])
         fout = per[uv.DIAGNOSTIEK_SLEUTEL_INSERT_MISLUKT]
         self.assertEqual(fout["niveau"], FOUT)
         self.assertIn("2 transacties niet opgeslagen (eerste fout: DatabaseError)", fout["tekst"])
         self.assertIn("kan de database de hele upload hebben teruggedraaid", fout["tekst"])
-        self.assertIn("[upload] WARN 2 transactie(s)", uitvoer)
-        self.assertTrue(uitvoer.isascii())
 
 
 class TestDividendMeldingen(_MetRequest):

@@ -72,7 +72,6 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
 
     if quote_type:
         is_etf = quote_type == "ETF"
-        dprint(f"[classify] '{ticker}': quoteType='{quote_type}' -> ETF={is_etf}")
     else:
         # quoteType onbekend/leeg -> heuristiek
         signals = [
@@ -92,7 +91,6 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
         try:
             _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
             category = yf.Ticker(ticker).funds_data.fund_overview.get("categoryName")
-            dprint(f"[classify] '{ticker}': category via funds_data.fund_overview -> {category}")
         except Exception as e:
             dprint(f"[classify] kon funds_data.fund_overview niet ophalen voor '{ticker}' "
                    f"(category-fallback): {e}")
@@ -115,7 +113,6 @@ def get_land_sector(ticker):
     cached = db_get_cached_land_sector([ticker])
     if ticker in cached:
         land, sector = cached[ticker]
-        dprint(f"[land-sector] '{ticker}': uit cache -> land={land}, sector={sector}")
         return (land or "Unknown", sector or "Unknown")
 
     info = _fetch_yf_info(ticker)
@@ -145,7 +142,6 @@ def get_etf_sector_verdeling(ticker):
     """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet)."""
     cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
-        dprint(f"[etf-sector] '{ticker}': uit cache -> {len(cached)} sectoren")
         return cached
 
     try:
@@ -171,7 +167,6 @@ def get_etf_holdings(ticker):
     if cached is not None:
         cached_bron = cached[0]["bron"] if cached else "yfinance_top10"
         if cached_bron == "provider_csv" or not heeft_provider_url:
-            dprint(f"[etf-holdings] '{ticker}': uit cache ({cached_bron}) -> {len(cached)} holdings")
             return cached
         dprint(f"[etf-holdings] '{ticker}': yfinance-top10-cache is nog vers, maar er is inmiddels "
                f"een provider-URL bekend -> alsnog proberen te upgraden naar de volledige lijst")
@@ -237,7 +232,6 @@ def classify_ticker(ticker):
     """True als Yahoo de ticker als ETF ziet. Bij een fout False, zonder te cachen."""
     cached = db_get_cached_classifications([ticker])
     if ticker in cached:
-        dprint(f"[classify] '{ticker}': uit cache -> ETF={cached[ticker]}")
         return cached[ticker]
 
     details = _classify_ticker_uncached(ticker)
@@ -287,7 +281,6 @@ def _ticker_details_met_cache(ticker):
     bestaand = db_get_ticker_details([ticker])
     details = bestaand.get(ticker)
     if details and (details.get("valuta") or details.get("quote_type")):
-        dprint(f"[prijscheck] '{ticker}': ticker_info-cache bruikbaar -> {details}")
         return details
 
     nieuw = _classify_ticker_uncached(ticker)

@@ -3,7 +3,6 @@ import pandas as pd
 import yfinance as yf
 
 from db import db_get_cached_splits, db_save_splits, db_get_cached_prijscheck, db_save_prijscheck
-from debug_utils import dprint
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
 from prijzen import FX_PAAR_PER_VALUTA, _fx_prijzen_serie
 from ticker_classificatie import _ticker_details_met_cache
@@ -77,7 +76,6 @@ def _haal_splits_op(ticker):
     """{iso_datum: ratio}; bij een fout leeg en niet gecachet."""
     cached = db_get_cached_splits(ticker)
     if cached is not None:
-        dprint(f"[splits] '{ticker}': uit cache -> {len(cached)} split(s)")
         return cached
     try:
         _tel_yahoo_call("yf.Ticker.splits")
@@ -124,7 +122,6 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
     cached = db_get_cached_prijscheck(ticker, datum)
     if cached is not None:
         yahoo_koers, valuta, high, low = cached
-        dprint(f"[prijscheck] '{ticker}' op {datum}: uit cache -> yahoo_koers={yahoo_koers}")
         if yahoo_koers is not None and high is None and low is None:
             # Rij zonder dagrange: alsnog aanvullen.
             high, low = _haal_dagrange_op(ticker, datum)
@@ -188,13 +185,6 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         niveau = "waarschuwing"
 
     toon_gecorrigeerd = split_factor != 1.0 or valuta_conversie_toegepast
-    dprint(
-        f"[prijscheck-debug] ticker={ticker} datum={datum} "
-        f"yahoo_koers={yahoo_koers} valuta={valuta} "
-        f"fx_koers={fx_koers} yahoo_koers_eur={yahoo_koers_eur:.4f} "
-        f"split_factor={split_factor} yahoo_koers_gecorrigeerd={yahoo_koers_gecorrigeerd:.4f} "
-        f"bekende_koers={bekende_koers} afwijking_pct={afwijking_pct:.2f} niveau={niveau}"
-    )
     return {
         "yahoo_koers": yahoo_koers,
         "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if toon_gecorrigeerd else None,

@@ -368,7 +368,6 @@ def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
     db_fout = isinstance(eerste_fout, psycopg2.Error)
     if mislukt:
         fout_type = type(eerste_fout).__name__
-        print(f"[upload] WARN {mislukt} transactie(s) niet opgeslagen (eerste fout: {fout_type})")
         tekst = f"{mislukt} transacties niet opgeslagen (eerste fout: {fout_type})."
         if db_fout:
             tekst += (" Na een databasefout kan de database de hele upload hebben teruggedraaid, "

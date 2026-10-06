@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from db import (
     db_get_ishares_fondsen, db_save_ishares_fondsen, db_get_etf_proxies, db_save_etf_proxy, db_get_ticker_details,
 )
-from debug_utils import dprint
 from etf_holdings_provider import fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina
 from portfolio_verdeling import bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT, EUROPESE_LANDEN
 from ticker_classificatie import get_etf_holdings
@@ -278,16 +277,10 @@ def _bepaal_proxy(ticker, holdings, categorie):
         vergelijking = vergelijk_top10(
             bron_top10, [{"naam": h["naam"], "ticker": h.get("ticker"), "gewicht_pct": h["gewicht"]} for h in kh])
         beoordelingen.append({"isin": kandidaat["isin"], "naam": kandidaat["naam"], **vergelijking})
-        dprint(f"[etf-proxy] '{ticker}' vs {kandidaat['naam']}: max {vergelijking['max_afwijking_pp']} pp, "
-               f"ontbrekend {vergelijking['ontbrekend']}")
 
     keuze = kies_proxy(beoordelingen)
     gekozen = keuze["gekozen"]
     proxy_land = land_uit_holdings(holdings_per_isin[gekozen["isin"]]) if gekozen else None
-    if gekozen:
-        print(f"[etf-proxy] OK '{ticker}': land via {gekozen['naam']} (max {gekozen['max_afwijking_pp']} pp)")
-    else:
-        print(f"[etf-proxy] '{ticker}': geen proxy ({keuze['reden']!a})")
     return _resultaat(keuze, len(kandidaten), proxy_land)
 
 

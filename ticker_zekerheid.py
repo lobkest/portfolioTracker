@@ -2,7 +2,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker
-from debug_utils import dprint
 from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
@@ -113,11 +112,6 @@ def _verzamel_extra_kandidaten(product, isin, bestaande_alternatieven, uitgeslot
             bekende_symbols.add(symbol)
             extra.append({"symbol": symbol, "exchange": q.get("exchange")})
 
-    dprint(
-        f"[alternatieven] '{product}' ({isin}): extra zoekopdracht (zonder beurs-beperking) "
-        f"vond {len(extra)} nieuwe kandidaat/kandidaten: "
-        f"{[(e['symbol'], e['exchange']) for e in extra]}"
-    )
     return extra
 
 
@@ -155,11 +149,6 @@ def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, i
             bekende_symbols.add(symbol)
             extra.append({"symbol": symbol, "exchange": q.get("exchange")})
 
-    dprint(
-        f"[alternatieven-openfigi] ISIN={isin}: {len(nieuwe_roots)} nieuwe OpenFIGI-root(s) "
-        f"{nieuwe_roots} doorzocht, {len(extra) - len(alternatieven_kandidaten)} nieuwe "
-        f"kandidaat/kandidaten gevonden."
-    )
     debug = {
         "roots": alle_roots,
         "nieuwe_roots": nieuwe_roots,
@@ -211,13 +200,6 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             "aantal_matches": sum(1 for m in alt_matches if m),
             "aantal_gecontroleerd": len(alt_matches),
         })
-
-        wordt_aanbevolen = aanbevolen_alternatief is None and alt_matches and all(alt_matches)
-        dprint(
-            f"[alternatieven-debug] alt_ticker={alt_ticker} exchange={alt.get('exchange')} "
-            f"land={alt_land} sector={alt_sector} valuta={alt_details.get('valuta')} "
-            f"alt_matches={alt_matches} wordt_aanbevolen={wordt_aanbevolen}"
-        )
 
         if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
             aanbevolen_alternatief = alt_ticker

@@ -208,7 +208,6 @@ def haal_openfigi_resultaten(isin):
             timeout=10,
         )
     except requests.exceptions.RequestException as e:
-        dprint(f"[openfigi] netwerkfout voor ISIN={isin}: {e}")
         return {"resultaten": [], "fout": f"OpenFIGI niet bereikbaar: {e}"}
 
     if response.status_code == 429:
