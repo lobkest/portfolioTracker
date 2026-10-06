@@ -27,10 +27,17 @@ uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt 
   per tabblad. Tabbladen: Portfolio-home, Rendement (met benchmark), Per
   aandeel, Per aandeel aankoop, Verdeling, Land, Sector, Valuta, Top-bedrijven,
   ETF-overlap, Statistieken, Transacties, Prognose,
-  Dividend en Instellingen (bijnamen, ticker-zekerheid, diagnostiek).
+  Dividend en Instellingen (code wijzigen/verwijderen, bestanden bijwerken,
+  bijnamen, ticker-zekerheid, diagnostiek).
+- **Bestanden bijwerken** (Instellingen): een nieuwere DeGiro-export toevoegen
+  aan een bestaande portfolio. Elk bestand wordt eerst gecontroleerd of het bij
+  die portfolio hoort.
 
 Elke positie wordt per (ISIN, beurs) aan een Yahoo-ticker gekoppeld en met
-een prijsvergelijking gecontroleerd; koersen worden gecachet in de database.
+een prijsvergelijking gecontroleerd (valt de DeGiro-prijs binnen Yahoo's
+dagrange?); koersen worden gecachet in de database. Van ETF's waarvan Yahoo
+alleen de top-10 kent, wordt het land benaderd via een iShares-ETF met
+dezelfde top-10.
 
 ## Tech stack
 
@@ -38,7 +45,7 @@ een prijsvergelijking gecontroleerd; koersen worden gecachet in de database.
 - **Database**: PostgreSQL bij Neon (Render heeft geen blijvend bestandssysteem)
 - **Data**: pandas + openpyxl (Excel), yfinance (koersen), yahooquery en
   OpenFIGI (ticker zoeken), pyxirr (XIRR), pycountry (land uit ISIN), en
-  holdings-bestanden van iShares en VanEck
+  holdings-bestanden van iShares en VanEck (plus de iShares-productscreener)
 - **Frontend**: Jinja-templates, vanilla JavaScript (geen framework, geen
   build-stap) en Chart.js met plugins
 - **Tests**: Python `unittest` en JavaScript via `node --test`; GitHub Actions
@@ -48,22 +55,28 @@ een prijsvergelijking gecontroleerd; koersen worden gecachet in de database.
 
 ```
 portfolioTracker/
-├── app.py                      → Flask-routes (+ orkestratie van de upload)
-├── portfolio_orchestratie.py   → bouwt de dashboard-respons op
+├── app.py                      → Flask-routes (+ orkestratie van upload en "bestanden bijwerken")
+├── portfolio_orchestratie.py   → bouwt de dashboard-respons op (kern + verrijking)
 ├── upload_verwerking.py        → taakfuncties achter de upload
-├── statistieken.py, portfolio_calc.py, split_correctie.py, portfolio_verdeling.py, dividend.py, naam_verkorting.py
-├── prijzen.py, yahoo_client.py, ticker_*.py, etf_holdings_provider.py
-├── db.py, portfolio_admin.py, transactie_utils.py, debug_utils.py
+├── statistieken.py, portfolio_calc.py, split_correctie.py → rendement, XIRR/TWR, tijdreeksen, splits
+├── portfolio_verdeling.py, dividend.py, naam_verkorting.py → verdeling/land/sector, dividend, korte namen
+├── prijzen.py, yahoo_client.py → koersen en valuta (Yahoo)
+├── ticker_matching.py, ticker_prijscheck.py, ticker_classificatie.py, ticker_zekerheid.py → ticker zoeken en controleren
+├── etf_holdings_provider.py, etf_proxy.py → ETF-holdings bij iShares/VanEck, land-proxy
+├── db.py                       → alle SQL (schema, opslag, caches)
+├── portfolio_admin.py, transactie_utils.py, debug_utils.py
 ├── diagnostiek.py, diagnostiek_checks.py → meldingen en checks voor Instellingen > Diagnostiek
+├── requirements.txt
 ├── templates/                  → basis.html (skelet), start.html, portfolio.html
 ├── static/
 │   ├── css/style.css
+│   ├── favicon/
 │   └── js/
 │       ├── start.js, app.js, gedeeld.js, infotip.js
-│       ├── navigatie.js, prognose.js, transacties.js, ...  → pure logica, getest
-│       ├── gedeeld/            → hulpfuncties voor de tabbladen (opmaak, grafiek, tabel)
+│       ├── navigatie.js, prognose.js, transacties.js, land_sector.js, ...  → pure logica, getest
+│       ├── gedeeld/            → hulpfuncties voor de tabbladen (opmaak, grafiek, tabel, tegels)
 │       └── tabs/               → één bestand per tabblad
-├── tests/                      → Python- en JS-tests
+├── tests/                      → Python-tests (tests/backend/) en JS-tests (tests/test_*.js)
 ├── docs/CODE_OVERZICHT.md      → uitgebreide leesgids (architectuur, flows, database)
 └── .github/workflows/tests.yml → CI
 ```
@@ -94,12 +107,10 @@ Starten met `python app.py` en openen op http://127.0.0.1:5000.
 
 **Tests**
 
-```
-node --test tests/test_*.js
-```
-
-De Python-tests draai je zonder database door `.env` tijdelijk te hernoemen
-(`set DATABASE_URL=` werkt in cmd niet: `.env` wordt dan alsnog ingelezen):
+GitHub Actions draait alle tests bij elke push; lokaal draaien hoeft dus niet.
+Wil je het toch: de Python-tests zonder database draai je door `.env` tijdelijk
+te hernoemen (`set DATABASE_URL=` werkt in cmd niet: `.env` wordt dan alsnog
+ingelezen):
 
 ```
 ren .env .env.bak
@@ -109,4 +120,6 @@ ren .env.bak .env
 
 Tests die een database nodig hebben, draaien alleen tegen een lokale
 database (localhost) en worden anders overgeslagen; de CI draait ze tegen een
-eigen wegwerp-Postgres.
+eigen wegwerp-Postgres. Het `node --test`-commando met alle JS-testbestanden
+(cmd vult `tests/test_*.js` niet zelf in) staat in
+[`docs/CODE_OVERZICHT.md`](docs/CODE_OVERZICHT.md), hoofdstuk 7.3.
