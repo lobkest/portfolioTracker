@@ -51,7 +51,7 @@ portfolioTracker/
 ├── app.py                      → Flask-routes (+ orkestratie van de upload)
 ├── portfolio_orchestratie.py   → bouwt de dashboard-respons op
 ├── upload_verwerking.py        → taakfuncties achter de upload
-├── statistieken.py, portfolio_calc.py, split_correctie.py, portfolio_verdeling.py, dividend.py
+├── statistieken.py, portfolio_calc.py, split_correctie.py, portfolio_verdeling.py, dividend.py, naam_verkorting.py
 ├── prijzen.py, yahoo_client.py, ticker_*.py, etf_holdings_provider.py
 ├── db.py, portfolio_admin.py, transactie_utils.py, debug_utils.py
 ├── diagnostiek.py, diagnostiek_checks.py → meldingen en checks voor Instellingen > Diagnostiek

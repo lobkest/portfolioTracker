@@ -985,6 +985,15 @@ body {
     overflow-wrap: anywhere;
 }
 
+.diagnostiekInhoud {
+    flex: 1;
+    min-width: 0;
+}
+
+.diagnostiekTabel {
+    margin-top: 6px;
+}
+
 .diagnostiekLijst .badge {
     margin-left: 0;
     min-width: 52px;

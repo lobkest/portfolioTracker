@@ -80,6 +80,25 @@ class TestMeld(unittest.TestCase):
             self.assertEqual(haal_meldingen()[0]["tekst"], "tekst")
             self.assertEqual(len(haal_meldingen()), 1)
 
+    def test_tabel_alleen_als_meegegeven(self):
+        tabel = {"kolommen": ["Bedrijf", "Weging"], "rijen": [["Apple", 5.0]]}
+        with self.app.test_request_context():
+            meld(CATEGORIE_WISSELKOERSEN, GOED, "zonder")
+            meld(CATEGORIE_WISSELKOERSEN, LET_OP, "met", tabel=tabel)
+            zonder, met = haal_meldingen()
+        self.assertNotIn("tabel", zonder)
+        self.assertEqual(met["tabel"], tabel)
+
+    def test_meld_opnieuw_speelt_tabel_terug(self):
+        tabel = {"kolommen": ["Bedrijf"], "rijen": [["Apple"]]}
+        with self.app.test_request_context():
+            voor = haal_meldingen()
+            meld(CATEGORIE_WISSELKOERSEN, LET_OP, "met", tabel=tabel)
+            snapshot = diagnostiek.meldingen_sinds(voor)
+        with self.app.test_request_context():
+            diagnostiek.meld_opnieuw(snapshot)
+            self.assertEqual(haal_meldingen()[0]["tabel"], tabel)
+
     def test_meldingen_sinds_en_meld_opnieuw(self):
         with self.app.test_request_context():
             meld(CATEGORIE_WISSELKOERSEN, GOED, "al bekend")

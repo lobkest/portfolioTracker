@@ -16,6 +16,31 @@ function voegDiagnostiekToe(data) {
     if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
 }
 
+function maakDiagnostiekTabel(tabel) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "tabelWrapper scrollbareTabel diagnostiekTabel";
+    const tabelEl = document.createElement("table");
+    tabelEl.className = "dataTabel";
+    const kopRij = document.createElement("tr");
+    tabel.kolommen.forEach(kolom => {
+        const th = document.createElement("th");
+        th.textContent = kolom;
+        kopRij.appendChild(th);
+    });
+    const thead = document.createElement("thead");
+    thead.appendChild(kopRij);
+    const tbody = document.createElement("tbody");
+    tabel.rijen.forEach(rij => {
+        const tr = document.createElement("tr");
+        rij.forEach(cel => tr.appendChild(maakCel(cel)));
+        tbody.appendChild(tr);
+    });
+    tabelEl.appendChild(thead);
+    tabelEl.appendChild(tbody);
+    wrapper.appendChild(tabelEl);
+    return wrapper;
+}
+
 // Teller bovenaan, daaronder per categorie een uitklapblok (standaard open bij LET_OP/FOUT).
 function toonDiagnostiek() {
     const teller = document.getElementById("diagnostiekTeller");
@@ -59,7 +84,16 @@ function toonDiagnostiek() {
             const tekst = document.createElement("span");
             tekst.textContent = melding.tekst;
             li.appendChild(badge);
-            li.appendChild(tekst);
+            const tabel = diagnostiekTabelRijen(melding.tabel);
+            if (tabel) {
+                const inhoud = document.createElement("div");
+                inhoud.className = "diagnostiekInhoud";
+                inhoud.appendChild(tekst);
+                inhoud.appendChild(maakDiagnostiekTabel(tabel));
+                li.appendChild(inhoud);
+            } else {
+                li.appendChild(tekst);
+            }
             ul.appendChild(li);
         });
         blok.appendChild(ul);

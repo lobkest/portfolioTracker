@@ -11,6 +11,9 @@ LAND_OVERIG_DREMPEL = 0.005
 # De staaf gebruikt bewust een andere "Overig" dan de taart (zie CLAUDE.md: Data en rekenen).
 LAND_STAAF_TOP_N = 10
 
+# Diagnostiek: boven dit percentage onbekend land per ETF een LET_OP-melding met de holdings.
+DREMPEL_ONBEKEND_LAND_PCT = 50
+
 # Synoniemen ("Czechia"/"Czech Republic") omdat Yahoo en pycountry verschillen.
 # Rusland en Turkije bewust niet: Emerging Markets.
 EUROPESE_LANDEN = frozenset({
@@ -309,6 +312,32 @@ def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE
     if europa_per_bron:
         resultaat["Europe"] = europa_per_bron
     return resultaat
+
+
+def _is_bekend(waarde):
+    return bool(waarde) and waarde != "Unknown"
+
+
+def bereken_land_dekking(holdings):
+    """holdings: [{naam, gewicht (fractie 0-1), land, sector}] van één ETF. Geeft
+    {onbekend_pct, dekking_pct, rijen: [[naam, gewicht_pct, land, sector], ...]}, zwaarste eerst,
+    met een restrij "Niet in holdingsdata" als de gewichten samen onder 100% blijven."""
+    gesorteerd = sorted(holdings or [], key=lambda h: h.get("gewicht") or 0.0, reverse=True)
+    rijen = []
+    dekking_pct = 0.0
+    bekend_pct = 0.0
+    for h in gesorteerd:
+        gewicht_pct = float(h.get("gewicht") or 0.0) * 100
+        land = h.get("land") if _is_bekend(h.get("land")) else "Unknown"
+        sector = h.get("sector") if _is_bekend(h.get("sector")) else "Unknown"
+        rijen.append([h.get("naam"), gewicht_pct, land, sector])
+        dekking_pct += gewicht_pct
+        if land != "Unknown":
+            bekend_pct += gewicht_pct
+    restant_pct = 100 - dekking_pct
+    if restant_pct > 1e-9:
+        rijen.append(["Niet in holdingsdata", restant_pct, "–", "–"])
+    return {"onbekend_pct": max(0.0, 100 - bekend_pct), "dekking_pct": dekking_pct, "rijen": rijen}
 
 
 def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):

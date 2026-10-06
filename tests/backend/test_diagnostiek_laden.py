@@ -310,8 +310,10 @@ class TestEtfHoldingsMeldingen(_MetRequest):
             "TOP.AS": {"land": {"US": 0.5, "Unknown": 0.5}, "land_bron": "yfinance_top10"},
             "LEEG.AS": {"land": {"Unknown": 1.0}, "land_bron": "yfinance_top10"},
         }}
-        _, meldingen, _ = self._in_request(po._meld_etf_holdings, land_sector)
+        with patch.object(po, "get_etf_holdings_uit_cache", return_value=[]):
+            _, meldingen, _ = self._in_request(po._meld_etf_holdings, land_sector)
         per = _per_sleutel(meldingen)
+        self.assertEqual(per.pop("etf_land_onbekend:LEEG.AS")["niveau"], LET_OP)
         self.assertEqual({k: v["niveau"] for k, v in per.items()},
                          {"etf:VOL.AS": GOED, "etf:TOP.AS": INFO, "etf:LEEG.AS": LET_OP})
         self.assertTrue(all(m["categorie"] == CATEGORIE_ETF_HOLDINGS for m in meldingen))
@@ -321,6 +323,40 @@ class TestEtfHoldingsMeldingen(_MetRequest):
     def test_lege_invoer(self):
         _, meldingen, _ = self._in_request(po._meld_etf_holdings, {})
         self.assertEqual(meldingen, [])
+
+    def _onbekend_meldingen(self, land, holdings, ticker_namen=None):
+        land_sector = {"per_etf": {"VWRA.L": {"land": land, "land_bron": "yfinance_top10"}}}
+        with patch.object(po, "get_etf_holdings_uit_cache", return_value=holdings) as cache:
+            _, meldingen, _ = self._in_request(po._meld_etf_holdings, land_sector, ticker_namen)
+        return [m for m in meldingen if m["sleutel"] == "etf_land_onbekend:VWRA.L"], cache
+
+    def test_veel_onbekend_land_let_op_met_tabel(self):
+        holdings = [{"naam": "Apple", "gewicht": 0.15, "land": "United States", "sector": "Technology"},
+                    {"naam": "Cash", "gewicht": 0.05, "land": None, "sector": None}]
+        meldingen, _ = self._onbekend_meldingen({"United States": 0.15, "Unknown": 0.85}, holdings,
+                                                {"VWRA.L": "FTSE All-World"})
+        self.assertEqual(len(meldingen), 1)
+        self.assertEqual(meldingen[0]["niveau"], LET_OP)
+        self.assertEqual(meldingen[0]["tekst"],
+                         "FTSE All-World: 85,0% van het land onbekend (bron: yfinance_top10, dekking 20,0%)")
+        self.assertEqual(meldingen[0]["tabel"], {
+            "kolommen": ["Bedrijf", "Weging", "Land", "Sector"],
+            "rijen": [["Apple", 15.0, "United States", "Technology"], ["Cash", 5.0, "Unknown", "Unknown"],
+                      ["Niet in holdingsdata", 80.0, "–", "–"]],
+        })
+
+    def test_precies_op_drempel_geen_melding(self):
+        holdings = [{"naam": "A", "gewicht": 0.5, "land": "Japan", "sector": None}]
+        meldingen, cache = self._onbekend_meldingen({"Japan": 0.5, "Unknown": 0.5}, holdings)
+        self.assertEqual(meldingen, [])
+        cache.assert_not_called()
+
+    def test_cache_fout_geen_crash(self):
+        land_sector = {"per_etf": {"X.AS": {"land": {"Unknown": 1.0}, "land_bron": "yfinance_top10"}}}
+        with patch.object(po, "get_etf_holdings_uit_cache", side_effect=RuntimeError("geen db")):
+            _, meldingen, uitvoer = self._in_request(po._meld_etf_holdings, land_sector)
+        self.assertIn("WARN", uitvoer)
+        self.assertIn("etf_land_onbekend:X.AS", _per_sleutel(meldingen))
 
 
 # Kolomvolgorde zoals de SELECT in _haal_portfolio_basis().

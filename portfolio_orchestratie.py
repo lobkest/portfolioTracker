@@ -39,9 +39,11 @@ from statistieken import bereken_statistieken
 from portfolio_verdeling import (
     compute_land_sector_verdeling, compute_valuta_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
-    bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX,
+    bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX, bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT,
 )
-from ticker_classificatie import classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names
+from ticker_classificatie import (
+    classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, get_etf_holdings_uit_cache,
+)
 from naam_verkorting import kies_korte_namen
 
 
@@ -230,7 +232,30 @@ def _meld_koersdekking(transacties_df, price_data):
         print(f"[diagnostiek] WARN koersstilstand niet gecontroleerd ({e!a})")
 
 
-def _meld_etf_holdings(land_sector_verdeling):
+def _pct_nl(waarde):
+    return f"{waarde:.1f}".replace(".", ",")
+
+
+def _meld_etf_onbekend_land(ticker, info, naam):
+    """Alleen-cache (geen Yahoo): de holdings staan er net in via compute_land_sector_verdeling()."""
+    if (info.get("land") or {}).get("Unknown", 0.0) * 100 <= DREMPEL_ONBEKEND_LAND_PCT:
+        return
+    try:
+        holdings = get_etf_holdings_uit_cache(ticker)
+    except Exception as e:
+        print(f"[diagnostiek] WARN holdings van '{ticker}' niet uit de cache ({e!a})")
+        holdings = []
+    dekking = bereken_land_dekking(holdings)
+    if dekking["onbekend_pct"] <= DREMPEL_ONBEKEND_LAND_PCT:
+        return
+    meld(CATEGORIE_ETF_HOLDINGS, LET_OP,
+         f"{naam}: {_pct_nl(dekking['onbekend_pct'])}% van het land onbekend "
+         f"(bron: {info.get('land_bron')}, dekking {_pct_nl(dekking['dekking_pct'])}%)",
+         sleutel=f"etf_land_onbekend:{ticker}",
+         tabel={"kolommen": ["Bedrijf", "Weging", "Land", "Sector"], "rijen": dekking["rijen"]})
+
+
+def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None):
     """Meldt per ETF de holdings-bron. Zonder holdings is land_bron toch yfinance_top10, met land 100% Unknown."""
     for ticker, info in (land_sector_verdeling or {}).get("per_etf", {}).items():
         land = info.get("land") or {}
@@ -242,6 +267,7 @@ def _meld_etf_holdings(land_sector_verdeling):
             niveau, tekst = INFO, ("alleen de top-10 holdings via Yahoo; top-bedrijven en ETF-overlap zijn voor "
                                    "deze ETF onvolledig.")
         meld(CATEGORIE_ETF_HOLDINGS, niveau, f"'{ticker}': {tekst}", sleutel=f"etf:{ticker}")
+        _meld_etf_onbekend_land(ticker, info, (ticker_namen or {}).get(ticker, ticker))
 
 
 def _wis_portfolio_basis_cache(code):
@@ -484,7 +510,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
         with meet_tijd("verrijking_etf_overlap"):
             etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)
-    _meld_etf_holdings(land_sector_verdeling)
+    _meld_etf_holdings(land_sector_verdeling, ticker_namen)
 
     verdeling = []
     for ticker, aantal in huidige_holdings.items():

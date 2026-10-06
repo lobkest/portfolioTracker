@@ -55,8 +55,9 @@ def _verzameling():
     return lijst
 
 
-def meld(categorie, niveau, tekst, sleutel=None):
-    """Zelfde (categorie, sleutel) vervangt de eerdere melding op dezelfde plek. Gooit nooit een exception."""
+def meld(categorie, niveau, tekst, sleutel=None, tabel=None):
+    """Zelfde (categorie, sleutel) vervangt de eerdere melding op dezelfde plek. Gooit nooit een exception.
+    tabel: optioneel {"kolommen": [...], "rijen": [[...], ...]}, getoond onder de tekst."""
     try:
         verzameling = _verzameling()
         if verzameling is None:
@@ -66,6 +67,8 @@ def meld(categorie, niveau, tekst, sleutel=None):
         if sleutel is None:
             sleutel = tekst
         nieuw = {"categorie": categorie, "niveau": niveau, "tekst": tekst, "sleutel": sleutel}
+        if tabel is not None:
+            nieuw["tabel"] = tabel
         for i, bestaand in enumerate(verzameling):
             if bestaand["categorie"] == categorie and bestaand["sleutel"] == sleutel:
                 verzameling[i] = nieuw
@@ -90,7 +93,7 @@ def meldingen_sinds(eerder):
 
 def meld_opnieuw(meldingen):
     for m in meldingen or []:
-        meld(m.get("categorie"), m.get("niveau"), m.get("tekst"), m.get("sleutel"))
+        meld(m.get("categorie"), m.get("niveau"), m.get("tekst"), m.get("sleutel"), tabel=m.get("tabel"))
 
 
 def meld_laadtijd(label, duur_seconden):

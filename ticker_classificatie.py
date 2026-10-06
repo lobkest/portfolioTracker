@@ -216,6 +216,23 @@ def get_etf_holdings(ticker):
     return holdings
 
 
+def get_etf_holdings_uit_cache(ticker):
+    """[{naam, gewicht (0-1), land, sector}] alleen uit de cache, nooit Yahoo; sector via
+    ticker_land_sector (etf_holdings heeft geen sectorkolom), anders None."""
+    holdings = db_get_cached_etf_holdings(ticker) or []
+    holding_tickers = [h["holding_ticker"] for h in holdings if h.get("holding_ticker")]
+    land_sector = db_get_cached_land_sector(holding_tickers)
+    return [
+        {
+            "naam": h["holding_naam"],
+            "gewicht": h["gewicht"],
+            "land": h.get("land"),
+            "sector": land_sector.get(h.get("holding_ticker"), (None, None))[1],
+        }
+        for h in holdings
+    ]
+
+
 def classify_ticker(ticker):
     """True als Yahoo de ticker als ETF ziet. Bij een fout False, zonder te cachen."""
     cached = db_get_cached_classifications([ticker])

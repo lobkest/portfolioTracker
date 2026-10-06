@@ -7,7 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
-    hoogsteNiveau, categorieStandaardOpen,
+    hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
 } = require("../static/js/diagnostiek.js");
 
 const m = (categorie, niveau, tekst, sleutel = tekst) => ({ categorie, niveau, tekst, sleutel });
@@ -88,4 +88,21 @@ test("categorieStandaardOpen: open bij LET_OP/FOUT, dicht bij alleen GOED/INFO",
     assert.equal(categorieStandaardOpen([m("W", "GOED", "a"), m("W", "LET_OP", "b")]), true);
     assert.equal(categorieStandaardOpen([m("W", "FOUT", "a")]), true);
     assert.equal(categorieStandaardOpen([]), false);
+});
+
+test("diagnostiekTabelRijen: weging als % met 1 decimaal, rest als tekst", () => {
+    const tabel = {
+        kolommen: ["Bedrijf", "Weging", "Land", "Sector"],
+        rijen: [["Apple", 4.567, "United States", "Technology"], ["Niet in holdingsdata", 76.25, "–", "–"]],
+    };
+    assert.deepEqual(diagnostiekTabelRijen(tabel), {
+        kolommen: ["Bedrijf", "Weging", "Land", "Sector"],
+        rijen: [["Apple", "4,6%", "United States", "Technology"], ["Niet in holdingsdata", "76,3%", "–", "–"]],
+    });
+});
+
+test("diagnostiekTabelRijen: zonder tabel of rijen null; null-cel wordt leeg", () => {
+    assert.equal(diagnostiekTabelRijen(undefined), null);
+    assert.equal(diagnostiekTabelRijen({ kolommen: ["Bedrijf"], rijen: [] }), null);
+    assert.deepEqual(diagnostiekTabelRijen({ kolommen: ["Bedrijf"], rijen: [[null]] }).rijen, [[""]]);
 });

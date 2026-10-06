@@ -88,10 +88,22 @@
             .join(", ");
     }
 
+    // Cellen als tekst; de kolom "Weging" (getal in %) met 1 decimaal, bv. "76,3%". null zonder rijen.
+    function diagnostiekTabelRijen(tabel) {
+        if (!tabel || !Array.isArray(tabel.rijen) || tabel.rijen.length === 0) return null;
+        const kolommen = tabel.kolommen || [];
+        const wegingIndex = kolommen.indexOf("Weging");
+        const rijen = tabel.rijen.map(rij => rij.map((cel, i) => {
+            if (i === wegingIndex && typeof cel === "number") return `${cel.toFixed(1).replace(".", ",")}%`;
+            return cel === null || cel === undefined ? "" : String(cel);
+        }));
+        return { kolommen, rijen };
+    }
+
     const exportsObj = {
         DIAGNOSTIEK_NIVEAU_LABEL,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
-        hoogsteNiveau, categorieStandaardOpen,
+        hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
     };
 
     if (typeof module !== "undefined" && module.exports) {
