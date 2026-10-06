@@ -23,6 +23,7 @@ from yahoo_client import (
 from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
 from dividend import (
     bereken_dividend_samenvatting, bouw_dividend_samenvatting, lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df,
+    bereken_kassaldo,
 )
 from transactie_utils import transacties_overzicht_uit_df
 from portfolio_admin import (
@@ -33,6 +34,7 @@ from upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
     bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
     voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
+    sla_kassaldo_op,
     meld_portfolio_opslaan,
 )
 from portfolio_orchestratie import (
@@ -143,7 +145,8 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
     ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = ticker_resolutie_niet_opslaan(df)
     product_per_ticker = bepaal_product_per_ticker(df, ticker_by_isin_beurs)
     transacties_df = bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
-    result = analyze_transacties(transacties_df, code=None, naam=naam or None)
+    kassaldo = bereken_kassaldo(rekening_df) if rekening_df is not None else None
+    result = analyze_transacties(transacties_df, code=None, naam=naam or None, kassaldo=kassaldo)
     meld_valuta_consistentie(df, ticker_by_isin_beurs)
     result["ticker_zekerheid"] = ticker_zekerheid
     result["ticker_posities_ruw"] = ticker_posities_ruw
@@ -174,6 +177,7 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
         voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
         if rekening_df is not None:
             sla_dividend_bestand_op(cur, code, rekening_df)
+            sla_kassaldo_op(cur, code, rekening_df)
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         _meld_valuta_na_opslaan(df, code)
@@ -262,6 +266,7 @@ def _bijwerken_impl(code):
             voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers=False)
             if rekening_df is not None:
                 sla_dividend_bestand_op(cur, code, rekening_df)
+                sla_kassaldo_op(cur, code, rekening_df)
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         if df is not None:

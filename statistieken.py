@@ -334,8 +334,19 @@ def bereken_totale_transactiekosten(transacties_df):
     return {"totaal": round(abs(float(kosten.sum())), 2), "beschikbaar": True}
 
 
+def bereken_totaal_degiro(waarde, kassaldo, eerste_transactiedatum, laatste_transactiedatum):
+    """Waarde + cash − netto gestort, zoals DeGiro's totaal. None als het rekeningoverzicht niet alle
+    transacties dekt: dan ontbreken stortingen of aankopen en klopt het verschil niet."""
+    if not kassaldo or not kassaldo["vanaf_opening"]:
+        return None
+    if (pd.Timestamp(kassaldo["eerste_datum"]) > pd.Timestamp(eerste_transactiedatum)
+            or pd.Timestamp(kassaldo["per_datum"]) < pd.Timestamp(laatste_transactiedatum)):
+        return None
+    return round(waarde + kassaldo["saldo_eur"] - kassaldo["netto_gestort_eur"], 2)
+
+
 def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None,
-                         dividend_totaal_netto=None):
+                         dividend_totaal_netto=None, kassaldo=None):
     """Alles voor het Statistieken-tabblad, zonder extra Yahoo-calls.
     Huidige aantallen uit de ruwe 'aantal'-kolom (zie CLAUDE.md: Data en rekenen)."""
     dividend_per_ticker = dividend_per_ticker or {}
@@ -456,8 +467,12 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "transactiekosten_beschikbaar": kosten_info["beschikbaar"],
             # None = geen rekeningoverzicht; los van rendement_eur, dat is exclusief dividend.
             "dividend_netto": dividend_totaal_netto,
-            "rendement_incl_dividend_eur": (
-                round(totaal["rendement_eur"] + dividend_totaal_netto, 2) if dividend_totaal_netto is not None else None
+            "kassaldo_eur": kassaldo["saldo_eur"] if kassaldo else None,
+            "kassaldo_per_datum": kassaldo["per_datum"].isoformat() if kassaldo else None,
+            "totaal_degiro_eur": (
+                bereken_totaal_degiro(totaal_waarde, kassaldo,
+                                      transacties_df["datum"].min(), transacties_df["datum"].max())
+                if not transacties_df.empty else None
             ),
         },
         "jaren": jaren,

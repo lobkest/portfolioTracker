@@ -197,6 +197,30 @@ def lees_rekeningoverzicht(file_object):
     return df
 
 
+STORTING_TREFWOORDEN = ("ideal", "storting", "deposit", "withdrawal", "opname")
+
+
+def bereken_kassaldo(df):
+    """EUR-cash uit een ingelezen rekeningoverzicht; None zonder EUR-rijen.
+    {saldo_eur, netto_gestort_eur, eerste_datum, per_datum, vanaf_opening}"""
+    # zie CLAUDE.md: DeGiro-bestanden (flatex-sweeps)
+    eur = df[(df["valuta_mutatie"] == "EUR")
+             & ~df["Omschrijving"].str.contains("Cash Sweep", case=False, na=False)].iloc[::-1]
+    if eur.empty:
+        return None
+    mutaties = eur["mutatie"].fillna(0.0)
+    beginsaldi = (pd.to_numeric(eur["saldo"], errors="coerce") - mutaties.cumsum()).round(2).dropna()
+    beginsaldo = float(beginsaldi.mode().iloc[0]) if not beginsaldi.empty else 0.0
+    is_storting = eur["Omschrijving"].str.lower().str.contains("|".join(STORTING_TREFWOORDEN), na=False)
+    return {
+        "saldo_eur": round(beginsaldo + float(mutaties.sum()), 2),
+        "netto_gestort_eur": round(float(mutaties[is_storting].sum()), 2),
+        "eerste_datum": eur["Datum"].min().date(),
+        "per_datum": eur["Datum"].max().date(),
+        "vanaf_opening": abs(beginsaldo) < 0.01,
+    }
+
+
 def order_ids_uit_rekeningoverzicht_df(df):
     if ORDER_ID_KOLOM_REKENING not in df.columns:
         return set()

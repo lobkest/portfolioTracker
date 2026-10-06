@@ -30,11 +30,18 @@ function maakTotalenSectie(totalen) {
         rij.appendChild(maakStatTegel("Ontvangen dividend (netto)", formatteerEuro(totalen.dividend_netto)));
     }
 
-    if (totalen.rendement_incl_dividend_eur !== null && totalen.rendement_incl_dividend_eur !== undefined) {
+    if (totalen.kassaldo_eur !== null && totalen.kassaldo_eur !== undefined) {
         rij.appendChild(maakStatTegel(
-            "Totaal incl. dividend (wat DeGiro laat zien)",
-            formatteerEuro(totalen.rendement_incl_dividend_eur),
-            klasseVoorRendement(totalen.rendement_incl_dividend_eur)
+            `Vrije ruimte (cash, per ${formatDatum(totalen.kassaldo_per_datum)})`,
+            formatteerEuro(totalen.kassaldo_eur)
+        ));
+    }
+
+    if (totalen.totaal_degiro_eur !== null && totalen.totaal_degiro_eur !== undefined) {
+        rij.appendChild(maakStatTegel(
+            "Totaal (rendement + dividend + cash) (wat DeGiro laat zien)",
+            formatteerEuro(totalen.totaal_degiro_eur),
+            klasseVoorRendement(totalen.totaal_degiro_eur)
         ));
     }
 

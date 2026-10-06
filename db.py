@@ -268,6 +268,16 @@ def db_init():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS kassaldo (
+            code TEXT PRIMARY KEY,
+            saldo_eur NUMERIC NOT NULL,
+            netto_gestort_eur NUMERIC NOT NULL,
+            eerste_datum DATE NOT NULL,
+            per_datum DATE NOT NULL,
+            vanaf_opening BOOLEAN NOT NULL
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS ishares_fondsen (
             portfolio_id TEXT PRIMARY KEY,
             isin TEXT NOT NULL,
@@ -624,6 +634,7 @@ def db_delete_portfolio(code):
     cur = conn.cursor()
     cur.execute("DELETE FROM transacties WHERE code = %s", (code,))
     cur.execute("DELETE FROM dividenden WHERE code = %s", (code,))
+    cur.execute("DELETE FROM kassaldo WHERE code = %s", (code,))
     cur.execute("DELETE FROM portfolios WHERE code = %s", (code,))
     conn.commit()
     cur.close()
@@ -652,6 +663,7 @@ def db_wijzig_portfolio_code(oude_code, nieuwe_code):
 
         cur.execute("UPDATE transacties SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE dividenden SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
+        cur.execute("UPDATE kassaldo SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (oude_code,))
         conn.commit()
         return True, None
@@ -678,6 +690,37 @@ def db_save_dividenden(cur, code, records):
             for r in records
         ],
     )
+
+
+def db_save_kassaldo(cur, code, kassaldo):
+    cur.execute(
+        "INSERT INTO kassaldo (code, saldo_eur, netto_gestort_eur, eerste_datum, per_datum, vanaf_opening) "
+        "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (code) DO UPDATE SET "
+        "saldo_eur = EXCLUDED.saldo_eur, netto_gestort_eur = EXCLUDED.netto_gestort_eur, "
+        "eerste_datum = EXCLUDED.eerste_datum, per_datum = EXCLUDED.per_datum, "
+        "vanaf_opening = EXCLUDED.vanaf_opening",
+        (code, kassaldo["saldo_eur"], kassaldo["netto_gestort_eur"], kassaldo["eerste_datum"],
+         kassaldo["per_datum"], kassaldo["vanaf_opening"]),
+    )
+
+
+def db_get_kassaldo(code):
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT saldo_eur, netto_gestort_eur, eerste_datum, per_datum, vanaf_opening FROM kassaldo WHERE code = %s",
+        (code,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        return None
+    saldo, netto_gestort, eerste_datum, per_datum, vanaf_opening = row
+    return {
+        "saldo_eur": float(saldo), "netto_gestort_eur": float(netto_gestort),
+        "eerste_datum": eerste_datum, "per_datum": per_datum, "vanaf_opening": bool(vanaf_opening),
+    }
 
 
 def db_get_dividenden(code):

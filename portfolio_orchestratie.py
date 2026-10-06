@@ -13,7 +13,7 @@ except ImportError:
 from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
     db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
-    db_get_cached_openfigi_voor_isins,
+    db_get_cached_openfigi_voor_isins, db_get_kassaldo,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
@@ -431,8 +431,9 @@ def build_portfolio_response(code, verversen=True):
     return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
 
 
-def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None):
-    """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn."""
+def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None, kassaldo=None):
+    """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. `kassaldo` alleen bij 'niet opslaan';
+    met een code komt hij uit de database."""
     mem_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
@@ -500,6 +501,8 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     # Bij 'niet opslaan' is code None: geen dividendhistorie.
     with meet_tijd("dividend_samenvatting"):
         dividend_data = bereken_dividend_samenvatting(code) if code else None
+    if code:
+        kassaldo = db_get_kassaldo(code)
     dividend_per_ticker = (
         {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
         if dividend_data else {}
@@ -509,6 +512,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             transacties_df, price_data, resultaat,
             dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
             dividend_totaal_netto=dividend_data["totaal_netto"] if dividend_data else None,
+            kassaldo=kassaldo,
         )
 
     return {
@@ -619,10 +623,10 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
     }
 
 
-def analyze_transacties(transacties_df, code, naam):
+def analyze_transacties(transacties_df, code, naam, kassaldo=None):
     """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking).
     Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout)."""
-    resultaat = analyze_transacties_kern(transacties_df, code, naam)
+    resultaat = analyze_transacties_kern(transacties_df, code, naam, kassaldo=kassaldo)
     if resultaat.get("chart_data") is None:
         return resultaat
     resultaat.update(analyze_transacties_verrijking(transacties_df, code, gebruik_proxy=False))

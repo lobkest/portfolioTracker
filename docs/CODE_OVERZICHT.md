@@ -267,13 +267,13 @@ app.js: toonDashboard(data)
 |---|---|---|---|
 | A1 | `upload_verwerking.py` → `ticker_resolutie_niet_opslaan(df)` | `_bouw_posities(df)` groepeert `df` per **(ISIN, Beurs)**. Per groep een tuple `(productnaam, isin, beurs, [{datum, koers}, ...])`. Roept `basis_ticker_zekerheid_parallel()` aan (12 threads) → per positie `find_ticker_met_snelle_prijscheck()`. | `df` → `(ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)`: een dict `{(isin, beurs): ticker}` plus twee lijsten van dicts |
 | A2 | `upload_verwerking.py` → `bouw_transacties_df_niet_opslaan()` | Bouwt een DataFrame met **dezelfde kolommen als wat normaal uit de database komt** (`datum`, `product`, `isin`, `beurs`, `ticker`, `aantal`, `koers`, `totaal_eur`, `echte_naam`, `transactiekosten`, `waarde_eur`, `tijd`, `wisselkoers`). Zo hoeft de analysecode niet te weten waar de data vandaan komt. | `df` + dict → **`transacties_df`** |
-| A3 | `portfolio_orchestratie.py` → `analyze_transacties(transacties_df, code=None, naam)` | Doet **kern én verrijking** achter elkaar (zie 2.4). `code=None`, dus geen dividend uit de database; de verrijking draait met `gebruik_proxy=False` (geen ETF-land-proxy, zie `etf_proxy.py`). | `transacties_df` → dict |
+| A3 | `portfolio_orchestratie.py` → `analyze_transacties(transacties_df, code=None, naam, kassaldo)` | Doet **kern én verrijking** achter elkaar (zie 2.4). `code=None`, dus geen dividend uit de database; het kassaldo komt wel mee: `_analyseer_zonder_opslaan()` berekent het vooraf met `bereken_kassaldo(rekening_df)` (`None` zonder bestand 2). De verrijking draait met `gebruik_proxy=False` (geen ETF-land-proxy, zie `etf_proxy.py`). | `transacties_df` → dict |
 | A4 | `app.py` → `_analyseer_zonder_opslaan()` | Voegt `ticker_zekerheid`, `ticker_posities_ruw`, `transacties_lijst` (`transacties_overzicht_uit_df()`) en `dividend` (`_dividend_niet_opslaan(transacties_df, rekening_df)`: het al ingelezen rekeningoverzicht via `verwerk_dividend_zonder_opslaan(rekening_df)`, daarna `bouw_dividend_samenvatting()`; `{"beschikbaar": False}` zonder bestand 2) aan het dict toe. | dict → (in `_upload_impl()`) JSON |
 
 Gevolgen van deze tak (allemaal zichtbaar in de code):
 
 - Er worden **geen Order ID's** bepaald, niets naar Postgres geschreven, en er is **geen code**.
-- `bestand2` (rekeningoverzicht) wordt wel verwerkt, maar niet opgeslagen: `_dividend_niet_opslaan()` (zie A4). Transacties en Dividend lezen `transacties_lijst` en `dividend` uit het antwoord in plaats van een fetch.
+- `bestand2` (rekeningoverzicht) wordt wel verwerkt, maar niet opgeslagen: `_dividend_niet_opslaan()` (zie A4) en het kassaldo (zie A3). Transacties en Dividend lezen `transacties_lijst` en `dividend` uit het antwoord in plaats van een fetch.
 - De frontend verbergt alleen de tabbladen die de database nodig hebben (Algemeen, Bestanden bijwerken en Bijnamen, `VIEWS_MET_CODE`, zie 5.3).
 - De dure, prijs-geverifieerde ticker-check draait hier bewust **niet** mee; de frontend kan die later los aanvragen via `POST /api/ticker-zekerheid-check` (zie [hoofdstuk 5](#5-frontend)). Reden (uit de commentaren): een groter portfolio met koude cache liep anders over de gunicorn-timeout.
 - Om dezelfde reden geen ETF-land-proxy: die zoektocht (iShares-screener + holdings-CSV's) kost met een koude cache ~9 s binnen `/upload`. Land komt dan uit de eigen top-10 van Yahoo.
@@ -287,8 +287,8 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 | B3 | `upload_verwerking.py` → `vind_of_maak_portfolio(cur, df, naam)` | Roept `find_matching_code()` (in `portfolio_admin.py`) aan. Die haalt via `db_get_order_id_sets_met_overlap()` alleen de Order ID-sets op van portfolio's die minstens één Order ID met deze upload delen, en vergelijkt die met de set van de upload. Is een bestaande set een deelverzameling van de nieuwe → dat is een update van hetzelfde portfolio (de ontbrekende ID's zijn de nieuwe rijen). Is de nieuwe set een deelverzameling van de bestaande → niets nieuws. Geen match → `generate_code(cur)` maakt een nieuwe, nog niet gebruikte 3-letter-code en er komt een rij in `portfolios`. Bij een match en een ingevulde `naam` wordt de naam bijgewerkt. Daarna meldt `meld_portfolio_opslaan()` de datakwaliteit van de nieuwe rijen (zie Diagnostiek). | `df` → `(code, bestaand, rows_to_insert)`; `bestaand` is een bool |
 | B4 | `app.py` → `_herbepaal_tickers(code)` | Alleen bij een **bestaande** code én het vinkje "opnieuw bepalen": `backfill_verouderde_tickers(code)` herbeoordeelt de opgeslagen tickers (overschrijft alleen door een kandidaat zónder prijsprobleem) en `db_wis_etf_proxies_voor_portfolio(code)` wist de opgeslagen ETF-land-proxy's. Ophalen met code (2.7) gebruikt dezelfde functie. | |
 | B5 | `upload_verwerking.py` → `voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)` | Doet niets als er geen nieuwe rijen zijn. Anders drie stappen, elk met een `meet_tijd()`: **(a)** `_ticker_resolutie_opslaan()`: alleen de **nieuwe** rijen, gegroepeerd met `_bouw_posities()`. Haalt (tenzij het vinkje aan staat) de al bekende tickers van deze code op als `bekende_tickers`, zodat de dure yahooquery-zoekopdracht voor bekende posities wordt overgeslagen; `vind_tickers_met_snelle_prijscheck_parallel()` (12 threads); gaf een groep geen ticker, dan probeert `_probeer_andere_productnamen()` de namen van de andere rijen. **(b)** `_product_per_ticker_opslaan()`: `product` per ticker (bestaand blijft, nieuw krijgt Yahoo's `longName`). **(c)** `_insert_nieuwe_transacties()`: `INSERT ... ON CONFLICT (code, order_id) DO NOTHING` per rij; een mislukte rij wordt overgeslagen en in Diagnostiek gemeld. | rijen → `transacties` |
-| B6 | `upload_verwerking.py` → `sla_dividend_bestand_op(cur, code, rekening_df)` | Alleen met `bestand2`, nog binnen de transactie: `verwerk_rekeningoverzicht_df()` (in `dividend.py`) → lijst dividendrecords → `db_save_dividenden(cur, ...)` (upsert in `dividenden`). | DataFrame → records → DB |
-| B7 | einde `with`-blok | Commit: portfolio, transacties en dividend worden in één keer definitief. | |
+| B6 | `upload_verwerking.py` → `sla_dividend_bestand_op(cur, code, rekening_df)` en `sla_kassaldo_op(cur, code, rekening_df)` | Alleen met `bestand2`, nog binnen de transactie: `verwerk_rekeningoverzicht_df()` (in `dividend.py`) → lijst dividendrecords → `db_save_dividenden(cur, ...)` (upsert in `dividenden`); daarna `bereken_kassaldo()` → `db_save_kassaldo(cur, ...)` (upsert in `kassaldo`, één rij per code: het laatst geüploade rekeningoverzicht wint). | DataFrame → records → DB |
+| B7 | einde `with`-blok | Commit: portfolio, transacties, dividend en kassaldo worden in één keer definitief. | |
 | B8 | `app.py` → `_kern_na_opslaan(code)` | Binnen `with db_deel_verbinding():` (samen met B9): `wis_portfolio_basis_cache(code)` (ná alle mutaties hierboven), dan `build_portfolio_response(code)`. Alle `db_`-leesfuncties van de basis (zie 2.5) en de valutacheck delen zo één verbinding. Levert de **kern** (zonder verrijking). | code → dict |
 | B9 | `app.py` → `_meld_valuta_na_opslaan()` → `meld_valuta_consistentie()` | Vergelijkt de valuta uit de Excel met die van de tickers (uit de net gebouwde basis via `ticker_per_isin_beurs_uit_basis()`). | → Diagnostiek |
 
@@ -314,7 +314,7 @@ Wat `analyze_transacties_kern()` intern doet, in volgorde: (1) split-correctie, 
 `prijs_data_al_klaar` is meegegeven; (2) `bepaal_koersstatus()` en `db_get_laatste_koers_update()`; (3) `compute_value_over_time()`, `compute_per_ticker()`
 (+ `_meld_plausibiliteit()`), `compute_per_ticker_koers_en_aankopen()` met de splits per ticker (`db_get_koers_splits()`); (4) ticker- en echte-namen-dicts;
 (5) `ticker_waarschuwingen_voor_transacties()`, die naast de waarschuwingen ook de gebruikte prijschecks teruggeeft, en `_meld_tickers()` met die prijschecks;
-(6) `bereken_dividend_samenvatting(code)` (alleen als er een code is) voor "dividend per ticker"; (7) `bereken_statistieken()`; (8) alles
+(6) `bereken_dividend_samenvatting(code)` en `db_get_kassaldo(code)` (alleen als er een code is; anders het meegegeven `kassaldo`) voor "dividend per ticker", de cash-tegel en het DeGiro-totaal; (7) `bereken_statistieken()`; (8) alles
 in één dict gieten. Let op: bij "Niet opslaan" draait `analyze_transacties_verrijking()` daarna nóg een keer split-correctie +
 `get_prices()` (een warme cache-hit, maar dubbel werk). Bij opslaan en ophalen gebeurt dat niet: dan geeft `build_portfolio_response()`
 de al opgehaalde koersen door via `prijs_data_al_klaar`.
@@ -404,7 +404,7 @@ route geen portfolio op: de code staat vast, en elk bestand moet **eerst** bewij
 4. Is één bestand afgekeurd, dan 400 met een vaste melding (`MELDING_PER_EIGENDOMSFOUT` in `app.py`; nooit de code van een andere portfolio)
    en wordt er niets opgeslagen. Anders `meld_portfolio_opslaan(True, rows_to_insert)` (Diagnostiek); alleen als er nieuwe rijen zijn
    alleen met nieuwe rijen of een rekeningoverzicht één `db_transactie()` met `voeg_nieuwe_transacties_toe()` (zonder "opnieuw bepalen")
-   en `sla_dividend_bestand_op()`; dan in één `db_deel_verbinding()` `_kern_na_opslaan(code)` en (met `bestand1`) `_meld_valuta_na_opslaan()`. De naam blijft ongewijzigd.
+   en (met `bestand2`) `sla_dividend_bestand_op()` + `sla_kassaldo_op()`; dan in één `db_deel_verbinding()` `_kern_na_opslaan(code)` en (met `bestand1`) `_meld_valuta_na_opslaan()`. De naam blijft ongewijzigd.
 5. Antwoord: de kern, plus `bijwerken: {nieuwe_transacties, dividend_verwerkt}`. De frontend (`tabs/bestanden_bijwerken.js`) toont het
    dashboard opnieuw met `toonDashboard(data)` (verrijking en tab-toestand horen bij de oude transacties) en een melding via
    `bijwerkenSuccesTekst()` (`bestandskeuze.js`).
@@ -516,6 +516,7 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | `_insert_nieuwe_transacties()` | roept per rij `db_insert_transactie()` aan (`INSERT ... ON CONFLICT (code, order_id) DO NOTHING`) | rijen → aantal ingevoegd | `voeg_nieuwe_transacties_toe()` |
 | `sla_dividend_bestand_op()` | dividendrecords uit het ingelezen rekeningoverzicht berekenen en opslaan, met Diagnostiek | code, DataFrame → (schrijft naar DB) | `_upload_opslaan()`, `_bijwerken_impl()` |
 | `verwerk_dividend_zonder_opslaan()` | hetzelfde zonder opslaan; geeft de records terug | DataFrame → lijst | `_dividend_niet_opslaan()` |
+| `sla_kassaldo_op()` | `bereken_kassaldo()` en, als er EUR-rijen zijn, `db_save_kassaldo()` | cursor, code, DataFrame → (schrijft naar DB) | `_upload_opslaan()`, `_bijwerken_impl()` |
 
 **Bijzonderheden en valkuilen**
 
@@ -811,7 +812,8 @@ getallen uit, geen DB/netwerk), daardoor met de hand na te rekenen en goed te te
 | `bereken_benchmark_vergelijking()` | simuleert dezelfde cashflows in een benchmark | `transacties_df, resultaat, koersen` → dict of `None` | `benchmark_vergelijking()` |
 | `bereken_rendement_over_tijd()` | rendement%/XIRR%/TWR% per maandeinde (+ laatste datum) | `transacties_df, resultaat` → dict met lijsten | `rendement_over_tijd()` |
 | `bereken_totale_transactiekosten()` | som van `transactiekosten`; `beschikbaar=False` als de kolom leeg is | `transacties_df` → dict | `bereken_statistieken()` |
-| `bereken_statistieken()` | orkestratie voor het Statistieken-tabblad | `transacties_df, price_data, resultaat, ...` → dict | `analyze_transacties_kern()` |
+| `bereken_totaal_degiro()` | DeGiro's totaal: `waarde + kassaldo − netto gestort`; `None` als het rekeningoverzicht niet vanaf de opening loopt (`vanaf_opening`) of niet alle transacties dekt (begint na de eerste of eindigt vóór de laatste transactie) | waarde, kassaldo-dict, eerste en laatste transactiedatum → getal of `None` | `bereken_statistieken()` |
+| `bereken_statistieken()` | orkestratie voor het Statistieken-tabblad; `totalen` bevat ook `dividend_netto`, `kassaldo_eur`, `kassaldo_per_datum` en `totaal_degiro_eur` (de tegels op home en Statistieken) | `transacties_df, price_data, resultaat, ..., kassaldo` → dict | `analyze_transacties_kern()` |
 
 Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", "AEX": "IAEA.AS"}`.
 
@@ -838,8 +840,8 @@ Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", 
 
 ### `dividend.py` — het rekeningoverzicht en de dividend-samenvatting
 
-**Verantwoordelijkheid:** het DeGiro-"Account"/rekeningoverzicht inlezen, per uitkering het netto-bedrag in EUR bepalen (inclusief koppelen aan valutaconversie-rijen), en de
-opgeslagen dividenden samenvatten voor de UI.
+**Verantwoordelijkheid:** het DeGiro-"Account"/rekeningoverzicht inlezen, per uitkering het netto-bedrag in EUR bepalen (inclusief koppelen aan valutaconversie-rijen),
+de opgeslagen dividenden samenvatten voor de UI, en het EUR-kassaldo ("vrije ruimte") plus het netto gestorte bedrag bepalen.
 
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
@@ -848,10 +850,12 @@ opgeslagen dividenden samenvatten voor de UI.
 | `_clusters_binnen_venster()` | groepeert op datum gesorteerde items zolang twee opeenvolgende ≤ `max_dagen` uit elkaar liggen | items, dagen → lijst clusters | `verwerk_rekeningoverzicht_df()` |
 | `verwerk_rekeningoverzicht_df()` | het eigenlijke rekenwerk: netten per (Datum, ISIN), omrekenen naar EUR, gepoolde conversies, `herinvesteerd`-vlag | DataFrame → lijst records | `sla_dividend_bestand_op()`, `verwerk_dividend_zonder_opslaan()` |
 | `lees_rekeningoverzicht()` | Excel inlezen, controle op `VERWACHTE_KOLOMMEN_REKENING` (anders `OngeldigExcelBestand`, in `/upload` en `/bijwerken` een 400 vóór er iets wordt opgeslagen), kolommen hernoemen | bestandsobject → DataFrame | `_upload_impl()`, `_bijwerken_impl()` |
+| `bereken_kassaldo()` | EUR-cash uit het rekeningoverzicht: vaakst voorkomende beginsaldo + som van de mutaties (zonder "Cash Sweep"-rijen); netto gestort = som van de rijen met een woord uit `STORTING_TREFWOORDEN` | DataFrame → `{saldo_eur, netto_gestort_eur, eerste_datum, per_datum, vanaf_opening}` of `None` (geen EUR-rijen) | `sla_kassaldo_op()`, `_analyseer_zonder_opslaan()` |
 | `order_ids_uit_rekeningoverzicht_df()` | niet-lege waarden uit de kolom `Order Id` (`ORDER_ID_KOLOM_REKENING`) | DataFrame → set | `_bijwerken_impl()` |
 | `bereken_dividend_samenvatting()` | leest `dividenden` (via `db_get_dividenden()`), koppelt ISIN → ticker/bijnaam via `transacties`, bouwt `totaal_netto`, `per_ticker`, `cumulatief`, `lijst` | `code` → dict of `None` | `dividend()` (route), `analyze_transacties_kern()` |
 
-Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
+Constanten: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`; `STORTING_TREFWOORDEN = ("ideal", "storting", "deposit", "withdrawal", "opname")` (hoofdletterongevoelig;
+dekt "iDEAL Deposit", "Reservation iDEAL", "flatex Storting", "flatex terugstorting" en "Processed Flatex Withdrawal"; het teken van de mutatie maakt een opname negatief).
 
 **Bijzonderheden en valkuilen**
 
@@ -863,6 +867,12 @@ Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
   uitkeringenlijst (zie hoofdstuk 5). Getest in `tests/backend/test_dividend.py` (`TestDividendSamenvattingHerinvesteerd`).
 - Lukt de koppeling niet, dan blijven `bruto_eur`/`belasting_eur`/`netto_eur` expliciet `None`: nooit een gok. Zulke rijen blijven wel in `lijst` staan, maar tellen niet mee in `totaal_netto`.
 - `dividend_id` = `"DIV-"` + eerste 16 tekens MD5 over `datum|isin|bruto_ruw|belasting_ruw` (de ruwe bedragen, dus stabiel bij latere verbeteringen aan de EUR-omrekening).
+- **Kassaldo en flatex-sweeps.** DeGiro parkeert cash bij flatexDEGIRO Bank en boekt elke verschuiving als paar: "Degiro Cash Sweep Transfer" (met bedrag) en
+  "Overboeking van/naar uw geldrekening bij flatexDEGIRO Bank" (lege `Mutatie`, bedrag alleen in de tekst). Netto doet zo'n paar niets, maar de tussensaldi zijn
+  onzin (soms negatief) en de volgorde van de twee rijen binnen één minuut wisselt. Het saldo van de bovenste rij is dus niet betrouwbaar. `bereken_kassaldo()`
+  laat de sweeprijen weg, rekent per rij `saldo − cumulatieve mutatie` uit (het beginsaldo vóór het bestand) en neemt de waarde die het vaakst voorkomt.
+  Een export vanaf de opening van de rekening heeft beginsaldo 0 (`vanaf_opening`); alleen dan is netto gestort compleet en toont de frontend het DeGiro-totaal.
+  Alleen EUR telt mee: een saldo in vreemde valuta is met AutoFX normaal 0.
 
 ---
 
@@ -1231,6 +1241,7 @@ Hoofdstuk 4 beschrijft de tabellen; hier alleen de functies.
 | Transacties lezen | `TRANSACTIE_KOLOMMEN` en `ORDER_ID_KOLOMMEN` (constanten), `db_get_order_id_rijen()` (Order ID's met hun rijgegevens, voor `check_synthetische_order_ids()`), `db_get_portfolio_naam_en_transacties()`, `db_get_transacties_overzicht()`, `db_get_isin_ticker_product()`, `db_get_bekende_tickers()` (cur), `db_get_transacties_voor_tickercheck()` (cur) | `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()`, `transacties_overzicht()`, `bereken_dividend_samenvatting()`, `_ticker_resolutie_opslaan()`, `backfill_verouderde_tickers()` |
 | Transacties schrijven | `db_insert_transactie()` (cur), `db_wijzig_ticker()` (cur), `db_wijzig_bijnamen()`, `db_wijzig_bijnaam()`, `db_herstel_echte_naam()` | `_insert_nieuwe_transacties()`, `backfill_verouderde_tickers()`, `set_bijnamen()`, `pas_korte_namen_toe()`, `set_bijnaam()`, `reset_bijnaam()` |
 | Dividend | `db_save_dividenden()` (cur), `db_get_dividenden()` | `sla_dividend_bestand_op()`, `bereken_dividend_samenvatting()` |
+| Kassaldo | `db_save_kassaldo()` (cur, upsert), `db_get_kassaldo()` (`None` als er geen rij is) | `sla_kassaldo_op()`, `analyze_transacties_kern()` |
 | ETF-land-proxy (`ishares_fondsen`, `etf_proxy`) | `db_get_ishares_fondsen()` (`None` als leeg of ouder dan `ISHARES_FONDSEN_GELDIGHEID` = 7 dagen), `db_save_ishares_fondsen()` (delete + bulk insert, niet met een lege lijst), `db_get_etf_proxies()`, `db_save_etf_proxy()` (upsert), `db_wis_etf_proxies_voor_portfolio()` | `_ishares_fondsen()`, `land_proxies_voor_etfs()`, `_herbepaal_tickers()` |
 
 Functies met `(cur)` krijgen een cursor van de aanroeper.
@@ -1239,12 +1250,12 @@ Functies met `(cur)` krijgen een cursor van de aanroeper.
 
 - **Elke functie zonder `cur`-parameter opent en sluit zijn eigen verbinding** (geen connection pool). Dat is eenvoudig, maar betekent veel round-trips naar Neon.
 - `CACHE_GELDIGHEID = "30 days"` geldt voor `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings` en `ticker_splits`.
-- `db_save_dividenden()`, `db_save_prijscheck()` en `db_save_koersen()` zijn **upserts** (`DO UPDATE`); de inserts in `transacties` zijn `DO NOTHING`: kies bewust welke je nodig hebt.
-- `db_wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij, verhuist dan transacties/dividenden en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
+- `db_save_dividenden()`, `db_save_kassaldo()`, `db_save_prijscheck()` en `db_save_koersen()` zijn **upserts** (`DO UPDATE`); de inserts in `transacties` zijn `DO NOTHING`: kies bewust welke je nodig hebt.
+- `db_wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij, verhuist dan transacties/dividenden/kassaldo en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
 
 ## 4. Database
 
-Alle tabellen worden aangemaakt in `db_init()` (`db.py`), PostgreSQL bij Neon. Er zijn **16 tabellen**: 3 met persoonlijke data (`portfolios`, `transacties`, `dividenden`) en 13 die
+Alle tabellen worden aangemaakt in `db_init()` (`db.py`), PostgreSQL bij Neon. Er zijn **17 tabellen**: 4 met persoonlijke data (`portfolios`, `transacties`, `dividenden`, `kassaldo`) en 13 die
 "anonieme marktdata/cache" zijn (`koersen`, `koers_splits`, `ticker_info`, `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings`, `ticker_prijscheck`, `ticker_splits`, `openfigi_cache`,
 `ishares_fondsen`, `etf_proxy`, plus de niet meer gebruikte `prijzen` en de nog niet gebruikte `prijscheck_koersen`).
 `db_delete_portfolio()` verwijdert alleen de eerste groep; de caches blijven staan.
@@ -1299,6 +1310,19 @@ Lezen: `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()` (beide
 | | `UNIQUE (code, dividend_id)` | |
 
 Schrijven: `db_save_dividenden()` (**upsert**), `db_wijzig_portfolio_code()`, `db_delete_portfolio()`. Lezen: `db_get_dividenden()` (via `bereken_dividend_samenvatting()`).
+
+#### `kassaldo`
+| Kolom | Type | Betekenis |
+|---|---|---|
+| `code` | TEXT, primary key | portfolio-code (**geen** foreign key in het schema); één rij per portfolio |
+| `saldo_eur` | NUMERIC, NOT NULL | EUR-cash ("vrije ruimte") op `per_datum` |
+| `netto_gestort_eur` | NUMERIC, NOT NULL | stortingen − opnames in het bestand |
+| `eerste_datum`, `per_datum` | DATE, NOT NULL | eerste en laatste boekdatum van het rekeningoverzicht |
+| `vanaf_opening` | BOOLEAN, NOT NULL | beginsaldo vóór het bestand was 0: het bestand loopt vanaf de opening |
+
+Schrijven: `db_save_kassaldo()` (**upsert**: het laatst geüploade rekeningoverzicht overschrijft, ook als het ouder is), `db_wijzig_portfolio_code()`,
+`db_delete_portfolio()`. Lezen: `db_get_kassaldo()` (via `analyze_transacties_kern()`). Een nieuwe tabel, dus `db_init()` maakt hem bij de volgende start zelf aan;
+portfolio's van vóór deze tabel krijgen pas een rij na een nieuwe upload van het rekeningoverzicht (Bestanden bijwerken).
 
 ### 4.2 Marktdata en caches
 
@@ -1445,7 +1469,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 
 | Menu (`data-view`) | Bestand in `tabs/` | Tekent | Data/API | Grafiek of tabel |
 |---|---|---|---|---|
-| Portfolio-home (`portfolio`) | `portfolio.js` | `toonPortfolio()` | `huidigeData.chart_data` en `statistieken.totalen`; komt uit `/upload` of `GET /api/portfolio/<code>` | lijngrafiek Waarde + Geïnvesteerd via `updateChart()`; tegels `maakTotalenSectie()`; regel "Koersen laatst opgehaald ..." |
+| Portfolio-home (`portfolio`) | `portfolio.js` | `toonPortfolio()` | `huidigeData.chart_data` en `statistieken.totalen`; komt uit `/upload` of `GET /api/portfolio/<code>` | lijngrafiek Waarde + Geïnvesteerd via `updateChart()`; tegels `maakTotalenSectie()` (o.a. "Ontvangen dividend (netto)", "Vrije ruimte (cash, per ...)" en "Totaal (rendement + dividend + cash) (wat DeGiro laat zien)"; elk alleen als het veld niet `null` is); regel "Koersen laatst opgehaald ..." |
 | Rendement (`rendement`) | `rendement.js` | `toonRendement()`; `wisselBenchmark()`, `wisselEigenAandeel()` | `chart_data.rendement`; optioneel `GET .../benchmark-vergelijking?benchmark=` of `?eigen_ticker=` | lijngrafiek (`updateChart()`), met een gestippelde extra lijn per gekozen vergelijking |
 | Per aandeel (`peraandeel`) | `per_aandeel.js` | `toonPerAandeel(ticker)`, `toonEtfDrilldown()`, `toonAandeelLandSector()` | `per_ticker[ticker]`, `land_sector_verdeling.per_etf` en `.per_aandeel` (verrijking) | lijngrafiek Waarde/Geïnvesteerd + bij een ETF twee lijstjes land/sector (met de landbron; bij een proxy `landProxyBijschrift()`), bij een aandeel het blok Land/Sector (`aandeelLandSectorRegels()`) |
 | Per aandeel aankoop (`peraandeelaankoop`) | `per_aandeel_aankoop.js` | `toonPerAandeelAankoop(ticker)`, `laadMeerHistorie()` | `per_ticker_aankoop[ticker]`; knoppen "+6 maanden/+1 jaar/+3 jaar/Tot nu" → `GET .../ticker-koers-bereik` | **eigen** `new Chart` (niet `updateChart()`): koers + trapvormige lijn "aantal aandelen" op een tweede y-as, aankoop-/verkoopmomenten en splits (`per_ticker_aankoop[ticker].splits`, label via `splitLabel()`) als verticale annotatielijnen (annotation-plugin) |
@@ -1823,7 +1847,7 @@ om het bij elke start te draaien, maar voegt het ook geen nieuwe kolom toe aan e
 
 Er zijn twee soorten tabellen (hoofdstuk 4):
 
-- **Gebruikersdata**: `portfolios`, `transacties`, `dividenden`. Van jou, en weg als je je portfolio verwijdert.
+- **Gebruikersdata**: `portfolios`, `transacties`, `dividenden`, `kassaldo`. Van jou, en weg als je je portfolio verwijdert.
 - **Cachetabellen**: `koersen`, `ticker_info`, `etf_holdings`, enz. Een **cache** is een bewaarde kopie van iets dat duur is om op te halen. Hier:
   antwoorden van Yahoo en de ETF-aanbieders. Ze zijn anoniem (geen code erin) en blijven staan.
 
@@ -2061,7 +2085,7 @@ van wat een functie hoort te doen.
 
 - **Lees:** `dividend.py`, met `tests/backend/test_dividend.py`.
 - **Wat doen deze bestanden:** `dividend.py` leest het rekeningoverzicht van DeGiro, zoekt per dividenduitkering het echte bedrag in euro (via de
-  bijbehorende valutaconversie) en vat alle dividenden samen voor het Dividend-tabblad.
+  bijbehorende valutaconversie) en vat alle dividenden samen voor het Dividend-tabblad. `bereken_kassaldo()` haalt uit hetzelfde bestand de cash en het netto gestorte bedrag.
 - **Waar in de stack:** backend, logica en data.
 - **Waarom nu:** een compleet onderdeel met een duidelijk begin (Excel) en eind (JSON), dat je los van de rest kunt begrijpen.
 - **Wat je hier leert:** omgaan met rommelige echte data (samengevoegde kolomkoppen, gepoolde conversies); liever `None` dan een gok; een upsert om oude,

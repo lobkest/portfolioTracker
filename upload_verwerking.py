@@ -17,11 +17,11 @@ from ticker_zekerheid import (
 )
 from portfolio_admin import find_matching_code, generate_code
 from db import (
-    db_save_dividenden, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
+    db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
     db_get_product_per_ticker,
 )
 from ticker_classificatie import haal_long_names
-from dividend import verwerk_rekeningoverzicht_df
+from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo
 
 VERWACHTE_KOLOMMEN = [
     "Datum", "Tijd", "Product", "ISIN", "Beurs", "Uitvoeringsplaats", "Aantal", "Koers",
@@ -423,6 +423,12 @@ def sla_dividend_bestand_op(cur, code, rekening_df):
         dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
         db_save_dividenden(cur, code, dividend_records)
     _meld_dividend_records(dividend_records)
+
+
+def sla_kassaldo_op(cur, code, rekening_df):
+    kassaldo = bereken_kassaldo(rekening_df)
+    if kassaldo is not None:
+        db_save_kassaldo(cur, code, kassaldo)
 
 
 def verwerk_dividend_zonder_opslaan(rekening_df):
