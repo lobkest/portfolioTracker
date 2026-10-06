@@ -1,6 +1,7 @@
 """Koersen ophalen en cachen (tabel prijzen) en omrekenen naar EUR."""
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import yfinance as yf
@@ -21,6 +22,9 @@ FX_ANKER_DATUM = pd.Timestamp("2005-01-01")
 # Eerste opbouw van de cache: per groepje downloaden en na dit budget stoppen (gunicorn-timeout); de rest volgt bij de volgende opening.
 KOERS_DOWNLOAD_GROEPJE = 10
 KOERS_TIJDBUDGET_SECONDEN = 20
+
+# Gelijktijdige Yahoo-downloads bij het verversen; bewust laag (de ticker-checks gebruiken er 6 tot 12) tegen rate limits.
+KOERS_VERVERS_THREADS = 3
 
 # Voorkomt dat de endpoints van één portfolio-opening Yahoo meermaals bevragen.
 DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
@@ -153,9 +157,13 @@ def _in_groepjes(lijst, grootte):
 
 
 def _download_ruwe_koersen_in_eur(tickers, vanaf, verversen):
+    close, splits = download_koersen_met_retry(tickers, vanaf)
+    return _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen)
+
+
+def _ruwe_koersen_in_eur(close, splits, tickers, vanaf, verversen):
     """({ticker: Series met RUWE koersen in EUR}, {ticker: {iso_datum: ratio}}), alleen voor tickers waarvan
     Yahoo koersen én splits teruggaf; een ticker zonder splitlijst wordt niet opgeslagen (de koers zou onbetrouwbaar zijn)."""
-    close, splits = download_koersen_met_retry(tickers, vanaf)
     if isinstance(close, pd.Series):
         close = close.to_frame(name=tickers[0] if isinstance(tickers, list) else tickers)
 
@@ -248,8 +256,11 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
         with meet_tijd(f"koersen_download_incrementeel ({len(stale)} ticker(s))"):
             stale_rows = []
             stale_splits = {}
-            for t, vanaf in stale.items():
-                ruw_t, splits_t = _download_ruwe_koersen_in_eur(t, vanaf, verversen)
+            # Alleen de netwerkcall parallel: de verwerking gebruikt de database en meldt aan de Diagnostiek (hoofdthread).
+            with ThreadPoolExecutor(max_workers=KOERS_VERVERS_THREADS) as executor:
+                downloads = list(executor.map(lambda t: download_koersen_met_retry(t, stale[t]), stale))
+            for (t, vanaf), (close_t, splits_download) in zip(stale.items(), downloads):
+                ruw_t, splits_t = _ruwe_koersen_in_eur(close_t, splits_download, t, vanaf, verversen)
                 if t not in ruw_t.columns or ruw_t[t].dropna().empty:
                     dprint(f"[koersen] '{t}': incrementele ververs-download leverde geen nieuwe "
                            f"koersen op (mogelijk geen nieuwe handelsdagen sinds {vanaf.date()})")

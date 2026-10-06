@@ -1,11 +1,14 @@
 import os
 import threading
 import time
+from contextlib import contextmanager
 
 import psycopg2
 from psycopg2 import errors as pg_errors
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 from psycopg2.extras import execute_values, Json
 from dotenv import load_dotenv
+from flask import g, has_app_context
 from transactie_utils import formatteer_transacties_overzicht
 
 load_dotenv()
@@ -28,13 +31,61 @@ def db_log_verbinding_samenvatting():
     print(f"[timing] DB-verbindingen sinds laatste reset: {aantal}, samen {seconden:.2f}s verbinden")
 
 
-def db_connect():
+def _open_verbinding():
     start = time.time()
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     with _verbinding_lock:
         _verbinding_teller["aantal"] += 1
         _verbinding_teller["seconden"] += time.time() - start
     return conn
+
+
+_G_ATTR_DEEL_VERBINDING = "_db_deel_verbinding"
+_G_ATTR_GEDEELDE_VERBINDING = "_db_gedeelde_verbinding"
+
+
+class _GedeeldeVerbinding:
+    """close() doet alleen een rollback: de verbinding gaat door voor de volgende db_-functie van dezelfde request."""
+
+    def __init__(self, verbinding):
+        self.verbinding = verbinding
+
+    def close(self):
+        self.verbinding.rollback()
+
+    def __getattr__(self, naam):
+        return getattr(self.verbinding, naam)
+
+
+@contextmanager
+def db_deel_verbinding():
+    """Binnen het blok gebruiken de db_-functies van deze request één verbinding (scheelt ~65 ms per functie).
+    Alleen voor leespaden: de rollback in close() zou een open schrijftransactie van de aanroeper terugdraaien.
+    Worker-threads hebben geen request-context en houden hun eigen verbindingen."""
+    if not has_app_context():
+        yield
+        return
+    setattr(g, _G_ATTR_DEEL_VERBINDING, True)
+    try:
+        yield
+    finally:
+        setattr(g, _G_ATTR_DEEL_VERBINDING, False)
+        gedeeld = g.pop(_G_ATTR_GEDEELDE_VERBINDING, None)
+        if gedeeld is not None:
+            gedeeld.verbinding.close()
+
+
+def db_connect():
+    if not (has_app_context() and getattr(g, _G_ATTR_DEEL_VERBINDING, False)):
+        return _open_verbinding()
+    gedeeld = getattr(g, _G_ATTR_GEDEELDE_VERBINDING, None)
+    if gedeeld is None or gedeeld.verbinding.closed:
+        gedeeld = _GedeeldeVerbinding(_open_verbinding())
+        setattr(g, _G_ATTR_GEDEELDE_VERBINDING, gedeeld)
+    # Een eerdere functie die op een fout stopte, liet de transactie open (of afgebroken) staan.
+    if gedeeld.verbinding.info.transaction_status != TRANSACTION_STATUS_IDLE:
+        gedeeld.verbinding.rollback()
+    return gedeeld
 
 
 def db_init():

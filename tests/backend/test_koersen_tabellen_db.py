@@ -42,7 +42,7 @@ class TestKoersenTabellen(unittest.TestCase):
         )
         datums, laatst_bijgewerkt, koersen = db_get_gecachte_koersen([T1, T2, T3], date(2021, 1, 1))
         self.assertEqual(datums, {T1: (date(2021, 1, 25), date(2021, 1, 26)), T2: (date(2021, 1, 26), date(2021, 1, 26))})
-        self.assertEqual(vandaag, {})
+        self.assertEqual(set(laatst_bijgewerkt), {T1, T2})
         self.assertEqual(sorted((t, d, float(k)) for t, d, k in koersen),
                          [(T1, date(2021, 1, 25), 0.8737), (T1, date(2021, 1, 26), 2.51), (T2, date(2021, 1, 26), 10.0)])
 

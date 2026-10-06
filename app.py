@@ -6,6 +6,7 @@ from db import (
     db_connect, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_id_sets, db_reset_verbinding_teller, db_log_verbinding_samenvatting,
+    db_deel_verbinding,
 )
 from ticker_classificatie import haal_long_names
 from prijzen import get_prices
@@ -292,7 +293,7 @@ def api_portfolio(code):
         db_wis_etf_proxies_voor_portfolio(code)
         # Anders levert de _basis_cache de oude tickers.
         _wis_portfolio_basis_cache(code)
-    with meet_tijd("ophalen_totaal"):
+    with meet_tijd("ophalen_totaal"), db_deel_verbinding():
         result = build_portfolio_response(code)
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
@@ -308,12 +309,14 @@ def portfolio_verrijking(code):
     # Stand van de (niet-gereset) Yahoo-teller bij de start: de Diagnostiek
     # meldt alleen het verschil, dus de calls van déze request.
     yahoo_voor = yahoo_teller_stand()
-    naam, transacties_df, price_data = _haal_portfolio_basis(code)
+    with db_deel_verbinding():
+        naam, transacties_df, price_data = _haal_portfolio_basis(code)
     if naam is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
     try:
-        result = analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data)
+        with db_deel_verbinding():
+            result = analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=price_data)
         meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING, "verrijking", vanaf=yahoo_voor)
         response = jsonify(voeg_diagnostiek_toe(result))
         # Bewust geen reset: de log toont het totaal inclusief de kern-fase.
