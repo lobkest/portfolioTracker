@@ -26,6 +26,10 @@ function maakTotalenSectie(totalen) {
     rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), klasseVoorRendement(totalen.rendement_eur)));
     rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct)));
 
+    if (totalen.dividend_netto !== null && totalen.dividend_netto !== undefined) {
+        rij.appendChild(maakStatTegel("Ontvangen dividend (netto)", formatteerEuro(totalen.dividend_netto)));
+    }
+
     if (totalen.all_time_high && totalen.all_time_high.waarde !== null) {
         rij.appendChild(maakStatTegel(
             "Hoogste rendement",

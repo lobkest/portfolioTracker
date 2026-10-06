@@ -508,6 +508,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         statistieken = bereken_statistieken(
             transacties_df, price_data, resultaat,
             dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
+            dividend_totaal_netto=dividend_data["totaal_netto"] if dividend_data else None,
         )
 
     return {

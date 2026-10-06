@@ -334,7 +334,8 @@ def bereken_totale_transactiekosten(transacties_df):
     return {"totaal": round(abs(float(kosten.sum())), 2), "beschikbaar": True}
 
 
-def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None):
+def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None,
+                         dividend_totaal_netto=None):
     """Alles voor het Statistieken-tabblad, zonder extra Yahoo-calls.
     Huidige aantallen uit de ruwe 'aantal'-kolom (zie CLAUDE.md: Data en rekenen)."""
     dividend_per_ticker = dividend_per_ticker or {}
@@ -453,6 +454,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "all_time_high": all_time_high,
             "totale_transactiekosten": kosten_info["totaal"],
             "transactiekosten_beschikbaar": kosten_info["beschikbaar"],
+            # None = geen rekeningoverzicht; los van rendement_eur, dat is exclusief dividend.
+            "dividend_netto": dividend_totaal_netto,
         },
         "jaren": jaren,
         "geavanceerd": {
