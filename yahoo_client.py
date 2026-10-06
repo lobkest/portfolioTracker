@@ -19,7 +19,7 @@ DIAGNOSTIEK_SLEUTEL_YAHOO_KERN = "yahoo_kern"
 DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING = "yahoo_verrijking"
 
 
-def reset_yahoo_call_teller():
+def reset_yahoo_call_teller(): # zet de teller op nul, dus kan tellen hoe vaak yahoo wordt aangeroepen sinds de laatste reset.
     with _yahoo_call_lock:
         _yahoo_call_teller.clear()
         _yahoo_retry_teller["retries"] = 0

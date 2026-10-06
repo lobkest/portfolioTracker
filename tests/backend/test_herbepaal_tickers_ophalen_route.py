@@ -2,7 +2,7 @@
 Unit tests voor het "ticker-informatie opnieuw bepalen"-vinkje bij het
 ophalen van een portfolio via code (GET /api/portfolio/<code>?herbepaal_
 alle_tickers=true) -- hergebruikt dezelfde backfill_verouderde_tickers(
-code, forceer=...) als de upload-flow.
+code) als de upload-flow.
 
 Uitgezocht vóór deze wijziging: backfill_verouderde_tickers() werd bij het
 ophalen via code NOOIT aangeroepen -- alleen bij /upload naar een
@@ -44,7 +44,7 @@ class TestHerbepaalAlleTickersBijOphalen(unittest.TestCase):
              patch.object(self.app_module, "db_wis_etf_proxies_voor_portfolio") as mock_wis_proxy:
             resp = self.client.get("/api/portfolio/ABC?herbepaal_alle_tickers=true")
 
-        mock_backfill.assert_called_once_with("ABC", forceer=True)
+        mock_backfill.assert_called_once_with("ABC")
         mock_wis_proxy.assert_called_once_with("ABC")
         self.assertEqual(resp.status_code, 200)
 
@@ -54,7 +54,7 @@ class TestHerbepaalAlleTickersBijOphalen(unittest.TestCase):
              patch.object(self.app_module, "db_wis_etf_proxies_voor_portfolio"):
             self.client.get("/api/portfolio/ABC?herbepaal_alle_tickers=True")
 
-        mock_backfill.assert_called_once_with("ABC", forceer=True)
+        mock_backfill.assert_called_once_with("ABC")
 
     def test_verkeerde_of_ontbrekende_waarde_valt_fail_safe_terug_op_uit(self):
         for waarde in ["", "false", "1", "yes", "onwaar", "TrueX"]:

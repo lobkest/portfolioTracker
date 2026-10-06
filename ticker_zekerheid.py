@@ -568,9 +568,9 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     return probleem
 
 
-def backfill_verouderde_tickers(code, forceer=False):
-    """Herbeoordeelt opgeslagen tickers: zonder forceer alleen bij een prijsprobleem, met forceer altijd.
-    Vervangt alleen door een kandidaat zonder prijsprobleem. Geeft het aantal gecorrigeerde groepen."""
+def backfill_verouderde_tickers(code):
+    """Herzoekt elke opgeslagen ticker; vervangt alleen door een kandidaat zonder prijsprobleem.
+    Geeft het aantal gecorrigeerde groepen."""
     conn = db_connect()
     cur = conn.cursor()
     rows = db_get_transacties_voor_tickercheck(cur, code)
@@ -586,9 +586,6 @@ def backfill_verouderde_tickers(code, forceer=False):
     for (isin, beurs), info in groepen.items():
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
-        if not forceer and not _ticker_heeft_prijsprobleem(oude_ticker, transacties):
-            continue
-
         nieuw = find_ticker_met_snelle_prijscheck(info["naam"], isin, beurs, transacties)
         nieuwe_ticker = nieuw["ticker"]
         if not nieuwe_ticker or nieuwe_ticker == oude_ticker:

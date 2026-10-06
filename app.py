@@ -5,7 +5,7 @@ import pandas as pd
 from db import (
     db_connect, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
-    db_wis_etf_proxies_voor_portfolio, db_get_order_id_sets,
+    db_wis_etf_proxies_voor_portfolio, db_get_order_id_sets, db_reset_verbinding_teller, db_log_verbinding_samenvatting,
 )
 from ticker_classificatie import haal_long_names
 from prijzen import get_prices
@@ -31,7 +31,7 @@ from upload_verwerking import (
     _lees_transacties_excel, _adjust_transaction_exchange_rates, OngeldigExcelBestand, _ticker_resolutie_niet_opslaan_pad,
     _bouw_transacties_df_niet_opslaan, _create_synthetic_order_ids, _vind_of_maak_portfolio_code,
     _ticker_resolutie_opslaan_pad, _insert_nieuwe_transacties, _bepaal_product_per_ticker,
-    _product_per_ticker_opslaan_pad, _verwerk_dividend_bestand_indien_aanwezig, _verwerk_dividend_bestand_zonder_opslaan,
+    _product_per_ticker_opslaan_pad, _verwerk_dividend_bestand,_verwerk_dividend_bestand_zonder_opslaan,
     _meld_portfolio_opslaan,
 )
 from portfolio_orchestratie import (
@@ -168,11 +168,19 @@ def _upload_impl():
     result = _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, herbepaal_alle_tickers, rekening_df)
     response = jsonify(voeg_diagnostiek_toe(result))
     log_yahoo_call_samenvatting()
+    
     return response
 
 
 def _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, herbepaal_alle_tickers, rekening_df=None):
     """Gedeelde opslaan-stap van /upload en /bijwerken; commit en sluit de connectie. df is None zonder transactiebestand."""
+
+    if match_code and herbepaal_alle_tickers:
+        with meet_tijd("db_backfill_verouderde_tickers"):
+            backfill_verouderde_tickers(code)
+    if herbepaal_alle_tickers:
+        db_wis_etf_proxies_voor_portfolio(code)
+
     if not rows_to_insert.empty:
         with meet_tijd("ticker_resolutie"):
             ticker_by_isin_beurs = _ticker_resolutie_opslaan_pad(cur, code, rows_to_insert, herbepaal_alle_tickers)
@@ -187,14 +195,8 @@ def _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, her
     cur.close()
     conn.close()
 
-    if match_code:
-        # Anders profiteren al opgeslagen rijen nooit van betere ticker-logica.
-        with meet_tijd("db_backfill_verouderde_tickers"):
-            backfill_verouderde_tickers(code, forceer=herbepaal_alle_tickers)
-    if herbepaal_alle_tickers:
-        db_wis_etf_proxies_voor_portfolio(code)
-
-    _verwerk_dividend_bestand_indien_aanwezig(code, rekening_df)
+    if rekening_df is not None:
+        _verwerk_dividend_bestand(code, rekening_df)
 
     # Pas ná alle mutaties hierboven wissen.
     _wis_portfolio_basis_cache(code)
@@ -202,6 +204,7 @@ def _sla_op_en_bouw_respons(conn, cur, df, code, match_code, rows_to_insert, her
     if df is not None:
         meld_valuta_consistentie(df, ticker_per_isin_beurs_uit_basis(code))
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
+
     return result
 
 
@@ -282,16 +285,19 @@ def _bijwerken_impl(code):
 def api_portfolio(code):
     code = code.strip().upper()
     reset_yahoo_call_teller()
+    db_reset_verbinding_teller()
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
         with meet_tijd("db_backfill_verouderde_tickers_ophalen"):
-            backfill_verouderde_tickers(code, forceer=True)
+            backfill_verouderde_tickers(code)
         db_wis_etf_proxies_voor_portfolio(code)
         # Anders levert de _basis_cache de oude tickers.
         _wis_portfolio_basis_cache(code)
-    result = build_portfolio_response(code)
+    with meet_tijd("ophalen_totaal"):
+        result = build_portfolio_response(code)
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     log_yahoo_call_samenvatting()
+    db_log_verbinding_samenvatting()
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "ophalen")
     return jsonify(voeg_diagnostiek_toe(result))
 

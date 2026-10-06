@@ -1,4 +1,7 @@
 import os
+import threading
+import time
+
 import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extras import execute_values, Json
@@ -8,8 +11,30 @@ from transactie_utils import formatteer_transacties_overzicht
 load_dotenv()
 
 
+# Globaal per proces, net als de Yahoo-tellers: gelijktijdige requests tellen bij elkaar op.
+_verbinding_lock = threading.Lock()
+_verbinding_teller = {"aantal": 0, "seconden": 0.0}
+
+
+def db_reset_verbinding_teller():
+    with _verbinding_lock:
+        _verbinding_teller["aantal"] = 0
+        _verbinding_teller["seconden"] = 0.0
+
+
+def db_log_verbinding_samenvatting():
+    with _verbinding_lock:
+        aantal, seconden = _verbinding_teller["aantal"], _verbinding_teller["seconden"]
+    print(f"[timing] DB-verbindingen sinds laatste reset: {aantal}, samen {seconden:.2f}s verbinden")
+
+
 def db_connect():
-    return psycopg2.connect(os.environ["DATABASE_URL"])
+    start = time.time()
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    with _verbinding_lock:
+        _verbinding_teller["aantal"] += 1
+        _verbinding_teller["seconden"] += time.time() - start
+    return conn
 
 
 def db_init():

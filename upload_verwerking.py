@@ -372,16 +372,9 @@ def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
              sleutel=DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD)
 
 
-def _verwerk_dividend_bestand_indien_aanwezig(code, rekening_df=None):
-    """rekening_df: een al ingelezen rekeningoverzicht; zonder wordt bestand2 uit het request gelezen."""
-    bestand2 = request.files.get("bestand2")
-    if rekening_df is None and not (bestand2 and bestand2.filename != ""):
-        return
+def _verwerk_dividend_bestand(code, rekening_df):
     with meet_tijd("dividend_bestand_verwerken"):
-        if rekening_df is None:
-            dividend_records = verwerk_rekeningoverzicht(bestand2)
-        else:
-            dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
+        dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
         db_save_dividenden(code, dividend_records)
     _meld_dividend_records(dividend_records)
 

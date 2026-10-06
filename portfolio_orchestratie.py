@@ -84,7 +84,8 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
     transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
-    _meld_datakwaliteit(code, transacties_df)
+    with meet_tijd("basis_datakwaliteit"):
+        _meld_datakwaliteit(code, transacties_df)
 
     with meet_tijd("basis_split_correctie"):
         transacties_df = compute_split_adjusted_shares(transacties_df)
@@ -93,8 +94,9 @@ def _haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     start_date = transacties_df["datum"].min()
     with meet_tijd(f"basis_koersen_ophalen ({len(tickers)} ticker(s))"):
         price_data = get_prices(tickers, start_date, verversen=verversen) if tickers else pd.DataFrame()
-    transacties_df = _pas_effectieve_datums_toe(transacties_df)
-    _meld_koersdekking(transacties_df, price_data)
+    with meet_tijd("basis_effectieve_datums_en_koersdekking"):
+        transacties_df = _pas_effectieve_datums_toe(transacties_df)
+        _meld_koersdekking(transacties_df, price_data)
 
     with _basis_cache_lock:
         _basis_cache[code] = {
@@ -436,10 +438,11 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
 
     laatste_koersdatum, laatst_opgehaald_op = db_get_laatste_koers_update(tickers)
 
-    resultaat = compute_value_over_time(transacties_df, price_data)
-    per_ticker = compute_per_ticker(transacties_df, price_data)
-    _meld_plausibiliteit(transacties_df, price_data, per_ticker)
-    per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
+    with meet_tijd("kern_berekeningen"):
+        resultaat = compute_value_over_time(transacties_df, price_data)
+        per_ticker = compute_per_ticker(transacties_df, price_data)
+        _meld_plausibiliteit(transacties_df, price_data, per_ticker)
+        per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
     splits_per_ticker = db_get_koers_splits(list(per_ticker_aankoop))
     for ticker, reeks in per_ticker_aankoop.items():
         reeks["splits"] = splits_voor_grafiek(splits_per_ticker.get(ticker, {}))
@@ -458,8 +461,10 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     )
 
     # Leest alleen de prijscheck-cache: normaal geen nieuwe Yahoo-calls.
-    ticker_waarschuwingen, prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
-    _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks)
+    with meet_tijd(f"kern_ticker_waarschuwingen ({len(tickers)} ticker(s))"):
+        ticker_waarschuwingen, prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
+    with meet_tijd("kern_meld_tickers"):
+        _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks)
 
     if resource:
         mem_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
@@ -476,10 +481,11 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
         if dividend_data else {}
     )
-    statistieken = bereken_statistieken(
-        transacties_df, price_data, resultaat,
-        dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
-    )
+    with meet_tijd("kern_statistieken"):
+        statistieken = bereken_statistieken(
+            transacties_df, price_data, resultaat,
+            dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
+        )
 
     return {
         "code": code,

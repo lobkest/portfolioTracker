@@ -285,11 +285,13 @@ class TestDividendMeldingen(_MetRequest):
             return haal_meldingen()
 
     @patch("upload_verwerking.db_save_dividenden")
-    @patch("upload_verwerking.verwerk_rekeningoverzicht")
+    @patch("upload_verwerking.verwerk_rekeningoverzicht_df")
     def test_verwerk_bestand_meldt_en_slaat_ongewijzigd_op(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]
         mock_verwerk.return_value = records
-        meldingen = self._met_bestand2(uv._verwerk_dividend_bestand_indien_aanwezig, "ABC")
+        rekening_df = pd.DataFrame()
+        meldingen = self._met_bestand2(uv._verwerk_dividend_bestand, "ABC", rekening_df)
+        mock_verwerk.assert_called_once_with(rekening_df)
         mock_save.assert_called_once_with("ABC", records)
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])

@@ -3,10 +3,9 @@ Tests voor Opdracht 1: een verbeterde ticker-resolutielogica (bv. de
 G2X.MU-fix: 'geen koersdata' telt nu als een prijsprobleem) corrigeert
 alleen NIEUW ingevoegde rijen -- de hoofdpagina gebruikt de al opgeslagen
 transacties.ticker-waarde, geen verse herberekening. ticker_zekerheid.
-backfill_verouderde_tickers() herbeoordeelt daarom bij elke upload naar een
-BESTAANDE portfolio-code ook de al opgeslagen tickers, en overschrijft
-alleen als de oude ticker een prijsprobleem heeft EN de nieuwe kandidaat
-dat niet heeft (nooit een werkende ticker vervangen door een onzekerdere).
+backfill_verouderde_tickers() herzoekt daarom (vinkje "opnieuw bepalen")
+alle al opgeslagen tickers, en overschrijft alleen als de nieuwe kandidaat
+geen prijsprobleem heeft (nooit vervangen door een onzekerdere ticker).
 
 _ticker_heeft_prijsprobleem() draait geheel offline (vergelijk_prijs_op_
 datum gemockt). backfill_verouderde_tickers() raakt de echte database aan
@@ -64,8 +63,7 @@ class TestTickerHeeftPrijsprobleem(unittest.TestCase):
 class TestBackfillVerouderdeTickers(unittest.TestCase):
     """Reproductie van het G2X.MU-geval: een al opgeslagen ticker zonder
     koersdata moet vervangen worden door een werkende kandidaat (GDX.L),
-    maar NOOIT als de nieuwe kandidaat zelf ook een probleem heeft, en
-    NOOIT als de oude ticker al prima was."""
+    maar NOOIT als de nieuwe kandidaat zelf ook een probleem heeft."""
 
     CODE = "TESTBF"
 
@@ -143,90 +141,19 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         self.assertEqual(gecorrigeerd, 0)
         self.assertEqual(self._huidige_ticker("IE00BQQP9F84", "TDG"), "G2X.MU")
 
-    def test_werkende_oude_ticker_wordt_niet_aangeraakt_geen_zoekopdracht(self):
+    def test_herzoekt_ook_zonder_prijsprobleem(self):
         self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL", product="APPLE INC")
 
-        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False), \
-             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck") as mock_find:
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False),              patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
+                           return_value={"ticker": "AAPL", "zekerheid": "zeker"}) as mock_find:
             gecorrigeerd = backfill_verouderde_tickers(self.CODE)
 
-        mock_find.assert_not_called()
+        mock_find.assert_called_once()
         self.assertEqual(gecorrigeerd, 0)
         self.assertEqual(self._huidige_ticker("US0378331005", "NASDAQ"), "AAPL")
 
     def test_geen_transacties_voor_code_geeft_geen_crash(self):
         gecorrigeerd = backfill_verouderde_tickers("XYZ-NIET-BESTAAND")
-        self.assertEqual(gecorrigeerd, 0)
-
-
-@vereist_database
-class TestBackfillMetForceerVlag(unittest.TestCase):
-    """Vinkje "ticker-informatie opnieuw bepalen" op het uploadscherm (zie
-    app.py/_upload_impl, CLAUDE.md: Flows): forceer=True overroept de prijsprobleem-
-    check hierboven en herzoekt ALTIJD, ook zonder gedetecteerd probleem.
-    forceer=False (standaard) blijft exact het hierboven al geteste gedrag."""
-
-    CODE = "TBF2"
-
-    def _leeg_op(self):
-        from db import db_connect
-        conn = db_connect()
-        cur = conn.cursor()
-        cur.execute("DELETE FROM transacties WHERE code = %s", (self.CODE,))
-        cur.execute("DELETE FROM portfolios WHERE code = %s", (self.CODE,))
-        conn.commit()
-        cur.close()
-        conn.close()
-
-    def _voeg_positie_toe(self, isin, beurs, ticker, product="APPLE INC"):
-        from db import db_connect
-        conn = db_connect()
-        cur = conn.cursor()
-        cur.execute(
-            "INSERT INTO transacties (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-            (self.CODE, date(2023, 1, 10), product, isin, beurs, ticker, 10, 100.0, -1000.0,
-             f"ORDER-{isin}-{beurs}", product),
-        )
-        conn.commit()
-        cur.close()
-        conn.close()
-
-    def setUp(self):
-        self._leeg_op()
-        from db import db_connect
-        conn = db_connect()
-        cur = conn.cursor()
-        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.CODE, "unittest"))
-        conn.commit()
-        cur.close()
-        conn.close()
-
-    def tearDown(self):
-        self._leeg_op()
-
-    def test_forceer_true_herzoekt_ook_zonder_prijsprobleem(self):
-        self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL")
-
-        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False), \
-             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
-                           return_value={"ticker": "AAPL", "zekerheid": "zeker"}) as mock_find:
-            backfill_verouderde_tickers(self.CODE, forceer=True)
-
-        mock_find.assert_called_once()
-
-    def test_forceer_false_expliciet_ongewijzigd_gedrag(self):
-        # Zelfde assertie als test_werkende_oude_ticker_wordt_niet_
-        # aangeraakt_geen_zoekopdracht hierboven, maar met forceer=False
-        # EXPLICIET meegegeven (i.p.v. de default) -- bevestigt dat het
-        # vinkje-uit-pad niets aan het bestaande gedrag verandert.
-        self._voeg_positie_toe("US0378331005", "NASDAQ", "AAPL")
-
-        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False), \
-             patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck") as mock_find:
-            gecorrigeerd = backfill_verouderde_tickers(self.CODE, forceer=False)
-
-        mock_find.assert_not_called()
         self.assertEqual(gecorrigeerd, 0)
 
 
