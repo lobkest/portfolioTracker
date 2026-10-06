@@ -265,7 +265,7 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 
 - Er worden **geen Order ID's** bepaald, niets naar Postgres geschreven, en er is **geen code**.
 - `bestand2` (rekeningoverzicht) wordt wel verwerkt, maar niet opgeslagen: `_dividend_niet_opslaan()` (zie A4). Transacties en Dividend lezen `transacties_lijst` en `dividend` uit het antwoord in plaats van een fetch.
-- De frontend verbergt alleen de tabbladen die de database nodig hebben (Algemeen en Bijnamen, `VIEWS_MET_CODE`, zie 5.3).
+- De frontend verbergt alleen de tabbladen die de database nodig hebben (Algemeen, Bestanden bijwerken en Bijnamen, `VIEWS_MET_CODE`, zie 5.3).
 - De dure, prijs-geverifieerde ticker-check draait hier bewust **niet** mee; de frontend kan die later los aanvragen via `POST /api/ticker-zekerheid-check` (zie [hoofdstuk 5](#5-frontend)). Reden (uit de commentaren): een groter portfolio met koude cache liep anders over de gunicorn-timeout.
 
 ### 2.3 Tak B — Opslaan
@@ -283,6 +283,9 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 | B9 | `portfolio_orchestratie.py` → `_wis_portfolio_basis_cache(code)` | Cache leegmaken ná alle mutaties hierboven, zodat het volgende stuk verse data ziet. | |
 | B10 | `portfolio_orchestratie.py` → `build_portfolio_response(code)` | Haalt de "basis" op (zie 2.5) en roept `analyze_transacties_kern()` aan. Levert de **kern** (zonder verrijking). | code → dict |
 | B11 | `app.py` → `_upload_impl()` | `log_yahoo_call_samenvatting()` en `jsonify(...)`. | dict → JSON |
+
+B4 t/m B10 (plus de valuta-melding en de Yahoo-samenvatting) staan in één helper, `_sla_op_en_bouw_respons()` in `app.py`; die sluit ook de
+connectie. `/api/portfolio/<code>/bijwerken` (zie 2.9) gebruikt dezelfde helper.
 
 ### 2.4 Kern versus verrijking
 
@@ -372,6 +375,25 @@ bijgehaald, tenzij dezelfde ticker minder dan 2 minuten eerder al is ververst (`
 5. De startpagina toont de melding uit `?melding=` als vaste tekst per sleutel (`startMeldingTekst()` in `navigatie.js`) en haalt de query
    daarna weg met `history.replaceState()`.
 
+### 2.9 Route: bestanden bijwerken (Instellingen > Bestanden bijwerken)
+
+`POST /api/portfolio/<code>/bijwerken` met `bestand1` (transacties) en/of `bestand2` (rekeningoverzicht). Anders dan `/upload` zoekt deze
+route geen portfolio op: de code staat vast, en elk bestand moet **eerst** bewijzen dat het bij deze portfolio hoort.
+
+1. `bijwerken()` → `_bijwerken_impl()`: 404 als de code niet bestaat, 400 zonder bestand (een leeg bestandsveld telt niet).
+2. `bestand1`: `_lees_transacties_excel()` → `_adjust_transaction_exchange_rates()` → `_create_synthetic_order_ids()`; daarna
+   `controleer_eigen_transactiebestand(opgeslagen, nieuw, ids_andere_portfolios)` (`portfolio_admin.py`). Regel (superset): alle opgeslagen
+   Order ID's van deze portfolio moeten in het bestand zitten (`opgeslagen ⊆ nieuw`), het bestand mag geen ID van een andere portfolio
+   bevatten en moet met deze portfolio overlappen. Toe te voegen: `nieuw − opgeslagen` (mag leeg zijn).
+3. `bestand2`: `lees_rekeningoverzicht()` één keer, Order ID's uit de kolom `Order Id` (`order_ids_uit_rekeningoverzicht_df()`), dan
+   `controleer_eigen_rekeningoverzicht()`: minstens één Order ID, en allemaal in `opgeslagen ∪ nieuw`.
+4. Is één bestand afgekeurd, dan 400 met een vaste melding (`MELDING_PER_EIGENDOMSFOUT` in `app.py`; nooit de code van een andere portfolio)
+   en wordt er niets opgeslagen. Anders `_meld_portfolio_opslaan()` (Diagnostiek) en `_sla_op_en_bouw_respons()` met `match_code = code` en
+   zonder "opnieuw bepalen"; de naam blijft ongewijzigd.
+5. Antwoord: de kern, plus `bijwerken: {nieuwe_transacties, dividend_verwerkt}`. De frontend (`tabs/bestanden_bijwerken.js`) toont het
+   dashboard opnieuw met `toonDashboard(data)` (verrijking en tab-toestand horen bij de oude transacties) en een melding via
+   `bijwerkenSuccesTekst()` (`bestandskeuze.js`).
+
 ## 3. Per Python-module
 
 22 Python-modules (zonder tests), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
@@ -409,7 +431,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 
 ### `app.py` — de Flask-routes
 
-**Verantwoordelijkheid:** het Flask-object aanmaken, `db_init()` draaien, en 22 routes definiëren. 25 functies in totaal (22 routes, `_upload_impl()`, `_dividend_niet_opslaan()` en `_korte_namen_voorstellen_of_fout()`).
+**Verantwoordelijkheid:** het Flask-object aanmaken, `db_init()` draaien, en 23 routes definiëren. 29 functies in totaal (23 routes, `_upload_impl()`, `_sla_op_en_bouw_respons()`, `_bijwerken_impl()`, `_gekozen_bestand()`, `_dividend_niet_opslaan()` en `_korte_namen_voorstellen_of_fout()`).
 
 | Route | Methode | Functie | Wat | Aangeroepen door (frontend) |
 |---|---|---|---|---|
@@ -417,6 +439,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | `/p/<code>` | GET | `portfolio_pagina()` | rendert `templates/portfolio.html` met `data-code`; redirect bij kleine letters of een ongeldige code (zie 2.8). Geen database | de browser; `gaNaarPortfolioPagina()` |
 | `/analyse` | GET | `analyse_pagina()` | dezelfde template zonder code, voor "niet opslaan" | `gaNaarPortfolioPagina()` |
 | `/upload` | POST | `upload()` → `_upload_impl()` | zie [hoofdstuk 2](#2-de-route-van-een-upload-stap-voor-stap) | submit-handler van `#uploadForm` |
+| `/api/portfolio/<code>/bijwerken` | POST | `bijwerken()` → `_bijwerken_impl()` | nieuwere export(s) toevoegen aan deze portfolio, na de eigendomscheck (zie 2.9) | submit-handler van `#bestandenBijwerkenForm` |
 | `/api/portfolio/<code>` | GET | `api_portfolio()` | kern voor een bestaande code | submit-handler van `#codeForm` (`start.js`), `haalPortfolioOp()` (`app.js`) |
 | `/api/portfolio/<code>/verrijking` | GET | `portfolio_verrijking()` | verrijking (verdeling/land/sector/bedrijven/overlap) | `laadVerrijking()` |
 | `/api/etf-overlap-detail` | GET | `etf_overlap_detail()` | holdings van één ETF-paar; query `a` en `b` | `toonEtfOverlapDetail()` |
@@ -465,12 +488,12 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | `_bouw_transacties_df_niet_opslaan()` | bouwt een DataFrame in dezelfde vorm als uit de database | DataFrame + dict → DataFrame | `_upload_impl()` |
 | `_create_synthetic_order_ids()` | synthetische ID's voor rijen zonder Order ID | DataFrame → DataFrame | `_upload_impl()` |
 | `_meld_order_ids()` | Diagnostiek-melding over echte versus synthetische ID's | Series → — | `_lees_transacties_excel()` |
-| `_vind_of_maak_portfolio_code()` | bestaande code zoeken (`find_matching_code()`) of nieuwe maken (`generate_code()`), en daarna de kwaliteitsmelding voor de nieuwe rijen doen (`_meld_nieuwe_rijen_kwaliteit()`) | cursor, DataFrame, naam → `(code, match_code, rows_to_insert)` | `_upload_impl()` |
+| `_vind_of_maak_portfolio_code()` | bestaande code zoeken (`find_matching_code()`) of nieuwe maken (`generate_code()`), en daarna de meldingen voor Diagnostiek doen (`_meld_portfolio_opslaan()`, ook gebruikt door `/bijwerken`) | cursor, DataFrame, naam → `(code, match_code, rows_to_insert)` | `_upload_impl()` |
 | `_ticker_resolutie_opslaan_pad()` | tickers voor de nieuwe rijen, met hergebruik van bekende tickers | cursor, code, DataFrame, vlag → dict | `_upload_impl()` |
 | `_bouw_posities()` | groepeert per (ISIN, Beurs) tot `(product, isin, beurs, transacties)`; product is dat van de eerste rij | DataFrame → lijst | `_ticker_resolutie_niet_opslaan_pad()`, `_ticker_resolutie_opslaan_pad()` |
 | `_probeer_andere_productnamen()` | probeert de lichte check met de productnaam van elke rij van een groep tot er een ticker is | groep, transacties, bekende ticker → resultaat-dict | `_ticker_resolutie_opslaan_pad()` |
 | `_insert_nieuwe_transacties()` | roept per rij `db_insert_transactie()` aan (`INSERT ... ON CONFLICT (code, order_id) DO NOTHING`) | rijen → aantal ingevoegd | `_upload_impl()` |
-| `_verwerk_dividend_bestand_indien_aanwezig()` | leest `request.files["bestand2"]`, slaat dividenden op | code → (schrijft naar DB) | `_upload_impl()` |
+| `_verwerk_dividend_bestand_indien_aanwezig()` | leest `request.files["bestand2"]` (of gebruikt een al ingelezen `rekening_df`), slaat dividenden op | code → (schrijft naar DB) | `_sla_op_en_bouw_respons()` |
 
 **Bijzonderheden en valkuilen**
 
@@ -519,7 +542,7 @@ en `_meld_etf_holdings()`: ze roepen de checks uit `diagnostiek_checks.py` aan e
 
 ### `portfolio_admin.py` — portfolio-code beheren en uploads matchen
 
-**Verantwoordelijkheid:** 3-letter-codes genereren/valideren en bepalen of een nieuwe upload bij een bestaand portfolio hoort (via Order ID-overlap).
+**Verantwoordelijkheid:** 3-letter-codes genereren/valideren, bepalen of een nieuwe upload bij een bestaand portfolio hoort (via Order ID-overlap), en de strengere eigendomscheck van Bestanden bijwerken (pure functies met foutcodes `FOUT_...`).
 Constante: `CODE_LENGTH = 3`; `app.py` geeft die ook als `code_lengte` mee aan `portfolio.html` (de `maxlength` van het veld "Nieuwe code"). Importeert alleen uit `db.py` (de SQL zelf staat daar).
 
 | Functie | Wat | Input → output | Aangeroepen door |
@@ -527,6 +550,8 @@ Constante: `CODE_LENGTH = 3`; `app.py` geeft die ook als `code_lengte` mee aan `
 | `is_geldige_code()` | `re.fullmatch` op exact `CODE_LENGTH` hoofdletters A–Z | tekst → bool | `portfolio_pagina()`, `wijzig_code()` |
 | `generate_code()` | willekeurige code, herhaalt tot `db_portfolio_bestaat_met_cursor()` zegt dat hij nog niet in `portfolios` staat | cursor → tekst | `_vind_of_maak_portfolio_code()` |
 | `find_matching_code()` | eerste code waarvan de bestaande set (uit `db_get_order_id_sets()`) ⊆ nieuwe set (dan: nieuwe − bestaande = te inserten), of nieuwe set ⊆ bestaande set (dan: niets nieuws) | cursor, set → `(code, set)` of `(None, None)` | `_vind_of_maak_portfolio_code()` |
+| `controleer_eigen_transactiebestand()` | superset-regel: alle opgeslagen ID's in het bestand, geen ID van een andere portfolio, wel overlap | drie sets → `(foutcode, None)` of `(None, toe_te_voegen)` | `_bijwerken_impl()` |
+| `controleer_eigen_rekeningoverzicht()` | minstens één Order ID, allemaal bekend | twee sets → foutcode of `None` | `_bijwerken_impl()` |
 
 **Valkuilen:** `db_get_order_id_sets()` (in `db.py`) leest bij elke upload alle Order ID's van alle portfolio's; de match is het *eerste* portfolio dat aan een van beide
 deelverzameling-voorwaarden voldoet.
@@ -785,7 +810,9 @@ opgeslagen dividenden samenvatten voor de UI.
 | `_match_valutaconversie()` | zoekt het nog ongebruikte paar met dezelfde valuta en (binnen tolerantie 0,02) hetzelfde bedrag | paren, valuta, bedrag, datum → paar of `None` | `verwerk_rekeningoverzicht_df()` |
 | `_clusters_binnen_venster()` | groepeert op datum gesorteerde items zolang twee opeenvolgende ≤ `max_dagen` uit elkaar liggen | items, dagen → lijst clusters | `verwerk_rekeningoverzicht_df()` |
 | `verwerk_rekeningoverzicht_df()` | het eigenlijke rekenwerk: netten per (Datum, ISIN), omrekenen naar EUR, gepoolde conversies, `herinvesteerd`-vlag | DataFrame → lijst records | `verwerk_rekeningoverzicht()` |
-| `verwerk_rekeningoverzicht()` | Excel inlezen + kolommen hernoemen, dan `verwerk_rekeningoverzicht_df()` | bestandsobject → lijst records | `_verwerk_dividend_bestand_indien_aanwezig()` |
+| `verwerk_rekeningoverzicht()` | `lees_rekeningoverzicht()`, dan `verwerk_rekeningoverzicht_df()` | bestandsobject → lijst records | `_verwerk_dividend_bestand_indien_aanwezig()` |
+| `lees_rekeningoverzicht()` | Excel inlezen + kolommen hernoemen | bestandsobject → DataFrame | `verwerk_rekeningoverzicht()`, `_bijwerken_impl()` |
+| `order_ids_uit_rekeningoverzicht_df()` | niet-lege waarden uit de kolom `Order Id` (`ORDER_ID_KOLOM_REKENING`) | DataFrame → set | `_bijwerken_impl()` |
 | `bereken_dividend_samenvatting()` | leest `dividenden` (via `db_get_dividenden()`), koppelt ISIN → ticker/bijnaam via `transacties`, bouwt `totaal_netto`, `per_ticker`, `cumulatief`, `lijst` | `code` → dict of `None` | `dividend()` (route), `analyze_transacties_kern()` |
 
 Constante: `DIVIDEND_POOL_MAX_DAGEN_VERSCHIL = 3`.
@@ -950,12 +977,13 @@ Zekerheid is dus altijd één van `"zeker"`, `"onzeker"`, `"geen_match"`.
 
 **Verantwoordelijkheid:** de historische Yahoo-slotkoers (en dagrange high/low) ophalen, omrekenen naar EUR, corrigeren voor splits, en vergelijken met de DeGiro-transactieprijs.
 
-Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06`, `DAGRANGE_TOLERANTIE = 0.05`.
+Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06`, `DAGRANGE_TOLERANTIE = 0.05`, `DAGRANGE_TOLERANTIE_EUR = 0.50`.
 
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
 | `vergelijk_prijs_op_datum()` | **de kern**: cache lezen/vullen (`ticker_prijscheck`), FX + split-correctie, afwijking en `niveau` bepalen | `ticker, datum, bekende_koers` → dict (`yahoo_koers`, `afwijking_pct`, `niveau` = `"ok"`/`"mild"`/`"waarschuwing"`, `match`, `high`, `low`, `binnen_dagrange`, ...) | `_ticker_heeft_prijsprobleem()`, `_zoek_betere_alternatieven()`, `_voeg_prijscheck_laatste_toe()`, `_voeg_steekproef_toe()`, `_voeg_prijsoordeel_toe()`, `prijscheck_laatste()` |
-| `_prijscheck_is_probleem()` | is dit één check een "probleem"? Primair: valt de koers buiten de dagrange (± 5%)? Zonder dagrange: `match is False` (afwijking ≥ 6%) | check-dict → bool | `_ticker_heeft_prijsprobleem()`, `_moet_escaleren()`, `_voeg_prijsoordeel_toe()`, `beurs_status()`, `prijswaarschuwing_delen()` |
+| `_prijscheck_is_probleem()` | is dit één check een "probleem"? Primair: valt de koers buiten de dagrange (per grens de ruimste van ± 5% en € 0,50)? Zonder dagrange: `match is False` (afwijking ≥ 6%) | check-dict → bool | `_ticker_heeft_prijsprobleem()`, `_moet_escaleren()`, `_voeg_prijsoordeel_toe()`, `_zoek_betere_alternatieven()`, `_corrigeer_met_alternatief()`, `beurs_status()`, `prijswaarschuwing_delen()` |
+| `dagrange_grenzen()` | **puur**: `(ondergrens, bovengrens)` rond low/high in EUR (na FX en split) | `low_eur, high_eur` → tuple | `vergelijk_prijs_op_datum()` |
 | `_haal_koers_en_dagrange_op()` | slotkoers + high + low in één `yf.download` | ticker, datum → `(close, high, low)` of `(None,)*3` | `vergelijk_prijs_op_datum()` |
 | `_haal_dagrange_op()` | alleen `(high, low)` | idem → tuple | `vergelijk_prijs_op_datum()` |
 | `_haal_splits_op()` | splitsgeschiedenis via `yf.Ticker(t).splits`, 30 dagen gecachet in `ticker_splits` | ticker → `{iso_datum: ratio}` | `_cumulatieve_split_factor()` |
@@ -968,6 +996,8 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 - Drie niveaus: afwijking < 2% → `ok`; 2–6% → `mild` (telt niet als probleem); ≥ 6% → `waarschuwing`. `match` is `False` alleen bij `waarschuwing`.
   Een kleine afwijking is normaal: Yahoo's slotkoers wordt vergeleken met een intraday-transactieprijs.
 - `DAGRANGE_TOLERANTIE` (5%): exact `low <= koers <= high` bleek te strak; bekend-goede tickers (VUSA.AS, G2X.DE) vielen er ~1–2% buiten.
+- `DAGRANGE_TOLERANTIE_EUR` (€ 0,50): per grens geldt de ruimste van 5% en € 0,50. Bij een goedkoop aandeel is 5% maar een paar cent (Nokia op 27-01-2021: high 3,632, koers 3,971 → toch binnen).
+- De %-afwijking t.o.v. de slotkoers (`afwijking_pct`, `niveau`, `match`) blijft in de dict als "is er koersdata" en als fallback zonder high/low, maar wordt niet meer getoond.
 - Zonder FX-omrekening leek bv. NFLX (Yahoo in USD) ~17% af te wijken; zonder splitcorrectie "week" een oude BYD-transactie 71% af.
 - Waarom de split-correctie nodig is: `auto_adjust=True` geeft historische koersen op de *huidige* aandelenbasis, terwijl DeGiro de destijds werkelijke prijs vermeldt.
 - De cache `ticker_prijscheck` is **permanent** en cachet ook mislukte lookups (`yahoo_slotkoers = NULL`); een rij zonder high/low wordt bij een volgend gebruik aangevuld.
@@ -1013,7 +1043,7 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 **Verantwoordelijkheid:** de orkestratie die prijscontrole (`ticker_prijscheck.py`), zoekresultaten (`ticker_matching.py`), OpenFIGI en classificatie combineert tot een zekerheidsoordeel. Er zijn **twee niveaus**:
 een **lichte** check die bij elke upload draait, en een **volledige** check die alleen op de Ticker-zekerheid-pagina draait.
 
-Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE = 2`, `MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH = 2`, `TICKER_RESOLUTIE_POOL_GROOTTE = 12`, `BEURS_OTC_NA_DELISTING = "otc_na_delisting"`.
+Constanten: `MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE = 2`, `MIN_STEEKPROEF_VOOR_VOLLEDIGE_MATCH = 2`, `TICKER_RESOLUTIE_POOL_GROOTTE = 12`, `BEURS_OTC_NA_DELISTING = "otc_na_delisting"`.
 
 | Functie | Wat | Aangeroepen door |
 |---|---|---|
@@ -1026,13 +1056,14 @@ Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMAT
 | `_leeg_resultaat()`, `_voeg_prijsoordeel_toe()`, `_voeg_kaartvelden_toe()`, `_voeg_openfigi_check_toe()`, `_voeg_alternatieven_toe()` | de stappen van `verifieer_ticker_met_prijs()`, in deze volgorde, elk krijgt de resultaat-dict en geeft een nieuwe terug: lege kaart; steekproefchecks + zekerheid/waarschuwing; ETF/land/sector/valuta/beurs (`beurs_klopt` uit `beurs_status()`; bij `otc_na_delisting` wordt "onzeker" weer "zeker"); OpenFIGI-root (maakt "zeker" eventueel "onzeker", en moet dus **vóór** de alternatieven); alternatieven + OpenFIGI-kandidaten (alleen als niet "zeker") | `verifieer_ticker_met_prijs()` |
 | `beurs_status()` | **puur**: `True` (Yahoo-beurs in `BEURS_MAP[Excel-beurs]`), `False`, `None` (niet te beoordelen) of `BEURS_OTC_NA_DELISTING` (`"otc_na_delisting"`: Excel-beurs in `AMERIKAANSE_BEURZEN`, Yahoo in `OTC_BEURZEN`, en alle bekende prijschecks kloppen; zonder koersdata of bij een afwijking blijft het `False`) | `_voeg_kaartvelden_toe()`, `beurs_oordeel()` (Diagnostiek) |
 | `verifieer_tickers_met_prijs_parallel()` | de vorige voor meerdere posities (6 workers) | `ticker_zekerheid_check()` |
-| `_zoek_betere_alternatieven()` | rekent kandidaat-tickers door tegen de steekproef; stopt bij een overtuigende match | `find_ticker_met_snelle_prijscheck()`, `verifieer_ticker_met_prijs()` |
+| `_zoek_betere_alternatieven()` | rekent kandidaat-tickers door tegen de steekproef; per alternatief `aantal_matches` (datums binnen de dagrange, via `_prijscheck_is_probleem()`) en `aantal_gecontroleerd` (datums met koersdata); stopt bij een overtuigende match | `find_ticker_met_snelle_prijscheck()`, `verifieer_ticker_met_prijs()` |
 | `_verzamel_extra_kandidaten()` | extra zoekopdracht (volledige naam en ISIN, zonder beurs-beperking) als er geen alternatieven zijn | `_voeg_alternatieven_toe()` |
 | `_verrijk_met_openfigi_kandidaten()` | voegt kandidaten toe via de OpenFIGI-ticker-roots | `_voeg_alternatieven_toe()`, `_corrigeer_met_alternatief()` |
 | `_voeg_openfigi_check_toe()` | zet `openfigi_root_bekend`/`openfigi_root_matches`; bij "root niet gevonden" een extra waarschuwing en "zeker" → "onzeker" | `find_ticker_met_snelle_prijscheck()`, `verifieer_ticker_met_prijs()` |
 | `_kies_steekproef_transacties()` | eerste, middelste en laatste transactie met koers > 0 | `_voeg_steekproef_toe()`, `_corrigeer_met_alternatief()`, `verifieer_ticker_met_prijs()` |
 | `_geldige_transacties()` | transacties zonder splitrijen (koers 0 of leeg) | lijst → lijst | `find_ticker_met_snelle_prijscheck()`, `_kies_steekproef_transacties()`, `_ticker_heeft_prijsprobleem()`, `prijswaarschuwing_voor_ticker()` |
-| `_grootste_afwijking()` | grootste `afwijking_pct` van een lijst checks, `None` als er geen is | lijst → getal of `None` | `_voeg_steekproef_toe()`, `_corrigeer_met_alternatief()` |
+| `_grootste_afwijking()` | grootste `afwijking_pct` van een lijst checks, `None` als er geen is | lijst → getal of `None` | `_steekproef_waarschuwing()` |
+| `_steekproef_waarschuwing()` | waarschuwingstekst na de steekproef: dagrange-tekst met de vroegste datum erbuiten; de %-tekst alleen als geen enkele check een dagrange heeft | ticker, checks → tekst | `_voeg_steekproef_toe()` |
 | `_land_sector_voor_weergave()` | land/sector-weergave voor de kaart; voor een ETF geen los land, maar top-3 sectoren en "land grootste holding" | `verifieer_ticker_met_prijs()`, `_zoek_betere_alternatieven()` |
 | `_sector_samenvatting()` | top-N sectoren van een ETF als tekst (sectoren op 0% tellen niet mee) | `_land_sector_voor_weergave()` |
 | `_top_holding_land()` | land van de zwaarste holding van een ETF | `_land_sector_voor_weergave()` |
@@ -1048,7 +1079,7 @@ Constanten: `PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10`, `MIN_MATCHES_VOOR_AUTOMAT
 1. Zoek de ticker met `find_ticker_detailed()` — óf sla dat over als `bekende_ticker` is meegegeven.
 2. Vergelijk **alleen de laatste transactiedatum** (`vergelijk_prijs_op_datum()`; meestal 1 gecachete call), en haal de OpenFIGI-resultaten op (permanent gecachet).
 3. Bij een probleem (buiten de dagrange, of helemaal geen koersdata): ook de rest van de steekproef (eerste/middelste/laatste) controleren, en een waarschuwing maken.
-4. Is de grootste afwijking nog steeds > 10% (of nog steeds geen koersdata), **of** ontbreekt de ticker-root bij OpenFIGI: alternatieven doorrekenen met `_zoek_betere_alternatieven()`
+4. Valt nog steeds minstens één datum buiten de dagrange (zonder high/low: afwijking ≥ 6%), of is er geen koersdata, **of** ontbreekt de ticker-root bij OpenFIGI: alternatieven doorrekenen met `_zoek_betere_alternatieven()`
    (bij een ontbrekende root aangevuld met OpenFIGI-kandidaten) en mogelijk **automatisch vervangen**:
    - **Tier 1:** alternatief op een verwachte beurs én ≥ 2 kloppende datums;
    - **Tier 2** (alleen als tier 1 niets vond): op een andere beurs, maar klopt op **alle** gecontroleerde datums (≥ 2 gecontroleerd);
@@ -1246,8 +1277,8 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 | `static/js/app.js` | Opstarten, gedeelde toestand en navigatie van de portfolio-pagina (~300 regels): `huidigeData`, `chart`, `verrijkingStatus`; `startPortfolioPagina()`, `haalPortfolioOp()`, `toonDashboard()` met `RESET_PER_TAB`; `wisselView()`, `pasViewToe()`, `plaatsGrafiek()`, `gaNaarView()`, `TOON_PER_VIEW`, `VIEWS_MET_CODE`; `laadVerrijking()` en `toonVerrijkingWachtstatusIndienNodig()`; de hoofdtabs/subtabs (`ververMenu()`) en de ticker-waarschuwingsbanner. Laadt als laatste script. |
 | `static/js/gedeeld/` | Hulpfuncties met DOM of Chart.js die meerdere tabbladen gebruiken (alleen portfolio-pagina, geen tests): `opmaak.js` (`formatDatum()`, `formatteerEuro()`, `formatPct()`, `klasseVoorRendement()`, `kortNaam()`, `toonAlleen()`), `grafiek.js` (kleurenpalet, `kleurVoorIndex()`, `kleurVoorTicker()`, `maakStrepenPatroon()`, `updateChart()`, `renderGestapeldeStaafgrafiek()`), `tabel.js` (`maakSorteerbareTabel()`, `maakCel()`, `maakRendementCel()`) en `tegels.js` (`maakStatTegel()`, `maakTotalenSectie()`). Niet te verwarren met `gedeeld.js`: dat delen de start- en de portfolio-pagina. |
 | `static/js/tabs/` | Eén bestand per tabblad met de DOM-code van dat tabblad: de `toon...()`-functie, de eigen toestand (met een `reset...()`-functie als die per portfolio geldt, zie 5.2), de `fetch()`-aanroepen en de event-listeners. Welk bestand bij welk tabblad hoort staat in 5.4. `land_sector.js` bedient drie tabbladen (Land, Sector en Valuta delen de weergavekeuze). Staat er een bestand met dezelfde naam direct in `static/js/` (`prognose.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `diagnostiek.js`, `per_aandeel.js`), dan is dat de pure, geteste rekenkern en het bestand in `tabs/` de DOM-kant. |
-| `static/js/start.js` | De startpagina: submit-handlers van `#uploadForm` en `#codeForm`, `gaNaarPortfolioPagina()`, `toonStartMelding()`, `koppelBestandWisKnop()`. |
-| `static/js/gedeeld.js` | DOM-helpers voor beide pagina's: `fetchMetTimeout()`, `toonLaadOverlay()`/`verbergLaadOverlay()`, `sessieOpslag()`. |
+| `static/js/start.js` | De startpagina: submit-handlers van `#uploadForm` en `#codeForm`, `gaNaarPortfolioPagina()`, `toonStartMelding()`. |
+| `static/js/gedeeld.js` | DOM-helpers voor beide pagina's: `fetchMetTimeout()`, `UPLOAD_TIMEOUT_MS`, `toonLaadOverlay()`/`verbergLaadOverlay()`, `sessieOpslag()`, `koppelBestandWisKnop()` (startpagina en Bestanden bijwerken). |
 | `static/js/navigatie.js` | Pure logica voor paden en URL's: `portfolioPad()`, `startPadMetMelding()`, `viewUitHash()`, `viewInLijst()`, `elementZichtbaar()` (zichtbaarheid uit `data-views` en `data-vereist-code`), `maakTabWisselaar()` (de fade tussen tabbladen, zie 5.3), `startMeldingTekst()` en de constanten (`START_PAD`, `ANALYSE_PAD`, `STANDAARD_VIEW`, de meldingsleutels). |
 | `static/js/overdracht.js` | Pure logica voor de eenmalige overdracht start → portfolio-pagina: `bewaarOverdracht(opslag, data)`, `haalOverdracht(opslag, code)` (wist na lezen). De opslag komt als parameter mee, zodat de test een nep-object kan gebruiken. |
 | `static/js/prognose.js` | Rekenkern van het Prognose-tabblad: `berekenPrognose()` (gebruikt `berekenPrognosePad()`, `berekenGeinvesteerdPad()` en `maandRenteVanJaarPct()`), `valideerPrognoseInvoer()`, `genereerToekomstDatums()` en `bouwPrognoseGrafiekData()`. Puur JS, geen DOM. Maandrente = `(1 + jaarrendement)^(1/12) − 1`; inleg komt na de groei van die maand erbij. |
@@ -1258,7 +1289,7 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 | `static/js/diagnostiek.js` | Pure logica voor Instellingen → Diagnostiek: `voegMeldingenSamen()` (nieuwste wint per categorie + sleutel), `telPerNiveau()`, `groepeerPerCategorie()`, `diagnostiekTellerTekst()`, `hoogsteNiveau()`, `categorieStandaardOpen()`. Het tekenen zelf gebeurt in `toonDiagnostiek()` in `tabs/diagnostiek.js`. |
 | `static/js/koersen.js` | Pure logica voor de meldingen bovenaan het dashboard en de splitlabels: `koersMeldingTekst()` (koersen nog niet compleet / ontbreken, uit de koersstatus van de kern), `tickerWaarschuwingTekst()` (de bannertekst per reden), `splitLabel()` (zelfde tekst als `split_tekst()` in Python) en `splitLabelIndex()` (op welk grafieklabel een split valt). |
 | `static/js/per_aandeel.js` | Pure logica voor Per aandeel: `aandeelLandSectorRegels()` maakt van `land_sector_verdeling.per_aandeel` de regels Land/Sector ("onbekend" grijs); `null` voor een ETF of als de verrijking er nog niet is. De DOM-kant is `toonAandeelLandSector()` in `tabs/per_aandeel.js`. |
-| `static/js/bestandskeuze.js` | Eén pure functie `bestandSelectieWeergave()`: welke tekst de rij "gekozen bestand + x-knop" onder een bestandsveld toont. De DOM-kant is `koppelBestandWisKnop()` in `start.js`. |
+| `static/js/bestandskeuze.js` | `bestandSelectieWeergave()`: welke tekst de rij "gekozen bestand + x-knop" onder een bestandsveld toont (DOM-kant: `koppelBestandWisKnop()` in `gedeeld.js`), en `bijwerkenSuccesTekst()`: de melding na Bestanden bijwerken. Beide pagina's laden dit bestand. |
 | `static/js/infotip.js` | Bouwt van `<span class="infoTip">` een (i)-knop met tooltip (`initInfoTips()`, start vanzelf bij `DOMContentLoaded`). Raakt de DOM, heeft geen exports en (nog) geen test. |
 | `static/css/style.css` | Opmaak, één bestand (~1220 regels) met bovenaan een inhoudsopgave en zes secties: 1 basis (reset, elementen, `[hidden]`), 2 layout en menu, 3 gedeelde componenten, 4 per tabblad, 5 hulpklassen die moeten winnen (kleuren `.positief`/`.negatief`/`.mild`/`.gedempt`/`.vet` en marges `.margeBoven10`, `.margeOnder15`, ...), 6 mobiel. Sectie 5 staat bewust na 3 en 4: bij gelijke specificiteit wint de latere regel. Onder `@media (max-width: 768px)` (en liggend tot 900 px) worden de hoofdtabs een vaste onderbalk. `.badge` (+ kleurvarianten `.badgeHerinvesteerd`, `.badgeDeelsVerkocht`, `.badgeGesloten`) is het kleine label in een tabelcel. Wat de JS bouwt krijgt zijn opmaak uit klassen, niet uit inline stijlen: `.dataTabel`/`.compacteTabel`/`.kleineTabel`/`.overlapMatrix` (tabellen), `.tegelRij`/`.statTegel`/`.statWaarde` (tegels), `.tickerKaart` en verwanten (Ticker-zekerheid), `.paginaNavigatie`. Ook `portfolio.html` heeft geen inline stijlen meer, op `style="display: none;"` na (elementen die JS of de zichtbaarheidslogica aan- en uitzet). In JS blijft inline alleen wat uit data of de zichtbaarheidslogica komt: `display`, de hoogte van de Top-bedrijven-grafiek en de celkleur in de overlap-matrix. Zet JS een klasse met `className =` op een element uit de HTML, neem dan de vaste klasse van dat element mee (zoals `"melding foutTekst"` bij `#instellingenMsg`). Er is geen dark mode. |
 
@@ -1268,7 +1299,7 @@ chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1) en na
 
 1. de pure modules `prognose.js`, `menu.js`, `diagnostiek.js`, `bedrijven.js`, `transacties.js`, `dividend.js`, `koersen.js`, `per_aandeel.js`;
 2. `gedeeld/opmaak.js`, `gedeeld/grafiek.js`, `gedeeld/tabel.js`, `gedeeld/tegels.js`;
-3. de tabbladen in menuvolgorde: `tabs/portfolio.js`, `rendement.js`, `per_aandeel.js`, `per_aandeel_aankoop.js`, `verdeling.js`, `land_sector.js`, `bedrijven.js`, `etf_overlap.js`, `statistieken.js`, `transacties.js`, `prognose.js`, `dividend.js`, `instellingen.js`, `bijnamen.js`, `ticker_zekerheid.js`, `diagnostiek.js`;
+3. de tabbladen in menuvolgorde: `tabs/portfolio.js`, `rendement.js`, `per_aandeel.js`, `per_aandeel_aankoop.js`, `verdeling.js`, `land_sector.js`, `bedrijven.js`, `etf_overlap.js`, `statistieken.js`, `transacties.js`, `prognose.js`, `dividend.js`, `instellingen.js`, `bestanden_bijwerken.js`, `bijnamen.js`, `ticker_zekerheid.js`, `diagnostiek.js`;
 4. als laatste `app.js`.
 
 Ze zijn gewone `<script>`-tags, geen ES-modules. `tests/test_scripts.js` bewaakt dat elk geladen script en elk gelinkt CSS-bestand bestaat, dat er geen script dubbel wordt geladen, dat elk bestand in `gedeeld/` en `tabs/` ook echt geladen wordt, dat `app.js` als laatste komt en dat `RESET_PER_TAB` klopt (zie 5.2).
@@ -1319,7 +1350,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
    (b) **Tekenen.** Het object `TOON_PER_VIEW` koppelt elke view aan zijn `toon...()`-functie (zie de tabel hieronder); `TOON_PER_VIEW[view]?.()` roept hem aan (`?.` = alleen als er een functie is; `instellingen` heeft er geen).
 4a. Website (breed scherm): de pagina vult de schermbreedte. Home, Dividend, Rendement, Prognose, Top-bedrijven en de twee Posities-tabbladen hebben `<div class="tabSplit">` met links `.tabInfo` (informatie, instellingen) en rechts `.tabGrafiek` (de gedeelde grafiek via `data-grafiek-plek`); de grid-regels staan in een desktop-`@media` in `style.css`, op mobiel blijft het blokken onder elkaar. Bij Posities vervangen de knoppen in `[data-aandeel-knoppen]` (`bouwAandeelKnoppen()` in `tabs/per_aandeel.js`) de dropdown `#aandeelSelect` op de website; de select blijft de bron van de keuze, een klik zet hem en stuurt een `change`-event. De dropdown is op de website met CSS verborgen, de knoppen op mobiel.
 4. Mobiel (zelfde breakpoint als voorheen): de hoofdtabs zijn een vaste onderbalk (`env(safe-area-inset-bottom)`), de subtabs een horizontaal scrollbare rij bovenaan de content. Een `matchMedia("(max-width: 768px)")`-listener (in `tabs/bedrijven.js`) hertekent het Top-N-bedrijven-tabblad (staand/liggend, zie `tekenBedrijven()`) bij het kantelen van het scherm of een venster-formaatwijziging over dat breakpoint heen, als dat tabblad open staat.
-5. Bij een "niet opslaan"-analyse (`data.code` is leeg) verbergt `ververMenu()` de subtabs Algemeen en Bijnamen (`VIEWS_MET_CODE`); Dividend en Transacties lezen `huidigeData.dividend` en `huidigeData.transacties_lijst`. Een hash naar zo'n tabblad valt dan terug op `portfolio`.
+5. Bij een "niet opslaan"-analyse (`data.code` is leeg) verbergt `ververMenu()` de subtabs Algemeen, Bestanden bijwerken en Bijnamen (`VIEWS_MET_CODE`); Dividend en Transacties lezen `huidigeData.dividend` en `huidigeData.transacties_lijst`. Een hash naar zo'n tabblad valt dan terug op `portfolio`.
 6. "Nieuwe upload" staat links in de header en is een gewone link naar `/`.
 7. Instellingen: na "Code wijzigen" past `history.replaceState()` de URL aan naar `/p/<nieuwe code>` (zonder herladen, de hash blijft staan); na verwijderen gaat de pagina met `location.replace()` naar `/?melding=verwijderd`, zodat de terug-knop niet op de verwijderde portfolio uitkomt.
 
@@ -1343,6 +1374,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 | Prognose (`prognose`) | `prognose.js` | `toonPrognose()`, `berekenEnToonPrognose()`, `tekenPrognoseChart()` | **geen API**: `huidigeData.chart_data` + `prognose.js` | lijngrafiek met een echte **tijd-as** (luxon-adapter), gestippelde prognose- en bandbreedtelijnen |
 | Dividend (`dividend`) | `dividend.js` | `toonDividend()` | `GET .../dividend` | gestapelde cumulatieve lijngrafiek (`toonDividendChart()`), totalentabel (`maakDividendTotalenTabel()`) en de volledige uitkeringenlijst (`maakDividendUitkeringenTabel()`); rijen met `herinvesteerd: true` krijgen in de kolom "Aandeel" een groen label "herinvesteerd" met tooltip (CSS `.badge` + `.badgeHerinvesteerd`) |
 | Instellingen (`instellingen`) | `instellingen.js` | *(geen toon-functie; statisch blok `#tab-instellingen`, het bestand bevat alleen de listeners van de twee knoppen)* | `DELETE /api/portfolio/<code>`; `POST .../wijzig-code` | twee formulier-achtige knoppen: data verwijderen, code wijzigen |
+| Bestanden bijwerken (`instellingen-bestanden`) | `bestanden_bijwerken.js` | *(geen toon-functie; statisch formulier `#bestandenBijwerkenForm`)* | `POST .../bijwerken` | twee bestandsvelden (transacties, rekeningoverzicht) met x-knop; na succes `toonDashboard(data)` en een melding |
 | Bijnamen (`instellingen-bijnamen`) | `bijnamen.js` | `toonInstellingen()`, `renderBijnamen()`; `laadYahooNamen()`, `pasBijnamenToe()` | `huidigeData.tickers`; `GET .../korte-namen` (Yahoo-naam en kort voorstel per ticker, één keer per portfolio); `POST .../bijnamen` | per ticker drie knoppen (Excel-, Yahoo- en korte naam) en een invoerveld (Enter slaat op), plus een balk "Alles:" die één bron voor alle posities toepast |
 | Ticker-zekerheid (`instellingen-ticker`) | `ticker_zekerheid.js` | `toonInstellingenTicker()` (opgeslagen) of `toonInstellingenTickerBasis()` (niet opslaan) | `GET .../ticker-zekerheid/lijst`, dan per positie `GET .../ticker-zekerheid/positie` (maximaal 4 tegelijk, `voerMetConcurrencyLimietUit()`, `TICKER_POSITIE_TIMEOUT_MS` = 30 s per aanroep); bij "niet opslaan" `huidigeData.ticker_zekerheid` en `POST /api/ticker-zekerheid-check` | kaarten per positie (`maakTickerZekerheidKaart()`, `maakPrijscontroleTabel()`, `maakAlternatievenTabel()`, ...) |
 | Diagnostiek (`instellingen-diagnostiek`) | `diagnostiek.js` | `toonDiagnostiek()` | **geen eigen API**: de `diagnostiek`-sleutel uit de antwoorden van upload, ophalen en `/verrijking`, verzameld in `diagnostiekMeldingen` | teller + één inklapbaar `<details>`-blok per categorie (zie `diagnostiek.py` in hoofdstuk 3) |
@@ -1355,7 +1387,7 @@ Bij Verdeling/Land/Sector/Bedrijven/ETF-overlap begint elke `toon...()` met `too
 ### 5.5 Foutafhandeling en laadgedrag
 
 - `toonLaadOverlay(tekst)` / `verbergLaadOverlay()`: een volledig scherm-overlay bij acties die merkbaar duren (upload, code ophalen, bijnaam opslaan, benchmark ophalen, verwijderen). De overlay staat als vast element `#laadOverlay` in `templates/basis.html` en de functies in `gedeeld.js`; ze zetten alleen de tekst en het `hidden`-attribuut (`.laadOverlay[hidden]` in `style.css` is nodig omdat `display: flex` anders wint). Niet gebruikt bij de Prognose (puur client-side). Op de startpagina blijft de overlay staan terwijl de browser naar de portfolio-pagina navigeert; de `pageshow`-listener in `start.js` verbergt hem weer als je met de terug-knop terugkomt (de browser zet de pagina dan terug zoals hij was).
-- `fetchMetTimeout(url, opties, timeoutMs = 55000)` breekt zelf af en gooit `Error("TIMEOUT")`; de upload gebruikt `UPLOAD_TIMEOUT_MS` (60 s, `start.js`). Ticker-zekerheid gebruikt een eigen `AbortController`: `TICKER_POSITIE_TIMEOUT_MS` (30 s) per positie en `TICKER_UITGEBREID_TIMEOUT_MS` (60 s) voor de uitgebreide check bij "niet opslaan".
+- `fetchMetTimeout(url, opties, timeoutMs = 55000)` breekt zelf af en gooit `Error("TIMEOUT")`; de upload en Bestanden bijwerken gebruiken `UPLOAD_TIMEOUT_MS` (60 s, `gedeeld.js`). Ticker-zekerheid gebruikt een eigen `AbortController`: `TICKER_POSITIE_TIMEOUT_MS` (30 s) per positie en `TICKER_UITGEBREID_TIMEOUT_MS` (60 s) voor de uitgebreide check bij "niet opslaan".
 - Ontbreken er koersen (`koersen_onvolledig`/`koersen_ontbreken` uit de kern), dan toont `app.js` daarover een melding met de tekst van `koersMeldingTekst()` (`koersen.js`).
 - De banner `#tickerWaarschuwingBanner` (`toonTickerWaarschuwingBanner()`) toont `ticker_waarschuwingen` bij elk tabblad, met een knop die naar Ticker-zekerheid springt. De tekst komt uit de pure functie `tickerWaarschuwingTekst()` in `koersen.js`: één zin per reden (koersafwijking, OpenFIGI, of beide), op basis van `redenen` uit de backend.
 
@@ -1403,7 +1435,7 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 - **Python:** `unittest` (geen pytest), 75 bestanden `tests/backend/test_*.py` met samen 727 `def test_...`-methodes (geteld op 06-10-2026). `tests/backend/` heeft een
   `__init__.py`; elk bestand zet daarnaast zelf `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt. `tests/db_helper.py` staat één map hoger.
-- **JavaScript:** 12 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 06-10-2026 slaagden alle 161 tests (`test_prognose.js` 21, `test_menu.js` 10, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 4, `test_diagnostiek.js` 12, `test_navigatie.js` 31, `test_overdracht.js` 10, `test_dividend.js` 6, `test_koersen.js` 10, `test_per_aandeel.js` 3, `test_scripts.js` 10).
+- **JavaScript:** 12 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 06-10-2026 slaagden alle 164 tests (`test_prognose.js` 21, `test_menu.js` 11, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 6, `test_diagnostiek.js` 12, `test_navigatie.js` 31, `test_overdracht.js` 10, `test_dividend.js` 6, `test_koersen.js` 10, `test_per_aandeel.js` 3, `test_scripts.js` 10).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `bestandskeuze.js`, `diagnostiek.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`).
   Drie bestanden lezen daarnaast bronbestanden als tekst: `test_menu.js` (`style.css` en `basis.html`, mobiele CSS-regels), `test_navigatie.js` (`portfolio.html`: tabblad-blokken, `data-views`, `data-verberg-buiten`, `data-vereist-code`, `data-grafiek-plek`, en de id's uit de toestand-lijsten in `tabs/`) en `test_scripts.js` (script- en stylesheet-tags in de templates tegen de bestanden in `static/`, en `RESET_PER_TAB` tegen de tab-bestanden, zie 5.1 en 5.2).
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
@@ -1432,7 +1464,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand (of een deel ervan) word
 | `transactie_utils.py` | `test_datum_nl.py` (3, `formatteer_datum_nl()`); `_sorteer_chronologisch()` zit in `test_chronologische_sortering.py` |
 | `db.py` (echte database) | `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_koersen_tabellen_db.py` (7: `koersen`, `koers_splits`, `prijscheck_koersen`), `test_laatste_prijs_update.py` (3) — allemaal **[DB]**; plus `test_prijzen_upsert.py` (2, database-vrij, de oude `prijzen`-functies) |
 | `tests/db_helper.py` (de skip-decorator zelf) | `test_db_helper.py` (8, database-vrij: alleen localhost/127.0.0.1 toegestaan, Neon-URL geweigerd vóór een verbindingspoging) |
-| Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | database-vrij: `test_pagina_routes.py` (10, de pagina-routes `/`, `/p/<code>` en `/analyse`; bewaakt ook dat elk element-id uit alle scripts die een pagina laadt op die pagina bestaat en dat `maxlength` uit `CODE_LENGTH` komt), `test_basis_cache.py` (3), `test_herbepaal_tickers_ophalen_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (5), `test_koersstatus.py` (4: `bepaal_koersstatus()` en `splits_voor_grafiek()`), `test_korte_namen_routes.py` (11), `test_niet_opslaan_overzichten.py` (10), `test_upload_verwerking.py` (7); `test_upload_route_foutafhandeling.py` (5, deels **[DB]**); **[DB]**: `test_gefaseerd_laden.py` (4), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_ticker_zekerheid_positie_route.py` (4), `test_corporate_action_filtering.py` (7) |
+| Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | database-vrij: `test_pagina_routes.py` (10, de pagina-routes `/`, `/p/<code>` en `/analyse`; bewaakt ook dat elk element-id uit alle scripts die een pagina laadt op die pagina bestaat en dat `maxlength` uit `CODE_LENGTH` komt), `test_basis_cache.py` (3), `test_herbepaal_tickers_ophalen_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (5), `test_koersstatus.py` (4: `bepaal_koersstatus()` en `splits_voor_grafiek()`), `test_korte_namen_routes.py` (11), `test_niet_opslaan_overzichten.py` (10), `test_upload_verwerking.py` (7), `test_bestanden_bijwerken.py` (17, eigendomscheck en `/bijwerken` met gemockte database); `test_upload_route_foutafhandeling.py` (5, deels **[DB]**); **[DB]**: `test_gefaseerd_laden.py` (4), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_ticker_zekerheid_positie_route.py` (4), `test_corporate_action_filtering.py` (7) |
 | JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js`, `test_bestandskeuze.js`, `test_diagnostiek.js`, `test_navigatie.js`, `test_overdracht.js`, `test_dividend.js`, `test_koersen.js`, `test_per_aandeel.js`, `test_scripts.js` |
 
 **Niet (direct) getest, voor zover ik zag:** `dprint()` in `debug_utils.py` (`meet_tijd()` wel, via `test_diagnostiek_laden.py`), `infotip.js`, `gedeeld.js`, `start.js`, `app.js` en de scripts in `gedeeld/` en `tabs/` (alles met DOM).
@@ -1584,7 +1616,7 @@ Les: verplaats je een element **zonder de id te wijzigen**, dan is de HTML-wijzi
 | **Ticker** | Het Yahoo-symbool (bv. `VUSA.AS`). DeGiro geeft alleen productnaam, ISIN en beurs. | `find_ticker_detailed()` |
 | **Ticker-zekerheid** | Hoe zeker we zijn dat de ticker klopt: `zeker`/`onzeker`/`geen_match`, versterkt of afgezwakt door de prijscontrole en OpenFIGI. | `ticker_zekerheid.py` |
 | **Prijscontrole / niveau** | Vergelijking DeGiro-prijs ↔ Yahoo-slotkoers op dezelfde datum: `ok` (< 2%), `mild` (2–6%), `waarschuwing` (≥ 6%). | `vergelijk_prijs_op_datum()` |
-| **Dagrange** | Het intraday-`High`/`Low` van de handelsdag. Valt de DeGiro-prijs (± 5%) erbuiten, dan is dat het primaire "probleem"-criterium. | `_prijscheck_is_probleem()`, `DAGRANGE_TOLERANTIE` |
+| **Dagrange** | Het intraday-`High`/`Low` van de handelsdag. Valt de DeGiro-prijs erbuiten (marge per grens: de ruimste van ± 5% en € 0,50), dan is dat het "probleem"-criterium, ook voor alternatieven. | `_prijscheck_is_probleem()`, `dagrange_grenzen()`, `DAGRANGE_TOLERANTIE`, `DAGRANGE_TOLERANTIE_EUR` |
 | **Escalatietrapje** | De lichte check begint met 1 datum en kost meer moeite (meer datums, dan alternatieve tickers) alleen als er een afwijking is. | `find_ticker_met_snelle_prijscheck()` |
 | **Tier 1 / Tier 2** | De twee voorwaarden waaronder een alternatieve ticker automatisch wordt overgenomen (beurs + ≥ 2 datums, resp. alle datums kloppen). | `find_ticker_met_snelle_prijscheck()` |
 | **Override** | Handmatig vastgezette ticker: op naam-prefix (fallback) of op `(ISIN, Beurs)` (vóór het zoeken). | `MANUAL_TICKER_OVERRIDES(_ISIN)` |

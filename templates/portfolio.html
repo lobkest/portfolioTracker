@@ -287,6 +287,34 @@
                 <button id="wijzigCodeBtn">Code wijzigen</button>
             </div>
 
+            <div id="tab-instellingen-bestanden" data-views="instellingen-bestanden" style="display: none;">
+                <p>Upload een nieuwere export van DeGiro om deze portfolio bij te werken. Exporteer het transactiebestand altijd vanaf je eerste transactie tot nu; elk bestand wordt eerst gecontroleerd of het bij deze portfolio hoort.</p>
+                <form id="bestandenBijwerkenForm">
+                    <div class="labelRij">
+                        <label for="bestand1">Transacties-export</label>
+                        <span class="infoTip" data-label="Transacties-export">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</span>
+                    </div>
+                    <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls">
+                    <div class="bestandKeuze" id="bestand1Keuze" hidden>
+                        <span class="bestandKeuzeNaam" id="bestand1Naam"></span>
+                        <button type="button" class="bestandWisKnop" id="bestand1WisKnop" aria-label="Transactiebestand verwijderen">&times;</button>
+                    </div>
+
+                    <div class="labelRij">
+                        <label for="bestand2">Rekeningoverzicht</label>
+                        <span class="infoTip" data-label="Rekeningoverzicht">DeGiro: Inbox &rarr; Rekeningoverzicht (.xls). Er moet minstens één aan- of verkoop in staan.</span>
+                    </div>
+                    <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
+                    <div class="bestandKeuze" id="bestand2Keuze" hidden>
+                        <span class="bestandKeuzeNaam" id="bestand2Naam"></span>
+                        <button type="button" class="bestandWisKnop" id="bestand2WisKnop" aria-label="Rekeningoverzicht verwijderen">&times;</button>
+                    </div>
+
+                    <button type="submit">Bijwerken</button>
+                </form>
+                <p id="bestandenBijwerkenMsg" class="melding" style="display: none;"></p>
+            </div>
+
             <div id="tab-instellingen-bijnamen" data-views="instellingen-bijnamen" style="display: none;">
                 <p>Kies per aandeel de naam of typ zelf een bijnaam en druk op Enter.</p>
                 <div id="instellingenSectie"></div>
@@ -322,12 +350,14 @@
     <!-- Volgorde: pure modules, gedeeld/ (hulpfuncties), tabs/ (menuvolgorde), app.js als laatste: die bouwt TOON_PER_VIEW uit de tabs. -->
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bestandskeuze.js') }}"></script>
     <script src="{{ url_for('static', filename='js/diagnostiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dividend.js') }}"></script>
     <script src="{{ url_for('static', filename='js/koersen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/per_aandeel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/land_sector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>
@@ -345,6 +375,7 @@
     <script src="{{ url_for('static', filename='js/tabs/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/dividend.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/instellingen.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/bestanden_bijwerken.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/ticker_zekerheid.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/diagnostiek.js') }}"></script>

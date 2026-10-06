@@ -5,6 +5,8 @@ import pandas as pd
 
 from db import db_get_dividenden, db_get_isin_ticker_product
 
+ORDER_ID_KOLOM_REKENING = "Order Id"
+
 
 def _koppel_valutaconversie_paren(df):
     """Paren op exact gelijke (Datum, Tijd), niet op Valutadatum.
@@ -173,6 +175,10 @@ def verwerk_rekeningoverzicht_df(df):
 
 
 def verwerk_rekeningoverzicht(file_object):
+    return verwerk_rekeningoverzicht_df(lees_rekeningoverzicht(file_object))
+
+
+def lees_rekeningoverzicht(file_object):
     file_object.seek(0)
     df = pd.read_excel(file_object)
     df.columns = df.columns.str.strip()
@@ -186,8 +192,13 @@ def verwerk_rekeningoverzicht(file_object):
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
     df["Valutadatum"] = pd.to_datetime(df["Valutadatum"], dayfirst=True)
     df["mutatie"] = pd.to_numeric(df["mutatie"], errors="coerce")
+    return df
 
-    return verwerk_rekeningoverzicht_df(df)
+
+def order_ids_uit_rekeningoverzicht_df(df):
+    if ORDER_ID_KOLOM_REKENING not in df.columns:
+        return set()
+    return {str(o).strip() for o in df[ORDER_ID_KOLOM_REKENING].dropna() if str(o).strip()}
 
 
 def bereken_dividend_samenvatting(code):

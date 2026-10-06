@@ -1153,10 +1153,11 @@ body {
     .startFormulieren hr {
         display: block;
         width: 100%;
+        order: -1;
     }
 
     #codeForm {
-        order: -1;
+        order: -2;
     }
 
     .aandeelKnoppen {

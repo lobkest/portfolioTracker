@@ -65,6 +65,7 @@ class TestGefaseerdLaden(unittest.TestCase):
             patch.object(portfolio_orchestratie, "ticker_waarschuwingen_voor_transacties", return_value=([], {})),
             patch.object(portfolio_orchestratie, "classify_tickers", return_value={"ETF_A": True, "AAPL": False}),
             patch.object(portfolio_orchestratie, "_verwarm_land_sector_cache_parallel", return_value=None),
+            patch.object(portfolio_orchestratie, "land_proxies_voor_etfs", return_value={}),
             patch.object(portfolio_orchestratie, "compute_land_sector_verdeling", return_value={"land": {}, "sector": {}}),
             patch.object(portfolio_orchestratie, "compute_valuta_verdeling", return_value={"valuta": {}}),
             patch.object(portfolio_orchestratie, "bereken_bedrijven_verdeling", return_value={"top": []}),

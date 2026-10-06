@@ -340,11 +340,12 @@ def bereken_land_dekking(holdings):
     return {"onbekend_pct": max(0.0, 100 - bekend_pct), "dekking_pct": dekking_pct, "rijen": rijen}
 
 
-def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
-    """Bedragen in €. Sleutels:
+def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_proxies=None):
+    """Bedragen in €. land_proxies: {ticker: etf_proxy-rij} (etf_proxy.py); met een proxy_isin komt het
+    land van de ETF uit de proxy (land_bron 'proxy'), sector blijft van Yahoo. Sleutels:
       land, land_europa (Europa samengevoegd): {land: €}, kleine landen in 'Overig' (taart)
       sector: {sector: €}
-      per_etf: {ticker: {land, sector (fracties 0-1), land_bron}}
+      per_etf: {ticker: {land, sector (fracties 0-1), land_bron, land_proxy: {naam, max_afwijking_pp} of None}}
       per_aandeel: {ticker: {land, sector}}, alle niet-ETF-tickers, ook gesloten posities
       land_per_bron_top, land_per_bron_europa_top: {land: {bron: €}}, top 10 + 'Overig' (staaf)
       sector_per_bron: {sector: {bron: €}}
@@ -384,14 +385,21 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
             if restant_sector > 1e-9:
                 etf_sector_pct["Unknown"] = etf_sector_pct.get("Unknown", 0.0) + restant_sector
 
-            holdings = get_etf_holdings(ticker)
-            land_bron = holdings[0]["bron"] if holdings else "yfinance_top10"
-            etf_land_pct = {}
-            for h in holdings:
-                etf_land_pct[h["land"] or "Unknown"] = etf_land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
-            restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
-            if restant_land > 1e-9:
-                etf_land_pct["Unknown"] = etf_land_pct.get("Unknown", 0.0) + restant_land
+            proxy = (land_proxies or {}).get(ticker)
+            land_proxy = None
+            if proxy and proxy.get("proxy_isin") and proxy.get("proxy_land"):
+                land_bron = "proxy"
+                etf_land_pct = dict(proxy["proxy_land"])
+                land_proxy = {"naam": proxy["proxy_naam"], "max_afwijking_pp": proxy["max_afwijking_pp"]}
+            else:
+                holdings = get_etf_holdings(ticker)
+                land_bron = holdings[0]["bron"] if holdings else "yfinance_top10"
+                etf_land_pct = {}
+                for h in holdings:
+                    etf_land_pct[h["land"] or "Unknown"] = etf_land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
+                restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
+                if restant_land > 1e-9:
+                    etf_land_pct["Unknown"] = etf_land_pct.get("Unknown", 0.0) + restant_land
 
             for naam, gewicht in etf_sector_pct.items():
                 optellen(sector, naam, waarde * gewicht)
@@ -400,7 +408,8 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map):
                 optellen(land, naam, waarde * gewicht)
                 optellen_per_bron(land_per_bron, naam, ticker, waarde * gewicht)
 
-            per_etf[ticker] = {"land": etf_land_pct, "sector": etf_sector_pct, "land_bron": land_bron}
+            per_etf[ticker] = {"land": etf_land_pct, "sector": etf_sector_pct, "land_bron": land_bron,
+                               "land_proxy": land_proxy}
         else:
             aandeel_land, aandeel_sector = get_land_sector(ticker)
             per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}

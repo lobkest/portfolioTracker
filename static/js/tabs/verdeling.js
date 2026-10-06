@@ -1,5 +1,13 @@
 // Tabblad Verdeling: taart van de posities, ETF's met een streeppatroon.
 
+function legendaMetEtfUitleg(chart) {
+    const items = Chart.overrides.pie.plugins.legend.labels.generateLabels(chart);
+    const uitleg = (tekst, vlak) => ({
+        text: tekst, fillStyle: vlak, strokeStyle: "#fcfcfb", lineWidth: 1, hidden: false, uitleg: true
+    });
+    return [...items, uitleg("ETF", maakStrepenPatroon(ONBEKEND_GRIJS)), uitleg("Aandeel", ONBEKEND_GRIJS)];
+}
+
 function toonVerdeling() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
@@ -39,7 +47,15 @@ function toonVerdeling() {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { position: legendaPositie() },
+                legend: {
+                    position: legendaPositie(),
+                    labels: { generateLabels: legendaMetEtfUitleg },
+                    // De uitleg-items horen bij geen taartpunt, dus klikken doet daar niets.
+                    onClick: (e, item, legend) => {
+                        if (item.uitleg) return;
+                        Chart.overrides.pie.plugins.legend.onClick(e, item, legend);
+                    }
+                },
                 tooltip: {
                     callbacks: {
                         label: (ctx) => {

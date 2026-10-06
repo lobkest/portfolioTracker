@@ -175,6 +175,34 @@ def db_init():
             UNIQUE (code, dividend_id)
         );
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ishares_fondsen (
+            portfolio_id TEXT PRIMARY KEY,
+            isin TEXT NOT NULL,
+            naam TEXT,
+            product_url TEXT NOT NULL,
+            asset_class TEXT,
+            regio TEXT,
+            markt_type TEXT,
+            sub_asset_class TEXT,
+            strategie_codes JSONB,
+            fondsgrootte NUMERIC,
+            opgehaald_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS etf_proxy (
+            bron_isin TEXT PRIMARY KEY,
+            -- NULL = gezocht maar geen proxy gevonden (ook gecachet, anders bij elke load opnieuw zoeken)
+            proxy_isin TEXT,
+            proxy_naam TEXT,
+            max_afwijking_pp NUMERIC,
+            vergelijking JSONB,
+            bepaald_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- {land: fractie 0-1} uit de holdings van de proxy
+            proxy_land JSONB
+        );
+    """)
     conn.commit()
     cur.close()
     conn.close()
@@ -234,6 +262,7 @@ def db_get_ticker_details(tickers):
 
 # Geldt niet voor ticker_info, ticker_prijscheck en openfigi_cache: die verlopen nooit.
 CACHE_GELDIGHEID = "30 days"
+ISHARES_FONDSEN_GELDIGHEID = "7 days"
 
 
 def db_get_cached_land_sector(tickers):
@@ -963,6 +992,101 @@ def db_herstel_echte_naam(code, ticker):
         "(SELECT echte_naam FROM transacties WHERE code = %s AND ticker = %s ORDER BY id DESC LIMIT 1), product) "
         "WHERE code = %s AND ticker = %s",
         (code, ticker, code, ticker),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+_ISHARES_FONDS_KOLOMMEN = ["portfolio_id", "isin", "naam", "product_url", "asset_class", "regio", "markt_type",
+                           "sub_asset_class", "strategie_codes", "fondsgrootte"]
+
+
+def db_get_ishares_fondsen():
+    """None als de lijst leeg of ouder dan ISHARES_FONDSEN_GELDIGHEID is (dan in z'n geheel opnieuw ophalen)."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT {', '.join(_ISHARES_FONDS_KOLOMMEN)} FROM ishares_fondsen "
+        f"WHERE opgehaald_op > NOW() - INTERVAL '{ISHARES_FONDSEN_GELDIGHEID}'"
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    if not rows:
+        return None
+    fondsen = [dict(zip(_ISHARES_FONDS_KOLOMMEN, row)) for row in rows]
+    for f in fondsen:
+        f["fondsgrootte"] = float(f["fondsgrootte"]) if f["fondsgrootte"] is not None else None
+        f["strategie_codes"] = f["strategie_codes"] or []
+    return fondsen
+
+
+def db_save_ishares_fondsen(fondsen):
+    """Delete + bulk insert: de hele lijst krijgt dezelfde opgehaald_op. Niet aanroepen met een lege lijst."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM ishares_fondsen")
+    execute_values(
+        cur,
+        f"INSERT INTO ishares_fondsen ({', '.join(_ISHARES_FONDS_KOLOMMEN)}) VALUES %s "
+        "ON CONFLICT (portfolio_id) DO NOTHING",
+        [tuple(Json(f[k]) if k == "strategie_codes" else f.get(k) for k in _ISHARES_FONDS_KOLOMMEN)
+         for f in fondsen],
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def db_get_etf_proxies(isins):
+    """{bron_isin: {proxy_isin, proxy_naam, max_afwijking_pp, vergelijking, proxy_land}}; ontbreekt = nog nooit gezocht."""
+    if not isins:
+        return {}
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT bron_isin, proxy_isin, proxy_naam, max_afwijking_pp, vergelijking, proxy_land "
+        "FROM etf_proxy WHERE bron_isin = ANY(%s)",
+        (list(isins),),
+    )
+    result = {
+        row[0]: {
+            "proxy_isin": row[1], "proxy_naam": row[2],
+            "max_afwijking_pp": float(row[3]) if row[3] is not None else None,
+            "vergelijking": row[4], "proxy_land": row[5],
+        }
+        for row in cur.fetchall()
+    }
+    cur.close()
+    conn.close()
+    return result
+
+
+def db_save_etf_proxy(bron_isin, proxy):
+    """Upsert; proxy_isin None legt vast dat er geen proxy is gevonden."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO etf_proxy (bron_isin, proxy_isin, proxy_naam, max_afwijking_pp, vergelijking, proxy_land) "
+        "VALUES (%s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (bron_isin) DO UPDATE SET proxy_isin = EXCLUDED.proxy_isin, proxy_naam = EXCLUDED.proxy_naam, "
+        "max_afwijking_pp = EXCLUDED.max_afwijking_pp, vergelijking = EXCLUDED.vergelijking, "
+        "proxy_land = EXCLUDED.proxy_land, bepaald_op = CURRENT_TIMESTAMP",
+        (bron_isin, proxy.get("proxy_isin"), proxy.get("proxy_naam"), proxy.get("max_afwijking_pp"),
+         Json(proxy.get("vergelijking")), Json(proxy.get("proxy_land")) if proxy.get("proxy_land") else None),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def db_wis_etf_proxies_voor_portfolio(code):
+    """Bij 'Ticker-informatie opnieuw bepalen': de volgende verrijking zoekt de proxy dan opnieuw."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM etf_proxy WHERE bron_isin IN (SELECT DISTINCT isin FROM transacties WHERE code = %s)",
+        (code,),
     )
     conn.commit()
     cur.close()

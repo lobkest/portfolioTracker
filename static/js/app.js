@@ -23,7 +23,7 @@ const wisselView = maakTabWisselaar(
 );
 
 // Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
-const VIEWS_MET_CODE = ["instellingen", "instellingen-bijnamen"];
+const VIEWS_MET_CODE = ["instellingen", "instellingen-bestanden", "instellingen-bijnamen"];
 
 const TOON_PER_VIEW = {
     "portfolio": toonPortfolio,
@@ -41,6 +41,7 @@ const TOON_PER_VIEW = {
     "prognose": toonPrognose,
     "dividend": toonDividend,
     "instellingen": () => {},  // leeg, want de instellingen zijn altijd hetzelfde voor elk portfolio
+    "instellingen-bestanden": () => {},
     "instellingen-bijnamen": toonInstellingen,
     "instellingen-ticker": toonInstellingenTicker,
     "instellingen-diagnostiek": toonDiagnostiek,

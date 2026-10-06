@@ -30,3 +30,28 @@ def find_matching_code(cur, new_order_ids):
         if new_order_ids <= ids:
             return code, set()
     return None, None
+
+
+FOUT_ANDERE_PORTFOLIO = "andere_portfolio"
+FOUT_TRANSACTIES_ONTBREKEN = "transacties_ontbreken"
+FOUT_GEEN_ORDER_IDS = "geen_order_ids"
+FOUT_ONBEKENDE_TRANSACTIES = "onbekende_transacties"
+
+
+def controleer_eigen_transactiebestand(opgeslagen, nieuw, ids_andere_portfolios):
+    """Strenger dan find_matching_code(): het bestand moet alle opgeslagen Order ID's bevatten.
+    Geeft (foutcode, None) of (None, toe_te_voegen_order_ids)."""
+    if nieuw & ids_andere_portfolios or (opgeslagen and not nieuw & opgeslagen):
+        return FOUT_ANDERE_PORTFOLIO, None
+    if not opgeslagen <= nieuw:
+        return FOUT_TRANSACTIES_ONTBREKEN, None
+    return None, nieuw - opgeslagen
+
+
+def controleer_eigen_rekeningoverzicht(rekening_ids, bekende_ids):
+    """Foutcode, of None als elke Order ID uit het rekeningoverzicht bij deze portfolio hoort."""
+    if not rekening_ids:
+        return FOUT_GEEN_ORDER_IDS
+    if not rekening_ids <= bekende_ids:
+        return FOUT_ONBEKENDE_TRANSACTIES
+    return None

@@ -40,15 +40,18 @@ class TestHerbepaalAlleTickersBijOphalen(unittest.TestCase):
 
     def test_herbepaal_alle_tickers_true_roept_backfill_geforceerd_aan(self):
         with patch.object(self.app_module, "build_portfolio_response", return_value={"code": "ABC"}), \
-             patch.object(self.app_module, "backfill_verouderde_tickers") as mock_backfill:
+             patch.object(self.app_module, "backfill_verouderde_tickers") as mock_backfill, \
+             patch.object(self.app_module, "db_wis_etf_proxies_voor_portfolio") as mock_wis_proxy:
             resp = self.client.get("/api/portfolio/ABC?herbepaal_alle_tickers=true")
 
         mock_backfill.assert_called_once_with("ABC", forceer=True)
+        mock_wis_proxy.assert_called_once_with("ABC")
         self.assertEqual(resp.status_code, 200)
 
     def test_hoofdletters_in_parameterwaarde_werken_ook(self):
         with patch.object(self.app_module, "build_portfolio_response", return_value={"code": "ABC"}), \
-             patch.object(self.app_module, "backfill_verouderde_tickers") as mock_backfill:
+             patch.object(self.app_module, "backfill_verouderde_tickers") as mock_backfill, \
+             patch.object(self.app_module, "db_wis_etf_proxies_voor_portfolio"):
             self.client.get("/api/portfolio/ABC?herbepaal_alle_tickers=True")
 
         mock_backfill.assert_called_once_with("ABC", forceer=True)

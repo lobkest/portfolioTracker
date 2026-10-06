@@ -43,6 +43,7 @@
             id: "instellingen", label: "Instellingen", icoon: "⚙︎", tandwiel: true,
             views: [
                 { view: "instellingen", label: "Algemeen" },
+                { view: "instellingen-bestanden", label: "Bestanden bijwerken" },
                 { view: "instellingen-bijnamen", label: "Bijnamen" },
                 { view: "instellingen-ticker", label: "Ticker-zekerheid" },
                 { view: "instellingen-diagnostiek", label: "Diagnostiek" },

@@ -1,5 +1,6 @@
 """Volledige ETF-holdings bij de fondsprovider (iShares/VanEck) i.p.v. yfinance's top 10."""
 import io
+import re
 
 import pandas as pd
 import requests
@@ -78,13 +79,18 @@ _PROVIDER_USER_AGENT = (
 )
 
 
-def _holding_rij(naam, gewicht, land, sector):
+def _schone_tekst(waarde):
+    return str(waarde).strip() if waarde is not None and pd.notna(waarde) and str(waarde).strip() else None
+
+
+def _holding_rij(naam, gewicht, land, sector, ticker=None):
     """Leeg land wordt 'Unknown', zodat bv. een Cash-rij zichtbaar blijft in de landverdeling."""
     return {
         "naam": str(naam).strip(),
         "gewicht": float(gewicht),
-        "land": (str(land).strip() if pd.notna(land) and str(land).strip() else "Unknown"),
-        "sector": (str(sector).strip() if sector is not None and pd.notna(sector) and str(sector).strip() else None),
+        "land": _schone_tekst(land) or "Unknown",
+        "sector": _schone_tekst(sector),
+        "ticker": _schone_tekst(ticker),
     }
 
 
@@ -120,7 +126,7 @@ def _parse_ishares_holdings(content, locale="en"):
         if locale == "nl" and pd.notna(land) and str(land).strip():
             land = _vertaal_land_nl(str(land).strip())
         holdings.append(_holding_rij(
-            naam, gewicht, land, row.get(sector_kolom) if sector_kolom else None,
+            naam, gewicht, land, row.get(sector_kolom) if sector_kolom else None, row.get("Ticker"),
         ))
     return holdings
 
@@ -281,3 +287,89 @@ def fetch_provider_holdings(etf_ticker):
 
     return _dedupliceer_holdings(holdings)
 
+
+
+ISHARES_BASIS_URL = "https://www.ishares.com"
+# Alleen de Nederlandse site geeft deze JSON; de Engelse/UK-variant geeft 404.
+ISHARES_SCREENER_URL = (
+    ISHARES_BASIS_URL + "/nl/particuliere-belegger/nl/product-screener/product-screener-v3.1.jsn"
+    "?dcrPath=/templatedata/config/product-screener-v3/data/nl/nl/product-screener/"
+    "ishares-product-screener-backend-config&siteEntryPassthrough=true"
+)
+
+_HOLDINGS_CSV_LINK = re.compile(
+    r"""[^"'\s]*\.ajax\?fileType=csv&(?:amp;)?fileName=[^"'&]*_holdings&(?:amp;)?dataType=fund""")
+
+
+def _codes_uit_lijsttekst(tekst):
+    """'[50567, 50569]' -> ['50567', '50569']; '-' -> []."""
+    if not isinstance(tekst, str):
+        return []
+    return [c.strip() for c in tekst.strip("[]").split(",") if c.strip() and c.strip() != "-"]
+
+
+def _parse_ishares_screener(data):
+    """Alleen ETF's; codes i.p.v. de Nederlandse labels (taalonafhankelijk). [{portfolio_id, isin, naam, product_url, asset_class, regio, markt_type,
+    sub_asset_class, strategie_codes, fondsgrootte}]."""
+    fondsen = []
+    for portfolio_id, f in (data or {}).items():
+        if not isinstance(f, dict) or "etf" not in (f.get("productView") or []):
+            continue
+        if not f.get("isin") or not f.get("productPageUrl"):
+            continue
+        grootte = f.get("totalFundSizeInMillions")
+        fondsen.append({
+            "portfolio_id": str(portfolio_id),
+            "isin": f["isin"],
+            "naam": f.get("fundName"),
+            "product_url": f["productPageUrl"],
+            "asset_class": f.get("aladdinAssetClassCode"),
+            "regio": f.get("aladdinRegionCode"),
+            "markt_type": f.get("aladdinMarketTypeCode"),
+            "sub_asset_class": f.get("aladdinSubAssetClassCode"),
+            "strategie_codes": _codes_uit_lijsttekst(f.get("aladdinStrategyCode")),
+            "fondsgrootte": grootte.get("r") if isinstance(grootte, dict) else None,
+        })
+    return fondsen
+
+
+def fetch_ishares_fondsenlijst():
+    """Fondsenlijst uit de iShares-screener; None bij een fout of lege lijst."""
+    try:
+        response = requests.get(ISHARES_SCREENER_URL, headers={"User-Agent": _PROVIDER_USER_AGENT}, timeout=60)
+        response.raise_for_status()
+        fondsen = _parse_ishares_screener(response.json())
+    except Exception as e:
+        print(f"[etf-proxy] WARN iShares-screener niet opgehaald ({e!a})")
+        return None
+    return fondsen or None
+
+
+def _vind_holdings_csv_link(html):
+    """Absolute URL van de holdings-CSV uit een iShares-productpagina, of None."""
+    match = _HOLDINGS_CSV_LINK.search(html or "")
+    if not match:
+        return None
+    pad = match.group(0).replace("&amp;", "&")
+    return pad if pad.startswith("http") else ISHARES_BASIS_URL + pad
+
+
+def fetch_ishares_holdings_via_productpagina(product_url):
+    """[{naam, gewicht (%), land, sector, ticker}] via de CSV-link op de productpagina; None bij elke fout.
+    siteEntryPassthrough slaat de beleggerstype-keuze over (anders een landingspagina zonder link)."""
+    headers = {"User-Agent": _PROVIDER_USER_AGENT}
+    try:
+        pagina = requests.get(f"{ISHARES_BASIS_URL}{product_url}?siteEntryPassthrough=true",
+                              headers=headers, timeout=30)
+        pagina.raise_for_status()
+        csv_url = _vind_holdings_csv_link(pagina.text)
+        if csv_url is None:
+            dprint(f"[etf-proxy] geen holdings-CSV-link op {product_url}")
+            return None
+        response = requests.get(csv_url, headers=headers, timeout=30)
+        response.raise_for_status()
+        holdings = _parse_ishares_holdings(response.content, locale="nl")
+    except Exception as e:
+        dprint(f"[etf-proxy] holdings van {product_url} niet opgehaald: {e}")
+        return None
+    return _dedupliceer_holdings(holdings) or None

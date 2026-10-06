@@ -1,8 +1,5 @@
 // Startpagina: upload- en code-formulier. Het antwoord gaat via de overdracht mee naar de portfolio-pagina.
 
-// Iets ruimer dan de standaard van fetchMetTimeout().
-const UPLOAD_TIMEOUT_MS = 60000;
-
 const OVERDRACHT_TE_GROOT_TEKST = "Deze analyse is te groot om zonder opslaan te tonen. "
     + "Upload opnieuw zonder het vinkje 'Niet opslaan'.";
 
@@ -27,33 +24,6 @@ function gaNaarPortfolioPagina(data) {
     }
     location.assign(data.code ? portfolioPad(data.code) : ANALYSE_PAD);
     return true;
-}
-
-// De x-knop zet input.value = "", zodat het bestand echt niet meegaat en `change` weer afgaat.
-// Geeft de update-functie terug voor momenten zonder `change` (reset, terugknop).
-function koppelBestandWisKnop(inputId) {
-    const input = document.getElementById(inputId);
-    const rij = document.getElementById(`${inputId}Keuze`);
-    const naam = document.getElementById(`${inputId}Naam`);
-    const wisKnop = document.getElementById(`${inputId}WisKnop`);
-
-    function werkBij() {
-        const namen = Array.from(input.files || [], (f) => f.name);
-        const weergave = bestandSelectieWeergave(namen);
-        naam.textContent = weergave.tekst;
-        naam.title = weergave.tekst;
-        rij.hidden = !weergave.zichtbaar;
-    }
-
-    input.addEventListener("change", werkBij);
-    wisKnop.addEventListener("click", () => {
-        input.value = "";
-        werkBij();
-        // De knop verdwijnt: focus terug op het veld voor toetsenbordgebruikers.
-        input.focus();
-    });
-    werkBij();
-    return werkBij;
 }
 
 const bestandKeuzeBijwerkers = ["bestand1", "bestand2"].map(koppelBestandWisKnop);

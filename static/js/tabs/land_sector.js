@@ -89,18 +89,13 @@ function toonLand() {
         toonPlatteVerdeling(bron);
     }
 
-    // ETF's met alleen top-10-landdekking: verklaart een deel van "Unknown".
+    // Verklaart een deel van "Unknown", en waar het land via een proxy-ETF benaderd is.
     const dekkingTekst = document.getElementById("landDekkingTekst");
-    const perEtf = (lsv && lsv.per_etf) || {};
-    const beperkt = Object.entries(perEtf)
-        .filter(([, info]) => info.land_bron !== "provider_csv")
-        .map(([ticker]) => ticker);
-    if (beperkt.length > 0) {
-        dekkingTekst.textContent = `Beperkte landdekking (alleen top-10-holdings) voor: ${beperkt.join(", ")}.`;
-        dekkingTekst.style.display = "block";
-    } else {
-        dekkingTekst.style.display = "none";
-    }
+    const tickerNamen = {};
+    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+    const regels = landDekkingRegels(lsv && lsv.per_etf, tickerNamen);
+    dekkingTekst.replaceChildren(...regels.flatMap((regel, i) => (i > 0 ? [document.createElement("br"), regel] : [regel])));
+    dekkingTekst.style.display = regels.length > 0 ? "block" : "none";
 }
 
 function toonSector() {

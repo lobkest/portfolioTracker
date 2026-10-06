@@ -1,4 +1,4 @@
-"""Taakfuncties achter POST /upload; _upload_impl() in app.py roept ze in volgorde aan."""
+"""Taakfuncties achter POST /upload en /api/portfolio/<code>/bijwerken; app.py roept ze in volgorde aan."""
 import hashlib
 
 import pandas as pd
@@ -22,7 +22,7 @@ from db import (
     db_get_product_per_ticker,
 )
 from ticker_classificatie import haal_long_names
-from dividend import verwerk_rekeningoverzicht
+from dividend import verwerk_rekeningoverzicht, verwerk_rekeningoverzicht_df
 
 VERWACHTE_KOLOMMEN = [
     "Datum", "Tijd", "Product", "ISIN", "Beurs", "Uitvoeringsplaats", "Aantal", "Koers",
@@ -244,9 +244,12 @@ def _vind_of_maak_portfolio_code(cur, df, naam):
         db_maak_portfolio(cur, code, naam or None)
         rows_to_insert = df
 
-    _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
+    _meld_portfolio_opslaan(match_code, rows_to_insert)
+    return code, match_code, rows_to_insert
 
-    # Diagnostiek
+
+def _meld_portfolio_opslaan(match_code, rows_to_insert):
+    _meld_nieuwe_rijen_kwaliteit(rows_to_insert)
     if not match_code:
         tekst = f"Nieuwe portfolio aangemaakt met {len(rows_to_insert)} transacties."
     elif len(rows_to_insert):
@@ -254,8 +257,6 @@ def _vind_of_maak_portfolio_code(cur, df, naam):
     else:
         tekst = "Bestaande portfolio herkend: geen nieuwe transacties."
     meld(CATEGORIE_OPSLAAN, INFO, tekst, sleutel=DIAGNOSTIEK_SLEUTEL_PORTFOLIO)
-
-    return code, match_code, rows_to_insert
 
 
 def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
@@ -375,13 +376,18 @@ def _meld_insert_resultaat(opgeslagen, genegeerd, mislukt, eerste_fout):
              sleutel=DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD)
 
 
-def _verwerk_dividend_bestand_indien_aanwezig(code):
+def _verwerk_dividend_bestand_indien_aanwezig(code, rekening_df=None):
+    """rekening_df: een al ingelezen rekeningoverzicht; zonder wordt bestand2 uit het request gelezen."""
     bestand2 = request.files.get("bestand2")
-    if bestand2 and bestand2.filename != "":
-        with meet_tijd("dividend_bestand_verwerken"):
+    if rekening_df is None and not (bestand2 and bestand2.filename != ""):
+        return
+    with meet_tijd("dividend_bestand_verwerken"):
+        if rekening_df is None:
             dividend_records = verwerk_rekeningoverzicht(bestand2)
-            db_save_dividenden(code, dividend_records)
-        _meld_dividend_records(dividend_records)
+        else:
+            dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
+        db_save_dividenden(code, dividend_records)
+    _meld_dividend_records(dividend_records)
 
 
 def _meld_dividend_records(records):

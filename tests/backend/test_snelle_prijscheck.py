@@ -131,7 +131,7 @@ class TestStap1AlleenLaatsteDatum(unittest.TestCase):
 
 
 class TestStap2EscaleertNaarSteekproef(unittest.TestCase):
-    def test_afwijking_tussen_6_en_10_procent_escaleert_maar_zoekt_geen_alternatieven(self):
+    def test_afwijking_boven_6_procent_zonder_dagrange_zoekt_ook_alternatieven(self):
         transacties = [
             {"datum": date(2023, 1, 10), "koers": 100.0},
             {"datum": date(2023, 3, 10), "koers": 100.0},
@@ -141,16 +141,16 @@ class TestStap2EscaleertNaarSteekproef(unittest.TestCase):
 
         def fake_vergelijk(ticker, datum, bekende_koers):
             call_count["n"] += 1
-            return _prijscheck(afwijking_pct=8.0, match=False)  # >6%, <=10%
+            return _prijscheck(afwijking_pct=8.0, match=False)  # >6%, geen high/low -> %-fallback
 
         with _basis_patch(zekerheid="zeker", alternatieven=[{"symbol": "ALT", "exchange": "NMS"}]), \
              patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven") as mock_alternatieven:
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven", return_value=([], None)) as mock_alternatieven:
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         # Laatste datum (stap 1) + 2 resterende steekproefdatums (stap 2) = 3.
         self.assertEqual(call_count["n"], 3)
-        mock_alternatieven.assert_not_called()
+        mock_alternatieven.assert_called_once()
         self.assertIsNotNone(resultaat["prijswaarschuwing"])
         self.assertIn("8.0%", resultaat["prijswaarschuwing"])
         self.assertEqual(resultaat["zekerheid"], "onzeker")
@@ -167,15 +167,14 @@ class TestStap2EscaleertNaarSteekproef(unittest.TestCase):
             if datum == date(2023, 6, 10):
                 return _prijscheck(afwijking_pct=6.5, match=False)  # net > 6%, triggert stap 2
             if datum == date(2023, 1, 10):
-                return _prijscheck(afwijking_pct=9.9, match=False)  # grootste, maar < 10%
+                return _prijscheck(afwijking_pct=9.9, match=False)  # grootste
             return _prijscheck(afwijking_pct=2.0, match=True)
 
         with _basis_patch(alternatieven=[]), patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk), \
-             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven") as mock_alternatieven:
+             patch.object(ticker_zekerheid, "_zoek_betere_alternatieven", return_value=([], None)):
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         self.assertIn("9.9%", resultaat["prijswaarschuwing"])
-        mock_alternatieven.assert_not_called()
 
 
 class TestStap3EscaleertNaarAlternatieven(unittest.TestCase):

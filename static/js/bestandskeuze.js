@@ -1,4 +1,4 @@
-// Pure logica voor de "gekozen bestand + x-knop"-rij (DOM-kant: koppelBestandWisKnop() in start.js).
+// Pure logica voor de "gekozen bestand + x-knop"-rij (DOM-kant: koppelBestandWisKnop() in gedeeld.js) en de bijwerken-melding.
 
 (function (root) {
     "use strict";
@@ -14,7 +14,17 @@
         return { zichtbaar: true, tekst: `${namen.length} bestanden` };
     }
 
-    const exportsObj = { bestandSelectieWeergave };
+    // samenvatting: het veld "bijwerken" uit het antwoord van /api/portfolio/<code>/bijwerken.
+    function bijwerkenSuccesTekst(samenvatting) {
+        const aantal = samenvatting.nieuwe_transacties;
+        let tekst = aantal === 0
+            ? "Geen nieuwe transacties gevonden."
+            : `${aantal} nieuwe transactie${aantal === 1 ? "" : "s"} toegevoegd.`;
+        if (samenvatting.dividend_verwerkt) tekst += " Rekeningoverzicht (dividend) verwerkt.";
+        return tekst;
+    }
+
+    const exportsObj = { bestandSelectieWeergave, bijwerkenSuccesTekst };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

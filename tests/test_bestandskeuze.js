@@ -5,7 +5,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bestandSelectieWeergave } = require("../static/js/bestandskeuze.js");
+const { bestandSelectieWeergave, bijwerkenSuccesTekst } = require("../static/js/bestandskeuze.js");
 
 test("geen bestand gekozen: rij verborgen, geen tekst", () => {
     assert.deepEqual(bestandSelectieWeergave([]), { zichtbaar: false, tekst: "" });
@@ -27,5 +27,18 @@ test("meerdere bestanden: rij zichtbaar met het aantal", () => {
     assert.deepEqual(
         bestandSelectieWeergave(["a.xlsx", "b.xls"]),
         { zichtbaar: true, tekst: "2 bestanden" }
+    );
+});
+
+test("bijwerkenSuccesTekst: aantal nieuwe transacties, enkelvoud en meervoud", () => {
+    assert.equal(bijwerkenSuccesTekst({ nieuwe_transacties: 0, dividend_verwerkt: false }), "Geen nieuwe transacties gevonden.");
+    assert.equal(bijwerkenSuccesTekst({ nieuwe_transacties: 1, dividend_verwerkt: false }), "1 nieuwe transactie toegevoegd.");
+    assert.equal(bijwerkenSuccesTekst({ nieuwe_transacties: 3, dividend_verwerkt: false }), "3 nieuwe transacties toegevoegd.");
+});
+
+test("bijwerkenSuccesTekst: vermeldt een verwerkt rekeningoverzicht", () => {
+    assert.equal(
+        bijwerkenSuccesTekst({ nieuwe_transacties: 0, dividend_verwerkt: true }),
+        "Geen nieuwe transacties gevonden. Rekeningoverzicht (dividend) verwerkt.",
     );
 });

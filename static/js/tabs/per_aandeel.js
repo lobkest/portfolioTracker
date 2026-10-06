@@ -114,7 +114,11 @@ function toonEtfDrilldown(ticker) {
     }
 
     const brontekst = document.getElementById("etfDrilldownBron");
-    if (info.land_bron === "provider_csv") {
+    const proxyBijschrift = landProxyBijschrift(info);
+    if (proxyBijschrift) {
+        brontekst.className = "drilldownBron waarschuwingTekst";
+        brontekst.textContent = `${proxyBijschrift}.`;
+    } else if (info.land_bron === "provider_csv") {
         brontekst.className = "drilldownBron positief";
         brontekst.textContent = "Land: op basis van de volledige holdings-lijst van de fondsprovider.";
     } else {

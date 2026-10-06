@@ -12,9 +12,6 @@ from ticker_classificatie import (
     classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
 )
 
-# Lichte check: pas boven deze afwijking worden alternatieven doorgerekend.
-PRIJSCHECK_DREMPEL_ALTERNATIEVEN = 0.10
-
 # Tier 1: verwachte beurs en de prijs klopt op minstens zoveel datums.
 MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE = 2
 
@@ -190,8 +187,7 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             if check["yahoo_koers"] is None:
                 break
 
-        alt_matches = [c["match"] for c in alt_checks if c["match"] is not None]
-        afwijkingen = [c["afwijking_pct"] for c in alt_checks if c["afwijking_pct"] is not None]
+        alt_matches = [not _prijscheck_is_probleem(c) for c in alt_checks if c["match"] is not None]
         alt_details = _ticker_details_met_cache(alt_ticker)
         alt_is_etf = classify_ticker(alt_ticker)
         alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
@@ -212,17 +208,15 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             "high": alt_high,
             "low": alt_low,
             "valuta": alt_details.get("valuta"),
-            "gemiddelde_afwijking_pct": (sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None,
             "aantal_matches": sum(1 for m in alt_matches if m),
+            "aantal_gecontroleerd": len(alt_matches),
         })
 
         wordt_aanbevolen = aanbevolen_alternatief is None and alt_matches and all(alt_matches)
         dprint(
             f"[alternatieven-debug] alt_ticker={alt_ticker} exchange={alt.get('exchange')} "
             f"land={alt_land} sector={alt_sector} valuta={alt_details.get('valuta')} "
-            f"alt_matches={alt_matches} gemiddelde_afwijking_pct="
-            f"{(sum(afwijkingen) / len(afwijkingen)) if afwijkingen else None} "
-            f"wordt_aanbevolen={wordt_aanbevolen}"
+            f"alt_matches={alt_matches} wordt_aanbevolen={wordt_aanbevolen}"
         )
 
         if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
@@ -267,12 +261,21 @@ def _voeg_prijsoordeel_toe(resultaat, steekproef):
         )
     elif zekerheid == "zeker" and problemen:
         zekerheid = "onzeker"
-        grootste = max(problemen, key=lambda c: c["afwijking_pct"])
-        waarschuwing = (
-            f"Beurs komt overeen, maar {len(problemen)} van de {len(bekende_checks)} gecontroleerde "
-            f"datums valt buiten de dagrange (grootste afwijking "
-            f"{grootste['afwijking_pct']:.1f}% op {formatteer_datum_nl(grootste['datum'])}) — mogelijk toch de verkeerde ticker."
-        )
+        buiten = [c for c in problemen if c.get("binnen_dagrange") is False]
+        if buiten:
+            vroegste = min(buiten, key=lambda c: c["datum"])
+            waarschuwing = (
+                f"Beurs komt overeen, maar {len(buiten)} van de {len(bekende_checks)} gecontroleerde "
+                f"datums valt buiten de dagrange (o.a. op {formatteer_datum_nl(vroegste['datum'])}) "
+                f"— mogelijk toch de verkeerde ticker."
+            )
+        else:
+            grootste = max(problemen, key=lambda c: c["afwijking_pct"])
+            waarschuwing = (
+                f"Beurs komt overeen, maar de koers wijkt op {len(problemen)} van de {len(bekende_checks)} "
+                f"gecontroleerde datums af van Yahoo (grootste afwijking {grootste['afwijking_pct']:.1f}% op "
+                f"{formatteer_datum_nl(grootste['datum'])}) — mogelijk toch de verkeerde ticker."
+            )
     return {**resultaat, "prijs_checks": prijs_checks, "zekerheid": zekerheid, "waarschuwing": waarschuwing}
 
 
@@ -441,23 +444,38 @@ def _voeg_steekproef_toe(resultaat, geldige_transacties):
         c["datum"] = str(t["datum"])
         prijs_checks.append(c)
 
-    grootste_afwijking = _grootste_afwijking(prijs_checks)
-    if grootste_afwijking is None:
-        prijswaarschuwing = (
-            f"Geen koersdata gevonden bij Yahoo voor '{ticker}' — "
-            f"controleer op het Ticker-zekerheid-tabblad."
-        )
-    else:
-        prijswaarschuwing = (
-            f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
-            f"controleer op het Ticker-zekerheid-tabblad."
-        )
     return {
         **resultaat,
         "zekerheid": "onzeker" if resultaat["zekerheid"] == "zeker" else resultaat["zekerheid"],
         "prijs_checks": prijs_checks,
-        "prijswaarschuwing": prijswaarschuwing,
+        "prijswaarschuwing": _steekproef_waarschuwing(ticker, prijs_checks),
     }
+
+
+def _steekproef_waarschuwing(ticker, prijs_checks):
+    """Dagrange-tekst waar mogelijk; de %-tekst alleen als geen enkele check een dagrange heeft."""
+    buiten = [c for c in prijs_checks if c.get("binnen_dagrange") is False]
+    if buiten:
+        vroegste = min(buiten, key=lambda c: c["datum"])
+        return (
+            f"Koers van {ticker} valt op {formatteer_datum_nl(vroegste['datum'])} buiten de dagrange (high/low) van "
+            f"Yahoo — controleer op het Ticker-zekerheid-tabblad."
+        )
+    grootste_afwijking = _grootste_afwijking(prijs_checks)
+    if grootste_afwijking is None:
+        return (
+            f"Geen koersdata gevonden bij Yahoo voor '{ticker}' — "
+            f"controleer op het Ticker-zekerheid-tabblad."
+        )
+    if not any(c.get("binnen_dagrange") is not None for c in prijs_checks):
+        return (
+            f"Koers van {ticker} wijkt {grootste_afwijking:.1f}% af van Yahoo — "
+            f"controleer op het Ticker-zekerheid-tabblad."
+        )
+    return (
+        f"Koers van {ticker} kon niet op alle gecontroleerde datums met de dagrange van Yahoo "
+        f"vergeleken worden — controleer op het Ticker-zekerheid-tabblad."
+    )
 
 
 def _root_in_openfigi(ticker, openfigi):
@@ -465,11 +483,11 @@ def _root_in_openfigi(ticker, openfigi):
 
 
 def _corrigeer_met_alternatief(resultaat, geldige_transacties, beurs, isin=None, openfigi=None):
-    """Rekent bij een grote afwijking (of geen koersdata) of een ontbrekende OpenFIGI-root de alternatieven
-    door; vervangt de ticker automatisch bij tier 1 of 2, anders hooguit een suggestie (zie CLAUDE.md:
+    """Rekent bij een prijsprobleem (buiten de dagrange of geen koersdata) of een ontbrekende OpenFIGI-root de
+    alternatieven door; vervangt de ticker automatisch bij tier 1 of 2, anders hooguit een suggestie (zie CLAUDE.md:
     Yahoo en tickers). Alleen een root-mismatch: vervangen pas als alle datums kloppen én beurs of root klopt."""
-    grootste_afwijking = _grootste_afwijking(resultaat["prijs_checks"])
-    prijsprobleem = grootste_afwijking is None or grootste_afwijking > PRIJSCHECK_DREMPEL_ALTERNATIEVEN * 100
+    bekende_checks = [c for c in resultaat["prijs_checks"] if c["match"] is not None]
+    prijsprobleem = not bekende_checks or any(_prijscheck_is_probleem(c) for c in bekende_checks)
     root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
     if not prijsprobleem and not root_ontbreekt:
         return resultaat

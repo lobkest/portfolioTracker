@@ -45,6 +45,7 @@ from ticker_classificatie import (
     classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, get_etf_holdings_uit_cache,
 )
 from naam_verkorting import kies_korte_namen
+from etf_proxy import land_proxies_voor_etfs
 
 
 class YahooNamenOnbeschikbaar(Exception):
@@ -255,7 +256,47 @@ def _meld_etf_onbekend_land(ticker, info, naam):
          tabel={"kolommen": ["Bedrijf", "Weging", "Land", "Sector"], "rijen": dekking["rijen"]})
 
 
-def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None):
+def _pp_nl(waarde):
+    return f"{waarde:.2f}".replace(".", ",") if waarde is not None else None
+
+
+def _meld_etf_land_proxy(ticker, proxy, naam):
+    vergelijking = proxy.get("vergelijking") or {}
+    rijen = [
+        [r["bedrijf"], f"{_pp_nl(r['bron_pct'])}%",
+         f"{_pp_nl(r['proxy_pct'])}%" if r["proxy_pct"] is not None else "niet gevonden",
+         _pp_nl(r["verschil_pp"]) or "–"]
+        for r in vergelijking.get("rijen") or []
+    ]
+    tabel = {"kolommen": ["Bedrijf", "Bronfonds", "Proxy", "Verschil (pp)"], "rijen": rijen} if rijen else None
+    if proxy.get("proxy_isin"):
+        meld(CATEGORIE_ETF_HOLDINGS, INFO,
+             f"{naam}: land benaderd via {proxy['proxy_naam']} (top-10 wijkt max. "
+             f"{_pp_nl(proxy['max_afwijking_pp'])} pp af).",
+             sleutel=f"etf_land_proxy:{ticker}", tabel=tabel)
+    elif vergelijking.get("kandidaat_naam"):
+        meld(CATEGORIE_ETF_HOLDINGS, LET_OP,
+             f"{naam}: geen iShares-proxy voor het land gevonden. Beste kandidaat "
+             f"{vergelijking['kandidaat_naam']}: {vergelijking.get('reden')}.",
+             sleutel=f"etf_land_proxy:{ticker}", tabel=tabel)
+    else:
+        meld(CATEGORIE_ETF_HOLDINGS, LET_OP,
+             f"{naam}: geen iShares-proxy voor het land gevonden ({vergelijking.get('reden')}).",
+             sleutel=f"etf_land_proxy:{ticker}")
+
+
+def _bepaal_land_proxies(transacties_df, is_etf_map):
+    """{ticker: etf_proxy-rij}; {} bij een fout: de proxy mag de verrijking nooit breken."""
+    rijen = transacties_df.dropna(subset=["ticker", "isin"]).drop_duplicates(subset=["ticker"], keep="last")
+    isin_per_etf = {t: i for t, i in zip(rijen["ticker"], rijen["isin"]) if is_etf_map.get(t, False)}
+    try:
+        return land_proxies_voor_etfs(isin_per_etf)
+    except Exception as e:
+        print(f"[etf-proxy] WARN land-proxy niet bepaald ({e!a})")
+        return {}
+
+
+def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None, land_proxies=None):
     """Meldt per ETF de holdings-bron. Zonder holdings is land_bron toch yfinance_top10, met land 100% Unknown."""
     for ticker, info in (land_sector_verdeling or {}).get("per_etf", {}).items():
         land = info.get("land") or {}
@@ -267,7 +308,12 @@ def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None):
             niveau, tekst = INFO, ("alleen de top-10 holdings via Yahoo; top-bedrijven en ETF-overlap zijn voor "
                                    "deze ETF onvolledig.")
         meld(CATEGORIE_ETF_HOLDINGS, niveau, f"'{ticker}': {tekst}", sleutel=f"etf:{ticker}")
-        _meld_etf_onbekend_land(ticker, info, (ticker_namen or {}).get(ticker, ticker))
+        naam = (ticker_namen or {}).get(ticker, ticker)
+        proxy = (land_proxies or {}).get(ticker)
+        if proxy:
+            _meld_etf_land_proxy(ticker, proxy, naam)
+        if not (proxy and proxy.get("proxy_isin")):
+            _meld_etf_onbekend_land(ticker, info, naam)
 
 
 def _wis_portfolio_basis_cache(code):
@@ -462,8 +508,9 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     }
 
 
-def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None):
-    """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn."""
+def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None, gebruik_proxy=True):
+    """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. Zonder `gebruik_proxy` geen
+    land-proxy (geen screener/CSV's, geen etf_proxy-cache): land dan uit de eigen top-10."""
     tickers = transacties_df["ticker"].dropna().unique().tolist()
 
     if prijs_data_al_klaar is not None:
@@ -496,8 +543,12 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
             is_etf_map = classify_tickers(list(huidige_holdings.index))
             _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map)
 
+        with meet_tijd("verrijking_land_proxy"):
+            land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map) if gebruik_proxy else {}
+
         with meet_tijd("verrijking_land_sector"):
-            land_sector_verdeling = compute_land_sector_verdeling(transacties_df, price_data, is_etf_map)
+            land_sector_verdeling = compute_land_sector_verdeling(
+                transacties_df, price_data, is_etf_map, land_proxies=land_proxies)
 
         with meet_tijd("verrijking_valuta"):
             valuta_verdeling = compute_valuta_verdeling(transacties_df, price_data)
@@ -510,7 +561,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
         with meet_tijd("verrijking_etf_overlap"):
             etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)
-    _meld_etf_holdings(land_sector_verdeling, ticker_namen)
+    _meld_etf_holdings(land_sector_verdeling, ticker_namen, land_proxies)
 
     verdeling = []
     for ticker, aantal in huidige_holdings.items():
@@ -539,9 +590,10 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
 
 def analyze_transacties(transacties_df, code, naam):
-    """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking)."""
+    """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking).
+    Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout)."""
     resultaat = analyze_transacties_kern(transacties_df, code, naam)
     if resultaat.get("chart_data") is None:
         return resultaat
-    resultaat.update(analyze_transacties_verrijking(transacties_df, code))
+    resultaat.update(analyze_transacties_verrijking(transacties_df, code, gebruik_proxy=False))
     return resultaat

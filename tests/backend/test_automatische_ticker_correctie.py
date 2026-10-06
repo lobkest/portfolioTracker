@@ -75,7 +75,7 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
         mock_alt.return_value = (
             [{"ticker": "GOED.AS", "beurs": "AMS", "is_etf": True, "land": None,
               "sector": None, "high": None, "low": None, "valuta": "EUR",
-              "gemiddelde_afwijking_pct": 1.0, "aantal_matches": 2}],  # 2 van de 3 datums
+              "aantal_matches": 2, "aantal_gecontroleerd": 3}],  # 2 van de 3 datums
             "GOED.AS",
         )
         resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
@@ -98,7 +98,7 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
         mock_alt.return_value = (
             [{"ticker": "VUAA.L", "beurs": "LSE", "is_etf": True, "land": None,
               "sector": None, "high": None, "low": None, "valuta": "USD",
-              "gemiddelde_afwijking_pct": 0.8, "aantal_matches": 3}],  # alle 3
+              "aantal_matches": 3, "aantal_gecontroleerd": 3}],  # alle 3
             "VUAA.L",
         )
         resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
@@ -121,7 +121,7 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
         mock_alt.return_value = (
             [{"ticker": "TWIJFEL.L", "beurs": "LSE", "is_etf": True, "land": None,
               "sector": None, "high": None, "low": None, "valuta": "USD",
-              "gemiddelde_afwijking_pct": 3.0, "aantal_matches": 2}],  # niet alle 3
+              "aantal_matches": 2, "aantal_gecontroleerd": 3}],  # niet alle 3
             "TWIJFEL.L",
         )
         resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(

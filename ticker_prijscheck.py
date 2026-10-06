@@ -14,6 +14,15 @@ PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 
 # Exact low <= koers <= high bleek te strak: bekend-goede tickers vielen er ~1-2% buiten.
 DAGRANGE_TOLERANTIE = 0.05
+# Bij goedkope aandelen is 5% maar een paar cent: dan valt afronding/intraday-ruis er al buiten.
+DAGRANGE_TOLERANTIE_EUR = 0.50
+
+
+def dagrange_grenzen(low_eur, high_eur):
+    """(ondergrens, bovengrens): per grens de ruimste van DAGRANGE_TOLERANTIE en DAGRANGE_TOLERANTIE_EUR."""
+    ondergrens = low_eur - max(low_eur * DAGRANGE_TOLERANTIE, DAGRANGE_TOLERANTIE_EUR)
+    bovengrens = high_eur + max(high_eur * DAGRANGE_TOLERANTIE, DAGRANGE_TOLERANTIE_EUR)
+    return ondergrens, bovengrens
 
 
 def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
@@ -164,10 +173,10 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         high_eur = high_eur * split_factor
         low_eur = low_eur * split_factor
 
-    binnen_dagrange = (
-        low_eur * (1 - DAGRANGE_TOLERANTIE) <= bekende_koers <= high_eur * (1 + DAGRANGE_TOLERANTIE)
-        if (high_eur is not None and low_eur is not None) else None
-    )
+    binnen_dagrange = None
+    if high_eur is not None and low_eur is not None:
+        ondergrens, bovengrens = dagrange_grenzen(low_eur, high_eur)
+        binnen_dagrange = ondergrens <= bekende_koers <= bovengrens
 
     afwijking_pct = abs(yahoo_koers_gecorrigeerd - bekende_koers) / bekende_koers * 100
     afwijking_fractie = afwijking_pct / 100

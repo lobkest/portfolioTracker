@@ -34,6 +34,12 @@ test("eersteView: eerste toegestane subtab van de groep", () => {
     assert.equal(eersteView("bestaatniet", ALLE_VIEWS), null);
 });
 
+test("instellingen: Bestanden bijwerken staat direct na Algemeen", () => {
+    const views = MENU_GROEPEN.find(g => g.id === "instellingen").views.map(v => v.view);
+    assert.deepEqual(views.slice(0, 2), ["instellingen", "instellingen-bestanden"]);
+    assert.equal(groepVanView("instellingen-bestanden"), "instellingen");
+});
+
 test("zichtbareGroepen: alleen groepen met minstens één toegestane view", () => {
     assert.deepEqual(zichtbareGroepen(["land", "instellingen-ticker"]).map(g => g.id), ["samenstelling", "instellingen"]);
     assert.deepEqual(zichtbareGroepen([]), []);
