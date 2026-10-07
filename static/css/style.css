@@ -801,6 +801,10 @@ body {
     font-size: 0.85em;
 }
 
+.prognoseLabelRij {
+    margin-top: 0;
+}
+
 .prognoseMelding {
     font-size: 0.9em;
     margin-top: 10px;

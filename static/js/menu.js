@@ -19,6 +19,7 @@
             views: [
                 { view: "rendement", label: "Rendement" },
                 { view: "prognose", label: "Prognose" },
+                { view: "prognose-huidig", label: "Huidige portfolio" },
             ],
         },
         {

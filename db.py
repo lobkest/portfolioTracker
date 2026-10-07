@@ -254,6 +254,16 @@ def db_init():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS ticker_dividenden (
+            ticker TEXT PRIMARY KEY,
+            -- {iso_ex_datum: bedrag per aandeel, in Yahoo-valuta}
+            dividenden JSONB NOT NULL,
+            dividend_rate NUMERIC,
+            trailing_rate NUMERIC,
+            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS openfigi_cache (
             isin TEXT PRIMARY KEY,
             resultaten JSONB NOT NULL,
@@ -588,6 +598,44 @@ def db_save_splits(ticker, splits):
         "INSERT INTO ticker_splits (ticker, splits) VALUES (%s, %s) "
         "ON CONFLICT (ticker) DO UPDATE SET splits = EXCLUDED.splits, bijgewerkt_op = CURRENT_TIMESTAMP",
         (ticker, Json(splits)),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
+def db_get_cached_ticker_dividenden(ticker):
+    """{dividenden, dividend_rate, trailing_rate} of None (niet gecachet of verlopen)."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT dividenden, dividend_rate, trailing_rate FROM ticker_dividenden "
+        f"WHERE ticker = %s AND bijgewerkt_op > NOW() - INTERVAL '{CACHE_GELDIGHEID}'",
+        (ticker,),
+    )
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        return None
+    dividenden, dividend_rate, trailing_rate = row
+    return {
+        "dividenden": dividenden,
+        "dividend_rate": float(dividend_rate) if dividend_rate is not None else None,
+        "trailing_rate": float(trailing_rate) if trailing_rate is not None else None,
+    }
+
+
+def db_save_ticker_dividenden(ticker, dividenden, dividend_rate, trailing_rate):
+    """Ook een leeg dict cachen: dat betekent 'keert niet uit'."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO ticker_dividenden (ticker, dividenden, dividend_rate, trailing_rate) VALUES (%s, %s, %s, %s) "
+        "ON CONFLICT (ticker) DO UPDATE SET dividenden = EXCLUDED.dividenden, "
+        "dividend_rate = EXCLUDED.dividend_rate, trailing_rate = EXCLUDED.trailing_rate, "
+        "bijgewerkt_op = CURRENT_TIMESTAMP",
+        (ticker, Json(dividenden), dividend_rate, trailing_rate),
     )
     conn.commit()
     cur.close()

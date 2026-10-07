@@ -40,6 +40,7 @@ const TOON_PER_VIEW = {
     "statistieken": toonStatistieken,
     "transacties": toonTransacties,
     "prognose": toonPrognose,
+    "prognose-huidig": toonPrognoseHuidig,
     "dividend": toonDividend,
     "instellingen": () => {},  // leeg, want de instellingen zijn altijd hetzelfde voor elk portfolio
     "instellingen-bestanden": () => {},

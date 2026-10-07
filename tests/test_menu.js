@@ -41,6 +41,12 @@ test("instellingen: Bestanden bijwerken staat direct na Algemeen", () => {
     assert.equal(groepVanView("instellingen-bestanden"), "instellingen");
 });
 
+test("rendement: Huidige portfolio staat direct na Prognose", () => {
+    const views = MENU_GROEPEN.find(g => g.id === "rendement").views.map(v => v.view);
+    assert.deepEqual(views.slice(views.indexOf("prognose"), views.indexOf("prognose") + 2), ["prognose", "prognose-huidig"]);
+    assert.equal(groepVanView("prognose-huidig"), "rendement");
+});
+
 test("zichtbareGroepen: alleen groepen met minstens één toegestane view", () => {
     assert.deepEqual(zichtbareGroepen(["land", "instellingen-ticker"]).map(g => g.id), ["samenstelling", "instellingen"]);
     assert.deepEqual(zichtbareGroepen([]), []);

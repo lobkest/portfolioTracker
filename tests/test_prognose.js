@@ -10,6 +10,7 @@ const {
     berekenPrognosePad,
     berekenGeinvesteerdPad,
     berekenPrognose,
+    berekenDividendCumulatief,
     genereerToekomstDatums,
     valideerPrognoseInvoer,
     bouwPrognoseGrafiekData
@@ -203,4 +204,36 @@ test("bouwPrognoseGrafiekData: twee aanroepen met dezelfde code/data geven ident
     const a = bouwPrognoseGrafiekData(chartDataVoor("RNA"), eenvoudigeInvoer);
     const b = bouwPrognoseGrafiekData(chartDataVoor("RNA"), eenvoudigeInvoer);
     assert.deepEqual(a, b);
+});
+
+test("berekenDividendCumulatief: yield 0 geeft alleen nullen", () => {
+    assert.deepEqual(berekenDividendCumulatief([1000, 1100, 1200], 0), [0, 0, 0]);
+});
+
+test("berekenDividendCumulatief: vaste waarde 1000 met 12% yield geeft na 12 maanden 120", () => {
+    const cumulatief = berekenDividendCumulatief(new Array(13).fill(1000), 0.12);
+    assert.equal(cumulatief.length, 13);
+    assertClose(cumulatief[1], 10);
+    assertClose(cumulatief[12], 120);
+});
+
+test("bouwPrognoseGrafiekData: zonder dividendYield blijft het aantal datasets gelijk, met precies één extra", () => {
+    const zonder = bouwPrognoseGrafiekData(chartDataVoor("ABC"), eenvoudigeInvoer);
+    assert.equal(zonder.datasets.length, 6);
+    const met = bouwPrognoseGrafiekData(chartDataVoor("ABC"), { ...eenvoudigeInvoer, dividendYield: 0.12 });
+    assert.equal(met.datasets.length, 7);
+    const lijn = met.datasets.find(ds => ds.label === "Waarde + verwacht dividend, niet herbelegd (€)");
+    // 0% koersrendement: waarde blijft 8500, plus 12 x 85 dividend.
+    assert.equal(lijn.data[0].y, 8500);
+    assertClose(lijn.data[12].y, 8500 + 1020);
+    assert.deepEqual(met.datasets.filter(ds => ds !== lijn), zonder.datasets);
+});
+
+test("valideerPrognoseInvoer: zonder inlegvelden (metInleg false) zijn ontbrekende inleggen geen fout", () => {
+    const invoer = { jaren: 10, rendementPct: 6, laagPct: 4, hoogPct: 10 };
+    assert.equal(valideerPrognoseInvoer(invoer).geldig, false);
+    const r = valideerPrognoseInvoer(invoer, { metInleg: false });
+    assert.equal(r.geldig, true);
+    assert.deepEqual(r.fouten, []);
+    assert.equal(valideerPrognoseInvoer({ ...invoer, jaren: -1 }, { metInleg: false }).geldig, false);
 });

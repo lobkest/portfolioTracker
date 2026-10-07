@@ -171,7 +171,7 @@ test("portfolio.html: de gedeelde grafiek heeft een plek op de tabbladen met een
     const plekken = leesPortfolioElementen().filter(e => heeft(e, "data-grafiek-plek"));
     assert.deepEqual(
         plekken.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "beurs", "prognose", "dividend"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "beurs", "prognose", "prognose-huidig", "dividend"],
     );
 });
 
@@ -181,7 +181,7 @@ test("portfolio.html: de zoomknop staat alleen op de tabbladen met een zoombare 
     for (const plek of zoombaar) assert.ok(heeft(plek, "data-grafiek-plek"), "data-zoombaar zonder data-grafiek-plek");
     assert.deepEqual(
         zoombaar.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "prognose", "dividend"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "prognose", "prognose-huidig", "dividend"],
     );
     const zoomknop = elementen.find(e => e.attrs.id === "resetZoomBtn");
     assert.ok(zoomknop.voorouders.some(v => (v.attrs.class || "").split(" ").includes("subRij")), "de zoomknop staat in de rij met subtabs");
@@ -229,12 +229,36 @@ test("portfolio.html: de toestand- en prognose-id's uit de tabblad-scripts besta
         .map(naam => fs.readFileSync(path.join(jsMap, naam), "utf8"))
         .join("\n");
     const ids = new Set(leesPortfolioElementen().map(e => e.attrs.id));
-    for (const naam of ["DIVIDEND_TOESTANDEN", "TRANSACTIES_TOESTANDEN", "PROGNOSE_VELD_IDS"]) {
+    for (const naam of ["DIVIDEND_TOESTANDEN", "TRANSACTIES_TOESTANDEN"]) {
         const blok = alleJs.match(new RegExp(`const ${naam} = [\\[{]([^\\]}]*)[\\]}]`));
         assert.ok(blok, naam);
         const gevonden = [...blok[1].matchAll(/"([^"]+)"/g)].map(m => m[1]);
         assert.ok(gevonden.length > 0, naam);
         for (const id of gevonden) assert.ok(ids.has(id), `${id} uit ${naam} ontbreekt in portfolio.html`);
+    }
+});
+
+// De prognose-tabbladen bouwen hun id's uit een prefix en de Jinja-macro's in portfolio.html.
+test("portfolio.html: de id's uit tabs/prognose.js staan in de macro's, voor elk prognose-tabblad", () => {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    const js = fs.readFileSync(path.join(__dirname, "..", "static", "js", "tabs", "prognose.js"), "utf8");
+    const html = fs.readFileSync(path.join(__dirname, "..", "templates", "portfolio.html"), "utf8");
+    const velden = js.match(/const velden = \[([^\]]*)\]\.concat\(metInleg \? \[([^\]]*)\]/);
+    assert.ok(velden, "velden niet gevonden");
+    const achtervoegsels = [
+        ...[...(velden[1] + velden[2]).matchAll(/"(\w+)"/g)].map(m => m[1][0].toUpperCase() + m[1].slice(1)),
+        ...[...js.matchAll(/\bel\("(\w+)"\)/g)].map(m => m[1]),
+    ];
+    assert.ok(achtervoegsels.length > 10);
+    for (const achtervoegsel of achtervoegsels) {
+        assert.ok(html.includes(`id="{{ prefix }}${achtervoegsel}"`), `${achtervoegsel} ontbreekt in de macro's`);
+    }
+    const prefixen = [...js.matchAll(/prefix: "(\w+)"/g)].map(m => m[1]);
+    assert.deepEqual(prefixen, ["prognose", "prognoseHuidig"]);
+    for (const prefix of prefixen) {
+        assert.ok(html.includes(`prognose_formulier("${prefix}"`), prefix);
+        assert.ok(html.includes(`prognose_dividend_sectie("${prefix}")`), prefix);
     }
 });
 

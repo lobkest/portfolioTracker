@@ -28,6 +28,7 @@ from dividend import (
     bereken_dividend_samenvatting, bouw_dividend_samenvatting, lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df,
     bereken_kassaldo,
 )
+from dividend_verwachting import bereken_dividend_verwachting
 from transactie_utils import transacties_overzicht_uit_df
 from portfolio_admin import (
     is_geldige_code, CODE_LENGTH, controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
@@ -590,6 +591,21 @@ def dividend(code):
 
     samenvatting["beschikbaar"] = True
     return jsonify(samenvatting)
+
+
+@app.route("/api/portfolio/<code>/dividend-verwachting")
+def dividend_verwachting(code):
+    code = code.strip().upper()
+    if not db_portfolio_bestaat(code):
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    try:
+        with meet_tijd("dividend_verwachting"):
+            resultaat = bereken_dividend_verwachting(code)
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Verwacht dividend ophalen is mislukt. Probeer het later opnieuw."}), 500
+    return jsonify(voeg_diagnostiek_toe(resultaat or {"beschikbaar": False}))
 
 
 @app.route("/api/portfolio/<code>/transacties")

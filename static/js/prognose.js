@@ -54,6 +54,15 @@
         };
     }
 
+    // Niet herbelegd: elke maand 1/12 van de jaaryield over de waarde aan het begin van die maand, zonder groei.
+    function berekenDividendCumulatief(waardePad, yieldNettoJaar) {
+        const punten = [0];
+        for (let m = 1; m < waardePad.length; m++) {
+            punten.push(punten[m - 1] + waardePad[m - 1] * yieldNettoJaar / 12);
+        }
+        return punten;
+    }
+
     // Begint bij vanafIso + 1 maand. UTC, anders kan de tijdzone een dag verschuiven.
     function genereerToekomstDatums(vanafIso, aantalMaanden) {
         const basis = new Date(vanafIso + "T00:00:00Z");
@@ -69,7 +78,9 @@
     const RENDEMENT_MAX_PCT = 30;
     const JAREN_MAX = 60;
 
-    function valideerPrognoseInvoer(input) {
+    // opties.metInleg = false: zonder inlegvelden (tabblad Huidige portfolio).
+    function valideerPrognoseInvoer(input, opties) {
+        const metInleg = !opties || opties.metInleg !== false;
         const { jaren, rendementPct, laagPct, hoogPct, jaarlijkseInleg, maandelijkseInleg } = input;
         const fouten = [];
 
@@ -77,7 +88,7 @@
             fouten.push(`Aantal jaren vooruit moet tussen 0 en ${JAREN_MAX} liggen.`);
         }
         [
-            ["Verwacht rendement", rendementPct],
+            ["Verwacht koersrendement", rendementPct],
             ["Lage kant van de bandbreedte", laagPct],
             ["Hoge kant van de bandbreedte", hoogPct]
         ].forEach(([naam, waarde]) => {
@@ -88,10 +99,10 @@
         if (Number.isFinite(laagPct) && Number.isFinite(hoogPct) && laagPct >= hoogPct) {
             fouten.push("De lage kant van de bandbreedte moet kleiner zijn dan de hoge kant.");
         }
-        if (!Number.isFinite(jaarlijkseInleg) || jaarlijkseInleg < 0) {
+        if (metInleg && (!Number.isFinite(jaarlijkseInleg) || jaarlijkseInleg < 0)) {
             fouten.push("Jaarlijkse inleg moet een positief bedrag zijn.");
         }
-        if (!Number.isFinite(maandelijkseInleg) || maandelijkseInleg < 0) {
+        if (metInleg && (!Number.isFinite(maandelijkseInleg) || maandelijkseInleg < 0)) {
             fouten.push("Maandelijkse inleg moet een positief bedrag zijn.");
         }
 
@@ -100,7 +111,7 @@
             fouten.length === 0 &&
             (rendementPct < laagPct || rendementPct > hoogPct)
         ) {
-            waarschuwing = "Het verwachte rendement valt buiten de opgegeven bandbreedte.";
+            waarschuwing = "Het verwachte koersrendement valt buiten de opgegeven bandbreedte.";
         }
 
         return { geldig: fouten.length === 0, fouten, waarschuwing };
@@ -108,6 +119,7 @@
 
     // chartData als parameter (niet globaal), zodat nooit data van een vorige portfolio meekomt.
     // {x, y}-punten voor de tijd-as; historie en prognose delen het laatste punt.
+    // invoer.dividendYield (netto, fractie per jaar): optioneel, geeft een extra lijn waarde + cumulatief dividend.
     function bouwPrognoseGrafiekData(chartData, invoer) {
         const d = chartData;
         const H = d.labels.length;
@@ -142,6 +154,16 @@
             { label: "Geïnvesteerd — prognose (€)", data: toekomstPad(prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
         ];
 
+        if (typeof invoer.dividendYield === "number" && Number.isFinite(invoer.dividendYield)) {
+            const cumulatief = berekenDividendCumulatief(prognose.midden, invoer.dividendYield);
+            datasets.splice(2, 0, {
+                label: "Waarde + verwacht dividend, niet herbelegd (€)",
+                data: toekomstPad(prognose.midden.map((w, m) => w + cumulatief[m])),
+                borderColor: "#b7791f",
+                borderDash: [3, 3]
+            });
+        }
+
         return { datasets };
     }
 
@@ -150,6 +172,7 @@
         berekenPrognosePad,
         berekenGeinvesteerdPad,
         berekenPrognose,
+        berekenDividendCumulatief,
         genereerToekomstDatums,
         valideerPrognoseInvoer,
         bouwPrognoseGrafiekData
