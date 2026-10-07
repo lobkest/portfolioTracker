@@ -49,9 +49,13 @@ test("tickerwaarschuwing: niets zonder waarschuwingen", () => {
     assert.equal(tickerWaarschuwingTekst(undefined), null);
 });
 
-test("tickerwaarschuwing: alleen OpenFIGI noemt geen koersafwijking", () => {
-    const tekst = tickerWaarschuwingTekst([{ ticker: "VWCE.DE", naam: "VWCE", redenen: ["openfigi"] }]);
-    assert.equal(tekst, "⚠️ Bij 1 positie (VWCE) staat de ticker niet bij wat OpenFIGI voor de ISIN kent. " +
+test("tickerwaarschuwing: alleen OpenFIGI geeft geen banner", () => {
+    assert.equal(tickerWaarschuwingTekst([{ ticker: "VWCE.DE", naam: "VWCE", redenen: ["openfigi"] }]), null);
+    const tekst = tickerWaarschuwingTekst([
+        { ticker: "VWCE.DE", naam: "VWCE", redenen: ["openfigi"] },
+        { ticker: "A", naam: "A", redenen: ["koers"] },
+    ]);
+    assert.equal(tekst, "⚠️ Bij 1 positie (A) wijkt de koers meer dan verwacht af van Yahoo Finance. " +
         "Controleer het Ticker-zekerheid-tabblad.");
 });
 

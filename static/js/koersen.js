@@ -31,7 +31,6 @@
 
     const TICKER_REDEN_TEKST = {
         koers: "wijkt de koers meer dan verwacht af van Yahoo Finance",
-        openfigi: "staat de ticker niet bij wat OpenFIGI voor de ISIN kent",
         beide: "wijkt de koers af van Yahoo Finance én staat de ticker niet bij OpenFIGI",
     };
 
@@ -42,14 +41,16 @@
     }
 
     // [{ticker, naam, redenen}] uit de backend; null zonder waarschuwingen. Eén zin per reden.
+    // Alleen een OpenFIGI-mismatch geeft bewust geen banner: die staat alleen op het Ticker-zekerheid-tabblad.
     function tickerWaarschuwingTekst(waarschuwingen) {
         if (!waarschuwingen || !waarschuwingen.length) return null;
-        const zinnen = ["koers", "openfigi", "beide"].map(reden => {
+        const zinnen = ["koers", "beide"].map(reden => {
             const groep = waarschuwingen.filter(w => tickerReden(w) === reden);
             if (!groep.length) return null;
             const namen = groep.map(w => w.naam || w.ticker).join(", ");
             return `Bij ${aantalPosities(groep.length)} (${namen}) ${TICKER_REDEN_TEKST[reden]}.`;
         }).filter(Boolean);
+        if (!zinnen.length) return null;
         return `⚠️ ${zinnen.join(" ")} Controleer het Ticker-zekerheid-tabblad.`;
     }
 
