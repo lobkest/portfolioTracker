@@ -16,7 +16,7 @@ datum gemockt (geen echte Yahoo-calls).
 import os
 import sys
 import unittest
-from datetime import date
+from datetime import date, time
 from unittest.mock import patch
 
 
@@ -151,6 +151,58 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         mock_find.assert_called_once()
         self.assertEqual(gecorrigeerd, 0)
         self.assertEqual(self._huidige_ticker("US0378331005", "NASDAQ"), "AAPL")
+
+    OUD_ISIN, NIEUW_ISIN = "US30162V1026", "US30162V4095"
+
+    def _voeg_xela_keten_toe(self):
+        """Twee markttransacties en een wisselpaar (00:00, zonder kosten) ertussen, alles met ticker XELA op NDQ."""
+        from db import db_connect
+        conn = db_connect()
+        cur = conn.cursor()
+        rijen = [
+            ("BF-1", date(2021, 1, 8), time(17, 57), self.OUD_ISIN, 13, 0.41, -0.54),
+            ("BF-2", date(2021, 1, 26), time(0, 0), self.OUD_ISIN, -14, 0.72, None),
+            ("BF-3", date(2021, 1, 26), time(0, 0), self.NIEUW_ISIN, 4, 2.16, None),
+            ("BF-4", date(2021, 1, 27), time(16, 17), self.NIEUW_ISIN, -4, 1.91, -0.51),
+        ]
+        for order_id, datum, tijd, isin, aantal, koers, kosten in rijen:
+            cur.execute(
+                "INSERT INTO transacties (code, datum, tijd, product, isin, beurs, ticker, aantal, koers, totaal_eur, "
+                "order_id, echte_naam, transactiekosten) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (self.CODE, datum, tijd, "EXELA", isin, "NDQ", "XELA", aantal, koers, -aantal * koers,
+                 order_id, "EXELA", kosten),
+            )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def test_wisselrijen_tellen_niet_mee_in_de_prijscheck(self):
+        self._voeg_xela_keten_toe()
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=True) as mock_probleem,              patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
+                          return_value={"ticker": "XELA.NEW", "zekerheid": "zeker"}) as mock_find:
+            backfill_verouderde_tickers(self.CODE)
+
+        verwacht = [(date(2021, 1, 8), 0.41), (date(2021, 1, 27), 1.91)]
+        for transacties in (mock_find.call_args.args[3], mock_probleem.call_args.args[1]):
+            self.assertEqual([(t["datum"], float(t["koers"])) for t in transacties], verwacht)
+
+    def test_keten_is_een_positie_en_vervanging_raakt_alle_isins(self):
+        self._voeg_xela_keten_toe()
+        with patch.object(ticker_zekerheid, "_ticker_heeft_prijsprobleem", return_value=False),              patch.object(ticker_zekerheid, "find_ticker_met_snelle_prijscheck",
+                          return_value={"ticker": "XELA.NEW", "zekerheid": "zeker"}) as mock_find:
+            gecorrigeerd = backfill_verouderde_tickers(self.CODE)
+
+        mock_find.assert_called_once()
+        self.assertEqual(mock_find.call_args.args[1:3], (self.NIEUW_ISIN, "NDQ"))
+        self.assertEqual(gecorrigeerd, 1)
+        from db import db_connect
+        conn = db_connect()
+        cur = conn.cursor()
+        cur.execute("SELECT ticker FROM transacties WHERE code = %s", (self.CODE,))
+        tickers = [ticker for (ticker,) in cur.fetchall()]
+        cur.close()
+        conn.close()
+        self.assertEqual(tickers, ["XELA.NEW"] * 4)
 
     def test_geen_transacties_voor_code_geeft_geen_crash(self):
         gecorrigeerd = backfill_verouderde_tickers("XYZ-NIET-BESTAAND")

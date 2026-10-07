@@ -32,8 +32,8 @@ from portfolio_calc import (
     compute_split_adjusted_shares, compute_value_over_time, compute_per_ticker,
     compute_per_ticker_koers_en_aankopen, bepaal_split_boekingen, meld_split_koppeling,
 )
-from split_correctie import bepaal_effectieve_datums, continue_reeks, isin_ketens, vind_wisselparen
-from ticker_zekerheid import ticker_waarschuwingen_voor_transacties
+from split_correctie import bepaal_effectieve_datums, continue_reeks
+from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
 from dividend import bereken_dividend_samenvatting
 from statistieken import bereken_statistieken
 from portfolio_verdeling import (
@@ -376,50 +376,13 @@ def laad_transacties_en_resultaat(code):
 
 
 def ticker_zekerheid_groepen(code):
-    """[((eind_isin, beurs), {naam, echte_naam, beurs, isin, isins, transacties})] zonder corporate-action- en
-    wisselrijen, of None. Een ISIN-wissel (ook een keten) is één groep onder de nieuwste ISIN; isins = de hele keten,
-    oudste eerst. Leest alleen de transacties (geen koersen, geen split-correctie). Zoek op echte_naam: product kan
-    een bijnaam zijn."""
+    """groepeer_posities_per_keten() van de opgeslagen transacties, of None als de code niet bestaat.
+    Leest alleen de transacties (geen koersen, geen split-correctie)."""
     naam_portfolio, rows = db_get_portfolio_naam_en_transacties(code)
     if naam_portfolio is None:
         return None
 
-    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
-    for kolom in ("aantal", "koers", "transactiekosten"):
-        transacties_df[kolom] = transacties_df[kolom].astype(float)
-    # Een omboeking bij een ISIN-wissel is geen markttransactie: koers = slot van de dag ervoor.
-    paren, _onduidelijk = vind_wisselparen(transacties_df)
-    wisselrijen = {label for paar in paren for label in paar.oud_rijen + paar.nieuw_rijen}
-    eind_van = isin_ketens(paren)
-    eerste_datum = transacties_df.groupby("isin")["datum"].min()
-    keten_van = {}
-    for isin, eind in sorted(eind_van.items(), key=lambda item: eerste_datum.get(item[0])):
-        keten_van.setdefault(eind, []).append(isin)
-
-    # Naam en ticker komen van de eerste rij van de nieuwste ISIN (als die markttransacties heeft): daarop zoekt de check.
-    transacties_df["_eind"] = transacties_df["isin"].map(lambda i: eind_van.get(i, i))
-    transacties_df["_is_eind"] = transacties_df["isin"] == transacties_df["_eind"]
-    transacties_df = transacties_df.sort_values(["_eind", "_is_eind", "datum"], ascending=[True, False, True])
-
-    per_groep = {}
-    for label, rij in transacties_df.iterrows():
-        eind, product, echte_naam, beurs, datum, koers = (
-            rij["_eind"], rij["product"], rij["echte_naam"], rij["beurs"], rij["datum"], rij["koers"],
-        )
-        if _is_corporate_action_row({"beurs": beurs, "product": product}) or label in wisselrijen:
-            continue
-        groep = per_groep.setdefault(
-            (eind, beurs), {
-                "naam": product, "echte_naam": echte_naam, "beurs": beurs, "isin": eind,
-                "isins": keten_van.get(eind, [eind]),
-                "ticker": rij["ticker"] if pd.notna(rij["ticker"]) else None, "transacties": [],
-            }
-        )
-        groep["transacties"].append({"datum": datum, "koers": koers})
-
-    for groep in per_groep.values():
-        groep["transacties"].sort(key=lambda t: t["datum"])
-    return list(per_groep.items())
+    return groepeer_posities_per_keten(rows)
 
 
 def bepaal_korte_naam_voorstellen(code):

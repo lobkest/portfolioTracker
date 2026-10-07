@@ -278,6 +278,26 @@ def db_init():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS rekening_regels (
+            id SERIAL PRIMARY KEY,
+            code TEXT NOT NULL,
+            regel_id TEXT NOT NULL,
+            datum DATE,
+            tijd TIME,
+            valutadatum DATE,
+            product TEXT,
+            isin TEXT,
+            omschrijving TEXT,
+            fx NUMERIC,
+            mutatie_valuta TEXT,
+            mutatie NUMERIC,
+            saldo_valuta TEXT,
+            saldo NUMERIC,
+            order_id TEXT,
+            UNIQUE (code, regel_id)
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS kassaldo (
             code TEXT PRIMARY KEY,
             saldo_eur NUMERIC NOT NULL,
@@ -632,6 +652,7 @@ def db_delete_portfolio(code):
     cur.execute("DELETE FROM transacties WHERE code = %s", (code,))
     cur.execute("DELETE FROM dividenden WHERE code = %s", (code,))
     cur.execute("DELETE FROM kassaldo WHERE code = %s", (code,))
+    cur.execute("DELETE FROM rekening_regels WHERE code = %s", (code,))
     cur.execute("DELETE FROM portfolios WHERE code = %s", (code,))
     conn.commit()
     cur.close()
@@ -661,6 +682,7 @@ def db_wijzig_portfolio_code(oude_code, nieuwe_code):
         cur.execute("UPDATE transacties SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE dividenden SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE kassaldo SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
+        cur.execute("UPDATE rekening_regels SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (oude_code,))
         conn.commit()
         return True, None
@@ -1148,16 +1170,25 @@ def db_vul_bronkolommen_aan(cur, code, rijen):
     return cur.rowcount
 
 
-def db_get_transacties_voor_tickercheck(cur, code):
-    cur.execute(
-        "SELECT isin, beurs, ticker, product, echte_naam, datum, koers FROM transacties WHERE code = %s",
-        (code,),
+REKENING_REGEL_KOLOMMEN = (
+    "regel_id", "datum", "tijd", "valutadatum", "product", "isin", "omschrijving", "fx",
+    "mutatie_valuta", "mutatie", "saldo_valuta", "saldo", "order_id",
+)
+
+
+def db_save_rekening_regels(cur, code, regels):
+    """Geeft het aantal nieuw ingevoegde regels."""
+    if not regels:
+        return 0
+    # DO NOTHING is hier juist: regel_id is een hash van de hele rij, een gewijzigde rij krijgt een andere id.
+    execute_values(
+        cur,
+        f"INSERT INTO rekening_regels (code, {', '.join(REKENING_REGEL_KOLOMMEN)}) VALUES %s "
+        "ON CONFLICT (code, regel_id) DO NOTHING",
+        [(code, *(regel[k] for k in REKENING_REGEL_KOLOMMEN)) for regel in regels],
+        page_size=len(regels),
     )
-    return cur.fetchall()
-
-
-def db_wijzig_ticker(cur, code, isin, beurs, ticker):
-    db_wijzig_ticker_voor_isins(cur, code, [isin], beurs, ticker)
+    return cur.rowcount
 
 
 def db_wijzig_ticker_voor_isins(cur, code, isins, beurs, ticker):

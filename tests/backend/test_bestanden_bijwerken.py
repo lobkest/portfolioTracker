@@ -109,6 +109,7 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.mock_insert = self._start(patch.object(app_module, "voeg_nieuwe_transacties_toe"))
         self.mock_aanvullen = self._start(patch.object(app_module, "vul_bronkolommen_aan"))
         self.mock_dividend_opslaan = self._start(patch.object(upload_verwerking, "db_save_dividenden"))
+        self.mock_regels_opslaan = self._start(patch.object(upload_verwerking, "db_save_rekening_regels", return_value=0))
 
     def _start(self, p):
         mock = p.start()

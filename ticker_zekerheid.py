@@ -9,12 +9,18 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 
-from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker, db_verbinding_teller_stand
+import pandas as pd
+
+from db import (
+    db_connect, db_get_portfolio_naam_en_transacties, db_wijzig_ticker_voor_isins, db_verbinding_teller_stand,
+    TRANSACTIE_KOLOMMEN,
+)
 from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
 from ticker_prijscheck import vergelijk_prijs_op_datum, vergelijk_prijzen_op_datums, _prijscheck_is_probleem
-from transactie_utils import formatteer_datum_nl
+from split_correctie import isin_ketens, vind_wisselparen
+from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from ticker_classificatie import (
     classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
     haal_long_names, bewaar_long_names,
@@ -726,25 +732,63 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     return probleem
 
 
-def backfill_verouderde_tickers(code):
-    """Herzoekt elke opgeslagen ticker; vervangt alleen door een kandidaat zonder prijsprobleem.
-    Geeft het aantal gecorrigeerde groepen."""
-    conn = db_connect()
-    cur = conn.cursor()
-    rows = db_get_transacties_voor_tickercheck(cur, code)
+def groepeer_posities_per_keten(rijen):
+    """rijen in volgorde van TRANSACTIE_KOLOMMEN -> [((eind_isin, beurs), {naam, echte_naam, beurs, isin, isins, ticker,
+    transacties})] zonder corporate-action- en wisselrijen. Een ISIN-wissel (ook een keten) is één groep onder de
+    nieuwste ISIN; isins = de hele keten, oudste eerst. Zoek op echte_naam: product kan een bijnaam zijn."""
+    transacties_df = pd.DataFrame(rijen, columns=TRANSACTIE_KOLOMMEN)
+    for kolom in ("aantal", "koers", "transactiekosten"):
+        transacties_df[kolom] = transacties_df[kolom].astype(float)
+    # Een omboeking bij een ISIN-wissel is geen markttransactie: koers = slot van de dag ervoor.
+    paren, _onduidelijk = vind_wisselparen(transacties_df)
+    wisselrijen = {label for paar in paren for label in paar.oud_rijen + paar.nieuw_rijen}
+    eind_van = isin_ketens(paren)
+    eerste_datum = transacties_df.groupby("isin")["datum"].min()
+    keten_van = {}
+    for isin, eind in sorted(eind_van.items(), key=lambda item: eerste_datum.get(item[0])):
+        keten_van.setdefault(eind, []).append(isin)
 
-    groepen = {}
-    for isin, beurs, ticker, product, echte_naam, datum, koers in rows:
-        groep = groepen.setdefault(
-            (isin, beurs), {"ticker": ticker, "naam": echte_naam or product, "transacties": []}
+    # Naam en ticker komen van de eerste rij van de nieuwste ISIN (als die markttransacties heeft): daarop zoekt de check.
+    transacties_df["_eind"] = transacties_df["isin"].map(lambda i: eind_van.get(i, i))
+    transacties_df["_is_eind"] = transacties_df["isin"] == transacties_df["_eind"]
+    transacties_df = transacties_df.sort_values(["_eind", "_is_eind", "datum"], ascending=[True, False, True])
+
+    per_groep = {}
+    for label, rij in transacties_df.iterrows():
+        eind, product, echte_naam, beurs, datum, koers = (
+            rij["_eind"], rij["product"], rij["echte_naam"], rij["beurs"], rij["datum"], rij["koers"],
+        )
+        if _is_corporate_action_row({"beurs": beurs, "product": product}) or label in wisselrijen:
+            continue
+        groep = per_groep.setdefault(
+            (eind, beurs), {
+                "naam": product, "echte_naam": echte_naam, "beurs": beurs, "isin": eind,
+                "isins": keten_van.get(eind, [eind]),
+                "ticker": rij["ticker"] if pd.notna(rij["ticker"]) else None, "transacties": [],
+            }
         )
         groep["transacties"].append({"datum": datum, "koers": koers})
 
+    for groep in per_groep.values():
+        groep["transacties"].sort(key=lambda t: t["datum"])
+    return list(per_groep.items())
+
+
+def backfill_verouderde_tickers(code):
+    """Herzoekt elke opgeslagen ticker per positie (een ISIN-keten is één positie); vervangt alleen door een kandidaat
+    zonder prijsprobleem, voor alle ISIN's van de keten. Geeft het aantal gecorrigeerde posities."""
+    naam_portfolio, rows = db_get_portfolio_naam_en_transacties(code)
+    if naam_portfolio is None:
+        return 0
+    groepen = groepeer_posities_per_keten(rows)
+
+    conn = db_connect()
+    cur = conn.cursor()
     gecorrigeerd = 0
-    for (isin, beurs), info in groepen.items():
+    for (isin, beurs), info in groepen:
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
-        nieuw = find_ticker_met_snelle_prijscheck(info["naam"], isin, beurs, transacties)
+        nieuw = find_ticker_met_snelle_prijscheck(info["echte_naam"] or info["naam"], isin, beurs, transacties)
         nieuwe_ticker = nieuw["ticker"]
         if not nieuwe_ticker or nieuwe_ticker == oude_ticker:
             continue
@@ -752,7 +796,7 @@ def backfill_verouderde_tickers(code):
         if _ticker_heeft_prijsprobleem(nieuwe_ticker, transacties):
             continue
 
-        db_wijzig_ticker(cur, code, isin, beurs, nieuwe_ticker)
+        db_wijzig_ticker_voor_isins(cur, code, info["isins"], beurs, nieuwe_ticker)
         gecorrigeerd += 1
 
     conn.commit()
@@ -837,11 +881,16 @@ def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
     ["koers", "openfigi"]; prijs_checks: {ticker: [prijscheck_laatste()]} voor Diagnostiek.
     Zonder 'isin'-kolom geen OpenFIGI-check."""
     heeft_isin_kolom = "isin" in transacties_df.columns
+    eind_van = isin_ketens(vind_wisselparen(transacties_df)[0]) if heeft_isin_kolom else {}
     waarschuwingen = []
     prijs_checks = {}
     for ticker, groep in transacties_df.dropna(subset=["ticker"]).groupby("ticker"):
         transacties_van_ticker = [{"datum": d, "koers": k} for d, k in zip(groep["datum"], groep["koers"])]
-        isin = groep["isin"].iloc[0] if heeft_isin_kolom and not groep.empty else None
+        isin = None
+        if heeft_isin_kolom:
+            # De rijvolgorde is willekeurig: neem de nieuwste rij, en via de keten de nieuwste ISIN.
+            laatste_isin = groep.sort_values("datum", kind="stable")["isin"].iloc[-1]
+            isin = eind_van.get(laatste_isin, laatste_isin)
         check = prijscheck_laatste(ticker, transacties_van_ticker)
         prijs_checks[ticker] = [check] if check else []
         delen = prijswaarschuwing_delen(ticker, transacties_van_ticker, isin, check=check)

@@ -14,6 +14,7 @@ Draait geheel offline: find_ticker_detailed en vergelijk_prijs_op_datum
 worden gemockt (net als tests/test_ticker_verificatie.py), dus geen echte
 yahooquery/yfinance-calls en geen databasetoegang nodig.
 """
+import datetime
 import os
 import sys
 import unittest
@@ -302,6 +303,34 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
         self.assertEqual(waarschuwingen[0]["naam"], "Apple")
         self.assertIn("15.0%", waarschuwingen[0]["boodschap"])
         self.assertEqual(waarschuwingen[0]["redenen"], ["koers"])
+
+    def _openfigi_isin(self, rijen):
+        kolommen = ["ticker", "datum", "tijd", "isin", "aantal", "koers", "transactiekosten"]
+        transacties_df = pd.DataFrame(rijen, columns=kolommen)
+        with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None),                 patch.object(ticker_zekerheid, "prijswaarschuwing_delen",
+                             return_value={"koers": None, "openfigi": None}) as mock_delen:
+            ticker_waarschuwingen_voor_transacties(transacties_df, {})
+        return mock_delen.call_args.args[2]
+
+    def test_openfigi_krijgt_de_nieuwe_isin_ook_als_de_oude_eerst_staat(self):
+        nul, middag = datetime.time(0, 0), datetime.time(16, 17)
+        isin = self._openfigi_isin([
+            ("XELA", date(2021, 1, 8), middag, "OUD", 13, 0.41, -0.54),
+            ("XELA", date(2021, 1, 26), nul, "OUD", -14, 0.72, None),
+            ("XELA", date(2021, 1, 27), middag, "NIEUW", -4, 1.91, -0.51),
+            ("XELA", date(2021, 1, 26), nul, "NIEUW", 4, 2.16, None),
+        ])
+        self.assertEqual(isin, "NIEUW")
+
+    def test_openfigi_volgt_de_keten_als_de_oude_isin_de_laatste_rij_heeft(self):
+        nul = datetime.time(0, 0)
+        # Nieuwe ISIN heeft alleen de omboeking; de oude -14 staat op dezelfde dag als laatste rij in de data.
+        isin = self._openfigi_isin([
+            ("XELA", date(2021, 1, 8), datetime.time(17, 57), "OUD", 13, 0.41, -0.54),
+            ("XELA", date(2021, 1, 26), nul, "NIEUW", 4, 2.16, None),
+            ("XELA", date(2021, 1, 26), nul, "OUD", -14, 0.72, None),
+        ])
+        self.assertEqual(isin, "NIEUW")
 
     def test_geen_enkele_afwijking_geeft_lege_lijst(self):
         transacties_df = pd.DataFrame({

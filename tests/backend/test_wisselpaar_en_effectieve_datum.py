@@ -235,19 +235,68 @@ class TestIsinKetens(unittest.TestCase):
 
 
 class TestWisselrijenUitDePrijscheck(_MetRequest):
-    def test_upload_posities_bevatten_alleen_marktransacties(self):
+    def _excel(self, rijen):
         import upload_verwerking
-        rijen = _xela_rijen("NSQ", "XELA")
-        excel = pd.DataFrame({
+        return pd.DataFrame({
             "Datum": rijen["datum"], "Tijd": rijen["tijd"], "Product": rijen["product"], "ISIN": rijen["isin"],
             "Beurs": rijen["beurs"], "Aantal": rijen["aantal"], "_koers_eur": rijen["koers"],
             upload_verwerking.KOSTEN_KOLOM: rijen["transactiekosten"],
         })
-        posities = {(isin, beurs): transacties for _, isin, beurs, transacties in upload_verwerking._bouw_posities(excel)}
-        # Op de oude ISIN blijven de twee aankopen; de -14 @ 0,72 telt niet mee. Nieuwe ISIN: alleen de verkoop van 27-01.
-        self.assertEqual(posities[(OUD_ISIN, "NSQ")], [
-            {"datum": "2021-01-08", "koers": 0.41}, {"datum": "2021-01-25", "koers": 0.71}])
-        self.assertEqual(posities[(NIEUW_ISIN, "NSQ")], [{"datum": "2021-01-27", "koers": 1.91}])
+
+    def _posities(self, excel):
+        import upload_verwerking
+        return {(isin, beurs): transacties for _, isin, beurs, transacties in upload_verwerking._bouw_posities(excel)}
+
+    def test_upload_wissel_is_een_positie_met_alleen_marktransacties(self):
+        posities = self._posities(self._excel(_xela_rijen("NSQ", "XELA")))
+        # De -14 @ 0,72 en +4 @ 2,16 tellen niet mee; de aankopen van de oude en de verkoop van de nieuwe ISIN wel.
+        self.assertEqual(posities, {(NIEUW_ISIN, "NSQ"): [
+            {"datum": "2021-01-08", "koers": 0.41}, {"datum": "2021-01-25", "koers": 0.71},
+            {"datum": "2021-01-27", "koers": 1.91}]})
+
+    def test_upload_zonder_tijd_blijven_twee_posities(self):
+        rijen = _xela_rijen("NSQ", "XELA")
+        rijen["tijd"] = None
+        self.assertEqual(set(self._posities(self._excel(rijen))), {(OUD_ISIN, "NSQ"), (NIEUW_ISIN, "NSQ")})
+
+    def test_upload_beide_isins_van_de_keten_krijgen_dezelfde_ticker(self):
+        import upload_verwerking
+        excel = self._excel(_xela_rijen("NSQ", "XELA"))
+        self.assertEqual(upload_verwerking._ticker_per_isin_beurs(excel, {(NIEUW_ISIN, "NSQ"): "XELA"}),
+                         {(OUD_ISIN, "NSQ"): "XELA", (NIEUW_ISIN, "NSQ"): "XELA"})
+
+    def test_upload_nieuwe_isin_erft_bekende_ticker_van_de_oude(self):
+        from unittest.mock import patch
+        import upload_verwerking
+        excel = self._excel(_xela_rijen("NSQ", "XELA"))
+
+        def fake_check(posities, bekende_tickers):
+            return [{"ticker": bekende_tickers.get((isin, beurs))} for _, isin, beurs, _t in posities]
+
+        with patch.object(upload_verwerking, "db_get_bekende_tickers", return_value={(OUD_ISIN, "NSQ"): "XELA"}), \
+             patch.object(upload_verwerking, "vind_tickers_met_snelle_prijscheck_parallel", side_effect=fake_check) as mock:
+            tickers, _meldingen = self._in_request(upload_verwerking._ticker_resolutie_opslaan, None, "ZZTEST", excel, False)
+
+        self.assertEqual(mock.call_args.kwargs["bekende_tickers"], {(NIEUW_ISIN, "NSQ"): "XELA"})
+        self.assertEqual(tickers, {(OUD_ISIN, "NSQ"): "XELA", (NIEUW_ISIN, "NSQ"): "XELA"})
+
+    def test_bekende_ticker_van_de_eind_isin_gaat_voor(self):
+        import upload_verwerking
+        bekend = {(OUD_ISIN, "NSQ"): "OUD.TICKER", (NIEUW_ISIN, "NSQ"): "XELA"}
+        eind_van = {OUD_ISIN: NIEUW_ISIN, NIEUW_ISIN: NIEUW_ISIN}
+        self.assertEqual(upload_verwerking._bekende_ticker_per_positie(bekend, eind_van), {(NIEUW_ISIN, "NSQ"): "XELA"})
+
+    def test_niet_opslaan_ziet_een_samengevoegde_positie(self):
+        from unittest.mock import patch
+        import upload_verwerking
+        excel = self._excel(_xela_rijen("NSQ", "XELA"))
+        with patch.object(upload_verwerking, "basis_ticker_zekerheid_parallel",
+                          side_effect=lambda posities: [{"ticker": "XELA"} for _ in posities]):
+            (tickers, zekerheid, ruw), _meldingen = self._in_request(upload_verwerking.ticker_resolutie_niet_opslaan, excel)
+
+        self.assertEqual([(p["isin"], p["beurs"], len(p["transacties"])) for p in ruw], [(NIEUW_ISIN, "NSQ", 3)])
+        self.assertEqual([z["isin"] for z in zekerheid], [NIEUW_ISIN])
+        self.assertEqual(tickers, {(OUD_ISIN, "NSQ"): "XELA", (NIEUW_ISIN, "NSQ"): "XELA"})
 
     def _groepen(self, df):
         from unittest.mock import patch

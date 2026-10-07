@@ -197,6 +197,71 @@ def lees_rekeningoverzicht(file_object):
     return df
 
 
+def _getal(waarde):
+    getal = pd.to_numeric(waarde, errors="coerce")
+    return float(getal) if pd.notna(getal) else None
+
+
+def _tekst(waarde):
+    return str(waarde).strip() if pd.notna(waarde) else None
+
+
+def _datum(waarde):
+    return pd.Timestamp(waarde).date() if pd.notna(waarde) else None
+
+
+def _tijd_hh_mm(waarde):
+    """Excel levert een tijd als tekst ("07:43"), time of datetime."""
+    if pd.isna(waarde):
+        return None
+    if hasattr(waarde, "strftime"):
+        return waarde.strftime("%H:%M")
+    uren, _, minuten = str(waarde).strip().partition(":")
+    return f"{int(uren):02d}:{minuten[:2]}"
+
+
+def _hash_deel(waarde):
+    """Vaste opmaak, zodat de hash niet afhangt van hoe pandas een waarde inleest."""
+    if waarde is None:
+        return ""
+    if isinstance(waarde, float):
+        return f"{waarde:.6f}"
+    if hasattr(waarde, "isoformat"):
+        return waarde.isoformat()
+    return str(waarde)
+
+
+def bouw_rekening_regels(df):
+    """Per rij van een ingelezen rekeningoverzicht een dict met de kolommen van rekening_regels, incl. regel_id."""
+    regels = []
+    for _, row in df.iterrows():
+        regels.append({
+            "datum": _datum(row["Datum"]),
+            "tijd": _tijd_hh_mm(row.get("Tijd")),
+            "valutadatum": _datum(row.get("Valutadatum")),
+            "product": _tekst(row.get("Product")),
+            "isin": _tekst(row.get("ISIN")),
+            "omschrijving": _tekst(row["Omschrijving"]),
+            "fx": _getal(row.get("FX")),
+            "mutatie_valuta": _tekst(row["valuta_mutatie"]),
+            "mutatie": _getal(row["mutatie"]),
+            "saldo_valuta": _tekst(row.get("valuta_saldo")),
+            "saldo": _getal(row.get("saldo")),
+            "order_id": _tekst(row[ORDER_ID_KOLOM_REKENING]),
+        })
+    # Zonder product: DeGiro hernoemt producten soms. Het lopende saldo maakt verder gelijke rijen uniek.
+    hash_kolommen = ("datum", "tijd", "valutadatum", "isin", "omschrijving", "fx",
+                     "mutatie_valuta", "mutatie", "saldo_valuta", "saldo", "order_id")
+    aantal_per_hash = {}
+    for regel in regels:
+        basis = "|".join(_hash_deel(regel[k]) for k in hash_kolommen)
+        hash_id = "REK-" + hashlib.md5(basis.encode()).hexdigest()[:16]
+        volgnummer = aantal_per_hash.get(hash_id, 0)
+        aantal_per_hash[hash_id] = volgnummer + 1
+        regel["regel_id"] = f"{hash_id}-{volgnummer}"
+    return regels
+
+
 STORTING_TREFWOORDEN = ("ideal", "storting", "deposit", "withdrawal", "opname")
 
 

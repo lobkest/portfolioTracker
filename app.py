@@ -37,7 +37,7 @@ from upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
     bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
     voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
-    sla_kassaldo_op, vul_bronkolommen_aan,
+    sla_kassaldo_op, vul_bronkolommen_aan, sla_rekening_regels_op,
     meld_portfolio_opslaan,
 )
 from portfolio_orchestratie import (
@@ -182,6 +182,7 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
         if rekening_df is not None:
             sla_dividend_bestand_op(cur, code, rekening_df)
             sla_kassaldo_op(cur, code, rekening_df)
+            sla_rekening_regels_op(cur, code, rekening_df)
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         _meld_valuta_na_opslaan(df, code)
@@ -273,6 +274,7 @@ def _bijwerken_impl(code):
             if rekening_df is not None:
                 sla_dividend_bestand_op(cur, code, rekening_df)
                 sla_kassaldo_op(cur, code, rekening_df)
+                sla_rekening_regels_op(cur, code, rekening_df)
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         if df is not None:

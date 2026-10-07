@@ -9,7 +9,7 @@ from diagnostiek import (
     meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
     GOED, INFO, LET_OP, FOUT,
 )
-from split_correctie import vind_wisselparen
+from split_correctie import isin_ketens, vind_wisselparen
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, OngeldigExcelBestand
 from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
@@ -18,10 +18,10 @@ from ticker_zekerheid import (
 from portfolio_admin import find_matching_code, generate_code
 from db import (
     db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
-    db_get_product_per_ticker, db_vul_bronkolommen_aan,
+    db_get_product_per_ticker, db_vul_bronkolommen_aan, db_save_rekening_regels,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
-from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo
+from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo, bouw_rekening_regels
 
 VERWACHTE_KOLOMMEN = [
     "Datum", "Tijd", "Product", "ISIN", "Beurs", "Uitvoeringsplaats", "Aantal", "Koers",
@@ -45,6 +45,7 @@ DIAGNOSTIEK_SLEUTEL_EXCEL_WAARDE = "excel_waarde"
 DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS = "corporate_actions"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING = "dividend_samenvatting"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG = "dividend_zonder_conversie_overig"
+DIAGNOSTIEK_SLEUTEL_REKENING_REGELS = "rekening_regels"
 
 # Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
@@ -118,26 +119,56 @@ def voeg_koers_eur_toe(df):
     return df
 
 
-def _wisselrij_labels(df):
-    """Index-labels van de omboekingen bij een ISIN-wissel (splits): geen markttransactie, dus niet voor de prijscheck."""
+def _wissels(df):
+    """(index-labels van de omboekingen, {isin: eind_isin}) bij een ISIN-wissel (splits). Een omboeking is geen
+    markttransactie, dus niet voor de prijscheck."""
     standaard = pd.DataFrame({
         "datum": df["Datum"], "tijd": df["Tijd"], "isin": df["ISIN"], "aantal": df["Aantal"],
         "koers": df["_koers_eur"], "transactiekosten": pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce"),
     })
     paren, _onduidelijk = vind_wisselparen(standaard)
-    return {label for paar in paren for label in paar.oud_rijen + paar.nieuw_rijen}
+    return {label for paar in paren for label in paar.oud_rijen + paar.nieuw_rijen}, isin_ketens(paren)
+
+
+def _per_positie(df, eind_van):
+    return df.groupby([df["ISIN"].map(lambda i: eind_van.get(i, i)), df["Beurs"]])
 
 
 def _bouw_posities(df):
-    """[(product, isin, beurs, transacties)] per (ISIN, Beurs); product is dat van de eerste rij."""
-    wisselrijen = _wisselrij_labels(df)
-    return [
-        (groep["Product"].iloc[0], isin, beurs, [
-            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])}
-            for label, row in groep.iterrows() if label not in wisselrijen
-        ])
-        for (isin, beurs), groep in df.groupby(["ISIN", "Beurs"])
-    ]
+    """[(product, eind_isin, beurs, transacties)] per (eind-ISIN, Beurs): een ISIN-wissel (ook een keten) is één positie,
+    transacties op datum zonder de omboekingen. product is dat van de eerste rij van de eind-ISIN (anders de eerste rij)."""
+    wisselrijen, eind_van = _wissels(df)
+    posities = []
+    for (eind, beurs), groep in _per_positie(df, eind_van):
+        eigen = groep[groep["ISIN"] == eind]
+        product = (eigen if not eigen.empty else groep)["Product"].iloc[0]
+        markt = groep[~groep.index.isin(list(wisselrijen))].sort_values("Datum", kind="stable")
+        posities.append((product, eind, beurs, [
+            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])} for _, row in markt.iterrows()
+        ]))
+    return posities
+
+
+def _ticker_per_isin_beurs(df, ticker_per_positie):
+    """{(isin, beurs): ticker} voor elke (ISIN, Beurs) in df: alle ISIN's van een keten krijgen de ticker van hun positie."""
+    _wisselrijen, eind_van = _wissels(df)
+    return {
+        (isin, beurs): ticker_per_positie[(eind_van.get(isin, isin), beurs)]
+        for isin, beurs in df[["ISIN", "Beurs"]].drop_duplicates().itertuples(index=False)
+        if (eind_van.get(isin, isin), beurs) in ticker_per_positie
+    }
+
+
+def _bekende_ticker_per_positie(bekende_tickers, eind_van):
+    """{(eind_isin, beurs): ticker}: de eigen ticker van de eind-ISIN gaat voor, anders die van een eerdere ISIN in de keten."""
+    per_positie = {}
+    for (isin, beurs), ticker in bekende_tickers.items():
+        eind = eind_van.get(isin, isin)
+        if isin == eind:
+            per_positie[(eind, beurs)] = ticker
+        else:
+            per_positie.setdefault((eind, beurs), ticker)
+    return per_positie
 
 
 def _meld_zoekstappen(product, isin, beurs, ticker, stappen):
@@ -157,13 +188,13 @@ def _meld_zoekstappen(product, isin, beurs, ticker, stappen):
 
 
 def ticker_resolutie_niet_opslaan(df):
-    """Lichte ticker-check per (ISIN, Beurs). Geeft (ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)."""
+    """Lichte ticker-check per (eind-ISIN, Beurs). Geeft (ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw)."""
     posities_voor_check = _bouw_posities(df)
 
     with meet_tijd(f"ticker_resolutie_niet_opslaan ({len(posities_voor_check)} positie(s))"):
         resultaten = basis_ticker_zekerheid_parallel(posities_voor_check)
 
-        ticker_by_isin_beurs = {}
+        ticker_per_positie = {}
         ticker_zekerheid = []
         ticker_posities_ruw = []
         for (naam_positie, isin, beurs_val, transacties_lijst), resultaat in zip(posities_voor_check, resultaten):
@@ -171,14 +202,14 @@ def ticker_resolutie_niet_opslaan(df):
             resultaat["naam"] = naam_positie
             resultaat["echte_naam"] = naam_positie
             _meld_zoekstappen(naam_positie, isin, beurs_val, resultaat["ticker"], resultaat.pop("zoekstappen", None))
-            ticker_by_isin_beurs[(isin, beurs_val)] = resultaat["ticker"]
+            ticker_per_positie[(isin, beurs_val)] = resultaat["ticker"]
             ticker_zekerheid.append(resultaat)
             ticker_posities_ruw.append({
                 "naam": naam_positie, "isin": isin, "beurs": beurs_val,
                 "transacties": transacties_lijst,
             })
 
-    return ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw
+    return _ticker_per_isin_beurs(df, ticker_per_positie), ticker_zekerheid, ticker_posities_ruw
 
 
 def bepaal_product_per_ticker(df, ticker_by_isin_beurs, bestaand=None):
@@ -319,13 +350,13 @@ def _meld_nieuwe_rijen_kwaliteit(rows_to_insert):
              sleutel=DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS)
 
 
-def _probeer_andere_productnamen(groep, transacties, bekende_ticker):
+def _probeer_andere_productnamen(groep, isin, transacties, bekende_ticker):
     """De eerste productnaam gaf niets: probeer de namen van de andere rijen."""
     detail = {"ticker": None}
     stappen = []
     for _, row in groep.iterrows():
         detail = find_ticker_met_snelle_prijscheck(
-            row["Product"], row["ISIN"], row["Beurs"], transacties, bekende_ticker,
+            row["Product"], isin, row["Beurs"], transacties, bekende_ticker,
         )
         stappen += detail.get("zoekstappen") or []
         if detail["ticker"]:
@@ -334,27 +365,31 @@ def _probeer_andere_productnamen(groep, transacties, bekende_ticker):
 
 
 def _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers):
-    """Lichte check per (ISIN, Beurs); bekende tickers worden hergebruikt, tenzij het vinkje 'opnieuw bepalen' aan staat."""
-    groepen = dict(list(rows_to_insert.groupby(["ISIN", "Beurs"])))
+    """Lichte check per (eind-ISIN, Beurs); bekende tickers worden hergebruikt, tenzij het vinkje 'opnieuw bepalen' aan
+    staat. Geeft {(isin, beurs): ticker} voor elke (ISIN, Beurs) in rows_to_insert."""
+    _wisselrijen, eind_van = _wissels(rows_to_insert)
+    groepen = dict(list(_per_positie(rows_to_insert, eind_van)))
     posities = _bouw_posities(rows_to_insert)
 
     bekende_tickers = {}
     if not herbepaal_alle_tickers:
-        bekende_tickers = db_get_bekende_tickers(cur, code)
+        # De keten komt alleen uit deze upload: zat het wisselpaar in een eerdere upload, dan erft de nieuwe ISIN niets
+        # (behalve als de omboekingsrij van de nieuwe ISIN toen zelf een ticker kreeg).
+        bekende_tickers = _bekende_ticker_per_positie(db_get_bekende_tickers(cur, code), eind_van)
 
     resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
 
-    ticker_by_isin_beurs = {}
+    ticker_per_positie = {}
     for (naam, isin, beurs, transacties), detail in zip(posities, resultaten):
         key = (isin, beurs)
         stappen = list(detail.get("zoekstappen") or [])
         if not detail["ticker"]:
-            detail = _probeer_andere_productnamen(groepen[key], transacties, bekende_tickers.get(key))
+            detail = _probeer_andere_productnamen(groepen[key], isin, transacties, bekende_tickers.get(key))
             stappen += detail["zoekstappen"]
         _meld_zoekstappen(naam, isin, beurs, detail["ticker"], stappen)
-        ticker_by_isin_beurs[key] = detail["ticker"]
+        ticker_per_positie[key] = detail["ticker"]
 
-    return ticker_by_isin_beurs
+    return _ticker_per_isin_beurs(rows_to_insert, ticker_per_positie)
 
 
 def _product_per_ticker_opslaan(cur, code, rows_to_insert, ticker_by_isin_beurs):
@@ -468,6 +503,15 @@ def sla_dividend_bestand_op(cur, code, rekening_df):
         dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
         db_save_dividenden(cur, code, dividend_records)
     _meld_dividend_records(dividend_records)
+
+
+def sla_rekening_regels_op(cur, code, rekening_df):
+    regels = bouw_rekening_regels(rekening_df)
+    nieuw = db_save_rekening_regels(cur, code, regels)
+    meld(CATEGORIE_OPSLAAN, INFO,
+         f"Rekeningoverzicht: {nieuw} regels opgeslagen, {len(regels) - nieuw} stonden al in de database.",
+         sleutel=DIAGNOSTIEK_SLEUTEL_REKENING_REGELS)
+    return nieuw
 
 
 def sla_kassaldo_op(cur, code, rekening_df):
