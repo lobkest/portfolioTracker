@@ -914,6 +914,20 @@ body {
     margin-bottom: 14px;
 }
 
+.allePrijzenResultaten:not(:empty) {
+    margin-bottom: 18px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #eee;
+}
+
+.allePrijzenBlok {
+    margin-top: 6px;
+}
+
+.allePrijzenBlok summary {
+    cursor: pointer;
+}
+
 .kleineTabel {
     font-size: 0.85em;
     border-collapse: collapse;

@@ -20,7 +20,7 @@ from db import (
     db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
     db_get_product_per_ticker,
 )
-from ticker_classificatie import haal_long_names
+from ticker_classificatie import haal_long_names, bewaar_long_names
 from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo
 
 VERWACHTE_KOLOMMEN = [
@@ -181,6 +181,8 @@ def bepaal_product_per_ticker(df, ticker_by_isin_beurs, bestaand=None):
 
     nieuwe_tickers = [t for t in echte_naam_per_ticker if t not in bestaand]
     long_names = haal_long_names(nieuwe_tickers)
+    # Werkt alleen bestaande rijen bij; de rest vult de verrijking aan (vul_ontbrekende_long_names).
+    bewaar_long_names(long_names)
 
     product_per_ticker = dict(bestaand)
     for ticker in nieuwe_tickers:

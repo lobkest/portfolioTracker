@@ -1,4 +1,5 @@
 import os
+import time
 import traceback
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for
@@ -9,10 +10,11 @@ from db import (
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding,
 )
-from ticker_classificatie import haal_long_names
+from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
 from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
+    controleer_alle_transactieprijzen,
 )
 from debug_utils import meet_tijd
 from diagnostiek import voeg_diagnostiek_toe
@@ -449,16 +451,51 @@ def ticker_zekerheid_positie(code):
     if info is None:
         return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
 
+    start = time.time()
     try:
         resultaat = verifieer_ticker_met_prijs(info["echte_naam"], isin, info["beurs"], info["transacties"])
-    except Exception:
+    except Exception as e:
+        print(f"[ticker-zekerheid] {isin}: FOUT na {time.time() - start:.2f}s ({e!a})")
+        traceback.print_exc()
         return jsonify({
             "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
         }), 500
 
+    print(f"[ticker-zekerheid] {isin}: klaar in {time.time() - start:.2f}s (frontend breekt af na 30s)")
     resultaat["isin"] = isin
     resultaat["naam"] = info["naam"]
     resultaat["echte_naam"] = info["echte_naam"]
+    return jsonify(resultaat)
+
+
+@app.route("/api/portfolio/<code>/ticker-zekerheid/alle-prijzen")
+def ticker_zekerheid_alle_prijzen(code):
+    """Elke transactie van één positie tegen de dagrange van de opgeslagen ticker; per positie, net als /positie."""
+    code = code.strip().upper()
+    isin = request.args.get("isin", "")
+    beurs = request.args.get("beurs", "")
+
+    groepen = ticker_zekerheid_groepen(code)
+    if groepen is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    info = dict(groepen).get((isin, beurs))
+    if info is None:
+        return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
+
+    start = time.time()
+    try:
+        resultaat = controleer_alle_transactieprijzen(info["ticker"], info["transacties"])
+    except Exception as e:
+        print(f"[ticker-zekerheid] {isin}: alle prijzen FOUT na {time.time() - start:.2f}s ({e!a})")
+        traceback.print_exc()
+        return jsonify({"error": "Alle prijzen controleren voor deze positie is mislukt. Probeer het opnieuw."}), 500
+
+    print(f"[ticker-zekerheid] {isin}: alle prijzen ({len(resultaat['prijs_checks'])}) "
+          f"klaar in {time.time() - start:.2f}s")
+    resultaat["isin"] = isin
+    resultaat["naam"] = info["naam"]
+    resultaat["ticker"] = info["ticker"]
     return jsonify(resultaat)
 
 
@@ -554,7 +591,9 @@ def reset_bijnaam(code):
     if not ticker:
         return jsonify({"error": "Ticker is verplicht."}), 400
 
-    long_name = haal_long_names([ticker]).get(ticker)
+    long_names = haal_long_names([ticker])
+    bewaar_long_names(long_names)
+    long_name = long_names.get(ticker)
     if long_name:
         db_wijzig_bijnaam(code, ticker, long_name)
     else:

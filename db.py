@@ -25,6 +25,12 @@ def db_reset_verbinding_teller():
         _verbinding_teller["seconden"] = 0.0
 
 
+def db_verbinding_teller_stand():
+    """(aantal, seconden verbinden) sinds de laatste reset."""
+    with _verbinding_lock:
+        return _verbinding_teller["aantal"], _verbinding_teller["seconden"]
+
+
 def db_log_verbinding_samenvatting():
     with _verbinding_lock:
         aantal, seconden = _verbinding_teller["aantal"], _verbinding_teller["seconden"]
@@ -182,8 +188,6 @@ def db_init():
         CREATE TABLE IF NOT EXISTS ticker_info (
             ticker TEXT PRIMARY KEY,
             is_etf BOOLEAN NOT NULL,
-            land TEXT,
-            sector TEXT,
             quote_type TEXT,
             valuta TEXT,
             yahoo_beurs TEXT,
@@ -310,35 +314,22 @@ def db_init():
     conn.close()
 
 
-def db_get_cached_classifications(tickers):
-    if not tickers:
-        return {}
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute("SELECT ticker, is_etf FROM ticker_info WHERE ticker = ANY(%s)", (tickers,))
-    result = {row[0]: row[1] for row in cur.fetchall()}
-    cur.close()
-    conn.close()
-    return result
-
-
 def db_save_classification(ticker, is_etf, details=None):
-    """details (optioneel): {"land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category",
-    "long_name"}. Een ontbrekende long_name overschrijft een bekende niet."""
+    """details (optioneel): {"quote_type", "valuta", "yahoo_beurs", "fund_family", "category", "long_name"}.
+    Een ontbrekende long_name overschrijft een bekende niet."""
     details = details or {}
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO ticker_info (ticker, is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category, "
-        "long_name) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (ticker) DO UPDATE SET is_etf = EXCLUDED.is_etf, land = EXCLUDED.land, "
-        "sector = EXCLUDED.sector, quote_type = EXCLUDED.quote_type, valuta = EXCLUDED.valuta, "
+        "INSERT INTO ticker_info (ticker, is_etf, quote_type, valuta, yahoo_beurs, fund_family, category, long_name) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) "
+        "ON CONFLICT (ticker) DO UPDATE SET is_etf = EXCLUDED.is_etf, "
+        "quote_type = EXCLUDED.quote_type, valuta = EXCLUDED.valuta, "
         "yahoo_beurs = EXCLUDED.yahoo_beurs, fund_family = EXCLUDED.fund_family, "
         "category = EXCLUDED.category, long_name = COALESCE(EXCLUDED.long_name, ticker_info.long_name), "
         "bijgewerkt_op = CURRENT_TIMESTAMP",
-        (ticker, is_etf, details.get("land"), details.get("sector"), details.get("quote_type"),
-         details.get("valuta"), details.get("yahoo_beurs"), details.get("fund_family"), details.get("category"),
-         details.get("long_name")),
+        (ticker, is_etf, details.get("quote_type"), details.get("valuta"), details.get("yahoo_beurs"),
+         details.get("fund_family"), details.get("category"), details.get("long_name")),
     )
     conn.commit()
     cur.close()
@@ -351,11 +342,11 @@ def db_get_ticker_details(tickers):
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "SELECT ticker, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category, long_name "
+        "SELECT ticker, is_etf, quote_type, valuta, yahoo_beurs, fund_family, category, long_name "
         "FROM ticker_info WHERE ticker = ANY(%s)",
         (tickers,),
     )
-    kolommen = ["land", "sector", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category", "long_name"]
+    kolommen = ["is_etf", "quote_type", "valuta", "yahoo_beurs", "fund_family", "category", "long_name"]
     result = {row[0]: dict(zip(kolommen, row[1:])) for row in cur.fetchall()}
     cur.close()
     conn.close()

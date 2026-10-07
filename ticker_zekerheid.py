@@ -1,7 +1,14 @@
 """Hoe zeker is een ticker: lichte check bij elke upload, volledige check op de Ticker-zekerheid-pagina."""
+import cProfile
+import io
+import os
+import pstats
+import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 
-from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker
+from db import db_connect, db_get_transacties_voor_tickercheck, db_wijzig_ticker, db_verbinding_teller_stand
 from ticker_matching import (
     find_ticker_detailed, BEURS_MAP, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
@@ -10,6 +17,52 @@ from transactie_utils import formatteer_datum_nl
 from ticker_classificatie import (
     classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
 )
+from yahoo_client import yahoo_teller_stand
+
+
+# Op True: per positie de 30 duurste eigen functies (cProfile). Alleen voor analyse, kost zelf ook tijd.
+TZ_PROFIEL = True
+TZ_PROFIEL_REGELS = 30
+_PROJECT_MAP = os.path.dirname(os.path.abspath(__file__))
+
+
+def _tz_stand():
+    return yahoo_teller_stand(), db_verbinding_teller_stand()
+
+
+def _tz_print(isin, stap, start, vanaf):
+    # Beide tellers zijn globaal per proces: bij gelijktijdige requests tellen andere posities mee.
+    (yahoo_vanaf, db_vanaf), (yahoo_nu, db_nu) = vanaf, _tz_stand()
+    calls, retries, mislukt, wachttijd = (nu - toen for nu, toen in zip(yahoo_nu, yahoo_vanaf))
+    db_aantal, db_seconden = (nu - toen for nu, toen in zip(db_nu, db_vanaf))
+    print(f"[ticker-zekerheid] {isin}: {stap} {time.time() - start:.2f}s "
+          f"(yahoo calls {calls}, retries {retries}, mislukt {mislukt}, wacht {wachttijd:.1f}s; "
+          f"db verbindingen {db_aantal}, {db_seconden:.2f}s)")
+
+
+@contextmanager
+def _tz_profiel(isin):
+    if not TZ_PROFIEL:
+        yield
+        return
+    profiler = cProfile.Profile()
+    try:
+        profiler.enable()
+    except ValueError:
+        # Sinds Python 3.12 mag er maar één profiler tegelijk actief zijn: zet de frontend op 1 positie tegelijk.
+        print(f"[ticker-zekerheid] {isin}: profiel overgeslagen (er loopt al een profiler)")
+        yield
+        return
+    try:
+        yield
+    finally:
+        profiler.disable()
+        uitvoer = io.StringIO()
+        stats = pstats.Stats(profiler, stream=uitvoer).sort_stats("cumulative")
+        stats.print_stats(re.escape(_PROJECT_MAP), TZ_PROFIEL_REGELS)
+        for regel in uitvoer.getvalue().splitlines():
+            if regel.strip():
+                print(f"[ticker-zekerheid] {isin} profiel: {regel.replace(_PROJECT_MAP + os.sep, '')}")
 
 # Tier 1: verwachte beurs en de prijs klopt op minstens zoveel datums.
 MIN_MATCHES_VOOR_AUTOMATISCHE_CORRECTIE = 2
@@ -169,6 +222,7 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
         if not alt_ticker:
             continue
 
+        t_alt, y_alt = time.time(), _tz_stand()
         alt_checks = []
         for t in steekproef:
             check = vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"]))
@@ -193,6 +247,8 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             "aantal_matches": sum(1 for m in alt_matches if m),
             "aantal_gecontroleerd": len(alt_matches),
         })
+        _tz_print(alt_ticker, f"  alternatief op {alt.get('exchange')}: "
+                              f"{sum(1 for m in alt_matches if m)}/{len(alt_matches)} kloppen", t_alt, y_alt)
 
         if aanbevolen_alternatief is None and alt_matches and all(alt_matches):
             aanbevolen_alternatief = alt_ticker
@@ -227,6 +283,7 @@ def _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin):
     if any(c.get("binnen_dagrange") is False for c in prijs_checks):
         al_gecheckt = {id(t) for t in steekproef}
         rest = [t for t in _geldige_transacties(transacties_van_dit_isin) if id(t) not in al_gecheckt]
+        print(f"[ticker-zekerheid] {ticker}: steekproef valt buiten dagrange -> nog {len(rest)} datums checken")
         if rest:
             for t, check in zip(rest, vergelijk_prijzen_op_datums(ticker, rest)):
                 check["datum"] = str(t["datum"])
@@ -285,8 +342,12 @@ def beurs_status(excel_beurs, yahoo_beurs, prijs_checks):
 
 def _voeg_kaartvelden_toe(resultaat, beurs):
     ticker = resultaat["ticker"]
+    t, y = time.time(), _tz_stand()
     details = _ticker_details_met_cache(ticker)
+    _tz_print(ticker, "  ticker_details", t, y)
+    t, y = time.time(), _tz_stand()
     land, sector, top_holding_land = _land_sector_voor_weergave(ticker)
+    _tz_print(ticker, "  land/sector/holdings", t, y)
     yahoo_beurs = details.get("yahoo_beurs")
     beurs_klopt = beurs_status(beurs, yahoo_beurs, resultaat["prijs_checks"])
     zekerheid = resultaat["zekerheid"]
@@ -325,6 +386,8 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, 
     kandidaten, openfigi_debug_info = _verrijk_met_openfigi_kandidaten(
         kandidaten, resultaat["ticker"], isin, openfigi
     )
+    print(f"[ticker-zekerheid] {isin}: {len(kandidaten)} kandidaten om door te rekenen: "
+          f"{[k.get('symbol') for k in kandidaten]}")
     alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
         kandidaten, steekproef, BEURS_MAP.get(beurs, [])
     )
@@ -341,19 +404,38 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, 
 def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
     """Volledige check (duur; alleen op de Ticker-zekerheid-pagina): alles wat de kaart toont,
     inclusief doorgerekende alternatieven."""
+    with _tz_profiel(isin):
+        return _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin)
+
+
+def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin):
+    print(f"[ticker-zekerheid] {isin}: start '{product}' op {beurs}, {len(transacties_van_dit_isin)} transacties")
+    t0, y0 = time.time(), _tz_stand()
     basis = find_ticker_detailed(product, isin, beurs)
+    _tz_print(isin, f"find_ticker_detailed -> {basis['ticker']} ({basis['zekerheid']}, "
+                    f"{len(basis.get('alternatieven') or [])} alternatieven)", t0, y0)
     resultaat = _leeg_resultaat(basis["zekerheid"], beurs)
     if basis["ticker"] is None:
         return _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="waarschuwing")
 
     steekproef = _kies_steekproef_transacties(transacties_van_dit_isin)
     resultaat = {**resultaat, "ticker": basis["ticker"]}
+    t, y = time.time(), _tz_stand()
     resultaat = _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin)
+    _tz_print(isin, f"prijsoordeel ({len(resultaat['prijs_checks'])} checks, {resultaat['zekerheid']})", t, y)
+    t, y = time.time(), _tz_stand()
     resultaat = _voeg_kaartvelden_toe(resultaat, beurs)
+    _tz_print(isin, f"kaartvelden (is_etf {resultaat['is_etf']})", t, y)
     # Vóór de alternatieven: een ontbrekende root maakt "zeker" onzeker, en dan moeten ze wél doorgerekend.
+    t, y = time.time(), _tz_stand()
     openfigi = haal_openfigi_resultaten(isin)
     resultaat = _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="waarschuwing", openfigi=openfigi)
-    return _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi)
+    _tz_print(isin, f"openfigi (root_bekend {resultaat['openfigi_root_bekend']}, {resultaat['zekerheid']})", t, y)
+    t, y = time.time(), _tz_stand()
+    resultaat = _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi)
+    _tz_print(isin, f"alternatieven ({len(resultaat['alternatieven'])} doorgerekend)", t, y)
+    _tz_print(isin, "TOTAAL", t0, y0)
+    return resultaat
 
 
 def _openfigi_root_oordeel(ticker, openfigi):
@@ -597,6 +679,22 @@ def prijscheck_laatste(ticker, transacties_van_dit_isin):
     laatste = max(geldige_transacties, key=lambda t: t["datum"])
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
     return {**check, "datum": laatste["datum"]}
+
+
+def controleer_alle_transactieprijzen(ticker, transacties_van_dit_isin):
+    """{prijs_checks (op datum), aantal_binnen, aantal_buiten, aantal_onbekend}: elke transactie tegen de dagrange."""
+    geldige_transacties = sorted(_geldige_transacties(transacties_van_dit_isin), key=lambda t: t["datum"])
+    prijs_checks = []
+    if ticker and geldige_transacties:
+        for t, check in zip(geldige_transacties, vergelijk_prijzen_op_datums(ticker, geldige_transacties)):
+            check["datum"] = str(t["datum"])
+            prijs_checks.append(check)
+    return {
+        "prijs_checks": prijs_checks,
+        "aantal_binnen": sum(1 for c in prijs_checks if c["binnen_dagrange"] is True),
+        "aantal_buiten": sum(1 for c in prijs_checks if c["binnen_dagrange"] is False),
+        "aantal_onbekend": sum(1 for c in prijs_checks if c["binnen_dagrange"] is None),
+    }
 
 
 def prijswaarschuwing_delen(ticker, transacties_van_dit_isin, isin=None, check=None):

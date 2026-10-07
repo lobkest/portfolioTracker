@@ -42,7 +42,8 @@ from portfolio_verdeling import (
     bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX, bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT,
 )
 from ticker_classificatie import (
-    classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, get_etf_holdings_uit_cache,
+    classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, bewaar_long_names, vul_ontbrekende_long_names,
+    get_etf_holdings_uit_cache,
 )
 from naam_verkorting import kies_korte_namen
 from etf_proxy import land_proxies_voor_etfs
@@ -399,7 +400,10 @@ def ticker_zekerheid_groepen(code):
         if _is_corporate_action_row({"beurs": beurs, "product": product}) or label in wisselrijen:
             continue
         groep = per_isin_beurs.setdefault(
-            (isin, beurs), {"naam": product, "echte_naam": echte_naam, "beurs": beurs, "isin": isin, "transacties": []}
+            (isin, beurs), {
+                "naam": product, "echte_naam": echte_naam, "beurs": beurs, "isin": isin,
+                "ticker": rij["ticker"] if pd.notna(rij["ticker"]) else None, "transacties": [],
+            }
         )
         groep["transacties"].append({"datum": datum, "koers": koers})
 
@@ -407,17 +411,21 @@ def ticker_zekerheid_groepen(code):
 
 
 def bepaal_korte_naam_voorstellen(code):
-    """[{ticker, huidig, long_name, voorstel}]; beide None zonder Yahoo-longName. Schrijft niets weg."""
+    """[{ticker, huidig, long_name, voorstel}]; beide None zonder longName (live of uit ticker_info).
+    Schrijft alleen de live namen naar ticker_info, geen bijnamen."""
     huidig = db_laad_product_per_ticker(code)
     tickers = sorted(huidig)
     if not tickers:
         return []
 
     long_names = haal_long_names(tickers)
+    bewaar_long_names(long_names)
+    details = db_get_ticker_details(tickers)
+    # Yahoo kan falen of rate-limiten: dan de laatst opgeslagen longName.
+    long_names = {t: long_names.get(t) or details.get(t, {}).get("long_name") for t in tickers}
     if not any(long_names.values()):
         raise YahooNamenOnbeschikbaar()
 
-    details = db_get_ticker_details(tickers)
     voorstellen = kies_korte_namen({
         t: {"long_name": long_names[t], "fund_family": details.get(t, {}).get("fund_family")} for t in tickers
     })
@@ -575,6 +583,8 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
     with meet_tijd("verrijking_totaal"):
         with meet_tijd("verrijking_classificatie_en_cache_warm"):
             is_etf_map = classify_tickers(list(huidige_holdings.index))
+            # Na classify_tickers(): db_save_long_names() werkt alleen bestaande rijen bij.
+            vul_ontbrekende_long_names(list(huidige_holdings.index))
             _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map)
 
         with meet_tijd("verrijking_land_proxy"):

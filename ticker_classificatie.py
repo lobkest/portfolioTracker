@@ -6,7 +6,7 @@ import yfinance as yf
 from yahooquery import Ticker as YahooqueryTicker
 
 from db import (
-    db_get_cached_classifications, db_save_classification, db_get_cached_land_sector, db_save_land_sector,
+    db_save_classification, db_get_cached_land_sector, db_save_land_sector,
     db_get_cached_etf_sector_verdeling, db_save_etf_sector_verdeling, db_get_cached_etf_holdings, db_save_etf_holdings,
     db_get_ticker_details, db_save_long_names,
 )
@@ -49,16 +49,40 @@ def haal_long_names(tickers):
             regel = price.get(t.upper())
         naam = regel.get("longName") if isinstance(regel, dict) else None
         long_names[t] = naam.strip() if isinstance(naam, str) and naam.strip() else None
-    # Voor de DIS/ACC-check in Diagnostiek; hier niet als cache gelezen.
+    return long_names
+
+
+def bewaar_long_names(long_names):
+    """Naar ticker_info.long_name (alleen bestaande rijen); een fout breekt de aanroeper nooit."""
     try:
         db_save_long_names(long_names)
     except Exception as e:
         print(f"[classify] WARN long_name niet opgeslagen ({e!a})")
-    return long_names
+
+
+def _rij_is_vers(details):
+    """Wanneer een ticker_info-rij als cache-hit telt; long_name heeft een eigen call (vul_ontbrekende_long_names)."""
+    return bool(details) and bool(details.get("valuta") or details.get("quote_type"))
+
+
+def vul_ontbrekende_long_names(tickers):
+    """Eén batch-call voor tickers met een ticker_info-rij zonder long_name; mag de aanroeper nooit breken."""
+    try:
+        details = db_get_ticker_details(tickers)
+        ontbrekend = [t for t in tickers if t in details and not details[t].get("long_name")]
+        if not ontbrekend:
+            return
+        long_names = haal_long_names(ontbrekend)
+        bewaar_long_names(long_names)
+        gevonden = sum(1 for naam in long_names.values() if naam)
+        print(f"[classify] long_name aangevuld: {gevonden} van {len(ontbrekend)} ontbrekend")
+    except Exception as e:
+        print(f"[classify] WARN long_names aanvullen mislukt ({e!a})")
 
 
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
-    """{is_etf, land, sector, quote_type, valuta, yahoo_beurs, fund_family, category, long_name}, of None bij een fout."""
+    """{is_etf, quote_type, valuta, yahoo_beurs, fund_family, category, long_name}, of None bij een fout.
+    Land en sector gaan alleen naar de ticker_land_sector-cache."""
     info = _fetch_yf_info(ticker, pogingen, wachttijd)
     if info is None:
         return None  # onbekend, NIET als aandeel cachen — gewoon opnieuw proberen volgende keer
@@ -97,8 +121,6 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
 
     return {
         "is_etf": is_etf,
-        "land": country,
-        "sector": sector,
         "quote_type": quote_type or None,
         "valuta": info.get("currency"),
         "yahoo_beurs": info.get("exchange"),
@@ -229,32 +251,23 @@ def get_etf_holdings_uit_cache(ticker):
 
 
 def classify_ticker(ticker):
-    """True als Yahoo de ticker als ETF ziet. Bij een fout False, zonder te cachen."""
-    cached = db_get_cached_classifications([ticker])
-    if ticker in cached:
-        return cached[ticker]
-
-    details = _classify_ticker_uncached(ticker)
-    if details is None:
-        return False
-
-    db_save_classification(ticker, details["is_etf"], details)
-    return details["is_etf"]
+    """True als Yahoo de ticker als ETF ziet. Bij een fout de oude cachewaarde, anders False (niet gecachet)."""
+    return bool(_ticker_details_met_cache(ticker).get("is_etf"))
 
 
 def classify_tickers(tickers):
     """{ticker: is_etf}, met een pauze tussen Yahoo-calls tegen rate limiting."""
     tickers = list(dict.fromkeys(t for t in tickers if t))  # uniek, volgorde behouden
-    cached = db_get_cached_classifications(tickers)
-    result = dict(cached)
+    cached = db_get_ticker_details(tickers)
+    result = {t: bool(d["is_etf"]) for t, d in cached.items()}
 
-    te_doen = [t for t in tickers if t not in cached]
+    te_doen = [t for t in tickers if not _rij_is_vers(cached.get(t))]
     for i, t in enumerate(te_doen):
         if i > 0:
             time.sleep(1.5)  # kleine pauze tussen calls om rate limiting te voorkomen
         details = _classify_ticker_uncached(t)
         if details is None:
-            result[t] = False  # niet cachen, volgende keer opnieuw proberen
+            result.setdefault(t, False)  # niet cachen, volgende keer opnieuw proberen
         else:
             db_save_classification(t, details["is_etf"], details)
             result[t] = details["is_etf"]
@@ -277,10 +290,9 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
 
 
 def _ticker_details_met_cache(ticker):
-    """Details uit de ticker_info-cache; zijn valuta én quote_type leeg, dan is de rij stale en opnieuw ophalen."""
-    bestaand = db_get_ticker_details([ticker])
-    details = bestaand.get(ticker)
-    if details and (details.get("valuta") or details.get("quote_type")):
+    """Details uit de ticker_info-cache; een niet-verse rij (zie _rij_is_vers) wordt opnieuw opgehaald."""
+    details = db_get_ticker_details([ticker]).get(ticker)
+    if _rij_is_vers(details):
         return details
 
     nieuw = _classify_ticker_uncached(ticker)

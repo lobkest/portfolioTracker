@@ -463,6 +463,15 @@ async function toonInstellingenTicker() {
         return;
     }
 
+    const alleKnop = document.createElement("button");
+    alleKnop.textContent = ALLE_PRIJZEN_KNOPTEKST;
+    alleKnop.className = "tickerCheckKnop";
+    const alleResultaten = document.createElement("div");
+    alleResultaten.className = "allePrijzenResultaten";
+    alleKnop.addEventListener("click", () => controleerAllePrijzen(posities, alleKnop, alleResultaten));
+    sectie.appendChild(alleKnop);
+    sectie.appendChild(alleResultaten);
+
     const kaarten = {};
     posities.forEach(p => {
         const kaart = maakTickerZekerheidPlaceholder(p);
@@ -471,7 +480,87 @@ async function toonInstellingenTicker() {
     });
 
     // Max. 4 tegelijk; elke rij wordt bijgewerkt zodra zijn antwoord binnen is.
-    await voerMetConcurrencyLimietUit(posities, 4, p => controleerTickerZekerheidPositie(p, kaarten[`${p.isin}|${p.beurs}`]));
+    await voerMetConcurrencyLimietUit(posities, 1, p => controleerTickerZekerheidPositie(p, kaarten[`${p.isin}|${p.beurs}`]));
+}
+
+const ALLE_PRIJZEN_KNOPTEKST = "Controleer alle aankoop-/verkoopprijzen";
+
+function allePrijzenSamenvattingTekst(r) {
+    const delen = [`${r.aantal_binnen}/${r.prijs_checks.length} binnen dagrange`];
+    if (r.aantal_buiten) delen.push(`${r.aantal_buiten} buiten`);
+    if (r.aantal_onbekend) delen.push(`${r.aantal_onbekend} zonder koersdata`);
+    return delen.join(", ");
+}
+
+function maakAllePrijzenBlok(r) {
+    const details = document.createElement("details");
+    details.className = "allePrijzenBlok";
+    // Alleen openklappen waar iets mis is: de rest is meestal lang en saai.
+    details.open = r.aantal_buiten > 0;
+
+    const summary = document.createElement("summary");
+    summary.textContent = `${r.aantal_buiten > 0 ? "⚠️" : "✓"} ${r.naam} (${r.ticker || "geen ticker"}) — `
+        + (r.ticker ? allePrijzenSamenvattingTekst(r) : "niet te controleren");
+    if (r.aantal_buiten > 0) summary.className = "negatief";
+    details.appendChild(summary);
+
+    if (r.ticker) details.appendChild(maakPrijscontroleTabel(r.prijs_checks));
+    return details;
+}
+
+async function controleerAllePrijzenPositie(p, plek, totaal) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TICKER_POSITIE_TIMEOUT_MS);
+    try {
+        const url = `/api/portfolio/${huidigeData.code}/ticker-zekerheid/alle-prijzen`
+            + `?isin=${encodeURIComponent(p.isin)}&beurs=${encodeURIComponent(p.beurs)}`;
+        const res = await fetch(url, { signal: controller.signal });
+        const r = await res.json();
+        if (!res.ok) throw new Error(r.error || "Kon deze positie niet controleren.");
+        plek.replaceWith(maakAllePrijzenBlok(r));
+        totaal.binnen += r.aantal_binnen;
+        totaal.buiten += r.aantal_buiten;
+        totaal.onbekend += r.aantal_onbekend;
+    } catch (e) {
+        plek.textContent = `⚠️ ${p.naam}: ${e.name === "AbortError" ? "duurde te lang en is afgebroken." : e.message}`;
+        plek.classList.add("negatief");
+        totaal.mislukt += 1;
+    } finally {
+        clearTimeout(timeoutId);
+    }
+}
+
+async function controleerAllePrijzen(posities, knop, resultaten) {
+    knop.disabled = true;
+    knop.textContent = "Bezig met controleren...";
+    resultaten.innerHTML = "";
+
+    const samenvatting = document.createElement("p");
+    samenvatting.className = "kleinLabel vet";
+    samenvatting.textContent = `Alle transacties van ${posities.length} posities controleren...`;
+    resultaten.appendChild(samenvatting);
+
+    const plekken = posities.map(p => {
+        const plek = document.createElement("div");
+        plek.className = "kleinLabel gedempt";
+        plek.textContent = `${p.naam}: bezig...`;
+        resultaten.appendChild(plek);
+        return plek;
+    });
+
+    const totaal = { binnen: 0, buiten: 0, onbekend: 0, mislukt: 0 };
+    await voerMetConcurrencyLimietUit(posities, 4, (p, i) => controleerAllePrijzenPositie(p, plekken[i], totaal));
+
+    const delen = [`${totaal.binnen + totaal.buiten + totaal.onbekend} transacties gecontroleerd`,
+        `${totaal.binnen} binnen dagrange`, `${totaal.buiten} buiten`];
+    if (totaal.onbekend) delen.push(`${totaal.onbekend} zonder koersdata`);
+    if (totaal.mislukt) delen.push(`${totaal.mislukt} posities mislukt`);
+    samenvatting.textContent = `Klaar: ${delen.join(", ")}.`;
+    samenvatting.classList.toggle("negatief", totaal.buiten > 0 || totaal.mislukt > 0);
+    samenvatting.classList.toggle("positief", totaal.buiten === 0 && totaal.mislukt === 0);
+
+    knop.disabled = false;
+    knop.textContent = ALLE_PRIJZEN_KNOPTEKST;
 }
 
 // 'Niet opslaan': de lichte check uit /upload, met een knop voor de volledige check.

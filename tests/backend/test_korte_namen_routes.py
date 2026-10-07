@@ -36,7 +36,8 @@ class TestBepaalKorteNaamVoorstellen(unittest.TestCase):
 
     def test_geen_enkele_naam_van_yahoo_is_een_fout(self):
         with patch.object(po, "db_laad_product_per_ticker", return_value={"A.AS": "A"}), \
-             patch.object(po, "haal_long_names", return_value={"A.AS": None}):
+             patch.object(po, "haal_long_names", return_value={"A.AS": None}), \
+             patch.object(po, "db_get_ticker_details", return_value={}):
             with self.assertRaises(po.YahooNamenOnbeschikbaar):
                 po.bepaal_korte_naam_voorstellen("ABC")
 
