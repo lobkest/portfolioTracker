@@ -4,7 +4,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { leesBox3Bedrag, bouwBox3Invoer, box3GrafiekReeksen } = require("../static/js/box3.js");
+const { leesBox3Bedrag, bouwBox3Invoer, box3GrafiekReeksen, box3RenteWaarschuwing, box3AllesVerkopenReeks } = require("../static/js/box3.js");
 
 test("leesBox3Bedrag: Nederlandse notatie, leeg is 0", () => {
     assert.equal(leesBox3Bedrag(""), 0);
@@ -41,4 +41,23 @@ test("box3GrafiekReeksen: per stelsel de belasting, null zonder berekening", () 
     assert.deepEqual(box3GrafiekReeksen(berekening), {
         labels: ["2022", "2023"], huidig: [null, 50], aanwas: [100, 0], vermogenswinst: [0, 20],
     });
+});
+
+test("box3RenteWaarschuwing: spaargeld zonder spaarrente en zonder overig rendement", () => {
+    assert.equal(box3RenteWaarschuwing({ banktegoeden: 70000 }), true);
+    assert.equal(box3RenteWaarschuwing({ banktegoeden: 70000, spaarrente_pct: 0, rendement_ander_vermogen: 0 }), true);
+    assert.equal(box3RenteWaarschuwing({ banktegoeden: 70000, spaarrente_pct: 1.5 }), false);
+    assert.equal(box3RenteWaarschuwing({ banktegoeden: 70000, rendement_ander_vermogen: 200 }), false);
+    assert.equal(box3RenteWaarschuwing({ banktegoeden: 0 }), false);
+    assert.equal(box3RenteWaarschuwing({}), false);
+});
+
+test("bouwBox3Invoer: spaarrente met komma", () => {
+    assert.equal(bouwBox3Invoer({ spaarrente_pct: "1,5" }).invoer.spaarrente_pct, 1.5);
+});
+
+test("box3AllesVerkopenReeks: alleen het lopende jaar krijgt een staaf", () => {
+    const jaren = [{ jaar: 2025 }, { jaar: 2026 }];
+    assert.deepEqual(box3AllesVerkopenReeks({ jaren, b_alles_verkopen: { jaar: 2026, belasting: 1512 } }), [null, 1512]);
+    assert.deepEqual(box3AllesVerkopenReeks({ jaren, b_alles_verkopen: null }), [null, null]);
 });

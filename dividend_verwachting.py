@@ -11,7 +11,7 @@ import yfinance as yf
 from db import db_get_cached_ticker_dividenden, db_save_ticker_dividenden, db_get_dividenden, db_get_kassaldo
 from diagnostiek import meld, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP
 from diagnostiek_checks import _beperk
-from portfolio_calc import bepaal_split_boekingen, holdings_op_datums
+from portfolio_calc import bepaal_split_boekingen, holdings_op_datums, huidige_posities_per_keten
 from portfolio_orchestratie import laad_transacties_en_resultaat
 from prijzen import FX_PAAR_PER_VALUTA, _fx_prijzen_serie, _valuta_per_ticker
 from split_correctie import isin_ketens, vind_wisselparen
@@ -555,23 +555,13 @@ def bereken_dividend_verwachting(code):
     huidige_waarde = _als_getal_of_none(resultaat["waarde"].iloc[-1])
 
     ketens = isin_ketens(vind_wisselparen(transacties_df)[0])
-    df = transacties_df[transacties_df["isin"].notna()].copy()
-    df["_eind_isin"] = df["isin"].map(lambda i: ketens.get(i, i))
     boekingen = bepaal_split_boekingen(transacties_df)
 
     groepen = []
-    for eind_isin, groep in df.groupby("_eind_isin"):
-        aantal = holdings_op_datums(groep, [peildatum])[0]
-        if aantal <= 1e-6:
-            continue
-        # Een ISIN kan op twee beurzen staan; dividend is per ISIN.
-        per_ticker = {t: holdings_op_datums(g, [peildatum])[0] for t, g in groep.dropna(subset=["ticker"]).groupby("ticker")}
-        ticker = max(per_ticker, key=per_ticker.get) if per_ticker else None
-        rijen_naam = groep[groep["ticker"] == ticker] if ticker else groep
-        bijnaam = rijen_naam.sort_values("datum")["product"].iloc[-1]
-        rijen = set(groep.index)
+    for p in huidige_posities_per_keten(transacties_df, peildatum):
+        rijen = set(p["rijen"].index)
         degiro_splits = [b.gebeurtenis.datum for b in boekingen if rijen & set(b.rijen)]
-        groepen.append((eind_isin, groep, aantal, ticker, bijnaam, degiro_splits))
+        groepen.append((p["isin"], p["rijen"], p["aantal"], p["ticker"], p["bijnaam"], degiro_splits))
 
     tickers = sorted({g[3] for g in groepen if g[3]})
     yahoo_data = haal_yahoo_data_parallel(tickers)

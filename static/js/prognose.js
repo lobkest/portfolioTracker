@@ -117,6 +117,30 @@
         return { geldig: fouten.length === 0, fouten, waarschuwing };
     }
 
+    // Horizon (jaren) van de historische bandbreedte die bij "Aantal jaren vooruit" past: afgerond, max. maxHorizon, min. 1.
+    function kiesHistorieHorizon(jaren, maxHorizon) {
+        const gewenst = Number.isFinite(jaren) ? Math.round(jaren) : 1;
+        return Math.max(1, Math.min(gewenst, maxHorizon));
+    }
+
+    function begrensRendement(pct) {
+        const waarde = Math.min(RENDEMENT_MAX_PCT, Math.max(RENDEMENT_MIN_PCT, pct));
+        return { waarde, afgekapt: waarde !== pct };
+    }
+
+    // {midden, laag, hoog} van één horizon -> veldwaarden binnen de formuliergrenzen, plus wat er is afgekapt.
+    function historieVeldwaarden(horizon) {
+        const historisch = { rendement: horizon.midden, laag: horizon.laag, hoog: horizon.hoog };
+        const waarden = {};
+        const afgekapt = [];
+        Object.entries(historisch).forEach(([veld, pct]) => {
+            const begrensd = begrensRendement(pct);
+            waarden[veld] = begrensd.waarde;
+            if (begrensd.afgekapt) afgekapt.push({ veld, historisch: pct, begrensd: begrensd.waarde });
+        });
+        return { waarden, afgekapt };
+    }
+
     // chartData als parameter (niet globaal), zodat nooit data van een vorige portfolio meekomt.
     // {x, y}-punten voor de tijd-as; historie en prognose delen het laatste punt.
     // invoer.dividendYield (netto, fractie per jaar): optioneel, geeft een extra lijn waarde + cumulatief dividend.
@@ -175,7 +199,12 @@
         berekenDividendCumulatief,
         genereerToekomstDatums,
         valideerPrognoseInvoer,
-        bouwPrognoseGrafiekData
+        kiesHistorieHorizon,
+        begrensRendement,
+        historieVeldwaarden,
+        bouwPrognoseGrafiekData,
+        RENDEMENT_MIN_PCT,
+        RENDEMENT_MAX_PCT
     };
 
     if (typeof module !== "undefined" && module.exports) {

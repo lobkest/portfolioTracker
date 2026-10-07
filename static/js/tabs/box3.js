@@ -4,15 +4,17 @@ const BOX3_TOESTANDEN = ["box3Laden", "box3Fout", "box3Inhoud"];
 const BOX3_DEBOUNCE_MS = 400;
 const BOX3_VELDEN = {
     banktegoeden: "box3Bank",
+    spaarrente_pct: "box3Spaarrente",
     overige_bezittingen: "box3Overig",
     schulden: "box3Schulden",
     rendement_ander_vermogen: "box3RendementAnder",
 };
 const BOX3_VELD_LABELS = {
     banktegoeden: "spaargeld/banktegoeden",
+    spaarrente_pct: "gemiddelde spaarrente",
     overige_bezittingen: "overige bezittingen",
     schulden: "schulden",
-    rendement_ander_vermogen: "rendement op ander vermogen",
+    rendement_ander_vermogen: "overig rendement op ander vermogen",
 };
 const BOX3_STELSEL_LABELS = {
     huidig: "Huidig stelsel",
@@ -21,12 +23,15 @@ const BOX3_STELSEL_LABELS = {
 };
 
 let box3Basis = null;
+// Voor het aan/uit zetten van de grijze staaf zonder nieuwe aanvraag.
+let box3LaatsteBerekening = null;
 let box3Timer = null;
 // Alleen het antwoord op de laatste aanvraag tekenen (typen geeft meerdere aanvragen kort na elkaar).
 let box3Volgnummer = 0;
 
 function resetBox3() {
     box3Basis = null;
+    box3LaatsteBerekening = null;
     clearTimeout(box3Timer);
     box3Volgnummer++;
 }
@@ -45,7 +50,12 @@ function box3Badge(tekst, titel) {
 
 function maakBox3JaarCel(rij, metHuidig) {
     const td = maakCel(String(rij.jaar));
-    if (rij.lopend) td.appendChild(box3Badge("tot vandaag", "Het lopende jaar, tot de laatste koersdatum"));
+    if (metHuidig && rij.lopend && rij.huidig.berekend) {
+        td.appendChild(box3Badge("tegenbewijs tot vandaag",
+            "Werkelijk rendement tot vandaag, forfaitair over het hele jaar; het tegenbewijs valt hierdoor te gunstig uit."));
+    } else if (rij.lopend) {
+        td.appendChild(box3Badge("tot vandaag", "Het lopende jaar, tot de laatste koersdatum"));
+    }
     if (metHuidig && rij.huidig.geschat) {
         td.appendChild(box3Badge("geschat", "Percentages van het laatst bekende jaar"));
     } else if (metHuidig && rij.huidig.berekend && !rij.huidig.definitief) {
@@ -83,6 +93,8 @@ function maakBox3HuidigTabel(jaren) {
         box3EuroKolom("Koersresultaat", h("koersresultaat")),
         box3EuroKolom("Kosten (terug)", h("kosten")),
         box3DividendKolom(r => (r.huidig.berekend ? r.huidig.dividend_bruto : undefined)),
+        box3EuroKolom("Spaarrente", h("spaarrente")),
+        box3EuroKolom("Overig ander vermogen", h("rendement_ander_vermogen")),
         box3EuroKolom("Werkelijk rendement", h("werkelijk_rendement")),
         box3EuroKolom("Belasting tegenbewijs", h("belasting_tegenbewijs")),
         {
@@ -110,7 +122,8 @@ function maakBox3AanwasTabel(jaren, basisPerJaar) {
         box3EuroKolom("Netto inleg", b("netto_inleg")),
         box3EuroKolom("Koersresultaat", a("koersresultaat")),
         box3DividendKolom(a("dividend_bruto")),
-        box3EuroKolom("Ander vermogen", a("rendement_ander_vermogen")),
+        box3EuroKolom("Spaarrente", a("spaarrente")),
+        box3EuroKolom("Overig ander vermogen", a("rendement_ander_vermogen")),
         box3EuroKolom("Rendement", a("rendement")),
         box3EuroKolom("Verlies erbij", a("verlies_erbij")),
         box3EuroKolom("Verrekend verlies", a("verrekend_verlies")),
@@ -127,7 +140,8 @@ function maakBox3VermogenswinstTabel(jaren) {
         { label: "Jaar", waarde: r => r.jaar, renderTd: r => maakBox3JaarCel(r, false) },
         box3EuroKolom("Gerealiseerd", w("gerealiseerd")),
         box3DividendKolom(w("dividend_bruto")),
-        box3EuroKolom("Ander vermogen", w("rendement_ander_vermogen")),
+        box3EuroKolom("Spaarrente", w("spaarrente")),
+        box3EuroKolom("Overig ander vermogen", w("rendement_ander_vermogen")),
         box3EuroKolom("Rendement", w("rendement")),
         box3EuroKolom("Verlies erbij", w("verlies_erbij")),
         box3EuroKolom("Verrekend verlies", w("verrekend_verlies")),
@@ -170,7 +184,15 @@ function renderBox3Tegels(data) {
     BOX3_STELSELS.forEach(s => {
         rij.appendChild(maakStatTegel(`${BOX3_STELSEL_LABELS[s]}, totaal`, bedrag(data.totaal[s])));
     });
-    rij.appendChild(maakStatTegel("B: latente belasting bij verkoop nu", bedrag(data.latente_belasting)));
+    const variant = data.b_alles_verkopen;
+    if (variant) {
+        const tegel = maakStatTegel("B als je nu alles verkoopt (dit jaar)", bedrag(variant.belasting));
+        const extra = document.createElement("div");
+        extra.className = "kleineMelding";
+        extra.textContent = `${variant.extra_belasting >= 0 ? "+" : ""}${formatteerEuro(variant.extra_belasting)} t.o.v. niet verkopen`;
+        tegel.appendChild(extra);
+        rij.appendChild(tegel);
+    }
     document.getElementById("box3Tegels").replaceChildren(rij);
 }
 
@@ -181,6 +203,16 @@ function toonBox3Grafiek(data) {
         data: reeksen[s],
         backgroundColor: kleurVoorIndex(i),
     }));
+    const variant = data.b_alles_verkopen;
+    if (variant && document.getElementById("box3AllesVerkopen").checked) {
+        datasets.push({
+            label: "B, alles nu verkocht",
+            data: box3AllesVerkopenReeks(data),
+            backgroundColor: ONBEKEND_GRIJS,
+            tooltipLabel: () => `Alles vandaag verkocht: ${formatteerEuro(variant.belasting)} belasting `
+                + `(waarvan ${formatteerEuro(variant.extra_belasting)} extra door ongerealiseerde winst)`,
+        });
+    }
     updateStaafChart(reeksen.labels, datasets);
 }
 
@@ -193,7 +225,20 @@ function vulBox3Parameters(data) {
     document.getElementById("box3Stand").textContent = formatDatum(data.parameters_stand);
 }
 
+function renderBox3AllesVerkopenZin(variant) {
+    const zin = document.getElementById("box3AllesVerkopenZin");
+    zin.hidden = !variant;
+    if (!variant) return;
+    const verschil = variant.extra_belasting >= 0
+        ? `${formatteerEuro(variant.extra_belasting)} meer`
+        : `${formatteerEuro(-variant.extra_belasting)} minder`;
+    zin.textContent = `Nog niet verkocht: ${formatteerEuro(variant.latente_winst)} latente winst. Verkoop je vandaag alles, `
+        + `dan komt B voor ${variant.jaar} uit op ${formatteerEuro(variant.belasting)} belasting, ${verschil} dan zonder verkopen. `
+        + `Daarin zijn de verliesverrekening en ${formatteerEuro(variant.heffingsvrij, 0)} heffingsvrij resultaat al meegenomen.`;
+}
+
 function renderBox3(data) {
+    box3LaatsteBerekening = data;
     toonAlleen(BOX3_TOESTANDEN, "box3Inhoud");
     vulBox3Parameters(data);
     renderBox3Tegels(data);
@@ -204,9 +249,9 @@ function renderBox3(data) {
     document.getElementById("box3AanwasTabel").replaceChildren(maakBox3AanwasTabel(data.jaren, basisPerJaar));
     document.getElementById("box3WinstTabel").replaceChildren(maakBox3VermogenswinstTabel(data.jaren));
     document.getElementById("box3VerkopenTabel").replaceChildren(maakBox3VerkopenTabel(box3Basis.verkopen));
-    document.getElementById("box3LatenteWinst").textContent = formatteerEuro(box3Basis.latente_winst);
-    document.getElementById("box3LatenteBelasting").textContent = formatteerEuro(data.latente_belasting);
+    renderBox3AllesVerkopenZin(data.b_alles_verkopen);
     document.getElementById("box3GeenDividend").hidden = box3Basis.dividend_beschikbaar;
+    document.getElementById("box3LopendTegenbewijs").hidden = !data.jaren.some(j => j.lopend && j.huidig.berekend);
 }
 
 function leesBox3Velden() {
@@ -224,6 +269,7 @@ function toonBox3InvoerFout(tekst) {
 async function berekenBox3() {
     if (!box3Basis) return;
     const { invoer, ongeldig } = bouwBox3Invoer(leesBox3Velden());
+    document.getElementById("box3RenteWaarschuwing").hidden = ongeldig.length > 0 || !box3RenteWaarschuwing(invoer);
     if (ongeldig.length) {
         toonBox3InvoerFout(`Vul een bedrag in bij ${ongeldig.map(s => BOX3_VELD_LABELS[s]).join(", ")} (bijvoorbeeld 12.500).`);
         return;
@@ -285,3 +331,6 @@ function planBox3Berekening() {
 
 Object.values(BOX3_VELDEN).forEach(id => document.getElementById(id).addEventListener("input", planBox3Berekening));
 document.getElementById("box3Partner").addEventListener("change", planBox3Berekening);
+document.getElementById("box3AllesVerkopen").addEventListener("change", () => {
+    if (box3LaatsteBerekening) toonBox3Grafiek(box3LaatsteBerekening);
+});

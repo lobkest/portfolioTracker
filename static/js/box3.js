@@ -40,7 +40,20 @@
         return reeksen;
     }
 
-    const exportsObj = { BOX3_STELSELS, leesBox3Bedrag, bouwBox3Invoer, box3GrafiekReeksen };
+    // Spaargeld zonder enige opbrengst maakt A, B en het tegenbewijs te gunstig: een waarschuwing, geen fout.
+    function box3RenteWaarschuwing(invoer) {
+        return (invoer.banktegoeden || 0) > 0 && !invoer.spaarrente_pct && !invoer.rendement_ander_vermogen;
+    }
+
+    // Grijze staaf "B, alles nu verkocht": alleen in het lopende jaar, elders null (geen staaf).
+    function box3AllesVerkopenReeks(berekening) {
+        const variant = berekening.b_alles_verkopen;
+        return berekening.jaren.map(j => (variant && j.jaar === variant.jaar ? variant.belasting : null));
+    }
+
+    const exportsObj = {
+        BOX3_STELSELS, leesBox3Bedrag, bouwBox3Invoer, box3GrafiekReeksen, box3RenteWaarschuwing, box3AllesVerkopenReeks,
+    };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

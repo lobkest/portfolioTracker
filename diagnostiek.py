@@ -39,6 +39,7 @@ LAADTIJD_FASEN = {
     "koersen_ophalen_kern": "Koersen ophalen",
     "verrijking_totaal": "Verdeling, land/sector, bedrijven en ETF-overlap",
     "dividend_verwachting": "Verwacht dividend",
+    "historisch_rendement": "Historisch rendement",
 }
 # Aanname: een derde van gunicorns standaard-timeout (30 s); die op Render staat niet in de repo.
 DREMPEL_LAADTIJD_LET_OP_SECONDEN = 10

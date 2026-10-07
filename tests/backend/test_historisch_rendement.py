@@ -1,8 +1,10 @@
 """Historisch rendement (historisch_rendement.py): CAGR, rollende perioden, portfolio-index, horizonnen, waarschuwingen.
 Zonder database en zonder Yahoo."""
+import datetime
 import os
 import sys
 import unittest
+from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
@@ -10,6 +12,8 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import historisch_rendement as hr
+import portfolio_orchestratie
+from portfolio_calc import compute_split_adjusted_shares
 from split_correctie import continue_reeks
 
 PEIL = "2026-10-07"
@@ -134,6 +138,81 @@ class TestWaarschuwingen(unittest.TestCase):
         self.assertEqual(len(teksten), 2)
         self.assertIn("eerste 3 jaar", teksten[0])
         self.assertIn("klik opnieuw", teksten[1])
+
+
+def _transacties():
+    rijen = [
+        ("2015-01-05", datetime.time(10, 0), "US0000000001", "ABC", 10, 50.0, -1.0, "ABC INC"),
+        ("2026-04-07", datetime.time(10, 0), "NL0000000002", "NIEUW.AS", 5, 20.0, -1.0, "NIEUW NV"),
+    ]
+    df = pd.DataFrame(rijen, columns=["datum", "tijd", "isin", "ticker", "aantal", "koers", "transactiekosten", "product"])
+    df["datum"] = pd.to_datetime(df["datum"])
+    df["beurs"] = "NSY"
+    return compute_split_adjusted_shares(df)
+
+
+class TestBerekenHistorischRendement(unittest.TestCase):
+    def test_gebruikt_de_continue_reeks_en_antwoordvorm(self):
+        echt = _groei("2016-10-07", PEIL)
+        # Ruwe koers met een 1:4-split; zonder continue reeks zou de CAGR negatief zijn.
+        ruw = echt.where(echt.index < "2021-06-01", echt / 4)
+        nieuw = pd.Series(20.0, index=pd.date_range("2026-04-07", PEIL))
+        koersen = pd.DataFrame({"ABC": ruw, "NIEUW.AS": nieuw})
+        koersen.attrs["koersen_onvolledig"] = []
+        resultaat = pd.DataFrame({"waarde": [100.0]}, index=pd.to_datetime([PEIL]))
+        with patch.object(hr, "laad_transacties_en_resultaat", return_value=(_transacties(), resultaat)), \
+                patch.object(hr, "get_prices", return_value=koersen) as get_prices, \
+                patch.object(portfolio_orchestratie, "db_get_koers_splits",
+                             return_value={"ABC": {"2021-06-01": 4.0}}):
+            data = hr.bereken_historisch_rendement("TEST_HR")
+
+        # 10 x 365,25 dagen terug.
+        self.assertEqual(get_prices.call_args[0][1].date(), datetime.date(2016, 10, 6))
+        abc = next(p for p in data["posities"] if p["ticker"] == "ABC")
+        self.assertEqual(abc["status"], hr.STATUS_OK)
+        self.assertAlmostEqual(abc["cagr_pct"], 5.0, places=1)
+        nieuw_pos = next(p for p in data["posities"] if p["ticker"] == "NIEUW.AS")
+        self.assertEqual(nieuw_pos["status"], hr.STATUS_TE_KORT)
+        # Gewicht = huidige waarde: 10 x 105/4 tegenover 5 x 20.
+        self.assertAlmostEqual(abc["gewicht"] + nieuw_pos["gewicht"], 1.0, places=3)
+        self.assertGreater(abc["gewicht"], nieuw_pos["gewicht"])
+
+        self.assertTrue(data["beschikbaar"])
+        self.assertFalse(data["onvolledig"])
+        self.assertEqual(data["max_horizon"], 9)
+        self.assertEqual(sorted(data["horizonnen"], key=int), [str(h) for h in range(1, 10)])
+        self.assertAlmostEqual(data["horizonnen"]["5"]["midden"], 5.0, places=1)
+        self.assertIsNone(data["horizonnen"]["5"]["waarschuwing"])
+        self.assertTrue(any("Telt niet mee" in w for w in data["waarschuwingen"]))
+        for sleutel in ("peildatum", "terugkijk_jaren", "jaren_niet_compleet"):
+            self.assertIn(sleutel, data)
+        self.assertEqual(set(abc), {"isin", "ticker", "bijnaam", "gewicht", "beschikbare_jaren", "cagr_pct",
+                                    "laag_1j_pct", "hoog_1j_pct", "te_kort", "kort", "status"})
+
+
+class TestHistorischRendementRoute(unittest.TestCase):
+    def setUp(self):
+        import app as app_module
+        self.app_module = app_module
+        self.client = app_module.app.test_client()
+
+    def test_onbekende_code_geeft_404(self):
+        with patch.object(self.app_module, "db_portfolio_bestaat", return_value=False):
+            res = self.client.get("/api/portfolio/zzz/historisch-rendement")
+        self.assertEqual(res.status_code, 404)
+
+    def test_antwoord_met_diagnostiek_en_nette_fout(self):
+        with patch.object(self.app_module, "db_portfolio_bestaat", return_value=True), \
+                patch.object(self.app_module, "bereken_historisch_rendement",
+                             return_value={"beschikbaar": True, "horizonnen": {"1": {"midden": 5.0}}}):
+            data = self.client.get("/api/portfolio/ABC/historisch-rendement").get_json()
+        self.assertEqual(data["horizonnen"]["1"]["midden"], 5.0)
+        self.assertIn("diagnostiek", data)
+        with patch.object(self.app_module, "db_portfolio_bestaat", return_value=True), \
+                patch.object(self.app_module, "bereken_historisch_rendement", side_effect=RuntimeError("stuk")):
+            res = self.client.get("/api/portfolio/ABC/historisch-rendement")
+        self.assertEqual(res.status_code, 500)
+        self.assertIn("error", res.get_json())
 
 
 if __name__ == "__main__":

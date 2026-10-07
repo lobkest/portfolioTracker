@@ -244,16 +244,48 @@ class TestScenarioAanwas(unittest.TestCase):
 
 
 class TestScenarioVermogenswinst(unittest.TestCase):
-    def test_alleen_gerealiseerd_en_latente_belasting(self):
-        basis = _basis(_jaar(2025, begin=10000, eind=50000, gerealiseerd=2800.0), latente_winst=5000.0)
-        uit = bereken_box3(basis, GEEN_INVOER)
-        b = uit["jaren"][0]["vermogenswinst"]
+    def test_alleen_gerealiseerd(self):
+        basis = _basis(_jaar(2025, begin=10000, eind=50000, gerealiseerd=2800.0))
+        b = bereken_box3(basis, GEEN_INVOER)["jaren"][0]["vermogenswinst"]
         self.assertEqual((b["rendement"], b["belastbaar"], b["belasting"]), (2800.0, 1000.0, 360.0))
-        self.assertEqual(uit["latente_belasting"], 1800.0)  # 5000 x 36%
 
-    def test_negatieve_latente_winst_geeft_geen_belasting(self):
-        uit = bereken_box3(_basis(_jaar(2025), latente_winst=-300.0), GEEN_INVOER)
-        self.assertEqual(uit["latente_belasting"], 0.0)
+
+class TestBAllesVerkopen(unittest.TestCase):
+    def _variant(self, *jaren, latente_winst, invoer=GEEN_INVOER):
+        return bereken_box3(_basis(*jaren, latente_winst=latente_winst), invoer)["b_alles_verkopen"]
+
+    def test_latente_winst_boven_heffingsvrij(self):
+        # Gerealiseerd 1.000 + latent 5.000 = 6.000, min 1.800 = 4.200 x 36% = 1.512. Zonder verkopen: 0.
+        v = self._variant(_jaar(2026, gerealiseerd=1000.0, lopend=True), latente_winst=5000.0)
+        self.assertEqual((v["jaar"], v["rendement"], v["belastbaar"], v["belasting"], v["extra_belasting"]),
+                         (2026, 6000.0, 4200.0, 1512.0, 1512.0))
+
+    def test_extra_belasting_ten_opzichte_van_b(self):
+        # B: 3.000 - 1.800 = 1.200 x 36% = 432. Variant: 5.000 - 1.800 = 3.200 x 36% = 1.152; extra 720.
+        v = self._variant(_jaar(2026, gerealiseerd=3000.0, lopend=True), latente_winst=2000.0)
+        self.assertEqual((v["belasting"], v["extra_belasting"]), (1152.0, 720.0))
+
+    def test_latente_winst_onder_heffingsvrij(self):
+        v = self._variant(_jaar(2026, gerealiseerd=500.0, lopend=True), latente_winst=1000.0)
+        self.assertEqual((v["belastbaar"], v["belasting"], v["extra_belasting"]), (0.0, 0.0, 0.0))
+
+    def test_openstaand_verlies_uit_eerdere_jaren(self):
+        # 2025: verlies 2.000 -> 1.500 verrekenbaar. 2026: 6.000 - 1.800 = 4.200, min 1.500 = 2.700 x 36% = 972.
+        v = self._variant(_jaar(2025, gerealiseerd=-2000.0), _jaar(2026, lopend=True), latente_winst=6000.0)
+        self.assertEqual((v["belastbaar"], v["belasting"], v["extra_belasting"]), (2700.0, 972.0, 972.0))
+
+    def test_partner(self):
+        # 6.000 - 3.600 = 2.400 x 36% = 864.
+        v = self._variant(_jaar(2026, lopend=True), latente_winst=6000.0, invoer=_invoer(fiscale_partner=True))
+        self.assertEqual((v["heffingsvrij"], v["belasting"]), (3600, 864.0))
+
+    def test_negatieve_latente_winst_verlaagt_het_resultaat(self):
+        # Gerealiseerd 3.000 - latent verlies 1.000 = 2.000: 200 x 36% = 72; B zonder verkopen 432, dus extra -360.
+        v = self._variant(_jaar(2026, gerealiseerd=3000.0, lopend=True), latente_winst=-1000.0)
+        self.assertEqual((v["rendement"], v["belasting"], v["extra_belasting"]), (2000.0, 72.0, -360.0))
+
+    def test_zonder_lopend_jaar_geen_variant(self):
+        self.assertIsNone(self._variant(_jaar(2025, gerealiseerd=3000.0), latente_winst=5000.0))
 
 
 class TestHuidigStelsel(unittest.TestCase):
@@ -314,6 +346,38 @@ class TestHuidigStelsel(unittest.TestCase):
         self.assertEqual(h2027["belasting_forfaitair"], h2026["belasting_forfaitair"])
 
 
+class TestSpaarrente(unittest.TestCase):
+    # 20.000 spaargeld x 2% = 400 rente per jaar.
+    INVOER = {"banktegoeden": 20000, "spaarrente_pct": 2}
+
+    def test_telt_mee_in_aanwas_en_vermogenswinst(self):
+        basis = _basis(_jaar(2024, begin=100000, eind=108000, gerealiseerd=2000.0))
+        j = bereken_box3(basis, _invoer(**self.INVOER))["jaren"][0]
+        # A: 8.000 + 400 = 8.400, min 1.800 = 6.600 x 36% = 2.376. B: 2.000 + 400 = 2.400, min 1.800 = 600 x 36% = 216.
+        self.assertEqual((j["aanwas"]["spaarrente"], j["aanwas"]["rendement"], j["aanwas"]["belasting"]),
+                         (400.0, 8400.0, 2376.0))
+        self.assertEqual((j["vermogenswinst"]["rendement"], j["vermogenswinst"]["belasting"]), (2400.0, 216.0))
+
+    def test_telt_mee_in_tegenbewijs_niet_in_forfaitair(self):
+        basis = _basis(_jaar(2024, begin=100000, eind=108000, kosten=20))
+        met = bereken_box3(basis, _invoer(**self.INVOER))["jaren"][0]["huidig"]
+        zonder = bereken_box3(basis, _invoer(banktegoeden=20000))["jaren"][0]["huidig"]
+        self.assertEqual(met["forfaitair_rendement"], zonder["forfaitair_rendement"])
+        self.assertEqual(met["belasting_forfaitair"], 1195.99)
+        # 8.000 + 20 kosten + 400 rente = 8.420.
+        self.assertEqual((met["spaarrente"], met["werkelijk_rendement"]), (400.0, 8420.0))
+        self.assertEqual(zonder["werkelijk_rendement"], 8020.0)
+
+    def test_opgeteld_bij_overig_rendement(self):
+        basis = _basis(_jaar(2025, begin=10000, eind=10000))
+        a = bereken_box3(basis, _invoer(rendement_ander_vermogen=100, **self.INVOER))["jaren"][0]["aanwas"]
+        self.assertEqual((a["spaarrente"], a["rendement_ander_vermogen"], a["rendement"]), (400.0, 100.0, 500.0))
+
+    def test_rente_zonder_spaargeld_is_nul(self):
+        a = bereken_box3(_basis(_jaar(2025)), _invoer(spaarrente_pct=3))["jaren"][0]["aanwas"]
+        self.assertEqual(a["spaarrente"], 0.0)
+
+
 class TestTotalen(unittest.TestCase):
     def test_totaal_en_lopend_jaar(self):
         basis = _basis(_jaar(2025, begin=10000, eind=15000), _jaar(2026, begin=15000, eind=20000, lopend=True))
@@ -329,12 +393,13 @@ class TestInvoerValidatie(unittest.TestCase):
     def test_leeg_geeft_nullen(self):
         self.assertEqual(valideer_box3_invoer(None), ({
             "banktegoeden": 0.0, "overige_bezittingen": 0.0, "schulden": 0.0, "rendement_ander_vermogen": 0.0,
-            "fiscale_partner": False,
+            "spaarrente_pct": 0.0, "fiscale_partner": False,
         }, None))
 
     def test_ongeldige_invoer(self):
         for invoer in ({"banktegoeden": -1}, {"schulden": "veel"}, {"overige_bezittingen": True},
-                       {"fiscale_partner": "ja"}, {"banktegoeden": float("inf")}, "geen dict"):
+                       {"fiscale_partner": "ja"}, {"banktegoeden": float("inf")}, {"spaarrente_pct": -0.5},
+                       {"spaarrente_pct": 20.5}, "geen dict"):
             schoon, fout = valideer_box3_invoer(invoer)
             self.assertIsNone(schoon, invoer)
             self.assertTrue(fout, invoer)

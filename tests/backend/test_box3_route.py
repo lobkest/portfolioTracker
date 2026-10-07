@@ -68,6 +68,11 @@ class TestBox3Routes(unittest.TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertIn("negatief", res.get_json()["error"])
 
+    def test_spaarrente_boven_20_procent_geeft_400(self):
+        res = self.client.post("/api/box3/bereken", json={"basis": {"jaren": []}, "invoer": {"spaarrente_pct": 25}})
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("spaarrente", res.get_json()["error"])
+
     def test_partner_geen_boolean_geeft_400(self):
         res = self.client.post("/api/box3/bereken", json={"basis": {"jaren": []}, "invoer": {"fiscale_partner": "ja"}})
         self.assertEqual(res.status_code, 400)

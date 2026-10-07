@@ -8,6 +8,9 @@ import math
 import numpy as np
 import pandas as pd
 
+from portfolio_calc import huidige_posities_per_keten
+from portfolio_orchestratie import continue_koersreeks, laad_transacties_en_resultaat
+from prijzen import get_prices
 from transactie_utils import getal_nl
 
 HISTORIE_TERUGKIJK_JAREN = 10
@@ -164,3 +167,75 @@ def waarschuwingen(posities, midden_pct, jaren_niet_compleet, onvolledig):
     if onvolledig:
         teksten.append("Nog niet alle koershistorie geladen — klik opnieuw.")
     return teksten
+
+
+def _status(ticker, reeks, statistiek, onvolledig):
+    if ticker in onvolledig:
+        return STATUS_NOG_NIET_GELADEN
+    if reeks is None:
+        return STATUS_GEEN_KOERS
+    return STATUS_TE_KORT if statistiek["te_kort"] else STATUS_OK
+
+
+def _horizonnen_met_waarschuwing(verdeling):
+    """{"H": {midden, laag, hoog, aantal_vensters, waarschuwing}}: de selectie-waarschuwing hangt af van de horizon
+    die de frontend kiest, dus per horizon."""
+    return {
+        str(horizon): {**v, "waarschuwing": (waarschuwingen([], v["midden"], 0.0, False) or [None])[0]}
+        for horizon, v in verdeling.items()
+    }
+
+
+def bereken_historisch_rendement(code):
+    """API-antwoord (zie de route in app.py), of None zonder koersdata of onbekende code."""
+    transacties_df, resultaat = laad_transacties_en_resultaat(code)
+    if transacties_df is None or resultaat is None or resultaat.empty:
+        return None
+    # Zelfde peildatum als chart_data, waar de Prognose begint.
+    peildatum = pd.Timestamp(resultaat.index[-1]).normalize()
+    posities = huidige_posities_per_keten(transacties_df, peildatum)
+    tickers = sorted({p["ticker"] for p in posities if p["ticker"]})
+    start = peildatum - pd.Timedelta(days=HISTORIE_TERUGKIJK_JAREN * DAGEN_PER_JAAR)
+    koersen = get_prices(tickers, start) if tickers else pd.DataFrame()
+    onvolledig = set(koersen.attrs.get("koersen_onvolledig", [])) & set(tickers)
+
+    rijen, reeksen, waarde_per_ticker = [], {}, {}
+    for p in posities:
+        ticker = p["ticker"]
+        ruw = koersen[ticker].dropna() if ticker in koersen.columns else pd.Series(dtype=float)
+        # Nooit de ruwe koers: die springt op splitdagen (zie CLAUDE.md: Data en rekenen).
+        reeks = continue_koersreeks(ticker, ruw) if not ruw.empty else None
+        statistiek = positie_statistiek(reeks, peildatum) if reeks is not None else {
+            "beschikbare_jaren": 0.0, "cagr_pct": None, "laag_1j_pct": None, "hoog_1j_pct": None,
+            "te_kort": True, "kort": True}
+        status = _status(ticker, reeks, statistiek, onvolledig)
+        # Ruw aantal x ruwe koers: allebei op de basis van de peildatum.
+        koers = ruw.asof(peildatum) if not ruw.empty else None
+        waarde = p["aantal"] * float(koers) if koers is not None and pd.notna(koers) else None
+        if waarde is not None:
+            waarde_per_ticker[ticker] = waarde_per_ticker.get(ticker, 0.0) + waarde
+        if status == STATUS_OK:
+            reeksen[ticker] = venster(reeks, peildatum)[0]
+        rijen.append({"isin": p["isin"], "ticker": ticker, "bijnaam": p["bijnaam"], "_waarde": waarde,
+                      **statistiek, "status": status})
+
+    totaal = sum(waarde_per_ticker.values())
+    gewichten = {t: w / totaal for t, w in waarde_per_ticker.items()} if totaal > 0 else {}
+    index, jaren_niet_compleet = portfolio_index(reeksen, gewichten)
+    index_jaren = _jaren_tussen(index.index[0], index.index[-1]) if not index.empty else 0.0
+    verdeling = horizon_verdeling(index, index_jaren) if not index.empty else {}
+
+    for rij in rijen:
+        waarde = rij.pop("_waarde")
+        rij["gewicht"] = round(waarde / totaal, 4) if waarde is not None and totaal > 0 else None
+    return {
+        "beschikbaar": bool(verdeling),
+        "onvolledig": bool(onvolledig),
+        "peildatum": peildatum.date().isoformat(),
+        "terugkijk_jaren": HISTORIE_TERUGKIJK_JAREN,
+        "horizonnen": _horizonnen_met_waarschuwing(verdeling),
+        "max_horizon": max(verdeling) if verdeling else 0,
+        "posities": sorted(rijen, key=lambda r: -(r["gewicht"] or 0)),
+        "waarschuwingen": waarschuwingen(rijen, None, jaren_niet_compleet, bool(onvolledig)),
+        "jaren_niet_compleet": round(jaren_niet_compleet, 1),
+    }

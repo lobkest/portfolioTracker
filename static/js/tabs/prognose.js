@@ -1,8 +1,9 @@
 // Tabbladen Prognose en Huidige portfolio: formulier, verwacht dividend en grafiek. De rekenkern staat in prognose.js.
 
-// Verwacht dividend: één fetch voor beide tabbladen, pas als een dividend-vinkje aan gaat (kost Yahoo-calls).
-let prognoseDividendData = null;
-let prognoseDividendVerzoek = null;
+// Verwacht dividend en historisch rendement: één fetch per portfolio, gedeeld door beide tabbladen, pas als een vinkje
+// aan staat (kost Yahoo-calls). {data, verzoek}; resetPrognose() maakt ze leeg.
+let prognoseDividend = { data: null, verzoek: null };
+let prognoseHistorie = { data: null, verzoek: null };
 
 const DIVIDEND_BRON_TEKST = {
     yahoo_reeks: "Yahoo, afgelopen 12 mnd",
@@ -29,24 +30,189 @@ function dividendBronTekst(bron, perDatum) {
     return tekst.replace("{per_datum}", perDatum ? formatDatum(perDatum) : "?");
 }
 
-function haalDividendVerwachting() {
-    if (prognoseDividendData) return Promise.resolve(prognoseDividendData);
-    if (prognoseDividendVerzoek) return prognoseDividendVerzoek;
+// Een onvolledig antwoord (nog niet alle koersen geladen) wordt niet bewaard: opnieuw vragen laadt verder.
+function haalEenmaal(cache, pad, nietBeschikbaarTekst) {
+    if (cache.data) return Promise.resolve(cache.data);
+    if (cache.verzoek) return cache.verzoek;
 
     const code = huidigeData.code;
     const verzoek = (async () => {
-        const res = await fetchMetTimeout(`/api/portfolio/${code}/dividend-verwachting`);
+        const res = await fetchMetTimeout(`/api/portfolio/${code}/${pad}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Verwacht dividend ophalen is mislukt.");
+        if (!res.ok) throw new Error(data.error || "Ophalen is mislukt.");
         voegDiagnostiekToe(data);
-        if (!data.beschikbaar) throw new Error("Geen koersdata om het verwachte dividend te berekenen.");
-        if (huidigeData.code === code) prognoseDividendData = data;
+        if (!data.beschikbaar) throw new Error(nietBeschikbaarTekst(data));
+        if (huidigeData.code === code && !data.onvolledig) cache.data = data;
         return data;
     })();
-    const wis = () => { if (prognoseDividendVerzoek === verzoek) prognoseDividendVerzoek = null; };
+    const wis = () => { if (cache.verzoek === verzoek) cache.verzoek = null; };
     verzoek.then(wis, wis);
-    prognoseDividendVerzoek = verzoek;
+    cache.verzoek = verzoek;
     return verzoek;
+}
+
+function haalDividendVerwachting() {
+    return haalEenmaal(prognoseDividend, "dividend-verwachting",
+        () => "Geen koersdata om het verwachte dividend te berekenen.");
+}
+
+function haalHistorischRendement() {
+    return haalEenmaal(prognoseHistorie, "historisch-rendement", data => (data.onvolledig
+        ? "Nog niet alle koershistorie geladen. Zet het vinkje opnieuw aan om verder te laden."
+        : "Geen positie met minstens een jaar koershistorie."));
+}
+
+const HISTORIE_STATUS_TEKST = {
+    te_kort: "telt niet mee (minder dan 1 jaar koershistorie)",
+    geen_koers: "geen koershistorie",
+    nog_niet_geladen: "nog niet geladen",
+};
+
+const HISTORIE_VELD_NAAM = { rendement: "koersrendement", laag: "lage kant", hoog: "hoge kant" };
+
+function historiePct(pct) {
+    return pct === null || pct === undefined ? "—" : `${prognoseGetal(pct, 1)}%`;
+}
+
+function maakHistorieTabel(posities) {
+    const telt = p => p.status === "ok";
+    const kolommen = [
+        { label: "Aandeel/ETF", renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin) },
+        { label: "Gewicht", waarde: p => p.gewicht, renderTd: p => maakCel(p.gewicht === null ? "—" : prognosePct(p.gewicht)) },
+        {
+            label: "Jaren data",
+            waarde: p => p.beschikbare_jaren,
+            renderTd: p => {
+                const td = maakCel(prognoseGetal(p.beschikbare_jaren, 1));
+                if (telt(p) && p.kort) {
+                    const badge = document.createElement("span");
+                    badge.className = "badge";
+                    badge.textContent = "kort";
+                    td.appendChild(badge);
+                }
+                return td;
+            },
+        },
+        {
+            label: "Gem. stijging per jaar (CAGR)",
+            waarde: p => (telt(p) ? p.cagr_pct : null),
+            renderTd: p => maakCel(telt(p) ? historiePct(p.cagr_pct) : (HISTORIE_STATUS_TEKST[p.status] || p.status)),
+        },
+        {
+            label: "1-jaars range (p10 – p90)",
+            renderTd: p => maakCel(telt(p) && p.laag_1j_pct !== null
+                ? `${historiePct(p.laag_1j_pct)} – ${historiePct(p.hoog_1j_pct)}` : "—"),
+        },
+    ];
+    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit." });
+}
+
+// Vinkje "Rendement op basis van historie" (alleen Huidige portfolio): vult koersrendement, laag en hoog uit de backend.
+function maakHistorieRegelaar({ veld, el, herbereken }) {
+    const RENDEMENT_VELDEN = ["rendement", "laag", "hoog"];
+    let aan = false;
+    let data = null;
+    // Waarden van vóór het aanvinken: uitvinken zet die terug.
+    let handmatig = null;
+    let aangepast = false;
+    let horizon = null;
+
+    function renderSectie() {
+        const jaren = parseFloat(veld("jaren").value);
+        el("HistorieHorizon").textContent = horizon < Math.round(jaren)
+            ? `Bandbreedte gebaseerd op ${horizon}-jaarsperioden (langste die de historie toelaat).`
+            : `Bandbreedte gebaseerd op ${horizon}-jaarsperioden.`;
+        el("HistorieTabel").replaceChildren(maakHistorieTabel(data.posities));
+        const teksten = [...data.waarschuwingen, data.horizonnen[String(horizon)].waarschuwing].filter(Boolean);
+        el("HistorieWaarschuwingen").replaceChildren(...teksten.map(tekst => {
+            const p = document.createElement("p");
+            p.className = "waarschuwingTekst prognoseMelding";
+            p.textContent = tekst;
+            return p;
+        }));
+        el("HistorieSectie").hidden = false;
+    }
+
+    function vulVelden() {
+        horizon = kiesHistorieHorizon(parseFloat(veld("jaren").value), data.max_horizon);
+        const { waarden, afgekapt } = historieVeldwaarden(data.horizonnen[String(horizon)]);
+        RENDEMENT_VELDEN.forEach(sleutel => { veld(sleutel).value = waarden[sleutel]; });
+        aangepast = false;
+        el("HistorieHandmatig").hidden = true;
+        el("HistorieAfgekapt").hidden = afgekapt.length === 0;
+        el("HistorieAfgekapt").textContent = afgekapt.map(a =>
+            `Historisch ${prognoseGetal(a.historisch, 1)}% (${HISTORIE_VELD_NAAM[a.veld]}) afgekapt op ` +
+            `${prognoseGetal(a.begrensd, 1)}% (grens van het formulier).`).join(" ");
+        renderSectie();
+    }
+
+    async function zetAan() {
+        handmatig = Object.fromEntries(RENDEMENT_VELDEN.map(sleutel => [sleutel, parseFloat(veld(sleutel).value)]));
+        aan = true;
+        el("HistorieLaden").hidden = false;
+        el("HistorieFout").hidden = true;
+        try {
+            data = await haalHistorischRendement();
+        } catch (err) {
+            el("HistorieFout").textContent = err.message === "TIMEOUT"
+                ? "Koershistorie ophalen duurde te lang. Probeer het opnieuw."
+                : `Kon historisch rendement niet ophalen: ${err.message}`;
+            el("HistorieFout").hidden = false;
+            aan = false;
+            handmatig = null;
+            el("HistorieVinkje").checked = false;
+            return;
+        } finally {
+            el("HistorieLaden").hidden = true;
+        }
+        // Intussen uitgevinkt of een andere portfolio geladen.
+        if (!aan) return;
+        vulVelden();
+        herbereken();
+    }
+
+    function zetUit() {
+        aan = false;
+        if (handmatig) RENDEMENT_VELDEN.forEach(sleutel => { veld(sleutel).value = handmatig[sleutel]; });
+        handmatig = null;
+        aangepast = false;
+        ["HistorieHandmatig", "HistorieAfgekapt", "HistorieSectie"].forEach(naam => { el(naam).hidden = true; });
+        herbereken();
+    }
+
+    el("HistorieVinkje").addEventListener("change", (e) => (e.target.checked ? zetAan() : zetUit()));
+    RENDEMENT_VELDEN.forEach(sleutel => veld(sleutel).addEventListener("input", () => {
+        if (!aan || !data) return;
+        aangepast = true;
+        el("HistorieHandmatig").hidden = false;
+    }));
+    veld("jaren").addEventListener("input", () => {
+        if (aan && data && !aangepast) vulVelden();
+    });
+
+    return {
+        toon() {
+            const heeftCode = Boolean(huidigeData.code);
+            el("HistorieVinkje").disabled = !heeftCode;
+            el("HistorieVinkje").checked = aan;
+            el("HistorieNietBeschikbaar").hidden = heeftCode;
+            el("HistorieFout").hidden = true;
+            if (aan && data) {
+                renderSectie();
+                return;
+            }
+            ["HistorieHandmatig", "HistorieAfgekapt", "HistorieSectie"].forEach(naam => { el(naam).hidden = true; });
+        },
+        // Geeft de handmatige waarden terug als de velden historische waarden bevatten.
+        reset() {
+            const terug = aan ? handmatig : null;
+            aan = false;
+            data = null;
+            handmatig = null;
+            aangepast = false;
+            return terug;
+        },
+    };
 }
 
 function eigenDividendTekst(p) {
@@ -143,7 +309,7 @@ function tekenPrognoseChart(datasets) {
 }
 
 // prefix = id-voorvoegsel uit de macro in portfolio.html; zonder inleg rekent de prognose met inleg 0.
-function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
+function maakPrognoseTab({ view, prefix, metInleg, metHistorie, standaardInvoer }) {
     const velden = ["jaren", "rendement", "laag", "hoog"].concat(metInleg ? ["jaarlijks", "maandelijks"] : []);
     const veld = sleutel => document.getElementById(prefix + sleutel[0].toUpperCase() + sleutel.slice(1));
     const el = naam => document.getElementById(prefix + naam);
@@ -153,6 +319,7 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
     let resultaat = null;
     // Standaard aan; zonder code (niet opslaan) kan het niet. Mislukt het ophalen, dan gaat het uit tot de volgende portfolio.
     let dividendAan = true;
+    const historie = metHistorie ? maakHistorieRegelaar({ veld, el, herbereken: () => berekenEnToon() }) : null;
 
     function leesInvoer() {
         invoer = { jaarlijks: 0, maandelijks: 0 };
@@ -161,7 +328,7 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
     }
 
     function toonDividendSectie() {
-        const data = dividendAan ? prognoseDividendData : null;
+        const data = dividendAan ? prognoseDividend.data : null;
         el("DividendSectie").hidden = !data;
         if (data) renderDividendVerwachting(prefix, data);
     }
@@ -177,6 +344,7 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
         el("DividendNietBeschikbaar").hidden = heeftCode;
         el("DividendFout").hidden = true;
         toonDividendSectie();
+        if (historie) historie.toon();
     }
 
     // null bij een fout: dan gaat het vinkje weer uit.
@@ -266,6 +434,8 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
         reset() {
             resultaat = null;
             dividendAan = true;
+            const handmatig = historie ? historie.reset() : null;
+            if (handmatig) Object.assign(invoer, handmatig);
         },
     };
 }
@@ -275,13 +445,13 @@ const prognoseTab = maakPrognoseTab({
     standaardInvoer: { jaren: 10, rendement: 6, laag: 4, hoog: 10, jaarlijks: 0, maandelijks: 200 },
 });
 const prognoseHuidigTab = maakPrognoseTab({
-    view: "prognose-huidig", prefix: "prognoseHuidig", metInleg: false,
+    view: "prognose-huidig", prefix: "prognoseHuidig", metInleg: false, metHistorie: true,
     standaardInvoer: { jaren: 10, rendement: 6, laag: 4, hoog: 10 },
 });
 
 function resetPrognose() {
-    prognoseDividendData = null;
-    prognoseDividendVerzoek = null;
+    prognoseDividend = { data: null, verzoek: null };
+    prognoseHistorie = { data: null, verzoek: null };
     prognoseTab.reset();
     prognoseHuidigTab.reset();
 }

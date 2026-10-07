@@ -30,6 +30,7 @@ from dividend import (
     bereken_kassaldo,
 )
 from dividend_verwachting import bereken_dividend_verwachting
+from historisch_rendement import bereken_historisch_rendement
 from transactie_utils import transacties_overzicht_uit_df
 from portfolio_admin import (
     is_geldige_code, CODE_LENGTH, controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
@@ -635,6 +636,21 @@ def dividend_verwachting(code):
     except Exception:
         traceback.print_exc()
         return jsonify({"error": "Verwacht dividend ophalen is mislukt. Probeer het later opnieuw."}), 500
+    return jsonify(voeg_diagnostiek_toe(resultaat or {"beschikbaar": False}))
+
+
+@app.route("/api/portfolio/<code>/historisch-rendement")
+def historisch_rendement(code):
+    code = code.strip().upper()
+    if not db_portfolio_bestaat(code):
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+    try:
+        with meet_tijd("historisch_rendement"):
+            resultaat = bereken_historisch_rendement(code)
+    except Exception:
+        traceback.print_exc()
+        return jsonify({"error": "Historisch rendement berekenen is mislukt. Probeer het later opnieuw."}), 500
     return jsonify(voeg_diagnostiek_toe(resultaat or {"beschikbaar": False}))
 
 

@@ -13,8 +13,38 @@ const {
     berekenDividendCumulatief,
     genereerToekomstDatums,
     valideerPrognoseInvoer,
-    bouwPrognoseGrafiekData
+    kiesHistorieHorizon,
+    begrensRendement,
+    historieVeldwaarden,
+    bouwPrognoseGrafiekData,
+    RENDEMENT_MIN_PCT,
+    RENDEMENT_MAX_PCT
 } = require("../static/js/prognose.js");
+
+test("kiesHistorieHorizon: afronden, begrenzen op maxHorizon, minimaal 1", () => {
+    assert.equal(kiesHistorieHorizon(10, 9), 9);
+    assert.equal(kiesHistorieHorizon(5, 9), 5);
+    assert.equal(kiesHistorieHorizon(4.5, 9), 5);
+    assert.equal(kiesHistorieHorizon(4.4, 9), 4);
+    assert.equal(kiesHistorieHorizon(0, 9), 1);
+    assert.equal(kiesHistorieHorizon(0.3, 9), 1);
+    assert.equal(kiesHistorieHorizon(30, 1), 1);
+    assert.equal(kiesHistorieHorizon(NaN, 9), 1);
+});
+
+test("begrensRendement: binnen de grenzen ongewijzigd, daarbuiten afgekapt", () => {
+    assert.deepEqual(begrensRendement(7.5), { waarde: 7.5, afgekapt: false });
+    assert.deepEqual(begrensRendement(RENDEMENT_MAX_PCT), { waarde: RENDEMENT_MAX_PCT, afgekapt: false });
+    assert.deepEqual(begrensRendement(45.2), { waarde: RENDEMENT_MAX_PCT, afgekapt: true });
+    assert.deepEqual(begrensRendement(-35), { waarde: RENDEMENT_MIN_PCT, afgekapt: true });
+});
+
+test("historieVeldwaarden: midden/laag/hoog naar de velden, met wat er is afgekapt", () => {
+    const r = historieVeldwaarden({ midden: 18.2, laag: -3.1, hoog: 41.0 });
+    assert.deepEqual(r.waarden, { rendement: 18.2, laag: -3.1, hoog: RENDEMENT_MAX_PCT });
+    assert.deepEqual(r.afgekapt, [{ veld: "hoog", historisch: 41.0, begrensd: RENDEMENT_MAX_PCT }]);
+    assert.deepEqual(historieVeldwaarden({ midden: 6, laag: 2, hoog: 9 }).afgekapt, []);
+});
 
 const EPS = 1e-6;
 function assertClose(actual, expected, epsilon = EPS, msg) {

@@ -4,7 +4,7 @@ import pandas as pd
 
 from diagnostiek import meld, CATEGORIE_KOERSEN, CATEGORIE_SPLITS, INFO, LET_OP
 from split_correctie import (
-    DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, vind_wisselparen,
+    DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, isin_ketens, vind_wisselparen,
 )
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl, getal_nl
 
@@ -405,3 +405,20 @@ def holdings_op_datums(trades_df, datums):
     # + 0.0 maakt van -0.0 (na afronden van float-ruis) een gewone 0.0.
     return [round(float(h), 6) + 0.0 for h in stand]
 
+
+def huidige_posities_per_keten(transacties_df, peildatum):
+    """[{isin (eind-ISIN), rijen, aantal, ticker, bijnaam}] voor de posities met stukken op peildatum. Een ISIN-keten
+    is één positie; de ticker is die met de meeste stukken (een ISIN kan op twee beurzen staan)."""
+    ketens = isin_ketens(vind_wisselparen(transacties_df)[0])
+    df = transacties_df[transacties_df["isin"].notna()]
+    posities = []
+    for eind_isin, groep in df.groupby(df["isin"].map(lambda i: ketens.get(i, i))):
+        aantal = holdings_op_datums(groep, [peildatum])[0]
+        if aantal <= 1e-6:
+            continue
+        per_ticker = {t: holdings_op_datums(g, [peildatum])[0] for t, g in groep.dropna(subset=["ticker"]).groupby("ticker")}
+        ticker = max(per_ticker, key=per_ticker.get) if per_ticker else None
+        rijen_naam = groep[groep["ticker"] == ticker] if ticker else groep
+        bijnaam = rijen_naam.sort_values("datum")["product"].iloc[-1]
+        posities.append({"isin": eind_isin, "rijen": groep, "aantal": aantal, "ticker": ticker, "bijnaam": bijnaam})
+    return posities

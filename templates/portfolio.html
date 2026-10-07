@@ -13,7 +13,20 @@
 
 {% block inhoud %}
     {# Tabbladen Prognose en Huidige portfolio: zelfde formulier (prefix = id-voorvoegsel), Huidige portfolio zonder inleg. #}
-    {% macro prognose_formulier(prefix, met_inleg) %}
+    {% macro prognose_formulier(prefix, met_inleg, met_historie=false) %}
+                {% if met_historie %}
+                <div class="labelRij prognoseLabelRij margeBoven10">
+                    <label class="checkboxLabel">
+                        <input type="checkbox" id="{{ prefix }}HistorieVinkje"> Rendement op basis van historie
+                    </label>
+                    <span id="{{ prefix }}HistorieHandmatig" class="kleineMelding" hidden>(handmatig aangepast)</span>
+                    <span class="infoTip" data-label="Rendement op basis van historie">Berekent verwacht koersrendement en bandbreedte uit de koershistorie (max. 10 jaar) van je huidige posities. Verleden is geen garantie.</span>
+                </div>
+                <p id="{{ prefix }}HistorieNietBeschikbaar" class="kleineMelding" hidden>Alleen beschikbaar bij een opgeslagen portfolio.</p>
+                <p id="{{ prefix }}HistorieLaden" class="kleineMelding" hidden>Koershistorie ophalen...</p>
+                <p id="{{ prefix }}HistorieFout" class="foutTekst prognoseMelding" hidden></p>
+                <p id="{{ prefix }}HistorieAfgekapt" class="waarschuwingTekst prognoseMelding" hidden></p>
+                {% endif %}
                 <div class="prognoseVelden">
                     <div class="prognoseVeld">
                         <label for="{{ prefix }}Jaren">Aantal jaren vooruit</label>
@@ -55,6 +68,18 @@
                 <p id="{{ prefix }}Foutmelding" class="foutTekst prognoseMelding" style="display: none;"></p>
                 <p id="{{ prefix }}Waarschuwing" class="waarschuwingTekst prognoseMelding" style="display: none;"></p>
                 <p class="prognoseVoetnoot">Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).</p>
+    {% endmacro %}
+    {% macro prognose_historie_sectie(prefix) %}
+                <div id="{{ prefix }}HistorieSectie" class="margeBoven20" hidden>
+                    <h3>Rendement op basis van historie</h3>
+                    <p id="{{ prefix }}HistorieHorizon" class="kleineMelding"></p>
+                    <div id="{{ prefix }}HistorieTabel"></div>
+                    <div id="{{ prefix }}HistorieWaarschuwingen"></div>
+                    <div class="uitlegBox margeBoven8">
+                        <p><strong>Hoe is dit berekend?</strong> We nemen de koersen in euro van je huidige posities over de afgelopen 10 jaar (of korter als een positie korter bestaat), gecorrigeerd voor aandelensplits en zonder dividend. Daarmee bouwen we je huidige portfolio terug in de tijd na, in de huidige verdeling (elke dag opnieuw in die verdeling gebracht, een vereenvoudiging). Voor het gekozen aantal jaren vooruit kijken we naar alle perioden van die lengte in die historie: het midden is de middelste uitkomst, de bandbreedte loopt van de 10% slechtste tot de 10% beste perioden. De tabel toont per positie de gemiddelde stijging per jaar en de spreiding van losse jaren.</p>
+                        <p><strong>Let op:</strong> dit is wat je huidige posities in het verleden deden. Posities die je nog bezit, zijn vaak posities die goed liepen; doortrekken overschat de toekomst meestal.</p>
+                    </div>
+                </div>
     {% endmacro %}
     {% macro prognose_dividend_sectie(prefix) %}
                 <div id="{{ prefix }}DividendSectie" class="margeBoven20" hidden>
@@ -299,10 +324,11 @@
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <p class="prognoseUitleg">Wat wordt je huidige portfolio waard als je vanaf nu niets meer inlegt?</p>
-{{ prognose_formulier("prognoseHuidig", false) }}
+{{ prognose_formulier("prognoseHuidig", false, true) }}
                 </div>
                 <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
                 </div>
+{{ prognose_historie_sectie("prognoseHuidig") }}
 {{ prognose_dividend_sectie("prognoseHuidig") }}
             </div>
 
@@ -343,6 +369,11 @@
                     </div>
                     <input type="text" inputmode="decimal" id="box3Bank" placeholder="0" autocomplete="off">
                     <div class="labelRij">
+                        <label for="box3Spaarrente">Gemiddelde spaarrente (%)</label>
+                        <span class="infoTip" data-label="Gemiddelde spaarrente">Gemiddelde rente op je spaargeld, bijvoorbeeld 1,5. De rente (spaargeld × percentage) telt elk jaar mee in A, B en het tegenbewijs, niet in het forfaitaire rendement.</span>
+                    </div>
+                    <input type="text" inputmode="decimal" id="box3Spaarrente" autocomplete="off">
+                    <div class="labelRij">
                         <label for="box3Overig">Overige bezittingen</label>
                         <span class="infoTip" data-label="Overige bezittingen">Op 1 januari, bijvoorbeeld beleggingen elders, een tweede woning of uitgeleend geld. Deze portfolio telt al vanzelf mee.</span>
                     </div>
@@ -353,8 +384,8 @@
                     </div>
                     <input type="text" inputmode="decimal" id="box3Schulden" placeholder="0" autocomplete="off">
                     <div class="labelRij">
-                        <label for="box3RendementAnder">Rendement op ander vermogen per jaar</label>
-                        <span class="infoTip" data-label="Rendement op ander vermogen">Wat het andere vermogen per jaar oplevert, bijvoorbeeld ontvangen spaarrente. Telt mee in de nieuwe stelsels en bij het tegenbewijs.</span>
+                        <label for="box3RendementAnder">Overig rendement op ander vermogen per jaar (EUR)</label>
+                        <span class="infoTip" data-label="Overig rendement op ander vermogen">Andere opbrengsten van het andere vermogen per jaar, bijvoorbeeld huur of rente op uitgeleend geld. Spaarrente vul je hierboven in. Telt mee in de nieuwe stelsels en bij het tegenbewijs.</span>
                     </div>
                     <input type="text" inputmode="decimal" id="box3RendementAnder" placeholder="0" autocomplete="off">
                     <div class="labelRij">
@@ -362,28 +393,32 @@
                         <span class="infoTip" data-label="Fiscale partner">Verdubbelt de heffingsvrije bedragen; ga uit van jullie gezamenlijke vermogen.</span>
                     </div>
                     <p id="box3InvoerFout" class="foutTekst melding" hidden></p>
+                    <p id="box3RenteWaarschuwing" class="waarschuwingTekst melding" hidden>Je hebt spaargeld ingevuld zonder rente. A, B en het tegenbewijs gaan er dan van uit dat het niets opleverde, waardoor ze te gunstig uitvallen.</p>
                     <div id="box3Tegels"></div>
                 </div>
-                <div class="tabGrafiek" data-grafiek-plek></div>
+                <div class="tabGrafiek" data-grafiek-plek>
+                    <label class="checkboxLabel margeBoven0 margeOnder10"><input type="checkbox" id="box3AllesVerkopen"> Toon B als ik nu alles verkoop</label>
+                </div>
                 </div>
 
                 <section class="box3Stelsel">
                     <h3>Huidig stelsel (forfaitair, vanaf 2023)</h3>
                     <p><strong>Zo wordt het berekend.</strong> Op 1 januari telt de waarde van deze portfolio, plus je overige bezittingen, als 'overige bezittingen' en je spaargeld als banktegoed. Over elk deel rekent de Belastingdienst met een vast rendementspercentage; schulden boven de drempel gaan eraf. Dat rendement wordt omgeslagen over het deel van je vermogen boven het heffingsvrije vermogen, en daarover betaal je het tarief.</p>
-                    <p><strong>Tegenbewijs.</strong> Was je werkelijke rendement lager (koersresultaat plus dividend plus rendement op ander vermogen, waarbij kosten níet aftrekbaar zijn en dus worden teruggeteld), dan betaal je het tarief over dat werkelijke rendement. De laagste van de twee geldt. Jaren vóór 2023 vielen onder een ander stelsel en worden niet berekend.</p>
+                    <p><strong>Tegenbewijs.</strong> Was je werkelijke rendement lager (koersresultaat plus dividend plus spaarrente en overig rendement op ander vermogen, waarbij kosten níet aftrekbaar zijn en dus worden teruggeteld), dan betaal je het tarief over dat werkelijke rendement. De laagste van de twee geldt. Jaren vóór 2023 vielen onder een ander stelsel en worden niet berekend.</p>
                     <div id="box3HuidigTabel" class="scrollbareTabel"></div>
+                    <p id="box3LopendTegenbewijs" class="kleineMelding" hidden>Lopend jaar: werkelijk rendement tot vandaag, forfaitair over het hele jaar; het tegenbewijs valt hierdoor te gunstig uit.</p>
                 </section>
 
                 <section class="box3Stelsel">
                     <h3>Scenario A: vermogensaanwasbelasting (wetsvoorstel)</h3>
-                    <p><strong>Zo wordt het berekend.</strong> Elk jaar wordt de waardeverandering belast, ook als je niets verkoopt: waarde aan het eind min waarde aan het begin min je netto inleg (aankopen min verkopen, inclusief kosten, zodat kosten aftrekbaar zijn). Daar komen het bruto dividend en het rendement op ander vermogen bij. Een negatief rendement wordt verlies; alleen het deel boven <span class="box3Drempel"></span> mag je verrekenen met latere jaren. Van wat overblijft gaat <span class="box3Heffingsvrij"></span> heffingsvrij resultaat af (<span class="box3HeffingsvrijPartner"></span> met fiscale partner); over de rest betaal je <span class="box3Tarief"></span>.</p>
+                    <p><strong>Zo wordt het berekend.</strong> Elk jaar wordt de waardeverandering belast, ook als je niets verkoopt: waarde aan het eind min waarde aan het begin min je netto inleg (aankopen min verkopen, inclusief kosten, zodat kosten aftrekbaar zijn). Daar komen het bruto dividend, de spaarrente en het overige rendement op ander vermogen bij. Een negatief rendement wordt verlies; alleen het deel boven <span class="box3Drempel"></span> mag je verrekenen met latere jaren. Van wat overblijft gaat <span class="box3Heffingsvrij"></span> heffingsvrij resultaat af (<span class="box3HeffingsvrijPartner"></span> met fiscale partner); over de rest betaal je <span class="box3Tarief"></span>.</p>
                     <div id="box3AanwasTabel" class="scrollbareTabel"></div>
                 </section>
 
                 <section class="box3Stelsel">
                     <h3>Scenario B: vermogenswinstbelasting (bij verkoop)</h3>
-                    <p><strong>Zo wordt het berekend.</strong> Koerswinst wordt pas belast als je verkoopt: de opbrengst (na kosten) min de kostenbasis. De kostenbasis is de gemiddelde aankoopprijs per positie, inclusief aankoopkosten. Bruto dividend en rendement op ander vermogen tellen elk jaar mee. Verliesverrekening, heffingsvrij resultaat en tarief (<span class="box3Tarief"></span>) werken als bij A.</p>
-                    <p>Nog niet verkocht: <span id="box3LatenteWinst"></span> latente winst. Verkoop je alles tegen de huidige koers, dan komt daar ongeveer <span id="box3LatenteBelasting"></span> belasting bij (indicatie, zonder heffingsvrij resultaat).</p>
+                    <p><strong>Zo wordt het berekend.</strong> Koerswinst wordt pas belast als je verkoopt: de opbrengst (na kosten) min de kostenbasis. De kostenbasis is de gemiddelde aankoopprijs per positie, inclusief aankoopkosten. Bruto dividend, spaarrente en overig rendement op ander vermogen tellen elk jaar mee. Verliesverrekening, heffingsvrij resultaat en tarief (<span class="box3Tarief"></span>) werken als bij A.</p>
+                    <p id="box3AllesVerkopenZin" hidden></p>
                     <div id="box3WinstTabel" class="scrollbareTabel"></div>
                     <h4>Verkopen</h4>
                     <div id="box3VerkopenTabel" class="scrollbareTabel"></div>

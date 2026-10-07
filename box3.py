@@ -11,7 +11,8 @@ from debug_utils import dprint
 from statistieken import waarde_op_of_voor
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
 
-INVOER_BEDRAGEN = ("banktegoeden", "overige_bezittingen", "schulden", "rendement_ander_vermogen")
+INVOER_BEDRAGEN = ("banktegoeden", "overige_bezittingen", "schulden", "rendement_ander_vermogen", "spaarrente_pct")
+SPAARRENTE_MAX_PCT = 20
 
 
 def _getal(waarde):
@@ -159,6 +160,8 @@ def valideer_box3_invoer(invoer):
         if waarde < 0:
             return None, f"'{sleutel}' mag niet negatief zijn."
         schoon[sleutel] = float(waarde)
+    if schoon["spaarrente_pct"] > SPAARRENTE_MAX_PCT:
+        return None, f"De spaarrente moet tussen 0 en {SPAARRENTE_MAX_PCT}% liggen."
     partner = invoer.get("fiscale_partner", False)
     if not isinstance(partner, bool):
         return None, "'fiscale_partner' moet waar of onwaar zijn."
@@ -175,7 +178,7 @@ def _forfaitaire_parameters(jaar):
     return FORFAITAIR[max(FORFAITAIR)], True
 
 
-def _huidig_stelsel(j, invoer, koersresultaat, dividend):
+def _huidig_stelsel(j, invoer, koersresultaat, dividend, ander):
     params, geschat = _forfaitaire_parameters(j["jaar"])
     if params is None:
         return {"berekend": False}
@@ -191,8 +194,8 @@ def _huidig_stelsel(j, invoer, koersresultaat, dividend):
     belasting_forfaitair = (
         max(0.0, params["tarief"] * forfaitair_rendement / grondslag * na_vrijstelling) if grondslag > 0 else 0.0
     )
-    # Kosten zijn in het huidige stelsel niet aftrekbaar: terugtellen.
-    werkelijk = koersresultaat + j["kosten"] + dividend + invoer["rendement_ander_vermogen"]
+    # Kosten zijn in het huidige stelsel niet aftrekbaar: terugtellen. Spaarrente alleen hier, niet in het forfaitaire deel.
+    werkelijk = koersresultaat + j["kosten"] + dividend + ander["totaal"]
     belasting_tegenbewijs = params["tarief"] * max(0.0, werkelijk)
     tegenbewijs_geldt = belasting_tegenbewijs < belasting_forfaitair
     return {
@@ -212,7 +215,8 @@ def _huidig_stelsel(j, invoer, koersresultaat, dividend):
         "koersresultaat": round(koersresultaat, 2),
         "kosten": j["kosten"],
         "dividend_bruto": j["dividend_bruto"],
-        "rendement_ander_vermogen": invoer["rendement_ander_vermogen"],
+        "spaarrente": ander["spaarrente"],
+        "rendement_ander_vermogen": ander["overig"],
         "werkelijk_rendement": round(werkelijk, 2),
         "belasting_tegenbewijs": round(belasting_tegenbewijs, 2),
         "geldt": "tegenbewijs" if tegenbewijs_geldt else "forfaitair",
@@ -220,10 +224,10 @@ def _huidig_stelsel(j, invoer, koersresultaat, dividend):
     }
 
 
-def _wwr_jaar(resultaat_portfolio, dividend, invoer, verliesvoorraad):
+def _wwr_jaar(resultaat_portfolio, dividend, ander, invoer, verliesvoorraad):
     """Eén jaar volgens het wetsvoorstel; geeft (tussenstappen, nieuwe verliesvoorraad)."""
     heffingsvrij = WWR_HEFFINGSVRIJ_RESULTAAT * (2 if invoer["fiscale_partner"] else 1)
-    rendement = resultaat_portfolio + dividend + invoer["rendement_ander_vermogen"]
+    rendement = resultaat_portfolio + dividend + ander["totaal"]
     verlies_erbij = max(0.0, -rendement - WWR_VERLIESDREMPEL) if rendement < 0 else 0.0
     # Verrekenen met wat na het heffingsvrije resultaat overblijft, anders gaat verlies verloren aan de vrijstelling.
     verrekend = min(verliesvoorraad, max(0.0, rendement - heffingsvrij))
@@ -240,24 +244,51 @@ def _wwr_jaar(resultaat_portfolio, dividend, invoer, verliesvoorraad):
     }, nieuwe_voorraad
 
 
+def _b_alles_verkopen(j, latente_winst, dividend, ander, invoer, verliesvoorraad):
+    """B in het lopende jaar alsof alles vandaag verkocht wordt: de latente winst telt als gerealiseerd,
+    met dezelfde verliesvoorraad als B dat jaar. Geeft {jaar, rendement, belastbaar, heffingsvrij, belasting,
+    extra_belasting}; extra = verschil met B zonder verkopen."""
+    gewoon, _ = _wwr_jaar(j["gerealiseerd"], dividend, ander, invoer, verliesvoorraad)
+    variant, _ = _wwr_jaar(j["gerealiseerd"] + latente_winst, dividend, ander, invoer, verliesvoorraad)
+    return {
+        "jaar": j["jaar"],
+        "latente_winst": round(latente_winst, 2),
+        "rendement": variant["rendement"],
+        "belastbaar": variant["belastbaar"],
+        "heffingsvrij": variant["heffingsvrij"],
+        "belasting": variant["belasting"],
+        "extra_belasting": round(variant["belasting"] - gewoon["belasting"], 2),
+    }
+
+
 def bereken_box3(basis, invoer):
     """Per jaar de tussenstappen van de drie stelsels (huidig, aanwas, vermogenswinst), plus totalen."""
+    spaarrente = invoer["banktegoeden"] * invoer["spaarrente_pct"] / 100
+    ander = {
+        "spaarrente": round(spaarrente, 2),
+        "overig": invoer["rendement_ander_vermogen"],
+        "totaal": spaarrente + invoer["rendement_ander_vermogen"],
+    }
     jaren = []
+    alles_verkopen = None
     voorraad_aanwas = voorraad_winst = 0.0
     for j in basis["jaren"]:
         koersresultaat = j["waarde_eind"] - j["waarde_begin"] - j["netto_inleg"]
         dividend = j["dividend_bruto"] or 0.0
         gemeenschappelijk = {
             "dividend_bruto": j["dividend_bruto"],
-            "rendement_ander_vermogen": invoer["rendement_ander_vermogen"],
+            "spaarrente": ander["spaarrente"],
+            "rendement_ander_vermogen": ander["overig"],
         }
-        aanwas, voorraad_aanwas = _wwr_jaar(koersresultaat, dividend, invoer, voorraad_aanwas)
-        winst, voorraad_winst = _wwr_jaar(j["gerealiseerd"], dividend, invoer, voorraad_winst)
+        aanwas, voorraad_aanwas = _wwr_jaar(koersresultaat, dividend, ander, invoer, voorraad_aanwas)
+        if j["lopend"]:
+            alles_verkopen = _b_alles_verkopen(j, basis["latente_winst"], dividend, ander, invoer, voorraad_winst)
+        winst, voorraad_winst = _wwr_jaar(j["gerealiseerd"], dividend, ander, invoer, voorraad_winst)
         jaren.append({
             "jaar": j["jaar"],
             "lopend": j["lopend"],
             "kosten_onvolledig": j["kosten_onvolledig"],
-            "huidig": _huidig_stelsel(j, invoer, koersresultaat, dividend),
+            "huidig": _huidig_stelsel(j, invoer, koersresultaat, dividend, ander),
             "aanwas": {"koersresultaat": round(koersresultaat, 2), **gemeenschappelijk, **aanwas},
             "vermogenswinst": {"gerealiseerd": j["gerealiseerd"], **gemeenschappelijk, **winst},
         })
@@ -275,7 +306,7 @@ def bereken_box3(basis, invoer):
         "jaren": jaren,
         "totaal": {s: totaal(s) for s in stelsels},
         "lopend_jaar": {s: totaal(s, alleen_lopend=True) for s in stelsels},
-        "latente_belasting": round(max(0.0, basis["latente_winst"]) * WWR_TARIEF, 2),
+        "b_alles_verkopen": alles_verkopen,
         "tarief_wwr": WWR_TARIEF,
         "heffingsvrij_wwr": WWR_HEFFINGSVRIJ_RESULTAAT,
         "verliesdrempel": WWR_VERLIESDREMPEL,

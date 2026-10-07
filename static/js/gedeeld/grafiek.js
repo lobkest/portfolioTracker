@@ -99,6 +99,7 @@ function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
 }
 
 // Staven naast elkaar per categorie (bv. jaren, dus geen datums); null in de data = geen staaf.
+// Een dataset mag een eigen tooltipLabel(ctx) meegeven.
 function updateStaafChart(labels, datasets, waardeFormatter = formatteerEuro) {
     if (chart) chart.destroy();
     chart = new Chart(document.getElementById("rendementChart"), {
@@ -113,7 +114,9 @@ function updateStaafChart(labels, datasets, waardeFormatter = formatteerEuro) {
                 legend: { position: "bottom" },
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y === null ? "niet berekend" : waardeFormatter(ctx.parsed.y)}`
+                        label: (ctx) => ctx.dataset.tooltipLabel
+                            ? ctx.dataset.tooltipLabel(ctx)
+                            : `${ctx.dataset.label}: ${ctx.parsed.y === null ? "niet berekend" : waardeFormatter(ctx.parsed.y)}`
                     }
                 },
                 datalabels: { display: false }
