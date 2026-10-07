@@ -107,6 +107,7 @@ class TestBijwerkenRoute(unittest.TestCase):
             patch.object(app_module, "db_get_order_ids_bij_andere_portfolios", return_value=set()))
         self.mock_kern = self._start(patch.object(app_module, "_kern_na_opslaan", return_value={}))
         self.mock_insert = self._start(patch.object(app_module, "voeg_nieuwe_transacties_toe"))
+        self.mock_aanvullen = self._start(patch.object(app_module, "vul_bronkolommen_aan"))
         self.mock_dividend_opslaan = self._start(patch.object(upload_verwerking, "db_save_dividenden"))
 
     def _start(self, p):
@@ -195,12 +196,14 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.assertEqual(set(rows_to_insert["Order ID"]), nieuw)
         self.mock_kern.assert_called_once_with(TEST_CODE.upper())
 
-    def test_niets_nieuw_opent_geen_schrijftransactie(self):
+    def test_niets_nieuw_vult_alleen_bronkolommen_aan(self):
         self.mock_opgeslagen.return_value = self.transactie_ids
         res = self._post()
         self.assertEqual(res.status_code, 200)
-        self.mock_insert.assert_not_called()
-        self.assertEqual(self.app_module.db_transactie.call_count, 1)
+        self.assertTrue(self.mock_insert.call_args.args[2].empty)
+        _cur, code, df = self.mock_aanvullen.call_args.args
+        self.assertEqual((code, set(df["Order ID"])), (TEST_CODE.upper(), self.transactie_ids))
+        self.assertEqual(self.app_module.db_transactie.call_count, 2)
 
 
 if __name__ == "__main__":

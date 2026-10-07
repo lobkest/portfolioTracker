@@ -1,6 +1,7 @@
 """Hoe zeker is een ticker: lichte check bij elke upload, volledige check op de Ticker-zekerheid-pagina."""
 import cProfile
 import io
+import itertools
 import os
 import pstats
 import re
@@ -172,46 +173,53 @@ def _verzamel_extra_kandidaten(product, isin, bestaande_alternatieven, uitgeslot
     return extra
 
 
-def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, isin, openfigi=None):
-    """Per nieuwe OpenFIGI-ticker-root één Yahoo-zoekopdracht; Yahoo kiest het koersbare symbool.
-    Geeft (kandidaten, debug); debug is __TIJDELIJK, diagnostisch__ (zie CLAUDE.md: Yahoo en tickers)."""
+def _openfigi_bronnen(alternatieven_kandidaten, gekozen_ticker, isin, openfigi=None):
+    """Per nieuwe OpenFIGI-ticker-root een functie die die root bij Yahoo zoekt (Yahoo kiest het koersbare symbool),
+    zodat _zoek_betere_alternatieven() pas zoekt als de root aan de beurt is. Roots met de meeste OpenFIGI-noteringen
+    eerst. Geeft (bronnen, debug); debug is __TIJDELIJK, diagnostisch__ (zie CLAUDE.md: Yahoo en tickers)."""
     if openfigi is None:
         openfigi = haal_openfigi_resultaten(isin)
+    debug = {"roots": [], "nieuwe_roots": [], "overgeslagen_roots": [], "yahoo_resultaten": {}}
     if not openfigi["resultaten"]:
-        return list(alternatieven_kandidaten), {
-            "roots": [], "nieuwe_roots": [], "overgeslagen_roots": [], "yahoo_resultaten": {},
-        }
+        return [], debug
 
-    alle_roots = []
-    for r in openfigi["resultaten"]:
-        root = (r.get("ticker") or "").upper()
-        if root and root not in alle_roots:
-            alle_roots.append(root)
+    alle_roots = [(r.get("ticker") or "").upper() for r in openfigi["resultaten"]]
+    alle_roots = [r for r in alle_roots if r]
+    unieke_roots = list(dict.fromkeys(alle_roots))
 
     bekende_symbols = {gekozen_ticker} | {a.get("symbol") for a in alternatieven_kandidaten}
     bekende_roots = {s.split(".")[0].upper() for s in bekende_symbols if s}
-
-    nieuwe_roots = [r for r in alle_roots if r not in bekende_roots]
-    overgeslagen_roots = [r for r in alle_roots if r in bekende_roots]
-
-    extra = list(alternatieven_kandidaten)
-    yahoo_resultaten = {}
-    for root in nieuwe_roots:
-        quotes = _yahoo_search(root)
-        yahoo_resultaten[root] = [{"symbol": q.get("symbol"), "exchange": q.get("exchange")} for q in quotes]
-        for q in quotes:
-            symbol = q.get("symbol")
-            if not symbol or symbol in bekende_symbols:
-                continue
-            bekende_symbols.add(symbol)
-            extra.append({"symbol": symbol, "exchange": q.get("exchange")})
-
-    debug = {
-        "roots": alle_roots,
+    nieuwe_roots = [r for r in unieke_roots if r not in bekende_roots]
+    debug.update({
+        "roots": unieke_roots,
         "nieuwe_roots": nieuwe_roots,
-        "overgeslagen_roots": overgeslagen_roots,
-        "yahoo_resultaten": yahoo_resultaten,
-    }
+        "overgeslagen_roots": [r for r in unieke_roots if r in bekende_roots],
+    })
+
+    def _bron(root):
+        def _zoek():
+            quotes = _yahoo_search(root)
+            debug["yahoo_resultaten"][root] = [{"symbol": q.get("symbol"), "exchange": q.get("exchange")} for q in quotes]
+            nieuw = []
+            for q in quotes:
+                symbol = q.get("symbol")
+                if not symbol or symbol in bekende_symbols:
+                    continue
+                bekende_symbols.add(symbol)
+                nieuw.append({"symbol": symbol, "exchange": q.get("exchange")})
+            return nieuw
+        return _zoek
+
+    zoekvolgorde = sorted(nieuwe_roots, key=lambda r: -alle_roots.count(r))
+    return [_bron(root) for root in zoekvolgorde], debug
+
+
+def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, isin, openfigi=None):
+    """Alle OpenFIGI-roots in één keer zoeken (zie _openfigi_bronnen()). Geeft (kandidaten, debug)."""
+    bronnen, debug = _openfigi_bronnen(alternatieven_kandidaten, gekozen_ticker, isin, openfigi)
+    extra = list(alternatieven_kandidaten)
+    for bron in bronnen:
+        extra += bron()
     return extra, debug
 
 
@@ -245,72 +253,99 @@ def kies_alternatief(alternatieven, aantal_steekproef, verwachte_beurzen, openfi
     return next((a for a in acceptabel if a.get("beurs") in verwachte_beurzen), None) or next(iter(acceptabel), None)
 
 
-def _uitkeringsvorm_strijdig_bij_yahoo(degiro_naam, ticker):
-    """Alleen als de DeGiro-naam DIS of ACC noemt; longName uit ticker_info, anders één Yahoo-call (en opslaan)."""
-    if not uitkeringsvorm(degiro_naam):
-        return False, None
+def _long_name(ticker):
+    """Uit ticker_info, anders één Yahoo-call (en opslaan); None als Yahoo geen naam geeft."""
     long_name = _ticker_details_met_cache(ticker).get("long_name")
     if not long_name:
         long_name = haal_long_names([ticker]).get(ticker)
         if long_name:
             bewaar_long_names({ticker: long_name})
+    return long_name
+
+
+def _uitkeringsvorm_strijdig_bij_yahoo(degiro_naam, ticker):
+    """Alleen als de DeGiro-naam DIS of ACC noemt."""
+    if not uitkeringsvorm(degiro_naam):
+        return False, None
+    long_name = _long_name(ticker)
     return uitkeringsvorm_strijdig(degiro_naam, long_name), long_name
 
 
+def bijnaam_na_tickerwissel(bijnaam, oude_ticker, nieuwe_ticker):
+    """De longName van de nieuwe ticker als de bijnaam nog die van de oude is (dus niet zelf gekozen), anders None."""
+    if not bijnaam or not oude_ticker:
+        return None
+    oude_naam = _long_name(oude_ticker)
+    if not oude_naam or bijnaam.strip() != oude_naam.strip():
+        return None
+    return _long_name(nieuwe_ticker)
+
+
+def _reken_alternatief_door(alt, steekproef):
+    alt_ticker = alt["symbol"]
+    t_alt, y_alt = time.time(), _tz_stand()
+    alt_checks = []
+    for t in steekproef:
+        check = vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"]))
+        alt_checks.append(check)
+        # Geen koersdata betekent meestal helemaal geen historie; verder proberen kost alleen tijd.
+        if check["yahoo_koers"] is None:
+            break
+
+    alt_matches = [not _prijscheck_is_probleem(c) for c in alt_checks if c["match"] is not None]
+    if any(c["yahoo_koers"] is not None for c in alt_checks):
+        alt_details = _ticker_details_met_cache(alt_ticker)
+        alt_is_etf = classify_ticker(alt_ticker)
+        alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
+    else:
+        # Zonder koersdata mislukken deze lookups meestal ook en dat wordt niet gecachet: elke keer rate-limit-retries.
+        alt_details, alt_is_etf, alt_land, alt_sector = {}, None, None, None
+
+    _tz_print(alt_ticker, f"  alternatief op {alt.get('exchange')}: "
+                          f"{sum(1 for m in alt_matches if m)}/{len(alt_matches)} kloppen", t_alt, y_alt)
+    return {
+        "ticker": alt_ticker,
+        "beurs": alt.get("exchange"),
+        "is_etf": alt_is_etf,
+        "land": alt_land,
+        "sector": alt_sector,
+        "valuta": alt_details.get("valuta"),
+        "aantal_matches": sum(1 for m in alt_matches if m),
+        "aantal_gecontroleerd": len(alt_matches),
+    }
+
+
 def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_beurzen, openfigi=None,
-                               prijsprobleem=True, degiro_naam=None):
-    """Rekent kandidaten in _sorteer_kandidaten()-volgorde door tot de eerste acceptabele; DIS/ACC pas als laatste.
-    Door de volgorde is de eerste acceptabele ook de beste. Geeft (alternatieven, aanbevolen_alternatief of None)."""
+                               prijsprobleem=True, degiro_naam=None, extra_bronnen=()):
+    """Rekent kandidaten in _sorteer_kandidaten()-volgorde door, daarna die uit extra_bronnen (pas opgehaald als ze
+    aan de beurt zijn), tot een acceptabele op de verwachte beurs; DIS/ACC pas als laatste. Een acceptabele op een
+    andere beurs is de reserve. Geeft (alternatieven, aanbevolen_alternatief of None)."""
     alternatieven = []
-    aanbevolen_alternatief = None
-    for alt in _sorteer_kandidaten(alternatieven_kandidaten, verwachte_beurzen, openfigi):
-        alt_ticker = alt.get("symbol")
-        if not alt_ticker:
-            continue
+    reserve = None
+    batches = itertools.chain([alternatieven_kandidaten], (bron() for bron in extra_bronnen))
+    for batch in batches:
+        for alt in _sorteer_kandidaten(batch, verwachte_beurzen, openfigi):
+            alt_ticker = alt.get("symbol")
+            beurs_klopt = alt.get("exchange") in verwachte_beurzen
+            # Na een reserve kan alleen een kandidaat op de verwachte beurs nog winnen.
+            if not alt_ticker or (reserve and not beurs_klopt):
+                continue
 
-        t_alt, y_alt = time.time(), _tz_stand()
-        alt_checks = []
-        for t in steekproef:
-            check = vergelijk_prijs_op_datum(alt_ticker, t["datum"], float(t["koers"]))
-            alt_checks.append(check)
-            # Geen koersdata betekent meestal helemaal geen historie; verder proberen kost alleen tijd.
-            if check["yahoo_koers"] is None:
-                break
+            resultaat_alt = _reken_alternatief_door(alt, steekproef)
+            alternatieven.append(resultaat_alt)
+            if not _alternatief_acceptabel(resultaat_alt, len(steekproef), verwachte_beurzen, openfigi, prijsprobleem):
+                continue
+            strijdig, long_name = _uitkeringsvorm_strijdig_bij_yahoo(degiro_naam, alt_ticker)
+            if strijdig:
+                resultaat_alt["uitkeringsvorm_strijdig"] = True
+                print(f"[ticker-zekerheid] {alt_ticker}: prijs klopt, maar DIS/ACC wijkt af ({long_name!a}) "
+                      f"-> verder zoeken")
+                continue
+            if beurs_klopt or not verwachte_beurzen:
+                return alternatieven, alt_ticker
+            reserve = alt_ticker
 
-        alt_matches = [not _prijscheck_is_probleem(c) for c in alt_checks if c["match"] is not None]
-        if any(c["yahoo_koers"] is not None for c in alt_checks):
-            alt_details = _ticker_details_met_cache(alt_ticker)
-            alt_is_etf = classify_ticker(alt_ticker)
-            alt_land, alt_sector, _alt_top_holding_land = _land_sector_voor_weergave(alt_ticker)
-        else:
-            # Zonder koersdata mislukken deze lookups meestal ook en dat wordt niet gecachet: elke keer rate-limit-retries.
-            alt_details, alt_is_etf, alt_land, alt_sector = {}, None, None, None
-
-        resultaat_alt = {
-            "ticker": alt_ticker,
-            "beurs": alt.get("exchange"),
-            "is_etf": alt_is_etf,
-            "land": alt_land,
-            "sector": alt_sector,
-            "valuta": alt_details.get("valuta"),
-            "aantal_matches": sum(1 for m in alt_matches if m),
-            "aantal_gecontroleerd": len(alt_matches),
-        }
-        alternatieven.append(resultaat_alt)
-        _tz_print(alt_ticker, f"  alternatief op {alt.get('exchange')}: "
-                              f"{sum(1 for m in alt_matches if m)}/{len(alt_matches)} kloppen", t_alt, y_alt)
-
-        if not _alternatief_acceptabel(resultaat_alt, len(steekproef), verwachte_beurzen, openfigi, prijsprobleem):
-            continue
-        strijdig, long_name = _uitkeringsvorm_strijdig_bij_yahoo(degiro_naam, alt_ticker)
-        if strijdig:
-            resultaat_alt["uitkeringsvorm_strijdig"] = True
-            print(f"[ticker-zekerheid] {alt_ticker}: prijs klopt, maar DIS/ACC wijkt af ({long_name!a}) -> verder zoeken")
-            continue
-        aanbevolen_alternatief = alt_ticker
-        break
-
-    return alternatieven, aanbevolen_alternatief
+    return alternatieven, reserve
 
 
 def _leeg_resultaat(zekerheid, beurs):
@@ -436,15 +471,13 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, 
     # De restlijst van de zoekopdracht kan leeg zijn (BYD); alleen dan extra zoeken.
     if not kandidaten:
         kandidaten += _verzamel_extra_kandidaten(product, isin, kandidaten, resultaat["ticker"])
-    kandidaten, openfigi_debug_info = _verrijk_met_openfigi_kandidaten(
-        kandidaten, resultaat["ticker"], isin, openfigi
-    )
-    print(f"[ticker-zekerheid] {isin}: {len(kandidaten)} kandidaten om door te rekenen: "
-          f"{[k.get('symbol') for k in kandidaten]}")
+    bronnen, openfigi_debug_info = _openfigi_bronnen(kandidaten, resultaat["ticker"], isin, openfigi)
+    print(f"[ticker-zekerheid] {isin}: {len(kandidaten)} kandidaten {[k.get('symbol') for k in kandidaten]}, "
+          f"daarna zo nodig {len(bronnen)} OpenFIGI-roots {openfigi_debug_info['nieuwe_roots']}")
     bekende_checks = [c for c in resultaat["prijs_checks"] if c["match"] is not None]
     prijsprobleem = not bekende_checks or any(_prijscheck_is_probleem(c) for c in bekende_checks)
     alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
-        kandidaten, steekproef, BEURS_MAP.get(beurs, []), openfigi, prijsprobleem, product,
+        kandidaten, steekproef, BEURS_MAP.get(beurs, []), openfigi, prijsprobleem, product, bronnen,
     )
     uitgebreid = {
         **resultaat,
@@ -648,10 +681,11 @@ def _corrigeer_met_alternatief(resultaat, geldige_transacties, beurs, isin=None,
     steekproef = _kies_steekproef_transacties(geldige_transacties)
     verwachte_beurzen = BEURS_MAP.get(beurs, [])
     kandidaten = list(resultaat["alternatieven"])
+    bronnen = []
     if root_ontbreekt:
-        kandidaten, _debug = _verrijk_met_openfigi_kandidaten(kandidaten, resultaat["ticker"], isin, openfigi)
+        bronnen, _debug = _openfigi_bronnen(kandidaten, resultaat["ticker"], isin, openfigi)
     alternatieven, _aanbevolen = _zoek_betere_alternatieven(
-        kandidaten, steekproef, verwachte_beurzen, openfigi, prijsprobleem, degiro_naam,
+        kandidaten, steekproef, verwachte_beurzen, openfigi, prijsprobleem, degiro_naam, bronnen,
     )
     gekozen = kies_alternatief(alternatieven, len(steekproef), verwachte_beurzen, openfigi, prijsprobleem)
     if gekozen:
@@ -668,9 +702,7 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     resultaat = _begin_resultaat(product, isin, beurs, bekende_ticker)
     resultaat = _voeg_prijscheck_laatste_toe(resultaat, geldige_transacties)
     openfigi = haal_openfigi_resultaten(isin) if resultaat["ticker"] else None
-    # TIJDELIJK UIT (test): een ontbrekende OpenFIGI-root corrigeert bij upload even niet. Terugzetten!
-    # root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
-    root_ontbreekt = False
+    root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
     escaleren = _moet_escaleren(resultaat)
     if escaleren:
         resultaat = _voeg_steekproef_toe(resultaat, geldige_transacties)

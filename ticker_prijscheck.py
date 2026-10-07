@@ -14,9 +14,9 @@ from ticker_classificatie import _ticker_details_met_cache
 PRIJSCHECK_DREMPEL_OK = 0.02
 PRIJSCHECK_DREMPEL_WAARSCHUWING = 0.06
 
-# Exact low <= koers <= high bleek te strak: bekend-goede tickers vielen er ~1-2% buiten.
-DAGRANGE_TOLERANTIE = 0.05
-# Bij goedkope aandelen is 5% maar een paar cent: dan valt afronding/intraday-ruis er al buiten.
+# Ruimte voor afronding en intraday-ruis, maar krap genoeg om een andere share class (DIS vs. ACC) te vangen.
+DAGRANGE_TOLERANTIE = 0.02
+# Bij goedkope aandelen is 2% maar een paar cent: dan valt afronding/intraday-ruis er al buiten.
 DAGRANGE_TOLERANTIE_EUR = 0.50
 
 

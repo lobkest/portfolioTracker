@@ -22,7 +22,7 @@ from portfolio_calc import (
     compute_value_over_time, meld_split_koppeling,
 )
 from statistieken import _bouw_xirr_cashflows
-from split_correctie import bepaal_effectieve_datums, vind_wisselparen
+from split_correctie import Wisselpaar, bepaal_effectieve_datums, isin_ketens, vind_wisselparen
 
 OUD_ISIN = "PLAATSHOUDER-OUD-ISIN"
 NIEUW_ISIN = "PLAATSHOUDER-NIEUW-ISIN"
@@ -218,6 +218,22 @@ class TestConversierijPatroon(_MetRequest):
         self.assertEqual(uit["effectieve_datum"].dt.strftime("%Y-%m-%d").tolist(), ["2024-01-01", "2024-02-01", "2024-02-01"])
 
 
+def _paar(datum, oud, nieuw):
+    return Wisselpaar(pd.Timestamp(datum), oud, nieuw, (), (), 1.0, 1.0)
+
+
+class TestIsinKetens(unittest.TestCase):
+    def test_geen_wissel_geeft_lege_mapping(self):
+        self.assertEqual(isin_ketens([]), {})
+
+    def test_een_wissel(self):
+        self.assertEqual(isin_ketens([_paar("2021-01-26", "A", "B")]), {"A": "B", "B": "B"})
+
+    def test_keten_volgt_de_datum(self):
+        paren = [_paar("2023-05-15", "B", "C"), _paar("2021-01-26", "A", "B")]
+        self.assertEqual(isin_ketens(paren), {"A": "C", "B": "C", "C": "C"})
+
+
 class TestWisselrijenUitDePrijscheck(_MetRequest):
     def test_upload_posities_bevatten_alleen_marktransacties(self):
         import upload_verwerking
@@ -233,21 +249,41 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
             {"datum": "2021-01-08", "koers": 0.41}, {"datum": "2021-01-25", "koers": 0.71}])
         self.assertEqual(posities[(NIEUW_ISIN, "NSQ")], [{"datum": "2021-01-27", "koers": 1.91}])
 
-    def test_ticker_zekerheid_groepen_slaan_wisselrijen_over(self):
+    def _groepen(self, df):
         from unittest.mock import patch
         import portfolio_orchestratie
-        df = _xela_rijen("NSQ", "XELA")
+        df = df.copy()
         df["echte_naam"] = df["product"]
         df["waarde_eur"] = None
         df["wisselkoers"] = None
         df["datum"] = df["datum"].dt.date
         rijen = [tuple(r) for r in df[portfolio_orchestratie.TRANSACTIE_KOLOMMEN].itertuples(index=False)]
         with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", rijen)),              patch.object(portfolio_orchestratie, "get_prices", side_effect=AssertionError("koersen opgehaald")),              patch.object(portfolio_orchestratie, "haal_portfolio_basis", side_effect=AssertionError("basis geladen")):
-            groepen = dict(portfolio_orchestratie.ticker_zekerheid_groepen("ZZTEST"))
-        gezien = sorted(str(t["datum"])[:10] for g in groepen.values() for t in g["transacties"])
-        self.assertEqual(gezien, ["2021-01-08", "2021-01-25", "2021-01-27"])
+            return dict(portfolio_orchestratie.ticker_zekerheid_groepen("ZZTEST"))
+
+    def test_ticker_zekerheid_groepen_voegen_wissel_samen_zonder_wisselrijen(self):
+        groepen = self._groepen(_xela_rijen("NSQ", "XELA"))
+        self.assertEqual(set(groepen), {(NIEUW_ISIN, "NSQ")})
+        groep = groepen[(NIEUW_ISIN, "NSQ")]
+        self.assertEqual(groep["isins"], [OUD_ISIN, NIEUW_ISIN])
+        self.assertEqual(groep["isin"], NIEUW_ISIN)
+        self.assertEqual([str(t["datum"]) for t in groep["transacties"]], ["2021-01-08", "2021-01-25", "2021-01-27"])
+        self.assertEqual(groep["transacties"][1]["koers"], 0.71)
+        self.assertEqual(groep["echte_naam"], "EXELA TECHNOLOGIES INC. - COMMON STOCK")
+
+    def test_ticker_zekerheid_groepen_zonder_tijd_blijven_twee_groepen(self):
+        df = _xela_rijen("NSQ", "XELA")
+        df["tijd"] = None
+        groepen = self._groepen(df)
         self.assertEqual(set(groepen), {(OUD_ISIN, "NSQ"), (NIEUW_ISIN, "NSQ")})
-        self.assertEqual(groepen[(OUD_ISIN, "NSQ")]["transacties"][1]["koers"], 0.71)
+        self.assertEqual(groepen[(OUD_ISIN, "NSQ")]["isins"], [OUD_ISIN])
+
+    def test_ticker_zekerheid_groepen_nieuwe_isin_met_alleen_omboeking_zit_in_de_keten(self):
+        groepen = self._groepen(_xela_rijen("NSQ", "XELA").iloc[:4])
+        self.assertEqual(set(groepen), {(NIEUW_ISIN, "NSQ")})
+        groep = groepen[(NIEUW_ISIN, "NSQ")]
+        self.assertEqual(groep["isins"], [OUD_ISIN, NIEUW_ISIN])
+        self.assertEqual([str(t["datum"]) for t in groep["transacties"]], ["2021-01-08", "2021-01-25"])
 
     def test_ticker_zekerheid_groepen_onbekende_code_geeft_none(self):
         from unittest.mock import patch

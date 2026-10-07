@@ -18,7 +18,7 @@ from ticker_zekerheid import (
 from portfolio_admin import find_matching_code, generate_code
 from db import (
     db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
-    db_get_product_per_ticker,
+    db_get_product_per_ticker, db_vul_bronkolommen_aan,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo
@@ -40,6 +40,7 @@ DIAGNOSTIEK_SLEUTEL_PORTFOLIO = "portfolio"
 DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN = "insert_opgeslagen"
 DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD = "insert_genegeerd"
 DIAGNOSTIEK_SLEUTEL_INSERT_MISLUKT = "insert_mislukt"
+DIAGNOSTIEK_SLEUTEL_BRONKOLOMMEN_AANGEVULD = "bronkolommen_aangevuld"
 DIAGNOSTIEK_SLEUTEL_EXCEL_WAARDE = "excel_waarde"
 DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS = "corporate_actions"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING = "dividend_samenvatting"
@@ -69,6 +70,8 @@ def lees_transacties_excel(bestand1):
         )
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
     df["Order ID"] = _kolom_of_naamloze_buurkolom(df, "Order ID")
+    df["_koers_valuta"] = naamloze_kolom_rechts(df, "Koers")
+    df["_lokale_waarde_valuta"] = naamloze_kolom_rechts(df, "Lokale waarde")
     df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
 
     _meld_order_ids(df["Order ID"]) # voor diagnostiek
@@ -84,6 +87,14 @@ def _kolom_of_naamloze_buurkolom(df, kolomnaam):
         if 0 <= buur < len(df.columns) and str(df.columns[buur]).startswith("Unnamed") and df.iloc[:, buur].notna().any():
             return df.iloc[:, buur]
     return df.iloc[:, positie]
+
+
+def naamloze_kolom_rechts(df, kolomnaam):
+    """Valuta staat in de naamloze kolom direct rechts van het bedrag; niet links kijken, daar staat de valuta van de vorige kolom."""
+    buur = df.columns.get_loc(kolomnaam) + 1
+    if buur < len(df.columns) and str(df.columns[buur]).startswith("Unnamed"):
+        return df.iloc[:, buur].where(df.iloc[:, buur].notna(), None)
+    return pd.Series([None] * len(df), index=df.index, dtype=object)
 
 
 def voeg_koers_eur_toe(df):
@@ -364,6 +375,37 @@ def voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_ticker
         _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker)
 
 
+def _getal_of_none(waarde):
+    getal = pd.to_numeric(waarde, errors="coerce")
+    return float(getal) if pd.notna(getal) else None
+
+
+def _tekst_of_none(waarde):
+    return str(waarde).strip() if pd.notna(waarde) else None
+
+
+def _bronwaarden(row):
+    """In de volgorde van db.BRONKOLOMMEN; alleen om het Excel na te bouwen, de app rekent er niet mee."""
+    return (
+        _tekst_of_none(row.get("Uitvoeringsplaats")),
+        _getal_of_none(row.get("Koers")),
+        _tekst_of_none(row.get("_koers_valuta")),
+        _getal_of_none(row.get("Lokale waarde")),
+        _tekst_of_none(row.get("_lokale_waarde_valuta")),
+        _getal_of_none(row.get("AutoFX Kosten")),
+    )
+
+
+def vul_bronkolommen_aan(cur, code, df):
+    """Vult lege bronkolommen van al opgeslagen rijen aan bij een herupload; een insert raakt bestaande Order ID's niet."""
+    rijen = [(row["Order ID"], *_bronwaarden(row)) for _, row in df.iterrows()]
+    aangevuld = db_vul_bronkolommen_aan(cur, code, rijen)
+    if aangevuld:
+        meld(CATEGORIE_OPSLAAN, INFO, f"Ontbrekende Excel-kolommen aangevuld bij {aangevuld} bestaande transacties.",
+             sleutel=DIAGNOSTIEK_SLEUTEL_BRONKOLOMMEN_AANGEVULD)
+    return aangevuld
+
+
 def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker=None):
     """Geeft het aantal INSERT's zonder exception, inclusief rijen die ON CONFLICT negeerde."""
     product_per_ticker = product_per_ticker or {}
@@ -385,6 +427,7 @@ def _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, 
                 float(waarde_eur_waarde) if pd.notna(waarde_eur_waarde) else None,
                 _normaliseer_tijd(row["Tijd"]),
                 float(wisselkoers_waarde) if pd.notna(wisselkoers_waarde) else None,
+                *_bronwaarden(row),
             )
             ingevoegd += 1
             if nieuw:

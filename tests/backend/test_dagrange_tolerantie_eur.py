@@ -38,19 +38,19 @@ class TestDagrangeGrenzen(unittest.TestCase):
         return ondergrens <= koers <= bovengrens
 
     def test_goedkoop_aandeel_gebruikt_50_cent(self):
-        # high 4.00: 5% is maar 0.20, dus de grens wordt 4.00 + 0.50 = 4.50.
+        # high 4.00: 2% is maar 0.08, dus de grens wordt 4.00 + 0.50 = 4.50.
         self.assertTrue(self._binnen(3.80, 4.00, 4.40))
         self.assertFalse(self._binnen(3.80, 4.00, 4.60))
         # Ondergrens: 3.80 - 0.50 = 3.30.
         self.assertTrue(self._binnen(3.80, 4.00, 3.35))
         self.assertFalse(self._binnen(3.80, 4.00, 3.25))
 
-    def test_duur_aandeel_gebruikt_5_procent(self):
+    def test_duur_aandeel_gebruikt_2_procent(self):
         ondergrens, bovengrens = dagrange_grenzen(190.0, 200.0)
-        self.assertAlmostEqual(bovengrens, 210.0)  # 5% van 200 = 10, niet 0.50
-        self.assertAlmostEqual(ondergrens, 180.5)  # 5% van 190 = 9.5
-        self.assertTrue(self._binnen(190.0, 200.0, 209.0))
-        self.assertFalse(self._binnen(190.0, 200.0, 211.0))
+        self.assertAlmostEqual(bovengrens, 204.0)  # 2% van 200 = 4, niet 0.50
+        self.assertAlmostEqual(ondergrens, 186.2)  # 2% van 190 = 3.8
+        self.assertTrue(self._binnen(190.0, 200.0, 203.0))
+        self.assertFalse(self._binnen(190.0, 200.0, 205.0))
 
     def test_nokia_27_01_2021_valt_binnen(self):
         # Slotkoers wijkt ~14,5% af, maar de koers valt binnen high 3.632 + 0.50.

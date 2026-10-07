@@ -140,6 +140,12 @@ def db_init():
             -- nodig om transacties op dezelfde dag chronologisch te sorteren (koop vóór verkoop)
             tijd TIME,
             wisselkoers NUMERIC,
+            uitvoeringsplaats TEXT,
+            koers_lokaal NUMERIC,
+            koers_valuta TEXT,
+            lokale_waarde NUMERIC,
+            lokale_waarde_valuta TEXT,
+            autofx_kosten NUMERIC,
             UNIQUE (code, order_id)
         );
     """)
@@ -1095,18 +1101,51 @@ def db_laad_product_per_ticker(code):
         conn.close()
 
 
+BRONKOLOMMEN = (
+    ("uitvoeringsplaats", "text"), ("koers_lokaal", "numeric"), ("koers_valuta", "text"),
+    ("lokale_waarde", "numeric"), ("lokale_waarde_valuta", "text"), ("autofx_kosten", "numeric"),
+)
+
+
 def db_insert_transactie(cur, code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
-                      order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers):
+                      order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers,
+                      uitvoeringsplaats=None, koers_lokaal=None, koers_valuta=None,
+                      lokale_waarde=None, lokale_waarde_valuta=None, autofx_kosten=None):
     """Geeft False als de rij al bestond (ON CONFLICT DO NOTHING)."""
     cur.execute(
         """INSERT INTO transacties
-                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers,
+                    uitvoeringsplaats, koers_lokaal, koers_valuta, lokale_waarde, lokale_waarde_valuta, autofx_kosten)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (code, order_id) DO NOTHING""",
         (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur,
-         order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers),
+         order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers,
+         uitvoeringsplaats, koers_lokaal, koers_valuta, lokale_waarde, lokale_waarde_valuta, autofx_kosten),
     )
     return cur.rowcount != 0
+
+
+def db_vul_bronkolommen_aan(cur, code, rijen):
+    """rijen: (order_id, *waarden in volgorde van BRONKOLOMMEN). Overschrijft nooit een bestaande waarde; geeft het aantal bijgewerkte rijen."""
+    if not rijen:
+        return 0
+    kolommen = [kolom for kolom, _ in BRONKOLOMMEN]
+    zet = ", ".join(f"{k} = COALESCE(t.{k}, v.{k})" for k in kolommen)
+    # Alleen rijen waar echt iets wordt aangevuld, anders telt een lege Excel-cel elke herupload mee.
+    ergens_aan_te_vullen = " OR ".join(f"(t.{k} IS NULL AND v.{k} IS NOT NULL)" for k in kolommen)
+    # Casts nodig: een VALUES-kolom met alleen NULLs wordt anders text en botst met numeric.
+    template = "(%s::text, %s::text, " + ", ".join(f"%s::{t}" for _, t in BRONKOLOMMEN) + ")"
+    # Eén statement (page_size), anders telt rowcount alleen de laatste pagina.
+    execute_values(
+        cur,
+        f"""UPDATE transacties AS t SET {zet}
+            FROM (VALUES %s) AS v (code, order_id, {", ".join(kolommen)})
+            WHERE t.code = v.code AND t.order_id = v.order_id AND ({ergens_aan_te_vullen})""",
+        [(code, *rij) for rij in rijen],
+        template=template,
+        page_size=len(rijen),
+    )
+    return cur.rowcount
 
 
 def db_get_transacties_voor_tickercheck(cur, code):
@@ -1118,9 +1157,13 @@ def db_get_transacties_voor_tickercheck(cur, code):
 
 
 def db_wijzig_ticker(cur, code, isin, beurs, ticker):
+    db_wijzig_ticker_voor_isins(cur, code, [isin], beurs, ticker)
+
+
+def db_wijzig_ticker_voor_isins(cur, code, isins, beurs, ticker):
     cur.execute(
-        "UPDATE transacties SET ticker = %s WHERE code = %s AND isin = %s AND beurs = %s",
-        (ticker, code, isin, beurs),
+        "UPDATE transacties SET ticker = %s WHERE code = %s AND isin = ANY(%s) AND beurs = %s",
+        (ticker, code, list(isins), beurs),
     )
 
 

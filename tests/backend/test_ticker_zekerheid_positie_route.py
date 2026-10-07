@@ -19,7 +19,7 @@ gebeuren.
 import os
 import sys
 import unittest
-from datetime import date
+from datetime import date, time
 from unittest.mock import patch
 
 
@@ -197,6 +197,72 @@ class TestTickerZekerheidLijstRoute(unittest.TestCase):
         self.assertEqual(data["posities"][0]["isin"], "US0378331005")
         self.assertEqual(data["posities"][0]["beurs"], "NASDAQ")
         self.assertNotIn("prijs_checks", data["posities"][0])
+
+
+
+@vereist_database
+class TestTickerZekerheidWijzigRoute(unittest.TestCase):
+    """Bij een ISIN-wissel (wisselpaar om 00:00, zonder kosten) zet de knop de ticker van beide ISIN's om."""
+
+    TEST_CODE = "TESTWISSEL"
+    OUD_ISIN, NIEUW_ISIN, BEURS = "US30162V1026", "US30162V4095", "NDQ"
+
+    def setUp(self):
+        import app as app_module
+        self.client = app_module.app.test_client()
+        self._opschonen()
+
+        from db import db_connect
+        conn = db_connect()
+        cur = conn.cursor()
+        cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
+        rijen = [
+            ("W-1", date(2021, 1, 8), time(17, 57), self.OUD_ISIN, 13, 0.41, -0.54),
+            ("W-2", date(2021, 1, 26), time(0, 0), self.OUD_ISIN, -14, 0.72, None),
+            ("W-3", date(2021, 1, 26), time(0, 0), self.NIEUW_ISIN, 4, 2.16, None),
+            ("W-4", date(2021, 1, 27), time(16, 17), self.NIEUW_ISIN, -4, 1.91, -0.51),
+        ]
+        for order_id, datum, tijd, isin, aantal, koers, kosten in rijen:
+            cur.execute(
+                "INSERT INTO transacties (code, datum, tijd, product, isin, beurs, ticker, aantal, koers, totaal_eur, "
+                "order_id, echte_naam, transactiekosten) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (self.TEST_CODE, datum, tijd, "EXELA", isin, self.BEURS, "XELA", aantal, koers, -aantal * koers,
+                 order_id, "EXELA", kosten),
+            )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def tearDown(self):
+        self._opschonen()
+
+    def _opschonen(self):
+        from db import db_connect
+        conn = db_connect()
+        cur = conn.cursor()
+        cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
+        cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))
+        conn.commit()
+        cur.close()
+        conn.close()
+
+    def test_wijzig_zet_beide_isins_om(self):
+        res = self.client.post(
+            f"/api/portfolio/{self.TEST_CODE}/ticker-zekerheid/wijzig",
+            json={"isin": self.NIEUW_ISIN, "beurs": self.BEURS, "ticker": "XELA.NEW"},
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.get_json(), {"ticker": "XELA.NEW", "oude_ticker": "XELA"})
+
+        from db import db_connect
+        conn = db_connect()
+        cur = conn.cursor()
+        cur.execute("SELECT isin, ticker FROM transacties WHERE code = %s", (self.TEST_CODE,))
+        rijen = cur.fetchall()
+        cur.close()
+        conn.close()
+        self.assertEqual(len(rijen), 4)
+        self.assertEqual({ticker for _, ticker in rijen}, {"XELA.NEW"})
 
 
 if __name__ == "__main__":

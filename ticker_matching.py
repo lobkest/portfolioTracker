@@ -1,8 +1,11 @@
 """Welke Yahoo-ticker hoort bij een DeGiro-positie (zoeken, overrides), plus OpenFIGI als extra signaal."""
 import os
+import threading
 
 import requests
-from yahooquery import search
+# Interne functie: search() zelf neemt geen sessie aan (yahooquery staat vast op 2.4.1 in requirements.txt).
+from yahooquery.misc import _make_request
+from yahooquery.session_management import initialize_session
 
 from db import db_get_cached_openfigi, db_save_openfigi
 from debug_utils import dprint
@@ -40,11 +43,35 @@ MANUAL_TICKER_OVERRIDES_ISIN = {
 }
 
 
+YAHOO_ZOEK_URL = "https://query2.finance.yahoo.com/v1/finance/search"
+# Per thread één sessie: het opzetten (cookies) kost ~0,4 s per keer en curl-sessies zijn niet thread-safe.
+_zoek_sessies = threading.local()
+
+
+def _zoek_sessie(vernieuw=False):
+    if vernieuw or getattr(_zoek_sessies, "sessie", None) is None:
+        _zoek_sessies.sessie = initialize_session()
+    return _zoek_sessies.sessie
+
+
+def _zoek_met_sessie(query):
+    def _verzoek(sessie):
+        params = {"q": query, "quotes_count": 10, "news_count": 10}
+        return _make_request(YAHOO_ZOEK_URL, country="United States", params=params, session=sessie)
+
+    try:
+        data = _verzoek(_zoek_sessie())
+    except Exception:
+        # Een verlopen sessie: één keer opnieuw met een verse.
+        data = _verzoek(_zoek_sessie(vernieuw=True))
+    return data.get("quotes", [])
+
+
 def _yahoo_search(query):
     """Altijd een lijst; leeg bij een fout (niet te onderscheiden van 'niets gevonden')."""
     try:
         _tel_yahoo_call("yahooquery.search")
-        return search(query).get("quotes", [])
+        return _zoek_met_sessie(query)
     except Exception as e:
         dprint(f"[ticker]   query='{query}' faalde: {e}")
         return []

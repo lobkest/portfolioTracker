@@ -9,13 +9,13 @@ from db import (
     db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
-    db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker,
+    db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
 from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
-    controleer_alle_transactieprijzen,
+    controleer_alle_transactieprijzen, bijnaam_na_tickerwissel,
 )
 from debug_utils import meet_tijd
 from diagnostiek import voeg_diagnostiek_toe
@@ -37,7 +37,7 @@ from upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
     bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
     voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
-    sla_kassaldo_op,
+    sla_kassaldo_op, vul_bronkolommen_aan,
     meld_portfolio_opslaan,
 )
 from portfolio_orchestratie import (
@@ -178,6 +178,7 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
         if bestaand and herbepaal_alle_tickers:
             _herbepaal_tickers(code)
         voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
+        vul_bronkolommen_aan(cur, code, df)
         if rekening_df is not None:
             sla_dividend_bestand_op(cur, code, rekening_df)
             sla_kassaldo_op(cur, code, rekening_df)
@@ -264,9 +265,11 @@ def _bijwerken_impl(code):
 
     rows_to_insert = df[df["Order ID"].isin(toe_te_voegen)] if df is not None else pd.DataFrame()
     meld_portfolio_opslaan(True, rows_to_insert)
-    if not rows_to_insert.empty or rekening_df is not None:
+    if df is not None or rekening_df is not None:
         with db_transactie() as cur:
             voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers=False)
+            if df is not None:
+                vul_bronkolommen_aan(cur, code, df)
             if rekening_df is not None:
                 sla_dividend_bestand_op(cur, code, rekening_df)
                 sla_kassaldo_op(cur, code, rekening_df)
@@ -431,7 +434,7 @@ def ticker_zekerheid_lijst(code):
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
     posities = [
-        {"isin": isin, "beurs": beurs, "naam": info["naam"], "echte_naam": info["echte_naam"]}
+        {"isin": isin, "isins": info["isins"], "beurs": beurs, "naam": info["naam"], "echte_naam": info["echte_naam"]}
         for (isin, beurs), info in groepen
     ]
     return jsonify({"posities": posities})
@@ -467,6 +470,7 @@ def ticker_zekerheid_positie(code):
 
         print(f"[ticker-zekerheid] {isin}: klaar in {time.time() - start:.2f}s (frontend breekt af na 30s)")
         resultaat["isin"] = isin
+        resultaat["isins"] = info["isins"]
         resultaat["naam"] = info["naam"]
         resultaat["echte_naam"] = info["echte_naam"]
         return jsonify(resultaat)
@@ -474,7 +478,7 @@ def ticker_zekerheid_positie(code):
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/wijzig", methods=["POST"])
 def ticker_zekerheid_wijzig(code):
-    """Zet de ticker van alle rijen van één positie om (de knop bij een aanbevolen alternatief)."""
+    """Zet de ticker van alle rijen van één positie om, alle ISIN's van een wisselketen (de knop bij een aanbevolen alternatief)."""
     code = code.strip().upper()
     data = request.get_json(silent=True) or {}
     isin, beurs = data.get("isin") or "", data.get("beurs") or ""
@@ -490,10 +494,21 @@ def ticker_zekerheid_wijzig(code):
         return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
 
     with db_transactie() as cur:
-        db_wijzig_ticker(cur, code, isin, beurs, ticker)
+        db_wijzig_ticker_voor_isins(cur, code, info["isins"], beurs, ticker)
+    print(f"[ticker-zekerheid] {', '.join(info['isins'])}: ticker {info['ticker']} -> {ticker} (via de knop)")
+
+    bijnaam = None
+    try:
+        bijnaam = bijnaam_na_tickerwissel(info["naam"], info["ticker"], ticker)
+        if bijnaam:
+            db_wijzig_bijnaam(code, ticker, bijnaam)
+            print(f"[ticker-zekerheid] {isin}: bijnaam -> {bijnaam!a}")
+    except Exception as e:
+        # De ticker staat er al; de bijnaam is bijzaak.
+        print(f"[ticker-zekerheid] {isin}: WARN bijnaam niet aangepast ({e!a})")
+        bijnaam = None
     wis_portfolio_basis_cache(code)
-    print(f"[ticker-zekerheid] {isin}: ticker {info['ticker']} -> {ticker} (via de knop)")
-    return jsonify({"ticker": ticker, "oude_ticker": info["ticker"]})
+    return jsonify({"ticker": ticker, "oude_ticker": info["ticker"], "bijnaam": bijnaam})
 
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/alle-prijzen")

@@ -10,7 +10,7 @@ const ZEKERHEID_LABELS = {
 const TICKER_POSITIE_TIMEOUT_MS = 30000;
 const TICKER_UITGEBREID_TIMEOUT_MS = 60000;
 
-const DAGRANGE_UITLEG = "Dagrange = intraday-high/low van Yahoo, met marge: per grens de ruimste van ±5% en €0,50.";
+const DAGRANGE_UITLEG = "Dagrange = intraday-high/low van Yahoo, met marge: per grens de ruimste van ±2% en €0,50.";
 const AFSTAND_UITLEG = "Hoe ver de Excel-koers buiten Yahoo's echte high/low valt, zonder marge: "
     + "0% = erbinnen, − = onder de low, + = boven de high.";
 
@@ -105,11 +105,11 @@ function maakPrijscontroleTabel(prijsChecks) {
         if (c.binnen_dagrange === true) {
             dagrangeTd.textContent = "✓";
             dagrangeTd.className = "positief";
-            dagrangeTd.title = "Excel-koers valt binnen het intraday-high/low van deze handelsdag (±5% of €0,50)";
+            dagrangeTd.title = "Excel-koers valt binnen het intraday-high/low van deze handelsdag (±2% of €0,50)";
         } else if (c.binnen_dagrange === false) {
             dagrangeTd.textContent = "✗";
             dagrangeTd.className = "negatief";
-            dagrangeTd.title = "Excel-koers valt buiten het intraday-high/low van deze handelsdag (±5% of €0,50)";
+            dagrangeTd.title = "Excel-koers valt buiten het intraday-high/low van deze handelsdag (±2% of €0,50)";
         } else {
             dagrangeTd.textContent = "–";
             dagrangeTd.className = "gedempt";
@@ -232,7 +232,7 @@ function maakOpenfigiKandidatenDebugBlok(p) {
         if (debug.roots.length > 0) {
             const nieuwRegel = document.createElement("div");
             nieuwRegel.textContent = debug.nieuwe_roots.length > 0
-                ? `Nieuw doorzocht (nog niet bekend): ${debug.nieuwe_roots.join(", ")}`
+                ? `Nieuwe roots (nog niet bekend): ${debug.nieuwe_roots.join(", ")}`
                 : "Geen enkele root was nieuw — allemaal al bekend.";
             inhoud.appendChild(nieuwRegel);
 
@@ -243,10 +243,12 @@ function maakOpenfigiKandidatenDebugBlok(p) {
             }
 
             debug.nieuwe_roots.forEach(root => {
-                const resultaten = (debug.yahoo_resultaten && debug.yahoo_resultaten[root]) || [];
+                const resultaten = debug.yahoo_resultaten && debug.yahoo_resultaten[root];
                 const regel = document.createElement("div");
                 regel.className = "tickerRegel";
-                if (resultaten.length === 0) {
+                if (resultaten === undefined) {
+                    regel.textContent = `'${root}': niet gezocht (er was al een passende kandidaat).`;
+                } else if (resultaten.length === 0) {
                     regel.textContent = `Yahoo-zoekopdracht op '${root}': geen resultaten.`;
                 } else {
                     const items = resultaten.map(r => `${r.symbol || "?"} (${r.exchange || "?"})`).join(", ");
@@ -279,6 +281,7 @@ function maakTickerZekerheidKaart(p) {
     titel.appendChild(naamStrong);
     titel.appendChild(document.createTextNode(p.ticker ? ` (${p.ticker}) — ${label}` : ` — ${label}`));
     rij.appendChild(titel);
+    if (p.isins && p.isins.length > 1) voegInfoRegelToe(rij, "ISIN", p.isins.join(" → "));
 
     if (!p.ticker) {
         const geenTicker = document.createElement("p");
@@ -371,6 +374,7 @@ function maakTickerWijzigKnop(p) {
             if (!res.ok) throw new Error(data.error || "Kon de ticker niet wijzigen.");
             knop.remove();
             status.textContent = `✓ Ticker gewijzigd van ${data.oude_ticker} naar ${data.ticker}. `
+                + (data.bijnaam ? `Bijnaam aangepast naar '${data.bijnaam}'. ` : "")
                 + "Herlaad de pagina om alle tabbladen bij te werken.";
             status.classList.add("positief");
         } catch (e) {

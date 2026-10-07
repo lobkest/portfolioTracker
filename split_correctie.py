@@ -163,6 +163,23 @@ def vind_wisselparen(df):
     return paren, onduidelijk
 
 
+def isin_ketens(paren):
+    """{isin: eind_isin} voor elke ISIN in een wisselpaar, ook ketens (A->B->C: A, B en C naar C).
+    Een ISIN zonder wissel staat er niet in: gebruik .get(isin, isin)."""
+    volgende = {}
+    for paar in sorted(paren, key=lambda p: p.datum):
+        volgende[paar.oud_isin] = paar.nieuw_isin
+    ketens = {}
+    for isin in set(volgende) | set(volgende.values()):
+        eind, gezien = isin, {isin}
+        # Een cyclus (A->B->A) is niet te verwachten, maar mag niet eindeloos lopen.
+        while eind in volgende and volgende[eind] not in gezien:
+            eind = volgende[eind]
+            gezien.add(eind)
+        ketens[isin] = eind
+    return ketens
+
+
 def bepaal_effectieve_datums(df, boekingen, splits_per_ticker):
     """Voegt 'effectieve_datum' toe: de datum vanaf wanneer een aantalswijziging meetelt voor de waarde.
     Een gekoppelde splitboeking telt mee vanaf Yahoo's splitdatum, zodat aantal en ruwe koers op dezelfde dag van basis

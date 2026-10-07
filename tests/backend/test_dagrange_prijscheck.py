@@ -85,8 +85,8 @@ class TestBinnenDagrange(unittest.TestCase):
         self.assertTrue(resultaat["binnen_dagrange"])
 
     def test_vergelijk_prijs_buiten_dagrange(self):
-        # high=105 -> met DAGRANGE_TOLERANTIE (5%) bovengrens 110.25. 115 zit
-        # daar ruim (>4%) boven, zodat deze test niet zelf weer op een
+        # high=105 -> met DAGRANGE_TOLERANTIE (2%) bovengrens 107.1. 115 zit
+        # daar ruim (>7%) boven, zodat deze test niet zelf weer op een
         # randgeval-toeval leunt als de tolerantie later nog eens verschuift.
         with _mock_yahoo_omgeving(yahoo_koers=100.0, high=105.0, low=95.0):
             resultaat = vergelijk_prijs_op_datum("TICK", date(2024, 1, 1), 115.0)

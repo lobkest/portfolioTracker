@@ -403,7 +403,7 @@ route geen portfolio op: de code staat vast, en elk bestand moet **eerst** bewij
    `controleer_eigen_rekeningoverzicht()`: minstens één Order ID, en allemaal in `opgeslagen ∪ nieuw`.
 4. Is één bestand afgekeurd, dan 400 met een vaste melding (`MELDING_PER_EIGENDOMSFOUT` in `app.py`; nooit de code van een andere portfolio)
    en wordt er niets opgeslagen. Anders `meld_portfolio_opslaan(True, rows_to_insert)` (Diagnostiek); alleen als er nieuwe rijen zijn
-   alleen met nieuwe rijen of een rekeningoverzicht één `db_transactie()` met `voeg_nieuwe_transacties_toe()` (zonder "opnieuw bepalen")
+   met `bestand1` of `bestand2` één `db_transactie()` met `voeg_nieuwe_transacties_toe()` (zonder "opnieuw bepalen"), met `bestand1` ook `vul_bronkolommen_aan()`,
    en (met `bestand2`) `sla_dividend_bestand_op()` + `sla_kassaldo_op()`; dan in één `db_deel_verbinding()` `_kern_na_opslaan(code)` en (met `bestand1`) `_meld_valuta_na_opslaan()`. De naam blijft ongewijzigd.
 5. Antwoord: de kern, plus `bijwerken: {nieuwe_transacties, dividend_verwerkt}`. De frontend (`tabs/bestanden_bijwerken.js`) toont het
    dashboard opnieuw met `toonDashboard(data)` (verrijking en tab-toestand horen bij de oude transacties) en een melding via
@@ -514,6 +514,7 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | `_bouw_posities()` | groepeert per (ISIN, Beurs) tot `(product, isin, beurs, transacties)`; product is dat van de eerste rij | DataFrame → lijst | `ticker_resolutie_niet_opslaan()`, `_ticker_resolutie_opslaan()` |
 | `_probeer_andere_productnamen()` | probeert de lichte check met de productnaam van elke rij van een groep tot er een ticker is | groep, transacties, bekende ticker → resultaat-dict | `_ticker_resolutie_opslaan()` |
 | `_insert_nieuwe_transacties()` | roept per rij `db_insert_transactie()` aan (`INSERT ... ON CONFLICT (code, order_id) DO NOTHING`) | rijen → aantal ingevoegd | `voeg_nieuwe_transacties_toe()` |
+| `vul_bronkolommen_aan()` | vult lege bronkolommen van al opgeslagen rijen aan via `db_vul_bronkolommen_aan()` (zie 4.4) | cursor, code, DataFrame → aantal | `_upload_opslaan()`, `_bijwerken_impl()` |
 | `sla_dividend_bestand_op()` | dividendrecords uit het ingelezen rekeningoverzicht berekenen en opslaan, met Diagnostiek | code, DataFrame → (schrijft naar DB) | `_upload_opslaan()`, `_bijwerken_impl()` |
 | `verwerk_dividend_zonder_opslaan()` | hetzelfde zonder opslaan; geeft de records terug | DataFrame → lijst | `_dividend_niet_opslaan()` |
 | `sla_kassaldo_op()` | `bereken_kassaldo()` en, als er EUR-rijen zijn, `db_save_kassaldo()` | cursor, code, DataFrame → (schrijft naar DB) | `_upload_opslaan()`, `_bijwerken_impl()` |
@@ -1300,6 +1301,7 @@ Lezen: `generate_code()` (bestaat de code al? via `db_portfolio_bestaat_met_curs
 | `transactiekosten` | NUMERIC | DeGiro-transactiekosten; `NULL` als de cel in het Excel-bestand leeg is |
 | `order_id` | TEXT | echte UUID, UUID + `-n` (2e, 3e, ... deel van een deelorder) of synthetische `SYN-...` |
 | `wisselkoers` | NUMERIC | DeGiro's wisselkoers uit het Excel-bestand (kolom `Wisselkoers`); alleen getoond op Transacties, `koers` is al in EUR. `NULL` bij rijen van vóór deze kolom (geen backfill, zie 4.4). Moet in een bestaande database met de hand worden toegevoegd (`ALTER TABLE transacties ADD COLUMN wisselkoers NUMERIC;`); of dat in Neon gebeurd is, staat niet in de repo |
+| `uitvoeringsplaats`, `koers_lokaal`, `koers_valuta`, `lokale_waarde`, `lokale_waarde_valuta`, `autofx_kosten` | TEXT/NUMERIC | de Excel-kolommen `Uitvoeringsplaats`, `Koers` (ruw, lokale valuta), `Lokale waarde`, `AutoFX Kosten` en de valuta uit de naamloze kolom rechts van `Koers`/`Lokale waarde` (`naamloze_kolom_rechts()`). Alleen om het Excel na te bouwen; de app rekent er niet mee en `TRANSACTIE_KOLOMMEN` leest ze niet. Lege kolommen in bestaande rijen vult een herupload aan (zie 4.4) |
 | | `UNIQUE (code, order_id)` | voorkomt dubbele rijen bij herhaalde upload |
 
 Schrijven: `_insert_nieuwe_transacties()` (INSERT via `db_insert_transactie()`); `backfill_verouderde_tickers()`
@@ -1380,6 +1382,9 @@ Naast de database bestaan er drie **in-process** caches: `_basis_cache` (20 s, `
 
 **Geen data-backfill voor `transacties`:** een upload naar een bestaande code voegt alleen nieuwe Order ID's in (`ON CONFLICT (code, order_id) DO NOTHING`).
 Staat `transactiekosten`, `waarde_eur`, `tijd` of `wisselkoers` in een al opgeslagen rij op `NULL`, dan wordt die bij een latere upload **niet** meer aangevuld.
+Uitzondering: de zes bronkolommen (`uitvoeringsplaats` t/m `autofx_kosten`). `vul_bronkolommen_aan()` (na de insert, in dezelfde transactie, bij `/upload` en
+`/bijwerken`) geeft alle rijen van het bestand aan `db_vul_bronkolommen_aan()`: één `UPDATE ... FROM (VALUES ...)` op `code` + `order_id` met
+`COALESCE(bestaand, nieuw)` per kolom, dus een bestaande waarde wordt nooit overschreven. Aantal aangevulde rijen → `INFO` in Diagnostiek (Opslaan).
 Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploaden. Zolang `waarde_eur` `NULL` is, valt de GAK-berekening terug op `totaal_eur`.
 
 **Let op bij tests:** een deel van de tests werkt met een **echte database** (zie hoofdstuk 7) en gebruikt eigen test-codes (zoals `TESTDIV`). Die tests draaien alleen tegen een lokale database (CI-container of Docker), nooit tegen Neon.

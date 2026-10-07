@@ -31,8 +31,9 @@ UUID_2 = "66666666-7777-8888-9999-000000000000"
 
 # Exact de SQL uit _insert_nieuwe_transacties() vóór de Diagnostiek-wijziging.
 VERWACHTE_INSERT_SQL = """INSERT INTO transacties
-                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers)
-                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                   (code, datum, product, isin, beurs, ticker, aantal, koers, totaal_eur, order_id, echte_naam, transactiekosten, waarde_eur, tijd, wisselkoers,
+                    uitvoeringsplaats, koers_lokaal, koers_valuta, lokale_waarde, lokale_waarde_valuta, autofx_kosten)
+                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                    ON CONFLICT (code, order_id) DO NOTHING"""
 
 
@@ -179,6 +180,7 @@ class TestInsertRegressie(_MetRequest):
         self.assertEqual(params, (
             "ABC", pd.Timestamp("2024-01-02").date(), "FONDS 0", "NL0000000000", "EAM", "T.AS",
             10.0, 5.0, -51.0, "ID-0", "FONDS 0", None, -50.0, "10:00", 1.0857,
+            None, 5.0, None, None, None, None,
         ))
 
     def test_return_telt_pogingen_zonder_exception_incl_conflict(self):
