@@ -3,11 +3,11 @@
 Een bevinding is {"niveau", "tekst", "sleutel"}.
 """
 import bisect
-import re
 
 import pandas as pd
 
 from diagnostiek import GOED, INFO, LET_OP
+from naam_verkorting import uitkeringsvorm_strijdig
 from portfolio_calc import holdings_op_datums
 from split_correctie import vind_wisselparen
 from ticker_matching import _openfigi_root_matches
@@ -374,29 +374,12 @@ def check_koers_stilstand(transacties_df, price_data):
     return _beperk([b for _, b in bevindingen], LET_OP, "koers_stilstand:meer")
 
 
-# Woordgrens: "DIS" mag niet matchen in "DISCOVERY", "ACC" niet in "ACCESS".
-DIS_KENMERKEN = ("DIS", "DIST", "DISTRIBUTING", "DISTRIBUTION")
-ACC_KENMERKEN = ("ACC", "ACCUMULATING", "ACCUMULATION")
-
-
-def _heeft_kenmerk(naam, kenmerken):
-    return any(re.search(rf"\b{k}\b", str(naam or ""), re.IGNORECASE) for k in kenmerken)
-
-
-def _uitkeringsvorm(naam):
-    """'DIS', 'ACC' of None (geen of beide kenmerken)."""
-    dis, acc = _heeft_kenmerk(naam, DIS_KENMERKEN), _heeft_kenmerk(naam, ACC_KENMERKEN)
-    return "DIS" if dis and not acc else "ACC" if acc and not dis else None
-
-
 def dis_acc_strijdigheden(echte_namen, yahoo_namen):
     """{ticker: (echte_naam, yahoo_naam)} waar de DeGiro-naam en Yahoo's longName een andere uitkeringsvorm noemen."""
     strijdig = {}
     for ticker, namen in echte_namen.items():
-        yahoo = _uitkeringsvorm(yahoo_namen.get(ticker))
         for naam in namen:
-            degiro = _uitkeringsvorm(naam)
-            if yahoo and degiro and yahoo != degiro:
+            if uitkeringsvorm_strijdig(naam, yahoo_namen.get(ticker)):
                 strijdig[ticker] = (naam, yahoo_namen[ticker])
                 break
     return strijdig

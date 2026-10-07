@@ -178,7 +178,7 @@ class TestStap2EscaleertNaarSteekproef(unittest.TestCase):
 
 
 class TestStap3EscaleertNaarAlternatieven(unittest.TestCase):
-    def test_afwijking_boven_10_procent_zoekt_alternatieven_en_geeft_aanbevolen_alternatief(self):
+    def test_afwijking_boven_10_procent_zoekt_alternatieven(self):
         transacties = [
             {"datum": date(2023, 1, 10), "koers": 100.0},
             {"datum": date(2023, 3, 10), "koers": 100.0},
@@ -194,7 +194,7 @@ class TestStap3EscaleertNaarAlternatieven(unittest.TestCase):
             resultaat = find_ticker_met_snelle_prijscheck("APPLE INC", "US0378331005", "NASDAQ", transacties)
 
         mock_alt.assert_called_once()
-        self.assertEqual(resultaat["aanbevolen_alternatief"], "ALT")
+        self.assertNotIn("aanbevolen_alternatief", resultaat)  # ALT is niet acceptabel: geen suggestie meer
         self.assertIn("15.0%", resultaat["prijswaarschuwing"])
 
     def test_geen_geslaagd_alternatief_laat_aanbevolen_alternatief_weg(self):
@@ -234,7 +234,7 @@ class TestGeenYahooData(unittest.TestCase):
         self.assertIn("Geen koersdata", resultaat["prijswaarschuwing"])
         self.assertEqual(resultaat["zekerheid"], "onzeker")
 
-    def test_geen_koersdata_zoekt_ook_alternatieven_en_geeft_aanbevolen_alternatief(self):
+    def test_geen_koersdata_zoekt_ook_alternatieven(self):
         transacties = [{"datum": date(2023, 6, 10), "koers": 100.0}]
         geen_data = {"yahoo_koers": None, "afwijking_pct": None, "match": None, "niveau": None,
                      "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0, "bekende_koers": 100.0}
@@ -245,7 +245,7 @@ class TestGeenYahooData(unittest.TestCase):
             resultaat = find_ticker_met_snelle_prijscheck("VANECK GOLD MINERS", "IE00BQQP9F84", "TDG", transacties)
 
         mock_alt.assert_called_once()
-        self.assertEqual(resultaat["aanbevolen_alternatief"], "GDX.L")
+        self.assertNotIn("aanbevolen_alternatief", resultaat)
 
 
 class TestPrijswaarschuwingVoorTicker(unittest.TestCase):

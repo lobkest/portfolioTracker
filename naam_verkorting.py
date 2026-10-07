@@ -141,3 +141,24 @@ def kies_korte_namen(posities):
         if len(groep) > 1:
             _los_botsing_op(groep, long_names, namen, merken)
     return namen
+
+
+# Woordgrens: "DIS" mag niet matchen in "DISCOVERY", "ACC" niet in "ACCESS".
+DIS_KENMERKEN = ("DIS", "DIST", "DISTRIBUTING", "DISTRIBUTION")
+ACC_KENMERKEN = ("ACC", "ACCUMULATING", "ACCUMULATION")
+
+
+def _heeft_kenmerk(naam, kenmerken):
+    return any(re.search(rf"\b{k}\b", str(naam or ""), re.IGNORECASE) for k in kenmerken)
+
+
+def uitkeringsvorm(naam):
+    """'DIS', 'ACC' of None (geen of beide kenmerken)."""
+    dis, acc = _heeft_kenmerk(naam, DIS_KENMERKEN), _heeft_kenmerk(naam, ACC_KENMERKEN)
+    return "DIS" if dis and not acc else "ACC" if acc and not dis else None
+
+
+def uitkeringsvorm_strijdig(naam_a, naam_b):
+    """Alleen True als beide namen een uitkeringsvorm noemen en die verschillen: de namen zijn geen officiële bron."""
+    a, b = uitkeringsvorm(naam_a), uitkeringsvorm(naam_b)
+    return bool(a and b and a != b)

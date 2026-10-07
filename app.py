@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import traceback
 
@@ -8,7 +9,7 @@ from db import (
     db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
-    db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding,
+    db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
@@ -439,64 +440,92 @@ def ticker_zekerheid_lijst(code):
 @app.route("/api/portfolio/<code>/ticker-zekerheid/positie")
 def ticker_zekerheid_positie(code):
     """Eén positie per aanroep, zodat elke aanroep ruim binnen de gunicorn-timeout blijft."""
+    with db_deel_verbinding():
+        code = code.strip().upper()
+        isin = request.args.get("isin", "")
+        beurs = request.args.get("beurs", "")
+
+        groepen = ticker_zekerheid_groepen(code)
+        if groepen is None:
+            return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+        info = dict(groepen).get((isin, beurs))
+        if info is None:
+            return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
+
+        start = time.time()
+        try:
+            resultaat = verifieer_ticker_met_prijs(
+                info["echte_naam"], isin, info["beurs"], info["transacties"], opgeslagen_ticker=info["ticker"],
+            )
+        except Exception as e:
+            print(f"[ticker-zekerheid] {isin}: FOUT na {time.time() - start:.2f}s ({e!a})")
+            traceback.print_exc()
+            return jsonify({
+                "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
+            }), 500
+
+        print(f"[ticker-zekerheid] {isin}: klaar in {time.time() - start:.2f}s (frontend breekt af na 30s)")
+        resultaat["isin"] = isin
+        resultaat["naam"] = info["naam"]
+        resultaat["echte_naam"] = info["echte_naam"]
+        return jsonify(resultaat)
+
+
+@app.route("/api/portfolio/<code>/ticker-zekerheid/wijzig", methods=["POST"])
+def ticker_zekerheid_wijzig(code):
+    """Zet de ticker van alle rijen van één positie om (de knop bij een aanbevolen alternatief)."""
     code = code.strip().upper()
-    isin = request.args.get("isin", "")
-    beurs = request.args.get("beurs", "")
+    data = request.get_json(silent=True) or {}
+    isin, beurs = data.get("isin") or "", data.get("beurs") or ""
+    ticker = (data.get("ticker") or "").strip()
+    if not re.fullmatch(r"[A-Za-z0-9.\-=^]{1,32}", ticker):
+        return jsonify({"error": "Ongeldige ticker."}), 400
 
     groepen = ticker_zekerheid_groepen(code)
     if groepen is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
-
     info = dict(groepen).get((isin, beurs))
     if info is None:
         return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
 
-    start = time.time()
-    try:
-        resultaat = verifieer_ticker_met_prijs(info["echte_naam"], isin, info["beurs"], info["transacties"])
-    except Exception as e:
-        print(f"[ticker-zekerheid] {isin}: FOUT na {time.time() - start:.2f}s ({e!a})")
-        traceback.print_exc()
-        return jsonify({
-            "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
-        }), 500
-
-    print(f"[ticker-zekerheid] {isin}: klaar in {time.time() - start:.2f}s (frontend breekt af na 30s)")
-    resultaat["isin"] = isin
-    resultaat["naam"] = info["naam"]
-    resultaat["echte_naam"] = info["echte_naam"]
-    return jsonify(resultaat)
+    with db_transactie() as cur:
+        db_wijzig_ticker(cur, code, isin, beurs, ticker)
+    wis_portfolio_basis_cache(code)
+    print(f"[ticker-zekerheid] {isin}: ticker {info['ticker']} -> {ticker} (via de knop)")
+    return jsonify({"ticker": ticker, "oude_ticker": info["ticker"]})
 
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/alle-prijzen")
 def ticker_zekerheid_alle_prijzen(code):
     """Elke transactie van één positie tegen de dagrange van de opgeslagen ticker; per positie, net als /positie."""
-    code = code.strip().upper()
-    isin = request.args.get("isin", "")
-    beurs = request.args.get("beurs", "")
+    with db_deel_verbinding():
+        code = code.strip().upper()
+        isin = request.args.get("isin", "")
+        beurs = request.args.get("beurs", "")
 
-    groepen = ticker_zekerheid_groepen(code)
-    if groepen is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        groepen = ticker_zekerheid_groepen(code)
+        if groepen is None:
+            return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
 
-    info = dict(groepen).get((isin, beurs))
-    if info is None:
-        return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
+        info = dict(groepen).get((isin, beurs))
+        if info is None:
+            return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
 
-    start = time.time()
-    try:
-        resultaat = controleer_alle_transactieprijzen(info["ticker"], info["transacties"])
-    except Exception as e:
-        print(f"[ticker-zekerheid] {isin}: alle prijzen FOUT na {time.time() - start:.2f}s ({e!a})")
-        traceback.print_exc()
-        return jsonify({"error": "Alle prijzen controleren voor deze positie is mislukt. Probeer het opnieuw."}), 500
+        start = time.time()
+        try:
+            resultaat = controleer_alle_transactieprijzen(info["ticker"], info["transacties"])
+        except Exception as e:
+            print(f"[ticker-zekerheid] {isin}: alle prijzen FOUT na {time.time() - start:.2f}s ({e!a})")
+            traceback.print_exc()
+            return jsonify({"error": "Alle prijzen controleren voor deze positie is mislukt. Probeer het opnieuw."}), 500
 
-    print(f"[ticker-zekerheid] {isin}: alle prijzen ({len(resultaat['prijs_checks'])}) "
-          f"klaar in {time.time() - start:.2f}s")
-    resultaat["isin"] = isin
-    resultaat["naam"] = info["naam"]
-    resultaat["ticker"] = info["ticker"]
-    return jsonify(resultaat)
+        print(f"[ticker-zekerheid] {isin}: alle prijzen ({len(resultaat['prijs_checks'])}) "
+              f"klaar in {time.time() - start:.2f}s")
+        resultaat["isin"] = isin
+        resultaat["naam"] = info["naam"]
+        resultaat["ticker"] = info["ticker"]
+        return jsonify(resultaat)
 
 
 @app.route("/api/ticker-zekerheid-check", methods=["POST"])

@@ -143,7 +143,7 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
         with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             resultaat = verifieer_ticker_met_prijs("PRODUCT", "ISIN123", self.BEURS, self.transacties)
 
-        self.assertIn("ALT1", call_count)
+        self.assertNotIn("ALT1", call_count)  # foute beurs: gesorteerd na ALT2, dus nooit bereikt
         self.assertIn("ALT2", call_count)
         self.assertNotIn("ALT3", call_count)
         self.assertNotIn("ALT4", call_count)
@@ -160,12 +160,8 @@ class TestStopBijOvertuigendeMatch(unittest.TestCase):
             if ticker == "ALT1":
                 # Simuleert '4BY1.F': geen koersdata beschikbaar.
                 return _prijscheck(match=None, afwijking_pct=None, yahoo_koers=None)
-            # ALT2 levert alsnog de overtuigende match, zodat de loop stopt
-            # en ALT3-5 niet gecheckt worden (spoor 1, al gedekt door de
-            # vorige test) -- hier gaat het puur om ALT1's call count.
-            if ticker == "ALT2":
-                return _prijscheck(match=True)
-            raise AssertionError(f"'{ticker}' had niet meer gecheckt mogen worden")
+            # ALT2-5 (juiste beurs) worden eerst gecheckt en kloppen niet, zodat ALT1 aan de beurt komt.
+            return _prijscheck(match=False, afwijking_pct=50.0, yahoo_koers=150.0)
 
         with patch.object(ticker_zekerheid, "vergelijk_prijs_op_datum", side_effect=fake_vergelijk):
             verifieer_ticker_met_prijs("PRODUCT", "ISIN123", self.BEURS, self.transacties)

@@ -427,6 +427,7 @@ class TestOpenfigiVoorAlternatievenVolledigeCheck(unittest.TestCase):
              patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None)), \
              patch.object(ticker_zekerheid, "classify_ticker", return_value=True), \
              patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]), \
+             patch.object(ticker_zekerheid, "haal_long_names", return_value={}), \
              patch.object(ticker_zekerheid, "haal_openfigi_resultaten", return_value=openfigi) as mock_haal:
             resultaat = ticker_zekerheid.verifieer_ticker_met_prijs("USD DIS", "IE00B3RBWM25", "XET", transacties)
         self.assertEqual(mock_haal.call_count, 1)
@@ -470,6 +471,7 @@ class TestOpenfigiVoorAlternatievenUpload(unittest.TestCase):
              patch.object(ticker_zekerheid, "_land_sector_voor_weergave", return_value=(None, None, None)), \
              patch.object(ticker_zekerheid, "classify_ticker", return_value=True), \
              patch.object(ticker_zekerheid, "_yahoo_search", return_value=[]), \
+             patch.object(ticker_zekerheid, "haal_long_names", return_value={}), \
              patch.object(ticker_zekerheid, "haal_openfigi_resultaten", return_value=openfigi) as mock_haal:
             resultaat = ticker_zekerheid.find_ticker_met_snelle_prijscheck(
                 "USD DIS", "IE00B3RBWM25", "XET", transacties
@@ -492,7 +494,7 @@ class TestOpenfigiVoorAlternatievenUpload(unittest.TestCase):
         resultaat = self._snel(_openfigi("VGWD"), [{"symbol": "XYZ.L", "exchange": "LSE"}])
         self.assertEqual(resultaat["ticker"], "VWCE.DE")
         self.assertEqual(resultaat["zekerheid"], "onzeker")
-        self.assertEqual(resultaat["aanbevolen_alternatief"], "XYZ.L")
+        self.assertNotIn("aanbevolen_alternatief", resultaat)
         self.assertIn("OpenFIGI", resultaat["prijswaarschuwing"])
 
     def test_geen_openfigi_resultaten_slaat_alternatieven_over(self):

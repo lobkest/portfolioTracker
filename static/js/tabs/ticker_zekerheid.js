@@ -159,9 +159,9 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
         const aanbevolen = aanbevolenAlternatief === alt.ticker;
         if (aanbevolen) rij.className = "aanbevolen";
 
-        const dagrangeTekst = alt.aantal_gecontroleerd
-            ? `${alt.aantal_matches}/${alt.aantal_gecontroleerd}`
-            : "geen prijsdata";
+        const dagrangeTekst = !alt.aantal_gecontroleerd
+            ? "geen prijsdata"
+            : `${alt.aantal_matches}/${alt.aantal_gecontroleerd}${alt.uitkeringsvorm_strijdig ? " (DIS/ACC wijkt af)" : ""}`;
         const waarden = isEtf
             ? [alt.ticker, alt.beurs || "onbekend", alt.valuta || "onbekend", dagrangeTekst]
             : [
@@ -341,7 +341,49 @@ function maakTickerZekerheidKaart(p) {
         }
     }
 
+    // Alleen met een code: bij 'niet opslaan' is er niets om te wijzigen.
+    if (p.aanbevolen_alternatief && huidigeData.code && p.isin) {
+        rij.appendChild(maakTickerWijzigKnop(p));
+    }
+
     return rij;
+}
+
+function maakTickerWijzigKnop(p) {
+    const blok = document.createElement("div");
+    blok.className = "tickerWijzigBlok";
+
+    const knop = document.createElement("button");
+    knop.textContent = `Gebruik ${p.aanbevolen_alternatief} als ticker`;
+    blok.appendChild(knop);
+
+    const status = document.createElement("span");
+    status.className = "kleinLabel tickerWijzigStatus";
+    blok.appendChild(status);
+
+    knop.addEventListener("click", async () => {
+        knop.disabled = true;
+        status.textContent = "Bezig...";
+        status.classList.remove("negatief");
+        try {
+            const res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid/wijzig`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ isin: p.isin, beurs: p.excel_beurs, ticker: p.aanbevolen_alternatief }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Kon de ticker niet wijzigen.");
+            knop.remove();
+            status.textContent = `✓ Ticker gewijzigd van ${data.oude_ticker} naar ${data.ticker}. `
+                + "Herlaad de pagina om alle tabbladen bij te werken.";
+            status.classList.add("positief");
+        } catch (e) {
+            status.textContent = `⚠️ ${e.message}`;
+            status.classList.add("negatief");
+            knop.disabled = false;
+        }
+    });
+    return blok;
 }
 
 // Maximaal 'limiet' taken tegelijk: niet alles tegelijk (rate limits), niet na elkaar (traag).
@@ -480,7 +522,7 @@ async function toonInstellingenTicker() {
     });
 
     // Max. 4 tegelijk; elke rij wordt bijgewerkt zodra zijn antwoord binnen is.
-    await voerMetConcurrencyLimietUit(posities, 1, p => controleerTickerZekerheidPositie(p, kaarten[`${p.isin}|${p.beurs}`]));
+    await voerMetConcurrencyLimietUit(posities, 4, p => controleerTickerZekerheidPositie(p, kaarten[`${p.isin}|${p.beurs}`]));
 }
 
 const ALLE_PRIJZEN_KNOPTEKST = "Controleer alle aankoop-/verkoopprijzen";

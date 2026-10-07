@@ -128,7 +128,7 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
             "Vanguard S&P 500 UCITS ETF USD Dis", "IE00B3XXRP09", "EAM", self.transacties
         )
         self.assertEqual(resultaat["ticker"], "VUSA.AS")  # NIET overgenomen
-        self.assertEqual(resultaat.get("aanbevolen_alternatief"), "TWIJFEL.L")
+        self.assertNotIn("aanbevolen_alternatief", resultaat)
 
 
 if __name__ == "__main__":

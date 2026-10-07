@@ -914,6 +914,14 @@ body {
     margin-bottom: 14px;
 }
 
+.tickerWijzigBlok {
+    margin-top: 10px;
+}
+
+.tickerWijzigStatus {
+    margin-left: 8px;
+}
+
 .allePrijzenResultaten:not(:empty) {
     margin-bottom: 18px;
     padding-bottom: 14px;
