@@ -247,12 +247,14 @@ class TestTickerZekerheidWijzigRoute(unittest.TestCase):
         conn.close()
 
     def test_wijzig_zet_beide_isins_om(self):
-        res = self.client.post(
-            f"/api/portfolio/{self.TEST_CODE}/ticker-zekerheid/wijzig",
-            json={"isin": self.NIEUW_ISIN, "beurs": self.BEURS, "ticker": "XELA.NEW"},
-        )
+        import app as app_module
+        with patch.object(app_module, "bijnaam_na_tickerwissel", return_value=None):
+            res = self.client.post(
+                f"/api/portfolio/{self.TEST_CODE}/ticker-zekerheid/wijzig",
+                json={"isin": self.NIEUW_ISIN, "beurs": self.BEURS, "ticker": "XELA.NEW"},
+            )
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(res.get_json(), {"ticker": "XELA.NEW", "oude_ticker": "XELA"})
+        self.assertEqual(res.get_json(), {"ticker": "XELA.NEW", "oude_ticker": "XELA", "bijnaam": None})
 
         from db import db_connect
         conn = db_connect()
