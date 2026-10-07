@@ -33,7 +33,8 @@ uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt 
   aan een bestaande portfolio. Elk bestand wordt eerst gecontroleerd of het bij
   die portfolio hoort.
 
-Elke positie wordt per (ISIN, beurs) aan een Yahoo-ticker gekoppeld en met
+Elke positie wordt per (ISIN, beurs) aan een Yahoo-ticker gekoppeld (een
+split waarbij het aandeel een nieuwe ISIN kreeg, telt als één positie) en met
 een prijsvergelijking gecontroleerd (valt de DeGiro-prijs binnen Yahoo's
 dagrange?); koersen worden gecachet in de database. Van ETF's waarvan Yahoo
 alleen de top-10 kent, wordt het land benaderd via een iShares-ETF met
