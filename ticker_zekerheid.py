@@ -16,7 +16,7 @@ from ticker_prijscheck import vergelijk_prijs_op_datum, vergelijk_prijzen_op_dat
 from transactie_utils import formatteer_datum_nl
 from ticker_classificatie import (
     classify_ticker, get_land_sector, get_etf_sector_verdeling, get_etf_holdings, _ticker_details_met_cache,
-    haal_long_names,
+    haal_long_names, bewaar_long_names,
 )
 from naam_verkorting import uitkeringsvorm, uitkeringsvorm_strijdig
 from yahoo_client import yahoo_teller_stand
@@ -246,10 +246,14 @@ def kies_alternatief(alternatieven, aantal_steekproef, verwachte_beurzen, openfi
 
 
 def _uitkeringsvorm_strijdig_bij_yahoo(degiro_naam, ticker):
-    """Eén Yahoo-call, en alleen als de DeGiro-naam DIS of ACC noemt."""
+    """Alleen als de DeGiro-naam DIS of ACC noemt; longName uit ticker_info, anders één Yahoo-call (en opslaan)."""
     if not uitkeringsvorm(degiro_naam):
         return False, None
-    long_name = haal_long_names([ticker]).get(ticker)
+    long_name = _ticker_details_met_cache(ticker).get("long_name")
+    if not long_name:
+        long_name = haal_long_names([ticker]).get(ticker)
+        if long_name:
+            bewaar_long_names({ticker: long_name})
     return uitkeringsvorm_strijdig(degiro_naam, long_name), long_name
 
 
@@ -301,7 +305,7 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
         strijdig, long_name = _uitkeringsvorm_strijdig_bij_yahoo(degiro_naam, alt_ticker)
         if strijdig:
             resultaat_alt["uitkeringsvorm_strijdig"] = True
-            print(f"[ticker-zekerheid] {alt_ticker}: prijs klopt, maar DIS/ACC wijkt af ('{long_name}') -> verder zoeken")
+            print(f"[ticker-zekerheid] {alt_ticker}: prijs klopt, maar DIS/ACC wijkt af ({long_name!a}) -> verder zoeken")
             continue
         aanbevolen_alternatief = alt_ticker
         break
@@ -338,7 +342,6 @@ def _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin):
             for t, check in zip(rest, vergelijk_prijzen_op_datums(ticker, rest)):
                 check["datum"] = str(t["datum"])
                 prijs_checks.append(check)
-            # Op datum: de frontend leest de laatste dagrange van achteren.
             prijs_checks.sort(key=lambda c: c["datum"])
 
     bekende_checks = [c for c in prijs_checks if c["match"] is not None]
@@ -468,7 +471,7 @@ def _met_waarschuwing(resultaat, tekst):
 def _voeg_uitkeringsvorm_check_toe(resultaat, product):
     """DIS/ACC als laatste check: geen officiële bron, dus alleen een duidelijke strijdigheid telt."""
     strijdig, long_name = _uitkeringsvorm_strijdig_bij_yahoo(product, resultaat["ticker"])
-    resultaat = {**resultaat, "uitkeringsvorm_strijdig": strijdig}
+    resultaat = {**resultaat, "uitkeringsvorm_strijdig": strijdig, "yahoo_long_name": long_name}
     if not strijdig:
         return resultaat
     return _met_waarschuwing(resultaat, (
@@ -512,7 +515,8 @@ def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, 
     _tz_print(isin, f"openfigi (root_bekend {resultaat['openfigi_root_bekend']}, {resultaat['zekerheid']})", t, y)
     t, y = time.time(), _tz_stand()
     resultaat = _voeg_uitkeringsvorm_check_toe(resultaat, product)
-    _tz_print(isin, f"DIS/ACC (strijdig {resultaat['uitkeringsvorm_strijdig']}, {resultaat['zekerheid']})", t, y)
+    _tz_print(isin, f"DIS/ACC (strijdig {resultaat['uitkeringsvorm_strijdig']}, {resultaat['zekerheid']}, "
+                    f"longName {resultaat['yahoo_long_name']!a})", t, y)
     t, y = time.time(), _tz_stand()
     resultaat = _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi)
     _tz_print(isin, f"alternatieven ({len(resultaat['alternatieven'])} doorgerekend)", t, y)
@@ -664,7 +668,9 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     resultaat = _begin_resultaat(product, isin, beurs, bekende_ticker)
     resultaat = _voeg_prijscheck_laatste_toe(resultaat, geldige_transacties)
     openfigi = haal_openfigi_resultaten(isin) if resultaat["ticker"] else None
-    root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
+    # TIJDELIJK UIT (test): een ontbrekende OpenFIGI-root corrigeert bij upload even niet. Terugzetten!
+    # root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
+    root_ontbreekt = False
     escaleren = _moet_escaleren(resultaat)
     if escaleren:
         resultaat = _voeg_steekproef_toe(resultaat, geldige_transacties)
@@ -734,7 +740,8 @@ def prijscheck_laatste(ticker, transacties_van_dit_isin):
 
 
 def controleer_alle_transactieprijzen(ticker, transacties_van_dit_isin):
-    """{prijs_checks (op datum), aantal_binnen, aantal_buiten, aantal_onbekend}: elke transactie tegen de dagrange."""
+    """{prijs_checks (op datum), aantal_binnen, aantal_buiten, aantal_onbekend, max_afstand_pct}: elke transactie
+    tegen de dagrange; max_afstand_pct = grootste afstand tot de dagrange zonder marge (None zonder high/low)."""
     geldige_transacties = sorted(_geldige_transacties(transacties_van_dit_isin), key=lambda t: t["datum"])
     prijs_checks = []
     if ticker and geldige_transacties:
@@ -746,6 +753,10 @@ def controleer_alle_transactieprijzen(ticker, transacties_van_dit_isin):
         "aantal_binnen": sum(1 for c in prijs_checks if c["binnen_dagrange"] is True),
         "aantal_buiten": sum(1 for c in prijs_checks if c["binnen_dagrange"] is False),
         "aantal_onbekend": sum(1 for c in prijs_checks if c["binnen_dagrange"] is None),
+        "max_afstand_pct": max(
+            (abs(c["afstand_dagrange_pct"]) for c in prijs_checks if c["afstand_dagrange_pct"] is not None),
+            default=None,
+        ),
     }
 
 

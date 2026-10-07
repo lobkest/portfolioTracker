@@ -11,6 +11,14 @@ const TICKER_POSITIE_TIMEOUT_MS = 30000;
 const TICKER_UITGEBREID_TIMEOUT_MS = 60000;
 
 const DAGRANGE_UITLEG = "Dagrange = intraday-high/low van Yahoo, met marge: per grens de ruimste van ±5% en €0,50.";
+const AFSTAND_UITLEG = "Hoe ver de Excel-koers buiten Yahoo's echte high/low valt, zonder marge: "
+    + "0% = erbinnen, − = onder de low, + = boven de high.";
+
+function afstandTekst(pct) {
+    if (pct == null) return "-";
+    if (pct === 0) return "0%";
+    return `${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`;
+}
 
 function voegInfoRegelToe(container, label, waarde) {
     const regel = document.createElement("div");
@@ -57,10 +65,11 @@ function maakPrijscontroleTabel(prijsChecks) {
     wrapper.appendChild(tabel);
 
     const kop = document.createElement("tr");
-    ["Datum", "Excel-koers", "Yahoo-koers", "Low", "High", "Binnen dagrange"].forEach(tekst => {
+    ["Datum", "Excel-koers", "Yahoo-koers", "Low", "High", "Afstand tot range", "Binnen dagrange"].forEach(tekst => {
         const th = document.createElement("th");
         th.textContent = tekst;
         if (tekst === "Binnen dagrange") th.title = DAGRANGE_UITLEG;
+        if (tekst === "Afstand tot range") th.title = AFSTAND_UITLEG;
         kop.appendChild(th);
     });
     tabel.appendChild(kop);
@@ -81,6 +90,7 @@ function maakPrijscontroleTabel(prijsChecks) {
             yahooKoersTekst,
             c.low != null ? c.low.toFixed(3) : "-",
             c.high != null ? c.high.toFixed(3) : "-",
+            afstandTekst(c.afstand_dagrange_pct),
         ].forEach((tekst, i) => {
             const td = document.createElement("td");
             td.textContent = tekst;
@@ -118,16 +128,6 @@ function maakPrijscontroleTabel(prijsChecks) {
     }
 
     return wrapper;
-}
-
-// Meest recente prijscheck met een bekende dagrange.
-function laatsteDagrangeUitChecks(prijsChecks) {
-    if (!prijsChecks) return null;
-    for (let i = prijsChecks.length - 1; i >= 0; i--) {
-        const c = prijsChecks[i];
-        if (c.high != null && c.low != null) return { high: c.high, low: c.low };
-    }
-    return null;
 }
 
 // isEtf bepaalt de kolommen: land/sector alleen voor aandelen.
@@ -289,15 +289,11 @@ function maakTickerZekerheidKaart(p) {
     }
 
     if (p.is_etf) {
-        // Voor een ETF is high/low het sterke signaal, niet land/sector.
+        // Geen land/sector voor een ETF: de prijscontrole hieronder is het sterke signaal.
         voegInfoRegelToe(rij, "Valuta", p.valuta);
         voegInfoRegelToe(rij, "Fondsfamilie", p.fondsfamilie);
         voegInfoRegelToe(rij, "Categorie", p.category);
         rij.appendChild(maakBeursRegel(p.excel_beurs, p.yahoo_beurs, p.beurs_klopt));
-        const dagrange = laatsteDagrangeUitChecks(p.prijs_checks);
-        if (dagrange) {
-            voegInfoRegelToe(rij, "High/Low (laatste controle)", `${dagrange.high.toFixed(3)} / ${dagrange.low.toFixed(3)}`);
-        }
     } else {
         // Een ETF heeft geen eigen land: toon het land van de grootste holding, of niets.
         if (p.land) {
@@ -531,6 +527,7 @@ function allePrijzenSamenvattingTekst(r) {
     const delen = [`${r.aantal_binnen}/${r.prijs_checks.length} binnen dagrange`];
     if (r.aantal_buiten) delen.push(`${r.aantal_buiten} buiten`);
     if (r.aantal_onbekend) delen.push(`${r.aantal_onbekend} zonder koersdata`);
+    if (r.max_afstand_pct) delen.push(`max. ${r.max_afstand_pct.toFixed(2)}% buiten de echte range`);
     return delen.join(", ");
 }
 
@@ -563,6 +560,9 @@ async function controleerAllePrijzenPositie(p, plek, totaal) {
         totaal.binnen += r.aantal_binnen;
         totaal.buiten += r.aantal_buiten;
         totaal.onbekend += r.aantal_onbekend;
+        if (r.max_afstand_pct != null && (totaal.maxAfstand == null || r.max_afstand_pct > totaal.maxAfstand.pct)) {
+            totaal.maxAfstand = { pct: r.max_afstand_pct, ticker: r.ticker };
+        }
     } catch (e) {
         plek.textContent = `⚠️ ${p.naam}: ${e.name === "AbortError" ? "duurde te lang en is afgebroken." : e.message}`;
         plek.classList.add("negatief");
@@ -590,13 +590,16 @@ async function controleerAllePrijzen(posities, knop, resultaten) {
         return plek;
     });
 
-    const totaal = { binnen: 0, buiten: 0, onbekend: 0, mislukt: 0 };
+    const totaal = { binnen: 0, buiten: 0, onbekend: 0, mislukt: 0, maxAfstand: null };
     await voerMetConcurrencyLimietUit(posities, 4, (p, i) => controleerAllePrijzenPositie(p, plekken[i], totaal));
 
     const delen = [`${totaal.binnen + totaal.buiten + totaal.onbekend} transacties gecontroleerd`,
         `${totaal.binnen} binnen dagrange`, `${totaal.buiten} buiten`];
     if (totaal.onbekend) delen.push(`${totaal.onbekend} zonder koersdata`);
     if (totaal.mislukt) delen.push(`${totaal.mislukt} posities mislukt`);
+    if (totaal.maxAfstand) {
+        delen.push(`grootste afstand tot de echte range ${totaal.maxAfstand.pct.toFixed(2)}% (${totaal.maxAfstand.ticker})`);
+    }
     samenvatting.textContent = `Klaar: ${delen.join(", ")}.`;
     samenvatting.classList.toggle("negatief", totaal.buiten > 0 || totaal.mislukt > 0);
     samenvatting.classList.toggle("positief", totaal.buiten === 0 && totaal.mislukt === 0);

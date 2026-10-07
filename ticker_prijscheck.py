@@ -27,6 +27,15 @@ def dagrange_grenzen(low_eur, high_eur):
     return ondergrens, bovengrens
 
 
+def afstand_tot_dagrange_pct(koers, low_eur, high_eur):
+    """Zonder marge: 0 binnen [low, high], negatief = % onder de low, positief = % boven de high."""
+    if koers < low_eur:
+        return (koers - low_eur) / low_eur * 100
+    if koers > high_eur:
+        return (koers - high_eur) / high_eur * 100
+    return 0.0
+
+
 def _haal_dagrange_op(ticker, datum, dagen_buffer=7, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """(high, low) van de eerste handelsdag op of na 'datum', in eigen valuta; (None, None) bij een fout."""
     einddatum = pd.Timestamp(datum) + pd.Timedelta(days=dagen_buffer)
@@ -146,7 +155,7 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
         return {
             "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
             "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
-            "high": high, "low": low, "binnen_dagrange": None,
+            "high": high, "low": low, "binnen_dagrange": None, "afstand_dagrange_pct": None,
         }
 
     valuta_conversie_toegepast = False
@@ -166,7 +175,7 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
             return {
                 "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
                 "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
-                "high": high, "low": low, "binnen_dagrange": None,
+                "high": high, "low": low, "binnen_dagrange": None, "afstand_dagrange_pct": None,
             }
         divisor = 100 if valuta == "GBp" else 1
         yahoo_koers_eur = yahoo_koers / divisor * fx_koers
@@ -181,9 +190,11 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
         low_eur = low_eur * split_factor
 
     binnen_dagrange = None
+    afstand_dagrange_pct = None
     if high_eur is not None and low_eur is not None:
         ondergrens, bovengrens = dagrange_grenzen(low_eur, high_eur)
         binnen_dagrange = ondergrens <= bekende_koers <= bovengrens
+        afstand_dagrange_pct = afstand_tot_dagrange_pct(bekende_koers, low_eur, high_eur)
 
     afwijking_pct = abs(yahoo_koers_gecorrigeerd - bekende_koers) / bekende_koers * 100
     afwijking_fractie = afwijking_pct / 100
@@ -206,6 +217,7 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
         "high": high_eur if toon_gecorrigeerd else high,
         "low": low_eur if toon_gecorrigeerd else low,
         "binnen_dagrange": binnen_dagrange,
+        "afstand_dagrange_pct": afstand_dagrange_pct,
     }
 
 
