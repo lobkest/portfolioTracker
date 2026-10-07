@@ -101,6 +101,13 @@ class TestGefaseerdLaden(unittest.TestCase):
 
         self.assertEqual(mock_bedrijven.call_args.kwargs["top_n"], BEDRIJVEN_TOP_N_MAX)
 
+    def test_box3_basis_alleen_op_verzoek(self):
+        zonder = self.portfolio_orchestratie.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
+        met = self.portfolio_orchestratie.analyze_transacties(_transacties_df(), code=None, naam="Test", box3=True)
+        self.assertNotIn("box3_basis", zonder)
+        self.assertEqual(met["box3_basis"]["jaren"][0]["netto_inleg"], 200.0)
+        self.assertFalse(met["box3_basis"]["dividend_beschikbaar"])
+
     def test_analyze_transacties_wrapper_is_gelijk_aan_kern_plus_verrijking(self):
         kern = self.portfolio_orchestratie.analyze_transacties_kern(_transacties_df(), code=None, naam="Test")
         verrijking = self.portfolio_orchestratie.analyze_transacties_verrijking(_transacties_df(), code=None)

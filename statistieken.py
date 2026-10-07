@@ -158,14 +158,16 @@ def bereken_holdings_en_gesloten(transacties_df):
     return open_posities, gesloten_posities
 
 
+def waarde_op_of_voor(resultaat, datum, kolom):
+    """Laatste waarde van `kolom` op of vóór `datum`; 0.0 als er dan nog niets was."""
+    subset = resultaat.loc[:datum, kolom]
+    return float(subset.iloc[-1]) if len(subset) else 0.0
+
+
 def bereken_jaren_overzicht(resultaat, eerste_datum=None):
     """eerste_datum: de echte eerste transactiedatum, zodat het eerste jaar niet als vol jaar telt."""
     if resultaat.empty:
         return []
-
-    def waarde_op_of_voor(datum, kolom):
-        subset = resultaat.loc[:datum, kolom]
-        return float(subset.iloc[-1]) if len(subset) else 0.0
 
     laatste_datum = resultaat.index.max()
     eerste_datum = pd.Timestamp(eerste_datum) if eerste_datum is not None else resultaat.index.min()
@@ -183,11 +185,11 @@ def bereken_jaren_overzicht(resultaat, eerste_datum=None):
         dagen_verstreken = (periode_eind - periode_start).days + 1
         pct_van_jaar = dagen_verstreken / dagen_in_jaar * 100
 
-        startwaarde = waarde_op_of_voor(jaar_start - pd.Timedelta(days=1), "waarde")
-        geinvesteerd_voor = waarde_op_of_voor(jaar_start - pd.Timedelta(days=1), "geinvesteerd")
-        geinvesteerd_na = waarde_op_of_voor(periode_eind, "geinvesteerd")
+        startwaarde = waarde_op_of_voor(resultaat, jaar_start - pd.Timedelta(days=1), "waarde")
+        geinvesteerd_voor = waarde_op_of_voor(resultaat, jaar_start - pd.Timedelta(days=1), "geinvesteerd")
+        geinvesteerd_na = waarde_op_of_voor(resultaat, periode_eind, "geinvesteerd")
         ingelegd = geinvesteerd_na - geinvesteerd_voor
-        eindwaarde = waarde_op_of_voor(periode_eind, "waarde")
+        eindwaarde = waarde_op_of_voor(resultaat, periode_eind, "waarde")
 
         rendement = bereken_jaar_rendement(startwaarde, ingelegd, eindwaarde)
         jaren.append({
@@ -281,10 +283,6 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
     if resultaat.empty:
         return {"labels": [], "rendement_pct": [], "xirr_pct": [], "twr_pct": []}
 
-    def waarde_op_of_voor(datum, kolom):
-        subset = resultaat.loc[:datum, kolom]
-        return float(subset.iloc[-1]) if len(subset) else 0.0
-
     eerste_datum = resultaat.index.min()
     laatste_datum = resultaat.index.max()
     stap_datums = list(pd.date_range(eerste_datum, laatste_datum, freq="ME"))
@@ -297,8 +295,8 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
 
     labels, rendement_pct_lijst, xirr_pct_lijst, twr_pct_lijst = [], [], [], []
     for d in stap_datums:
-        waarde = waarde_op_of_voor(d, "waarde")
-        geinvesteerd = waarde_op_of_voor(d, "geinvesteerd")
+        waarde = waarde_op_of_voor(resultaat, d, "waarde")
+        geinvesteerd = waarde_op_of_voor(resultaat, d, "geinvesteerd")
 
         rendement = bereken_totaal_rendement(geinvesteerd, waarde)
 

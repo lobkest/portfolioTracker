@@ -11,6 +11,7 @@
                 { view: "portfolio", label: "Home" },
                 { view: "statistieken", label: "Statistieken" },
                 { view: "dividend", label: "Dividend" },
+                { view: "box3", label: "Box 3" },
                 { view: "transacties", label: "Transacties" },
             ],
         },

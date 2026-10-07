@@ -827,6 +827,22 @@ body {
     color: #155724;
 }
 
+.badgeBox3 {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.box3Stelsel {
+    margin-top: 28px;
+}
+
+.box3Voetnoot {
+    color: #888;
+    font-size: 0.8em;
+    margin-top: 16px;
+    padding-left: 18px;
+}
+
 .bijnaamRij {
     margin-bottom: 12px;
 }

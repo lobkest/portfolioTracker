@@ -28,6 +28,7 @@ from diagnostiek import (
 )
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from prijzen import get_prices
+from box3 import bouw_box3_basis
 from portfolio_calc import (
     compute_split_adjusted_shares, compute_value_over_time, compute_per_ticker,
     compute_per_ticker_koers_en_aankopen, bepaal_split_boekingen, meld_split_koppeling,
@@ -414,9 +415,10 @@ def build_portfolio_response(code, verversen=True):
     return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
 
 
-def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None, kassaldo=None):
+def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None, kassaldo=None,
+                             box3=False, box3_dividenden=None):
     """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. `kassaldo` alleen bij 'niet opslaan';
-    met een code komt hij uit de database."""
+    met een code komt hij uit de database. `box3`: ook de box 3-basis, voor 'niet opslaan' (anders apart endpoint)."""
     mem_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
@@ -498,7 +500,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             kassaldo=kassaldo,
         )
 
-    return {
+    antwoord = {
         "code": code,
         "naam": naam,
         "chart_data": {
@@ -523,6 +525,9 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         "laatst_opgehaald_op": laatst_opgehaald_op.isoformat() + "Z" if laatst_opgehaald_op else None,
         **koersstatus,
     }
+    if box3:
+        antwoord["box3_basis"] = bouw_box3_basis(transacties_df, resultaat, box3_dividenden)
+    return antwoord
 
 
 def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None, gebruik_proxy=True):
@@ -613,10 +618,11 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
     }
 
 
-def analyze_transacties(transacties_df, code, naam, kassaldo=None):
+def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, box3_dividenden=None):
     """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking).
     Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout)."""
-    resultaat = analyze_transacties_kern(transacties_df, code, naam, kassaldo=kassaldo)
+    resultaat = analyze_transacties_kern(transacties_df, code, naam, kassaldo=kassaldo, box3=box3,
+                                         box3_dividenden=box3_dividenden)
     if resultaat.get("chart_data") is None:
         return resultaat
     resultaat.update(analyze_transacties_verrijking(transacties_df, code, gebruik_proxy=False))

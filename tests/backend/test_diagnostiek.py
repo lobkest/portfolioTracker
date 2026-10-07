@@ -219,7 +219,7 @@ class TestFxReeksMelding(unittest.TestCase):
 
 
 # Kolomvolgorde zoals de SELECT in haal_portfolio_basis().
-TRANSACTIE_RIJ = ("2024-01-01", "TEST", "US0000000001", "NDQ", "TEST", 1.0, 100.0, -100.0, "TEST", None, None, None, None)
+TRANSACTIE_RIJ = ("2024-01-01", "TEST", "US0000000001", "NDQ", "TEST", 1.0, 100.0, -100.0, "TEST", None, None, None, None, None)
 TEST_CODE = "ZZTESTDIAGNOSTIEK"
 
 

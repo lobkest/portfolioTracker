@@ -305,6 +305,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         df["echte_naam"] = df["product"]
         df["waarde_eur"] = None
         df["wisselkoers"] = None
+        df["autofx_kosten"] = None
         df["datum"] = df["datum"].dt.date
         rijen = [tuple(r) for r in df[portfolio_orchestratie.TRANSACTIE_KOLOMMEN].itertuples(index=False)]
         with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", rijen)),              patch.object(portfolio_orchestratie, "get_prices", side_effect=AssertionError("koersen opgehaald")),              patch.object(portfolio_orchestratie, "haal_portfolio_basis", side_effect=AssertionError("basis geladen")):

@@ -59,7 +59,7 @@
     {% macro prognose_dividend_sectie(prefix) %}
                 <div id="{{ prefix }}DividendSectie" class="margeBoven20" hidden>
                     <h3>Verwacht dividend</h3>
-                    <div id="{{ prefix }}DividendTabel" class="tabelWrapper scrollbareTabel"></div>
+                    <div id="{{ prefix }}DividendTabel"></div>
                     <p id="{{ prefix }}DividendTotaal" class="margeBoven8"></p>
                     <p id="{{ prefix }}DividendNietMeegeteld" class="waarschuwingTekst prognoseMelding" hidden></p>
                     <div class="uitlegBox margeBoven8">
@@ -328,6 +328,80 @@
                 </div>
             </div>
 
+            <div id="tab-box3" data-views="box3" style="display: none;">
+                <p id="box3Laden" hidden>Bezig met laden...</p>
+                <p id="box3Fout" class="foutTekst" hidden>Kon de box 3-berekening niet ophalen.</p>
+                <div id="box3Inhoud" hidden>
+                <p class="waarschuwingBanner">Hypothetische berekening. Het nieuwe box 3-stelsel is nog niet definitief (stand parameters: <span id="box3Stand"></span>). Alleen deze portfolio, tenzij je hieronder ander vermogen invult. Geen belastingadvies.</p>
+                <div class="tabSplit">
+                <div class="tabInfo">
+                    <h3 class="margeBoven0">Ander box 3-vermogen (optioneel)</h3>
+                    <p class="kleineMelding">Wordt nergens opgeslagen. Eén bedrag, voor elk jaar gelijk.</p>
+                    <div class="labelRij">
+                        <label for="box3Bank">Spaargeld/banktegoeden</label>
+                        <span class="infoTip" data-label="Spaargeld/banktegoeden">Saldo van je spaar- en betaalrekeningen op 1 januari. Cash bij DeGiro blijft buiten beschouwing.</span>
+                    </div>
+                    <input type="text" inputmode="decimal" id="box3Bank" placeholder="0" autocomplete="off">
+                    <div class="labelRij">
+                        <label for="box3Overig">Overige bezittingen</label>
+                        <span class="infoTip" data-label="Overige bezittingen">Op 1 januari, bijvoorbeeld beleggingen elders, een tweede woning of uitgeleend geld. Deze portfolio telt al vanzelf mee.</span>
+                    </div>
+                    <input type="text" inputmode="decimal" id="box3Overig" placeholder="0" autocomplete="off">
+                    <div class="labelRij">
+                        <label for="box3Schulden">Schulden</label>
+                        <span class="infoTip" data-label="Schulden">Box 3-schulden op 1 januari, dus niet de hypotheek van je eigen woning. Alleen het deel boven de schuldendrempel telt mee.</span>
+                    </div>
+                    <input type="text" inputmode="decimal" id="box3Schulden" placeholder="0" autocomplete="off">
+                    <div class="labelRij">
+                        <label for="box3RendementAnder">Rendement op ander vermogen per jaar</label>
+                        <span class="infoTip" data-label="Rendement op ander vermogen">Wat het andere vermogen per jaar oplevert, bijvoorbeeld ontvangen spaarrente. Telt mee in de nieuwe stelsels en bij het tegenbewijs.</span>
+                    </div>
+                    <input type="text" inputmode="decimal" id="box3RendementAnder" placeholder="0" autocomplete="off">
+                    <div class="labelRij">
+                        <label class="checkboxLabel margeBoven0"><input type="checkbox" id="box3Partner"> Fiscale partner</label>
+                        <span class="infoTip" data-label="Fiscale partner">Verdubbelt de heffingsvrije bedragen; ga uit van jullie gezamenlijke vermogen.</span>
+                    </div>
+                    <p id="box3InvoerFout" class="foutTekst melding" hidden></p>
+                    <div id="box3Tegels"></div>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek></div>
+                </div>
+
+                <section class="box3Stelsel">
+                    <h3>Huidig stelsel (forfaitair, vanaf 2023)</h3>
+                    <p><strong>Zo wordt het berekend.</strong> Op 1 januari telt de waarde van deze portfolio, plus je overige bezittingen, als 'overige bezittingen' en je spaargeld als banktegoed. Over elk deel rekent de Belastingdienst met een vast rendementspercentage; schulden boven de drempel gaan eraf. Dat rendement wordt omgeslagen over het deel van je vermogen boven het heffingsvrije vermogen, en daarover betaal je het tarief.</p>
+                    <p><strong>Tegenbewijs.</strong> Was je werkelijke rendement lager (koersresultaat plus dividend plus rendement op ander vermogen, waarbij kosten níet aftrekbaar zijn en dus worden teruggeteld), dan betaal je het tarief over dat werkelijke rendement. De laagste van de twee geldt. Jaren vóór 2023 vielen onder een ander stelsel en worden niet berekend.</p>
+                    <div id="box3HuidigTabel" class="scrollbareTabel"></div>
+                </section>
+
+                <section class="box3Stelsel">
+                    <h3>Scenario A: vermogensaanwasbelasting (wetsvoorstel)</h3>
+                    <p><strong>Zo wordt het berekend.</strong> Elk jaar wordt de waardeverandering belast, ook als je niets verkoopt: waarde aan het eind min waarde aan het begin min je netto inleg (aankopen min verkopen, inclusief kosten, zodat kosten aftrekbaar zijn). Daar komen het bruto dividend en het rendement op ander vermogen bij. Een negatief rendement wordt verlies; alleen het deel boven <span class="box3Drempel"></span> mag je verrekenen met latere jaren. Van wat overblijft gaat <span class="box3Heffingsvrij"></span> heffingsvrij resultaat af (<span class="box3HeffingsvrijPartner"></span> met fiscale partner); over de rest betaal je <span class="box3Tarief"></span>.</p>
+                    <div id="box3AanwasTabel" class="scrollbareTabel"></div>
+                </section>
+
+                <section class="box3Stelsel">
+                    <h3>Scenario B: vermogenswinstbelasting (bij verkoop)</h3>
+                    <p><strong>Zo wordt het berekend.</strong> Koerswinst wordt pas belast als je verkoopt: de opbrengst (na kosten) min de kostenbasis. De kostenbasis is de gemiddelde aankoopprijs per positie, inclusief aankoopkosten. Bruto dividend en rendement op ander vermogen tellen elk jaar mee. Verliesverrekening, heffingsvrij resultaat en tarief (<span class="box3Tarief"></span>) werken als bij A.</p>
+                    <p>Nog niet verkocht: <span id="box3LatenteWinst"></span> latente winst. Verkoop je alles tegen de huidige koers, dan komt daar ongeveer <span id="box3LatenteBelasting"></span> belasting bij (indicatie, zonder heffingsvrij resultaat).</p>
+                    <div id="box3WinstTabel" class="scrollbareTabel"></div>
+                    <h4>Verkopen</h4>
+                    <div id="box3VerkopenTabel" class="scrollbareTabel"></div>
+                </section>
+
+                <p class="margeBoven20">Dividend telt mee: in het wetsvoorstel is ontvangen dividend direct rendement (bruto; ingehouden dividendbelasting is een voorheffing). In het huidige forfaitaire stelsel zit dividend al in het vaste percentage en telt het alleen mee bij het tegenbewijs.</p>
+                <p id="box3GeenDividend" class="waarschuwingTekst" hidden>Zonder rekeningoverzicht is dividend niet meegenomen; upload het via Instellingen → Bestanden bijwerken.</p>
+
+                <ul class="box3Voetnoot">
+                    <li>Cash bij DeGiro is buiten beschouwing gelaten (levert ongeveer 0 rente op).</li>
+                    <li>Het andere vermogen is voor elk jaar gelijk verondersteld.</li>
+                    <li>Het tegenbewijs is een benadering.</li>
+                    <li>Scenario B gebruikt de gemiddelde kostprijs; welke methode het wordt (bijvoorbeeld per aankoop), ligt nog niet vast.</li>
+                    <li>De verliesverrekening volgt het wetsvoorstel.</li>
+                </ul>
+                </div>
+            </div>
+
             <div id="tab-instellingen" data-views="instellingen" style="display: none;">
                 <p>Wil je stoppen met deze portfolio? Je kunt alle opgeslagen data (transacties en code) permanent uit de database verwijderen.</p>
                 <button id="verwijderPortfolioBtn" class="gevaarKnop">Verwijder mijn data uit de database</button>
@@ -408,6 +482,7 @@
     <script src="{{ url_for('static', filename='js/koersen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/per_aandeel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/land_sector.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/box3.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>
@@ -424,6 +499,7 @@
     <script src="{{ url_for('static', filename='js/tabs/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/dividend.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/box3.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/instellingen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/bestanden_bijwerken.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/bijnamen.js') }}"></script>

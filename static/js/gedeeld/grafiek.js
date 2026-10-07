@@ -2,10 +2,14 @@
 
 Chart.register(ChartDataLabels);
 
-// Boven 8 items herhalen de kleuren; elk taartpunt heeft ook een eigen label.
-const CATEGORISCH_PALET = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+// Boven 20 items herhalen de kleuren; elk taartpunt heeft ook een eigen label.
+const CATEGORISCH_PALET = [
+    "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948",
+    "#0f9d9a", "#8c564b", "#c0369d", "#7fb800", "#1f3f8f", "#f4c430", "#5fb3e8", "#a3001b",
+    "#ff9f6b", "#2e6b4f", "#b38bd9", "#6b4f00",
+];
 // Vlakken die te licht zijn voor witte tekst erop (donkere inkt leest daar beter).
-const LICHTE_VLAKKEN = new Set(["#eda100", "#e87ba4"]);
+const LICHTE_VLAKKEN = new Set(["#eda100", "#e87ba4", "#7fb800", "#f4c430", "#5fb3e8", "#ff9f6b", "#b38bd9"]);
 
 // Eigen grijs, zodat "Unknown" nooit opgaat in de categoriekleuren.
 const ONBEKEND_GRIJS = "#6b6b66";
@@ -88,6 +92,30 @@ function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
                     }
                 },
                 zoom: zoomOpties(),
+                datalabels: { display: false }
+            }
+        }
+    });
+}
+
+// Staven naast elkaar per categorie (bv. jaren, dus geen datums); null in de data = geen staaf.
+function updateStaafChart(labels, datasets, waardeFormatter = formatteerEuro) {
+    if (chart) chart.destroy();
+    chart = new Chart(document.getElementById("rendementChart"), {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            locale: "nl-NL",
+            scales: { y: { beginAtZero: true, ticks: { callback: v => waardeFormatter(v, 0) } } },
+            plugins: {
+                legend: { position: "bottom" },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y === null ? "niet berekend" : waardeFormatter(ctx.parsed.y)}`
+                    }
+                },
                 datalabels: { display: false }
             }
         }

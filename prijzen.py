@@ -8,7 +8,10 @@ import pandas as pd
 import yfinance as yf
 from flask import g, has_app_context
 
-from db import db_get_gecachte_koersen, db_get_ticker_details, db_save_koersen
+from db import (
+    CACHE_GELDIGHEID, db_get_gecachte_koersen, db_get_koers_begin, db_get_ticker_details, db_save_koers_begin,
+    db_save_koersen,
+)
 from debug_utils import meet_tijd
 from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
 from split_correctie import ruwe_koers
@@ -32,6 +35,12 @@ DREMPEL_HERGEBRUIK_KOERS = pd.Timedelta(minutes=2)
 
 # Een gesloten positie heeft koersen tot haar laatste transactie nodig; daarna (marge: weekend + definitieve slotkoers) niet meer.
 MARGE_GESLOTEN_POSITIE = pd.Timedelta(days=3)
+
+# Marge voor weekenden/feestdagen rond de gevraagde startdatum bij de "cache ver genoeg terug"-check.
+MARGE_EERSTE_KOERS = pd.Timedelta(days=5)
+
+# Verloopt, zodat een eenmalig te korte Yahoo-historie niet voorgoed als "Yahoo heeft niets eerder" blijft staan.
+KOERS_BEGIN_GELDIGHEID = pd.Timedelta(CACHE_GELDIGHEID)
 
 # Herkomst van koersen per request (op `g`), alleen voor de Diagnostiek.
 FX_PAREN = set(FX_PAAR_PER_VALUTA.values())
@@ -185,6 +194,28 @@ def _ruwe_koersen_in_eur(close, splits, tickers, verversen, tijden=None):
     return ruw, {t: splits[t] for t in gelukt}
 
 
+def _begint_later_dan(ruw, start_date):
+    """{ticker: start_date} voor tickers waarvan de download data gaf, maar pas na start_date + MARGE_EERSTE_KOERS."""
+    resultaat = {}
+    for t in ruw.columns:
+        geldig = ruw[t].dropna()
+        if t not in FX_PAREN and not geldig.empty and geldig.index.min() > start_date + MARGE_EERSTE_KOERS:
+            resultaat[t] = start_date.date()
+    return resultaat
+
+
+def _yahoo_begint_later(kandidaten, start_date):
+    """Tickers waarvoor al eens volledig is gedownload vanaf start_date of eerder, zonder eerdere koers
+    (zie CLAUDE.md: Yahoo en tickers)."""
+    if not kandidaten:
+        return set()
+    nu = pd.Timestamp.now()
+    return {
+        t for t, (gevraagd_vanaf, bijgewerkt_op) in db_get_koers_begin(kandidaten).items()
+        if pd.Timestamp(gevraagd_vanaf) <= start_date and nu - pd.Timestamp(bijgewerkt_op) < KOERS_BEGIN_GELDIGHEID
+    }
+
+
 def _rijen(ruw):
     return [
         (t, datum.date(), float(koers))
@@ -210,6 +241,12 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
     datums_cache = {t: (pd.Timestamp(eerste), pd.Timestamp(laatste)) for t, (eerste, laatste) in datums.items()}
     cached = pd.DataFrame(koers_rijen, columns=["ticker", "datum", "koers_eur"])
 
+    te_laat_begonnen = [
+        t for t in tickers
+        if t in datums_cache and t not in FX_PAREN and datums_cache[t][0] > start_date + MARGE_EERSTE_KOERS
+    ]
+    compleet_volgens_begin = _yahoo_begint_later(te_laat_begonnen, start_date)
+
     missing = []
     # ticker -> datum vanaf waar incrementeel ververst moet worden
     stale = {}
@@ -218,8 +255,7 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
             missing.append(t)
             continue
         eerste, laatste = datums_cache[t]
-        # kleine marge voor weekenden/feestdagen rond de gevraagde startdatum
-        if eerste > start_date + pd.Timedelta(days=5):
+        if eerste > start_date + MARGE_EERSTE_KOERS and t not in compleet_volgens_begin:
             missing.append(t)
             continue
         # Elke opening verversen: een koers van vandaag kan tussentijds zijn.
@@ -247,6 +283,7 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
                 ruw, splits = _download_ruwe_koersen_in_eur(groepje, start_date, verversen)
                 fresh_rows = _rijen(ruw)
                 db_save_koersen(fresh_rows, splits)
+                db_save_koers_begin(_begint_later_dan(ruw, start_date))
 
                 fresh_df = pd.DataFrame(fresh_rows, columns=["ticker", "datum", "koers_eur"])
                 # Bij overlap de verse waarde houden; duplicaten breken pivot().

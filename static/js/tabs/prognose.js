@@ -6,6 +6,7 @@ let prognoseDividendVerzoek = null;
 
 const DIVIDEND_BRON_TEKST = {
     yahoo_reeks: "Yahoo, afgelopen 12 mnd",
+    eigen_data: "Eigen ontvangen dividend (12 mnd t/m {per_datum})",
     dividend_rate: "Yahoo, verwacht jaarbedrag",
     trailing_rate: "Yahoo, trailing 12 mnd",
     geen_uitkeringen: "Keert niet uit",
@@ -18,9 +19,14 @@ function prognoseGetal(x, maxDecimalen) {
     return x.toLocaleString("nl-NL", { maximumFractionDigits: maxDecimalen });
 }
 
-function prognosePct(fractie, metTeken) {
+function prognosePct(fractie, metTeken, decimalen = 1) {
     const teken = metTeken && fractie > 0 ? "+" : "";
-    return `${teken}${prognoseGetal(fractie * 100, 1)}%`;
+    return `${teken}${prognoseGetal(fractie * 100, decimalen)}%`;
+}
+
+function dividendBronTekst(bron, perDatum) {
+    const tekst = DIVIDEND_BRON_TEKST[bron] || bron;
+    return tekst.replace("{per_datum}", perDatum ? formatDatum(perDatum) : "?");
 }
 
 function haalDividendVerwachting() {
@@ -50,7 +56,7 @@ function eigenDividendTekst(p) {
     return tekst;
 }
 
-function maakDividendVerwachtingTabel(posities) {
+function maakDividendVerwachtingTabel(posities, perDatum) {
     const kolommen = [
         { label: "Aandeel/ETF", renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin) },
         { label: "Aantal", waarde: p => p.aantal, renderTd: p => maakCel(prognoseGetal(p.aantal, 4)) },
@@ -58,7 +64,7 @@ function maakDividendVerwachtingTabel(posities) {
             label: "Dividend per aandeel per jaar",
             renderTd: p => maakCel(p.per_aandeel_jaar === null ? "—" : `${prognoseGetal(p.per_aandeel_jaar, 4)} ${p.valuta || ""}`),
         },
-        { label: "Bron", renderTd: p => maakCel(DIVIDEND_BRON_TEKST[p.bron] || p.bron) },
+        { label: "Bron", renderTd: p => maakCel(dividendBronTekst(p.bron, perDatum)) },
         {
             label: "Bronbelasting",
             waarde: p => p.belasting_fractie,
@@ -75,10 +81,11 @@ function maakDividendVerwachtingTabel(posities) {
 }
 
 function renderDividendVerwachting(prefix, data) {
-    document.getElementById(`${prefix}DividendTabel`).replaceChildren(maakDividendVerwachtingTabel(data.posities));
+    document.getElementById(`${prefix}DividendTabel`).replaceChildren(
+        maakDividendVerwachtingTabel(data.posities, data.eigen_per_datum));
     let totaal = `Totaal netto per jaar: ${formatteerEuro(data.totaal_netto_eur_jaar)}`;
     if (data.yield_netto !== null) {
-        totaal += ` — netto yield ${prognosePct(data.yield_netto)} van de huidige waarde (${formatteerEuro(data.huidige_waarde_eur)}).`;
+        totaal += ` — netto yield ${prognosePct(data.yield_netto, false, 2)} van de huidige waarde (${formatteerEuro(data.huidige_waarde_eur)}).`;
     }
     if (!data.eigen_data) totaal += " Geen rekeningoverzicht geüpload: geen vergelijking met eigen dividend.";
     document.getElementById(`${prefix}DividendTotaal`).textContent = totaal;
@@ -144,7 +151,8 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
     // Invoer blijft bewaard zolang de pagina open is; rekenen pas na "Bereken".
     let invoer = { ...standaardInvoer };
     let resultaat = null;
-    let dividendAan = false;
+    // Standaard aan; zonder code (niet opslaan) kan het niet. Mislukt het ophalen, dan gaat het uit tot de volgende portfolio.
+    let dividendAan = true;
 
     function leesInvoer() {
         invoer = { jaarlijks: 0, maandelijks: 0 };
@@ -163,6 +171,7 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
         el("Foutmelding").style.display = "none";
         el("Waarschuwing").style.display = "none";
         const heeftCode = Boolean(huidigeData.code);
+        if (!heeftCode) dividendAan = false;
         el("DividendVinkje").disabled = !heeftCode;
         el("DividendVinkje").checked = dividendAan;
         el("DividendNietBeschikbaar").hidden = heeftCode;
@@ -256,7 +265,7 @@ function maakPrognoseTab({ view, prefix, metInleg, standaardInvoer }) {
         // De invoer blijft bewust staan; resultaat en dividend horen bij de vorige portfolio.
         reset() {
             resultaat = null;
-            dividendAan = false;
+            dividendAan = true;
         },
     };
 }

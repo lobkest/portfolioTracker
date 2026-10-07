@@ -171,7 +171,7 @@ test("portfolio.html: de gedeelde grafiek heeft een plek op de tabbladen met een
     const plekken = leesPortfolioElementen().filter(e => heeft(e, "data-grafiek-plek"));
     assert.deepEqual(
         plekken.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "beurs", "prognose", "prognose-huidig", "dividend"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "beurs", "prognose", "prognose-huidig", "dividend", "box3"],
     );
 });
 

@@ -97,7 +97,7 @@ class TestBepaalProductPerTicker(unittest.TestCase):
     def test_niet_opslaan_df_gebruikt_mapping_en_laat_deg_rij_staan(self):
         df = _df().assign(**{
             "Aantal": 1.0, "_koers_eur": 1.0, "Totaal EUR": -1.0, "Tijd": "10:00",
-            uv.KOSTEN_KOLOM: -1.0, uv.WAARDE_KOLOM: -1.0, uv.WISSELKOERS_KOLOM: float("nan"),
+            uv.KOSTEN_KOLOM: -1.0, uv.WAARDE_KOLOM: -1.0, uv.WISSELKOERS_KOLOM: float("nan"), uv.AUTOFX_KOLOM: float("nan"),
         })
         mapping = {"CSPX.AS": "S&P 500", "ASML.AS": "ASML"}
         uit = uv.bouw_transacties_df_niet_opslaan(df, TICKERS, mapping)
@@ -118,7 +118,7 @@ class TestInsertGebruiktProduct(unittest.TestCase):
     def test_product_uit_mapping_echte_naam_blijft_degiro_naam(self):
         df = _df().assign(**{
             "Aantal": 1.0, "_koers_eur": 1.0, "Totaal EUR": -1.0, "Tijd": "10:00", "Order ID": list("abcd"),
-            uv.KOSTEN_KOLOM: -1.0, uv.WAARDE_KOLOM: -1.0, uv.WISSELKOERS_KOLOM: float("nan"),
+            uv.KOSTEN_KOLOM: -1.0, uv.WAARDE_KOLOM: -1.0, uv.WISSELKOERS_KOLOM: float("nan"), uv.AUTOFX_KOLOM: float("nan"),
         })
         cur = _OpnameCursor()
         with redirect_stdout(io.StringIO()), Flask(__name__).test_request_context():

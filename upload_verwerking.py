@@ -33,6 +33,7 @@ VERWACHTE_KOLOMMEN = [
 KOSTEN_KOLOM = "Transactiekosten en/of kosten van derden EUR"
 WAARDE_KOLOM = "Waarde EUR"
 WISSELKOERS_KOLOM = "Wisselkoers"
+AUTOFX_KOLOM = "AutoFX Kosten"
 
 DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS = "excel_wisselkoers"
 DIAGNOSTIEK_SLEUTEL_ORDER_IDS = "order_ids"
@@ -251,6 +252,7 @@ def bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticke
         "waarde_eur": df[WAARDE_KOLOM],
         "tijd": df["Tijd"],
         "wisselkoers": pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce"),
+        "autofx_kosten": pd.to_numeric(df[AUTOFX_KOLOM], errors="coerce"),
     })
 
 

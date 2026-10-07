@@ -368,7 +368,7 @@ class TestEtfHoldingsMeldingen(_MetRequest):
 
 # Kolomvolgorde zoals de SELECT in haal_portfolio_basis().
 TRANSACTIE_RIJ = (pd.Timestamp("2024-01-02").date(), "LAAT", "US0000000009", "NDQ", "LAAT", 1.0, 100.0, -100.0,
-                  "LAAT", None, None, None, None)
+                  "LAAT", None, None, None, None, None)
 TEST_CODE = "ZZTESTDIAGLADEN"
 
 

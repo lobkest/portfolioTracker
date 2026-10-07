@@ -42,6 +42,7 @@ const TOON_PER_VIEW = {
     "prognose": toonPrognose,
     "prognose-huidig": toonPrognoseHuidig,
     "dividend": toonDividend,
+    "box3": toonBox3,
     "instellingen": () => {},  // leeg, want de instellingen zijn altijd hetzelfde voor elk portfolio
     "instellingen-bestanden": () => {},
     "instellingen-bijnamen": toonInstellingen,
@@ -145,7 +146,7 @@ function pasViewToe(view) {
 }
 
 // Wist per tab-bestand de toestand van de vorige portfolio (zie CLAUDE.md: Frontend).
-const RESET_PER_TAB = [resetDiagnostiek, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetKorteNamen];
+const RESET_PER_TAB = [resetDiagnostiek, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetKorteNamen, resetBox3];
 
 function toonDashboard(data) {
     huidigeData = data;

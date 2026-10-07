@@ -28,14 +28,17 @@ def _betaling(ex_iso, bruto, belasting=0.0, dagen_na_ex=16):
 
 
 def _positie(yahoo, eigen=None, valuta="USD", fx=0.9, aantal=10, isin="US0000000001", splitdatum=None,
-             dekking=("2025-01-01", PEIL)):
-    ex_datums = [pd.Timestamp(d) for d in yahoo["dividenden"]]
+             dekking=("2025-01-01", PEIL), transactie_datums=()):
+    ex_datums = [pd.Timestamp(d) for d in yahoo["dividenden"]] if yahoo else []
     return dv.positie_verwachting(
         isin=isin, ticker="ABC", bijnaam="ABC", aantal=aantal, valuta=valuta, yahoo=yahoo, splitdatum=splitdatum,
         peildatum=PEIL, fx_actueel=fx, eigen_uitkeringen=eigen,
         aantal_per_ex_datum={d: aantal for d in ex_datums},
         fx_per_datum={pd.Timestamp(u["datum"]): fx for u in (eigen or [])},
         dekking=dekking if eigen is not None else None,
+        aantal_per_betaaldatum={pd.Timestamp(u["datum"]): aantal for u in (eigen or [])},
+        transactie_datums=transactie_datums,
+        aantal_bij_eigen_begin=aantal,
     )
 
 
@@ -200,6 +203,156 @@ class TestPositieVerwachting(unittest.TestCase):
         p = _positie(_yahoo(dividend_rate=1.6), splitdatum="2026-03-01")
         self.assertEqual(p["bron"], dv.BRON_DIVIDEND_RATE)
         self.assertIn("split", _soorten(dv.dividend_bevindingen([p]), INFO))
+
+
+class _NepTicker:
+    def __init__(self, dividenden=None, info=None, dividenden_fout=None, info_fout=None):
+        self._dividenden, self._info = dividenden, info
+        self._dividenden_fout, self._info_fout = dividenden_fout, info_fout
+
+    @property
+    def dividends(self):
+        if self._dividenden_fout:
+            raise self._dividenden_fout
+        return self._dividenden
+
+    @property
+    def info(self):
+        if self._info_fout:
+            raise self._info_fout
+        return self._info
+
+
+class TestOphalen(unittest.TestCase):
+    def _haal(self, nep):
+        with patch.object(dv, "db_get_cached_ticker_dividenden", return_value=None), \
+                patch.object(dv, "db_save_ticker_dividenden") as opslaan, \
+                patch.object(dv.yf, "Ticker", return_value=nep):
+            return dv.haal_yahoo_dividenden("ASML.AS"), opslaan
+
+    def test_info_faalt_reeks_wordt_wel_gecachet_met_rates_none(self):
+        reeks = pd.Series([1.6, 2.7], index=pd.to_datetime(["2026-02-09", "2026-04-24"]))
+        # 401 telt als rate limit; met één poging volgt er geen wachttijd.
+        data, opslaan = self._haal(_NepTicker(dividenden=reeks, info_fout=Exception("HTTP Error 401: Invalid Crumb")))
+        self.assertEqual(data["dividenden"], {"2026-02-09": 1.6, "2026-04-24": 2.7})
+        self.assertIsNone(data["dividend_rate"])
+        self.assertTrue(data["info_mislukt"])
+        opslaan.assert_called_once_with("ASML.AS", {"2026-02-09": 1.6, "2026-04-24": 2.7}, None, None)
+
+    def test_dividends_faalt_geeft_none_en_geen_cache(self):
+        data, opslaan = self._haal(_NepTicker(dividenden_fout=ValueError("kapot"), info={"dividendRate": 7.0}))
+        self.assertIsNone(data)
+        opslaan.assert_not_called()
+
+    def test_info_mislukt_geeft_een_info_melding(self):
+        bevindingen = dv.dividend_bevindingen([], info_mislukt=3)
+        melding = next(b for b in bevindingen if b["sleutel"] == "div_verwachting:info_mislukt")
+        self.assertEqual(melding["niveau"], INFO)
+        self.assertIn("3 ticker(s)", melding["tekst"])
+
+
+class TestBronvolgorde(unittest.TestCase):
+    def test_alle_zes_bronnen(self):
+        # (venster, volledig_jaar, dividend_rate, trailing_rate, geen_uitkeringen, eigen) -> bron
+        gevallen = [
+            (([0.5, 0.5], True, 9.0, 9.0, False, 3.0), (1.0, dv.BRON_YAHOO_REEKS)),
+            (([0.5], False, 9.0, 9.0, False, 3.0), (3.0, dv.BRON_EIGEN_DATA)),
+            (([0.5], False, 9.0, 8.0, False, None), (9.0, dv.BRON_DIVIDEND_RATE)),
+            (([], True, None, 8.0, True, None), (0.0, dv.BRON_GEEN_UITKERINGEN)),
+            (([0.5], False, None, 8.0, False, None), (None, dv.BRON_ONBEKEND)),
+        ]
+        for invoer, verwacht in gevallen:
+            with self.subTest(verwacht=verwacht[1]):
+                self.assertEqual(dv.jaar_dividend_per_aandeel(*invoer), verwacht)
+
+    def test_trailing_rate_wint_niet_van_reeks_of_geen_uitkeringen(self):
+        # Zonder split wint de reeks (of geen_uitkeringen); met een split in het venster telt trailing niet.
+        for invoer in (([0.5], True, None, 8.0, False), ([], True, None, 8.0, True), ([0.5], False, None, 8.0, False)):
+            with self.subTest(invoer=invoer):
+                self.assertNotEqual(dv.jaar_dividend_per_aandeel(*invoer)[1], dv.BRON_TRAILING_RATE)
+
+    def test_lege_reeks_geeft_geen_uitkeringen_met_en_zonder_rates(self):
+        for dividend_rate, trailing_rate in ((None, None), (1.5, 0.0)):
+            with self.subTest(dividend_rate=dividend_rate):
+                p = _positie(_yahoo(datums=[], dividend_rate=dividend_rate, trailing_rate=trailing_rate))
+                self.assertEqual(p["bron"], dv.BRON_GEEN_UITKERINGEN)
+                self.assertEqual(p["per_aandeel_jaar"], 0.0)
+
+    def test_enkel_oud_artefact_keert_niet_uit(self):
+        # Take-Two: Yahoo heeft één 'uitkering' van $0,001 uit 2008.
+        self.assertTrue(dv.keert_niet_uit({"2008-09-25": 0.001}, PEIL))
+        p = _positie(_yahoo(bedrag=0.001, datums=["2008-09-25"], trailing_rate=0.0))
+        self.assertEqual(p["bron"], dv.BRON_GEEN_UITKERINGEN)
+        self.assertFalse(dv.keert_niet_uit({d: 0.5 for d in KWARTALEN}, PEIL))
+
+
+# Rekeningoverzicht tot 31-05-2026: het eigen venster is (31-05-2025, 31-05-2026], niet tot de peildatum.
+PER_DATUM = "2026-05-31"
+EIGEN_KWARTALEN = ["2025-08-01", "2025-11-01", "2026-02-01", "2026-04-15"]
+
+
+class TestEigenVenster(unittest.TestCase):
+    def test_eigen_venster_eindigt_op_per_datum(self):
+        eigen = [_betaling(d, 4.5) for d in EIGEN_KWARTALEN] + [_betaling("2025-05-04", 9.0)]
+        p = _positie(_yahoo(datums=EIGEN_KWARTALEN), eigen, dekking=("2024-01-01", PER_DATUM))
+        # Met een venster tot de peildatum (07-10-2026) zouden alleen de laatste drie meetellen.
+        self.assertEqual(p["eigen_aantal_uitkeringen"], 4)
+        self.assertAlmostEqual(p["eigen_bruto_eur_jaar"], 18.0)
+        self.assertEqual(len(p["_controle"]["vergelijking"]), 4)
+
+    def test_yahoo_ex_datum_na_per_datum_is_niet_gemist(self):
+        eigen = [_betaling(d, 4.5) for d in EIGEN_KWARTALEN]
+        p = _positie(_yahoo(datums=EIGEN_KWARTALEN + ["2026-08-15"]), eigen, dekking=("2024-01-01", PER_DATUM))
+        self.assertEqual(p["_controle"]["gemist"], [])
+        self.assertNotIn("gemist", _soorten(dv.dividend_bevindingen([p])))
+
+
+class TestTerugvalEigenData(unittest.TestCase):
+    def test_verwachting_uit_eigen_data_als_dividends_faalt(self):
+        # 4 x 4,50 bruto op 10 stuks = 1,80 per stuk; eigen belasting 15% -> 18,00 bruto, 15,30 netto, in EUR.
+        eigen = [_betaling(d, 4.5, -0.675) for d in EIGEN_KWARTALEN]
+        p = _positie(None, eigen, valuta="USD", fx=None, dekking=("2024-01-01", PER_DATUM))
+        self.assertEqual(p["bron"], dv.BRON_EIGEN_DATA)
+        self.assertAlmostEqual(p["per_aandeel_jaar"], 1.8)
+        self.assertEqual(p["valuta"], "EUR")
+        self.assertAlmostEqual(p["bruto_eur_jaar"], 18.0)
+        self.assertAlmostEqual(p["netto_eur_jaar"], 15.3)
+        self.assertTrue(p["meegeteld"])
+
+    def test_uitkering_met_transactie_kort_ervoor_overgeslagen_en_geteld(self):
+        eigen = [_betaling(d, 4.5) for d in EIGEN_KWARTALEN]
+        transactie = pd.Timestamp(eigen[1]["datum"]) - pd.Timedelta(days=10)
+        p = _positie(None, eigen, dekking=("2024-01-01", PER_DATUM), transactie_datums=[transactie])
+        self.assertEqual(p["eigen_aantal_uitkeringen"], 3)
+        self.assertAlmostEqual(p["per_aandeel_jaar"], 1.35)
+        self.assertEqual(p["_controle"]["overgeslagen"], {"transactie": 1, "geen_bedrag": 0})
+        melding = next(b for b in dv.dividend_bevindingen([p]) if b["sleutel"].endswith(":overgeslagen"))
+        self.assertEqual(melding["niveau"], INFO)
+        self.assertIn("1 uitkering(en) niet meegeteld", melding["tekst"])
+
+    def test_bruto_none_overgeslagen(self):
+        eigen = [_betaling(d, 4.5) for d in EIGEN_KWARTALEN]
+        eigen[2]["bruto_eur"] = None
+        som, meegeteld, overgeslagen = dv.eigen_jaar_per_aandeel(
+            dv._per_betaaldatum(eigen), {pd.Timestamp(u["datum"]): 10 for u in eigen}, [], None, PER_DATUM)
+        self.assertEqual(meegeteld, 3)
+        self.assertAlmostEqual(som, 1.35)
+        self.assertEqual(overgeslagen["geen_bedrag"], 1)
+
+    def test_uitkering_voor_de_laatste_split_overgeslagen(self):
+        eigen = [_betaling(d, 4.5) for d in EIGEN_KWARTALEN]
+        # Geschatte ex-datum van de tweede betaling (17-11-2025) is 18-10-2025: op of vóór de split telt niet.
+        som, meegeteld, _ = dv.eigen_jaar_per_aandeel(
+            eigen, {pd.Timestamp(u["datum"]): 10 for u in eigen}, [], "2025-10-18", PER_DATUM)
+        self.assertEqual(meegeteld, 2)
+        self.assertAlmostEqual(som, 0.9)
+
+    def test_aantal_0_telt_niet_mee(self):
+        eigen = [_betaling(d, 4.5) for d in EIGEN_KWARTALEN]
+        aantallen = {pd.Timestamp(u["datum"]): 10 for u in eigen}
+        aantallen[pd.Timestamp(eigen[0]["datum"])] = 0
+        _, meegeteld, _ = dv.eigen_jaar_per_aandeel(eigen, aantallen, [], None, PER_DATUM)
+        self.assertEqual(meegeteld, 3)
 
 
 def _transacties():

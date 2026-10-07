@@ -178,6 +178,14 @@ def db_init():
         );
     """)
     cur.execute("""
+        CREATE TABLE IF NOT EXISTS koers_begin (
+            ticker TEXT PRIMARY KEY,
+            -- Een volledige download vanaf deze datum begon later: Yahoo heeft niets eerder.
+            gevraagd_vanaf DATE NOT NULL,
+            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS prijscheck_koersen (
             ticker TEXT NOT NULL,
             datum DATE NOT NULL,
@@ -974,6 +982,36 @@ def db_get_gecachte_koersen(tickers, start_datum):
     return datums, laatst_bijgewerkt, koersen
 
 
+def db_get_koers_begin(tickers):
+    """{ticker: (gevraagd_vanaf, bijgewerkt_op)}; verlopen beoordeelt de aanroeper."""
+    if not tickers:
+        return {}
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT ticker, gevraagd_vanaf, bijgewerkt_op FROM koers_begin WHERE ticker = ANY(%s)", (list(tickers),))
+    rijen = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {ticker: (gevraagd_vanaf, bijgewerkt_op) for ticker, gevraagd_vanaf, bijgewerkt_op in rijen}
+
+
+def db_save_koers_begin(gevraagd_vanaf_per_ticker):
+    """DO UPDATE: een latere download vanaf een eerdere datum vervangt de oude rij."""
+    if not gevraagd_vanaf_per_ticker:
+        return
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.executemany(
+        "INSERT INTO koers_begin (ticker, gevraagd_vanaf, bijgewerkt_op) VALUES (%s, %s, NOW()) "
+        "ON CONFLICT (ticker) DO UPDATE SET gevraagd_vanaf = EXCLUDED.gevraagd_vanaf, "
+        "bijgewerkt_op = EXCLUDED.bijgewerkt_op",
+        list(gevraagd_vanaf_per_ticker.items()),
+    )
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def db_get_koers_splits(tickers):
     """{ticker: {iso_datum: ratio}} voor elke ticker die koersen heeft (leeg dict = geen splits sinds de eerste koers).
     Tickers zonder koersen ontbreken: daar is de splitlijst onbekend."""
@@ -1052,7 +1090,7 @@ def db_save_prijscheck_koers(ticker, datum, slotkoers, valuta, high=None, low=No
 
 TRANSACTIE_KOLOMMEN = [
     "datum", "product", "isin", "beurs", "ticker", "aantal", "koers", "totaal_eur",
-    "echte_naam", "transactiekosten", "waarde_eur", "tijd", "wisselkoers",
+    "echte_naam", "transactiekosten", "waarde_eur", "tijd", "wisselkoers", "autofx_kosten",
 ]
 
 

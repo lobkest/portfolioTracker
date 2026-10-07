@@ -10,6 +10,7 @@ from db import (
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
+    db_get_dividenden,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
@@ -48,6 +49,7 @@ from portfolio_orchestratie import (
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
+from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
 
 app = Flask(__name__)
@@ -150,17 +152,18 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
     product_per_ticker = bepaal_product_per_ticker(df, ticker_by_isin_beurs)
     transacties_df = bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
     kassaldo = bereken_kassaldo(rekening_df) if rekening_df is not None else None
-    result = analyze_transacties(transacties_df, code=None, naam=naam or None, kassaldo=kassaldo)
+    dividend_records = verwerk_dividend_zonder_opslaan(rekening_df) if rekening_df is not None else None
+    result = analyze_transacties(transacties_df, code=None, naam=naam or None, kassaldo=kassaldo, box3=True,
+                                 box3_dividenden=dividend_records or None)
     meld_valuta_consistentie(df, ticker_by_isin_beurs)
     result["ticker_zekerheid"] = ticker_zekerheid
     result["ticker_posities_ruw"] = ticker_posities_ruw
     result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
-    result["dividend"] = _dividend_niet_opslaan(transacties_df, rekening_df)
+    result["dividend"] = _dividend_niet_opslaan(transacties_df, dividend_records)
     return result
 
 
-def _dividend_niet_opslaan(transacties_df, rekening_df):
-    dividend_records = verwerk_dividend_zonder_opslaan(rekening_df) if rekening_df is not None else None
+def _dividend_niet_opslaan(transacties_df, dividend_records):
     transactie_rows = [
         (r.isin, r.ticker, r.product)
         for r in transacties_df.itertuples(index=False) if r.ticker is not None
@@ -393,6 +396,33 @@ def rendement_over_tijd(code):
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
     return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat))
+
+
+@app.route("/api/portfolio/<code>/box3")
+def box3_basis(code):
+    code = code.strip().upper()
+    transacties_df, resultaat = laad_transacties_en_resultaat(code)
+    if transacties_df is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    if resultaat is None:
+        return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
+
+    # Lege lijst = nooit een rekeningoverzicht geüpload, zoals bij /dividend.
+    return jsonify(bouw_box3_basis(transacties_df, resultaat, db_get_dividenden(code) or None))
+
+
+@app.route("/api/box3/bereken", methods=["POST"])
+def box3_bereken():
+    """Stateless: de basis komt van de frontend, de invoer wordt nergens opgeslagen."""
+    data = request.get_json(silent=True) or {}
+    invoer, fout = valideer_box3_invoer(data.get("invoer"))
+    if fout:
+        return jsonify({"error": fout}), 400
+    basis = data.get("basis")
+    try:
+        return jsonify(bereken_box3(basis, invoer))
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return jsonify({"error": "Ongeldige portfoliogegevens voor de box 3-berekening."}), 400
 
 
 @app.route("/api/portfolio/<code>/ticker-koers-bereik")
