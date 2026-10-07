@@ -29,6 +29,7 @@
                 { view: "land", label: "Land" },
                 { view: "sector", label: "Sector" },
                 { view: "valuta", label: "Valuta" },
+                { view: "beurs", label: "Beurs" },
                 { view: "etfoverlap", label: "ETF-overlap" },
             ],
         },

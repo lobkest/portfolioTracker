@@ -37,7 +37,7 @@ from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_
 from dividend import bereken_dividend_samenvatting
 from statistieken import bereken_statistieken
 from portfolio_verdeling import (
-    compute_land_sector_verdeling, compute_valuta_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
+    compute_land_sector_verdeling, compute_valuta_verdeling, compute_beurs_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
     bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX, bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT,
 )
@@ -542,7 +542,8 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
     if price_data.empty:
         return {
             "verdeling": [], "verdeling_samenvatting": bereken_verdeling_samenvatting([]),
-            "land_sector_verdeling": {}, "valuta_verdeling": {}, "bedrijven_verdeling": {}, "etf_overlap": {},
+            "land_sector_verdeling": {}, "valuta_verdeling": {}, "beurs_verdeling": {},
+            "bedrijven_verdeling": {}, "etf_overlap": {},
         }
 
     ticker_namen = (
@@ -571,6 +572,9 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
         with meet_tijd("verrijking_valuta"):
             valuta_verdeling = compute_valuta_verdeling(transacties_df, price_data)
+
+        with meet_tijd("verrijking_beurs"):
+            beurs_verdeling = compute_beurs_verdeling(transacties_df, price_data)
 
         with meet_tijd("verrijking_bedrijven"):
             # Tot het maximum meeleveren; de frontend kiest zelf hoeveel te tonen.
@@ -603,6 +607,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
         "verdeling_samenvatting": bereken_verdeling_samenvatting(verdeling),
         "land_sector_verdeling": land_sector_verdeling,
         "valuta_verdeling": valuta_verdeling,
+        "beurs_verdeling": beurs_verdeling,
         "bedrijven_verdeling": bedrijven_verdeling,
         "etf_overlap": etf_overlap,
     }

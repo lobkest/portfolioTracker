@@ -23,6 +23,7 @@ test("elke tabblad-view uit portfolio.html (behalve xirr-rendement) zit in preci
 test("groepVanView: view naar groep, instellingen-views naar instellingen, onbekend naar null", () => {
     assert.equal(groepVanView("dividend"), "overzicht");
     assert.equal(groepVanView("land"), "samenstelling");
+    assert.equal(groepVanView("beurs"), "samenstelling");
     assert.equal(groepVanView("instellingen-diagnostiek"), "instellingen");
     assert.equal(groepVanView("xirr-rendement"), null);
 });

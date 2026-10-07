@@ -1,6 +1,6 @@
-// Tabbladen Land, Sector en Valuta: taart of gestapelde staaf, met een gedeelde weergavekeuze.
+// Tabbladen Land, Sector, Valuta en Beurs: taart of gestapelde staaf, met een gedeelde weergavekeuze.
 
-// "taart" of "staaf", gedeeld tussen Land, Sector en Valuta.
+// "taart" of "staaf", gedeeld tussen Land, Sector, Valuta en Beurs.
 let landSectorWeergave = "taart";
 
 function toonPlatteVerdeling(verdelingObj) {
@@ -130,15 +130,52 @@ function toonValuta() {
     }
 }
 
+function toonBeurs() {
+    if (chart) chart.destroy();
+    document.getElementById("geenData").style.display = "none";
+    const tekst = document.getElementById("beursTekst");
+    tekst.style.display = "none";
+    if (toonVerrijkingWachtstatusIndienNodig()) {
+        document.getElementById("euronextCheckboxWrapper").style.display = "none";
+        return;
+    }
+
+    const bv = huidigeData.beurs_verdeling;
+    document.getElementById("euronextCheckboxWrapper").style.display = "flex";
+    const samen = document.getElementById("euronextCheckbox").checked;
+    const verdeling = bv && (samen ? bv.beurs_euronext : bv.beurs);
+
+    if (landSectorWeergave === "staaf") {
+        const tickerNamen = {};
+        (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+        const totaal = Object.values(verdeling || {}).reduce((s, w) => s + w, 0);
+        const perBron = bv && (samen ? bv.beurs_euronext_per_bron : bv.beurs_per_bron);
+        chart = renderGestapeldeStaafgrafiek("rendementChart", perBron, tickerNamen, { totaal });
+    } else {
+        toonPlatteVerdeling(verdeling);
+    }
+
+    const aantal = bv ? (samen ? bv.aantal_beurzen_euronext : bv.aantal_beurzen) : 0;
+    if (aantal > 0) {
+        tekst.textContent = `Je posities staan op ${aantal} ${aantal === 1 ? "beurs" : "beurzen"}.`;
+        tekst.style.display = "block";
+    }
+}
+
 document.getElementById("europaCheckbox").addEventListener("change", () => {
     toonLand();
 });
 
-// De keuze geldt voor Land, Sector én Valuta; de data staat al in huidigeData.
+document.getElementById("euronextCheckbox").addEventListener("change", () => {
+    toonBeurs();
+});
+
+// De keuze geldt voor Land, Sector, Valuta én Beurs; de data staat al in huidigeData.
 document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
     landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
     const view = actieveViewNaam();
     if (view === "land") toonLand();
     else if (view === "sector") toonSector();
     else if (view === "valuta") toonValuta();
+    else if (view === "beurs") toonBeurs();
 });

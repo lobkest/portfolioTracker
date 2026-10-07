@@ -34,6 +34,7 @@ const TOON_PER_VIEW = {
     "land": toonLand,
     "sector": toonSector,
     "valuta": toonValuta,
+    "beurs": toonBeurs,
     "bedrijven": toonBedrijven,
     "etfoverlap": renderEtfOverlapTabel,
     "statistieken": toonStatistieken,
@@ -185,6 +186,7 @@ function herTekenVerrijkingTabbladIndienActief() {
     else if (view === "land") toonLand();
     else if (view === "sector") toonSector();
     else if (view === "valuta") toonValuta();
+    else if (view === "beurs") toonBeurs();
     else if (view === "bedrijven") toonBedrijven();
     else if (view === "etfoverlap") renderEtfOverlapTabel();
     else if (view === "peraandeel") toonPositieLandSector(document.getElementById("aandeelSelect").value);

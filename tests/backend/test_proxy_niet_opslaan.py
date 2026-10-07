@@ -48,6 +48,7 @@ class TestProxyAlleenInOpgeslagenFlow(unittest.TestCase):
             (po, "classify_tickers", {"VWCE.DE": True}),
             (po, "_verwarm_land_sector_cache_parallel", None),
             (po, "compute_valuta_verdeling", {"valuta": {}}),
+            (po, "compute_beurs_verdeling", {"beurs": {}}),
             (po, "bereken_bedrijven_verdeling", {"top": []}),
             (po, "bereken_etf_overlap", {}),
             (po, "get_etf_holdings_uit_cache", []),

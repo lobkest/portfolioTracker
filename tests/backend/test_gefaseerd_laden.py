@@ -27,7 +27,7 @@ except ImportError:
 
 VERRIJKINGSVELDEN = {
     "verdeling", "verdeling_samenvatting", "land_sector_verdeling", "valuta_verdeling",
-    "bedrijven_verdeling", "etf_overlap",
+    "beurs_verdeling", "bedrijven_verdeling", "etf_overlap",
 }
 
 
@@ -68,6 +68,7 @@ class TestGefaseerdLaden(unittest.TestCase):
             patch.object(portfolio_orchestratie, "land_proxies_voor_etfs", return_value={}),
             patch.object(portfolio_orchestratie, "compute_land_sector_verdeling", return_value={"land": {}, "sector": {}}),
             patch.object(portfolio_orchestratie, "compute_valuta_verdeling", return_value={"valuta": {}}),
+            patch.object(portfolio_orchestratie, "compute_beurs_verdeling", return_value={"beurs": {}}),
             patch.object(portfolio_orchestratie, "bereken_bedrijven_verdeling", return_value={"top": []}),
             patch.object(portfolio_orchestratie, "bereken_etf_overlap", return_value={}),
         ]

@@ -42,7 +42,7 @@
             <!-- Gedeeld door meerdere tabbladen, daarom boven de tabblad-blokken. -->
             <p id="instellingenMsg" class="melding positief" data-verberg-buiten="instellingen-bijnamen" style="display: none;"></p>
             <select id="aandeelSelect" class="margeOnder15" data-views="peraandeel peraandeelaankoop" style="display: none;"></select>
-            <button id="weergaveToggleBtn" class="margeBoven0 margeOnder10" data-views="land sector valuta" style="display: none;">Wissel weergave (taart/staaf)</button>
+            <button id="weergaveToggleBtn" class="margeBoven0 margeOnder10" data-views="land sector valuta beurs" style="display: none;">Wissel weergave (taart/staaf)</button>
 
             <!-- De ene gedeelde grafiek: plaatsGrafiek() verhuist dit blok naar het data-grafiek-plek van het tabblad. -->
             <div id="chartWrapper" style="display: none;">
@@ -146,6 +146,14 @@
 
             <div id="tab-valuta" data-views="valuta" style="display: none;">
                 <div data-grafiek-plek></div>
+            </div>
+
+            <div id="tab-beurs" data-views="beurs" style="display: none;">
+                <p id="beursTekst" data-verberg-buiten="beurs" style="display: none;"></p>
+                <div data-grafiek-plek></div>
+                <label id="euronextCheckboxWrapper" data-verberg-buiten="beurs" class="checkboxLabel margeBoven10" style="display: none;">
+                    <input type="checkbox" id="euronextCheckbox"> Euronext-beurzen samenvoegen
+                </label>
             </div>
 
             <div id="tab-bedrijven" data-views="bedrijven" style="display: none;">
@@ -337,9 +345,9 @@
             </div>
 
             <!-- Gedeelde meldingen van de verrijking-tabbladen, daarom onder de tabblad-blokken. -->
-            <p id="geenData" data-verberg-buiten="verdeling land sector valuta bedrijven" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
-            <p id="verrijkingLaadt" class="melding gedempt" data-verberg-buiten="verdeling land sector valuta bedrijven etfoverlap" style="display: none;">Bezig met laden...</p>
-            <div id="verrijkingFout" data-verberg-buiten="verdeling land sector valuta bedrijven etfoverlap" style="display: none;">
+            <p id="geenData" data-verberg-buiten="verdeling land sector valuta beurs bedrijven" style="display: none;">Geen koersdata gevonden voor deze tickers.</p>
+            <p id="verrijkingLaadt" class="melding gedempt" data-verberg-buiten="verdeling land sector valuta beurs bedrijven etfoverlap" style="display: none;">Bezig met laden...</p>
+            <div id="verrijkingFout" data-verberg-buiten="verdeling land sector valuta beurs bedrijven etfoverlap" style="display: none;">
                 <p class="foutTekst melding">⚠️ Ophalen duurde te lang of is mislukt.</p>
                 <button id="verrijkingOpnieuwBtn">Opnieuw proberen</button>
             </div>

@@ -37,6 +37,18 @@ BEDRIJF_NAAM_OVERRIDES = {
     "asml": "asml holding nv",
 }
 
+# DeGiro-beurscode -> leesbare naam; een onbekende code wordt rauw getoond.
+BEURS_NAMEN = {
+    "EAM": "Euronext Amsterdam", "XAMS": "Euronext Amsterdam",
+    "EPA": "Euronext Parijs", "EBR": "Euronext Brussel", "ELI": "Euronext Lissabon",
+    "BIT": "Euronext Milaan", "OSL": "Euronext Oslo",
+    "XET": "Xetra", "FRA": "Frankfurt", "TDG": "Tradegate",
+    "LSE": "London Stock Exchange", "XLON": "London Stock Exchange",
+    "NDQ": "Nasdaq", "NASDAQ": "Nasdaq", "NSY": "NYSE", "NYSE": "NYSE", "ARCA": "NYSE Arca",
+    "BME": "Madrid (BME)", "SWX": "SIX Swiss Exchange", "TSE": "Toronto", "ASX": "ASX (Australië)",
+}
+EURONEXT_BEURZEN = frozenset(code for code, naam in BEURS_NAMEN.items() if naam.startswith("Euronext"))
+
 # De frontend knipt zelf in; BEDRIJVEN_TOP_N_KNOPPEN (bedrijven.js) moet <= het maximum blijven.
 BEDRIJVEN_TOP_N_STANDAARD = 10
 BEDRIJVEN_TOP_N_MAX = 50
@@ -463,3 +475,40 @@ def compute_valuta_verdeling(transacties_df, price_data):
         rij[ticker] = rij.get(ticker, 0.0) + waarde
 
     return {"valuta": _voeg_kleine_landen_samen(valuta), "valuta_per_bron": valuta_per_bron}
+
+
+def compute_beurs_verdeling(transacties_df, price_data):
+    """Per DeGiro-beurs, bedragen in €. Geen "Overig": het gaat juist om het aantal beurzen. Sleutels:
+      beurs, beurs_euronext: {naam: €} (taart)
+      beurs_per_bron, beurs_euronext_per_bron: {naam: {ticker: €}} (staaf)
+      aantal_beurzen, aantal_beurzen_euronext
+    """
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    # Lege beurs niet laten wegvallen in de groupby: het totaal moet gelijk blijven aan Verdeling.
+    beurzen = transacties_df["beurs"].fillna("Onbekend")
+    holdings = transacties_df.groupby([transacties_df["ticker"], beurzen])["aantal"].sum()
+    laatste_prijzen = price_data.iloc[-1]
+
+    beurs, beurs_per_bron = {}, {}
+    euronext, euronext_per_bron = {}, {}
+    for (ticker, code), aantal in holdings.items():
+        if ticker not in price_data.columns or not pd.notna(laatste_prijzen[ticker]):
+            continue
+        waarde = float(aantal) * float(laatste_prijzen[ticker])
+        if waarde <= 0:
+            continue
+        naam = BEURS_NAMEN.get(code, code)
+        naam_euronext = "Euronext" if code in EURONEXT_BEURZEN else naam
+        for totalen, per_bron, n in ((beurs, beurs_per_bron, naam), (euronext, euronext_per_bron, naam_euronext)):
+            totalen[n] = totalen.get(n, 0.0) + waarde
+            rij = per_bron.setdefault(n, {})
+            rij[ticker] = rij.get(ticker, 0.0) + waarde
+
+    return {
+        "beurs": beurs,
+        "beurs_per_bron": beurs_per_bron,
+        "beurs_euronext": euronext,
+        "beurs_euronext_per_bron": euronext_per_bron,
+        "aantal_beurzen": len(beurs),
+        "aantal_beurzen_euronext": len(euronext),
+    }
