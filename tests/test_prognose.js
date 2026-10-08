@@ -16,9 +16,11 @@ const {
     kiesHistorieHorizon,
     begrensRendement,
     historieVeldwaarden,
+    historiePrognosePaden,
     bouwPrognoseGrafiekData,
     RENDEMENT_MIN_PCT,
-    RENDEMENT_MAX_PCT
+    RENDEMENT_MAX_PCT,
+    HISTORIE_MAX_HORIZON_JAREN
 } = require("../static/js/prognose.js");
 
 test("kiesHistorieHorizon: afronden, begrenzen op maxHorizon, minimaal 1", () => {
@@ -32,6 +34,14 @@ test("kiesHistorieHorizon: afronden, begrenzen op maxHorizon, minimaal 1", () =>
     assert.equal(kiesHistorieHorizon(NaN, 9), 1);
 });
 
+test("kiesHistorieHorizon: zonder maxHorizon is de bovengrens HISTORIE_MAX_HORIZON_JAREN (60), niet de historielengte", () => {
+    assert.equal(HISTORIE_MAX_HORIZON_JAREN, 60);
+    assert.equal(kiesHistorieHorizon(25), 25);
+    assert.equal(kiesHistorieHorizon(60), 60);
+    assert.equal(kiesHistorieHorizon(75), 60);
+    assert.equal(kiesHistorieHorizon(0), 1);
+});
+
 test("begrensRendement: binnen de grenzen ongewijzigd, daarbuiten afgekapt", () => {
     assert.deepEqual(begrensRendement(7.5), { waarde: 7.5, afgekapt: false });
     assert.deepEqual(begrensRendement(RENDEMENT_MAX_PCT), { waarde: RENDEMENT_MAX_PCT, afgekapt: false });
@@ -39,11 +49,34 @@ test("begrensRendement: binnen de grenzen ongewijzigd, daarbuiten afgekapt", () 
     assert.deepEqual(begrensRendement(-35), { waarde: RENDEMENT_MIN_PCT, afgekapt: true });
 });
 
-test("historieVeldwaarden: midden/laag/hoog naar de velden, met wat er is afgekapt", () => {
-    const r = historieVeldwaarden({ midden: 18.2, laag: -3.1, hoog: 41.0 });
+test("historieVeldwaarden: p50/p10/p90 naar de velden, met wat er is afgekapt", () => {
+    const r = historieVeldwaarden({ p10: -3.1, p25: 8, p50: 18.2, p75: 25, p90: 41.0 });
     assert.deepEqual(r.waarden, { rendement: 18.2, laag: -3.1, hoog: RENDEMENT_MAX_PCT });
     assert.deepEqual(r.afgekapt, [{ veld: "hoog", historisch: 41.0, begrensd: RENDEMENT_MAX_PCT }]);
-    assert.deepEqual(historieVeldwaarden({ midden: 6, laag: 2, hoog: 9 }).afgekapt, []);
+    assert.deepEqual(historieVeldwaarden({ p10: 2, p25: 4, p50: 6, p75: 8, p90: 9 }).afgekapt, []);
+});
+
+// Groeifactoren voor maand 0..36: p10 daalt 1% per maand, p90 stijgt 2% per maand, de rest ertussen.
+function testPaden() {
+    const maanden = Array.from({ length: 37 }, (_, m) => m);
+    return {
+        p10: maanden.map(m => 1 - 0.01 * m),
+        p25: maanden.map(() => 1),
+        p50: maanden.map(m => 1 + 0.005 * m),
+        p75: maanden.map(m => 1 + 0.01 * m),
+        p90: maanden.map(m => 1 + 0.02 * m)
+    };
+}
+
+test("historiePrognosePaden: startwaarde x groeifactor, afgekapt op het aantal jaren", () => {
+    const r = historiePrognosePaden(testPaden(), 1000, 2);
+    assert.deepEqual(Object.keys(r), ["p10", "p25", "p50", "p75", "p90"]);
+    Object.values(r).forEach(pad => assert.equal(pad.length, 25));
+    assert.equal(r.p50[0], 1000);
+    assertClose(r.p50[24], 1120);
+    assertClose(r.p10[12], 880);
+    assertClose(r.p90[24], 1480);
+    assert.equal(historiePrognosePaden(testPaden(), 1000, 0).p90.length, 1);
 });
 
 const EPS = 1e-6;
@@ -266,4 +299,33 @@ test("valideerPrognoseInvoer: zonder inlegvelden (metInleg false) zijn ontbreken
     assert.equal(r.geldig, true);
     assert.deepEqual(r.fouten, []);
     assert.equal(valideerPrognoseInvoer({ ...invoer, jaren: -1 }, { metInleg: false }).geldig, false);
+});
+
+test("bouwPrognoseGrafiekData: met paden middenlijn p50 en twee banden (p10–p90, p25–p75)", () => {
+    const invoer = { ...eenvoudigeInvoer, jaren: 2, paden: testPaden() };
+    const { datasets } = bouwPrognoseGrafiekData(chartDataVoor("ABC"), invoer);
+    const per = label => datasets.find(ds => ds.label === label);
+    assert.equal(datasets.length, 8);
+    const midden = per("Waarde — prognose (€)");
+    assert.equal(midden.data.length, 25);
+    assert.equal(midden.data[0].y, 8500);
+    assertClose(midden.data[24].y, 8500 * 1.12);
+    assertClose(per("Bandbreedte p10–p90").data[12].y, 8500 * 0.88);
+    assertClose(per("Bandbreedte p10–p90 (hoog)").data[24].y, 8500 * 1.48);
+    assert.equal(per("Bandbreedte p10–p90").fill, "-1");
+    assert.equal(per("Waarschijnlijk p25–p75").data[24].y, 8500);
+    assertClose(per("Waarschijnlijk p25–p75 (hoog)").data[24].y, 8500 * 1.24);
+    assert.equal(per("Waarschijnlijk p25–p75").fill, "-1");
+    // De bovenrand staat direct vóór zijn onderrand, anders vult "-1" de verkeerde ruimte.
+    const i = datasets.indexOf(per("Waarschijnlijk p25–p75"));
+    assert.equal(datasets[i - 1].label, "Waarschijnlijk p25–p75 (hoog)");
+    assert.equal(per("Bandbreedte laag–hoog"), undefined);
+});
+
+test("bouwPrognoseGrafiekData: met paden rekent de dividendlijn over p50", () => {
+    const invoer = { ...eenvoudigeInvoer, jaren: 1, paden: testPaden(), dividendYield: 0.12 };
+    const { datasets } = bouwPrognoseGrafiekData(chartDataVoor("ABC"), invoer);
+    const lijn = datasets.find(ds => ds.label === "Waarde + verwacht dividend, niet herbelegd (€)");
+    // Maand 1: p50 = 8500 x 1,005 plus 1% dividend over de startwaarde 8500.
+    assertClose(lijn.data[1].y, 8500 * 1.005 + 85);
 });

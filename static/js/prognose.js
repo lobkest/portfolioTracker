@@ -77,6 +77,8 @@
     const RENDEMENT_MIN_PCT = -20;
     const RENDEMENT_MAX_PCT = 30;
     const JAREN_MAX = 60;
+    // Gelijk aan HISTORIE_MAX_HORIZON_JAREN in historisch_rendement.py.
+    const HISTORIE_MAX_HORIZON_JAREN = JAREN_MAX;
 
     // opties.metInleg = false: zonder inlegvelden (tabblad Huidige portfolio).
     function valideerPrognoseInvoer(input, opties) {
@@ -118,7 +120,7 @@
     }
 
     // Horizon (jaren) van de historische bandbreedte die bij "Aantal jaren vooruit" past: afgerond, max. maxHorizon, min. 1.
-    function kiesHistorieHorizon(jaren, maxHorizon) {
+    function kiesHistorieHorizon(jaren, maxHorizon = HISTORIE_MAX_HORIZON_JAREN) {
         const gewenst = Number.isFinite(jaren) ? Math.round(jaren) : 1;
         return Math.max(1, Math.min(gewenst, maxHorizon));
     }
@@ -128,9 +130,9 @@
         return { waarde, afgekapt: waarde !== pct };
     }
 
-    // {midden, laag, hoog} van één horizon -> veldwaarden binnen de formuliergrenzen, plus wat er is afgekapt.
+    // {p10, p50, p90} van één horizon -> veldwaarden binnen de formuliergrenzen, plus wat er is afgekapt.
     function historieVeldwaarden(horizon) {
-        const historisch = { rendement: horizon.midden, laag: horizon.laag, hoog: horizon.hoog };
+        const historisch = { rendement: horizon.p50, laag: horizon.p10, hoog: horizon.p90 };
         const waarden = {};
         const afgekapt = [];
         Object.entries(historisch).forEach(([veld, pct]) => {
@@ -141,9 +143,17 @@
         return { waarden, afgekapt };
     }
 
+    // paden: groeifactoren per maand uit de backend ({p10: [...], ...}) -> waarden, afgekapt op het aantal jaren.
+    function historiePrognosePaden(paden, startWaarde, jaren) {
+        const lengte = Math.round(jaren * 12) + 1;
+        return Object.fromEntries(Object.entries(paden).map(
+            ([sleutel, factoren]) => [sleutel, factoren.slice(0, lengte).map(f => startWaarde * f)]));
+    }
+
     // chartData als parameter (niet globaal), zodat nooit data van een vorige portfolio meekomt.
     // {x, y}-punten voor de tijd-as; historie en prognose delen het laatste punt.
     // invoer.dividendYield (netto, fractie per jaar): optioneel, geeft een extra lijn waarde + cumulatief dividend.
+    // invoer.paden (historie-modus): prognose uit de bootstrap-percentielen, met twee banden; anders constant rendement.
     function bouwPrognoseGrafiekData(chartData, invoer) {
         const d = chartData;
         const H = d.labels.length;
@@ -151,7 +161,7 @@
         const startWaarde = d.waarde[H - 1];
         const startGeinvesteerd = d.geinvesteerd[H - 1];
 
-        const prognose = berekenPrognose({
+        const constant = berekenPrognose({
             startWaarde, startGeinvesteerd,
             jaren: invoer.jaren,
             rendementPct: invoer.rendement,
@@ -160,6 +170,8 @@
             jaarlijkseInleg: invoer.jaarlijks,
             maandelijkseInleg: invoer.maandelijks
         });
+        const historie = invoer.paden ? historiePrognosePaden(invoer.paden, startWaarde, invoer.jaren) : null;
+        const middenPad = historie ? historie.p50 : constant.midden;
 
         const totaalMaanden = Math.round(invoer.jaren * 12);
         const toekomstDatums = genereerToekomstDatums(laatsteDatum, totaalMaanden);
@@ -169,20 +181,32 @@
         const toekomstPad = (pad) =>
             [{ x: laatsteDatum, y: pad[0] }].concat(toekomstDatums.map((iso, i) => ({ x: iso, y: pad[i + 1] })));
 
+        // Bovenrand (verborgen in de legenda) + onderrand die de ruimte ertussen vult.
+        const band = (hoog, laag, label, vulling) => [
+            { label: `${label} (hoog)`, data: toekomstPad(hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
+            { label, data: toekomstPad(laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: vulling, fill: "-1" }
+        ];
+        const banden = historie
+            ? band(historie.p90, historie.p10, "Bandbreedte p10–p90", "rgba(44, 122, 75, 0.12)")
+                .concat(band(historie.p75, historie.p25, "Waarschijnlijk p25–p75", "rgba(44, 122, 75, 0.3)"))
+            : [
+                { label: "Bandbreedte (hoog)", data: toekomstPad(constant.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
+                { label: "Bandbreedte laag–hoog", data: toekomstPad(constant.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" }
+            ];
+
         const datasets = [
             { label: "Waarde (€)", data: historischPad(d.waarde), borderColor: "#2c7a4b" },
-            { label: "Waarde — prognose (€)", data: toekomstPad(prognose.midden), borderColor: "#2c7a4b", borderDash: [6, 4] },
-            { label: "Bandbreedte (hoog)", data: toekomstPad(prognose.hoog), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], fill: false, _verbergInLegenda: true },
-            { label: "Bandbreedte laag–hoog", data: toekomstPad(prognose.laag), borderColor: "rgba(44, 122, 75, 0.35)", borderDash: [2, 3], backgroundColor: "rgba(44, 122, 75, 0.15)", fill: "-1" },
+            { label: "Waarde — prognose (€)", data: toekomstPad(middenPad), borderColor: "#2c7a4b", borderDash: [6, 4] },
+            ...banden,
             { label: "Geïnvesteerd (€)", data: historischPad(d.geinvesteerd), borderColor: "#3182bd" },
-            { label: "Geïnvesteerd — prognose (€)", data: toekomstPad(prognose.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
+            { label: "Geïnvesteerd — prognose (€)", data: toekomstPad(constant.geinvesteerd), borderColor: "#3182bd", borderDash: [6, 4] }
         ];
 
         if (typeof invoer.dividendYield === "number" && Number.isFinite(invoer.dividendYield)) {
-            const cumulatief = berekenDividendCumulatief(prognose.midden, invoer.dividendYield);
+            const cumulatief = berekenDividendCumulatief(middenPad, invoer.dividendYield);
             datasets.splice(2, 0, {
                 label: "Waarde + verwacht dividend, niet herbelegd (€)",
-                data: toekomstPad(prognose.midden.map((w, m) => w + cumulatief[m])),
+                data: toekomstPad(middenPad.map((w, m) => w + cumulatief[m])),
                 borderColor: "#b7791f",
                 borderDash: [3, 3]
             });
@@ -202,9 +226,11 @@
         kiesHistorieHorizon,
         begrensRendement,
         historieVeldwaarden,
+        historiePrognosePaden,
         bouwPrognoseGrafiekData,
         RENDEMENT_MIN_PCT,
-        RENDEMENT_MAX_PCT
+        RENDEMENT_MAX_PCT,
+        HISTORIE_MAX_HORIZON_JAREN
     };
 
     if (typeof module !== "undefined" && module.exports) {

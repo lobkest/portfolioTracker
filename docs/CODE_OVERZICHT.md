@@ -445,7 +445,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | **Statistieken** (tabblad) | `statistieken.py` | `bereken_statistieken()` |
 | **Dividend** | `dividend.py` (+ `db.py`) | `lees_rekeningoverzicht()`, `verwerk_rekeningoverzicht_df()`, `bereken_dividend_samenvatting()`; in de UI `maakDividendUitkeringenTabel()` (incl. het "herinvesteerd"-label) |
 | **Box 3** (drie belastingstelsels) | `box3.py` (rekenwerk), `box3_parameters.py` (wetsparameters) | `bouw_box3_basis()`, `bereken_box3()`; in de UI `toonBox3()` (`tabs/box3.js`) |
-| **Prognose** (+ Huidige portfolio) | `static/js/prognose.js` (rekenkern) en `static/js/tabs/prognose.js` (formulier en grafiek); het verwachte dividend in `dividend_verwachting.py` | `berekenPrognose()`, `bouwPrognoseGrafiekData()`, `berekenDividendCumulatief()` (JS); `bereken_dividend_verwachting()` |
+| **Prognose** (+ Huidige portfolio) | `static/js/prognose.js` (rekenkern) en `static/js/tabs/prognose.js` (formulier en grafiek); het verwachte dividend in `dividend_verwachting.py`; rendement op basis van historie in `historisch_rendement.py` | `berekenPrognose()`, `bouwPrognoseGrafiekData()`, `berekenDividendCumulatief()`, `historiePrognosePaden()` (JS); `bereken_dividend_verwachting()`, `bereken_historisch_rendement()` |
 
 ---
 
@@ -930,6 +930,31 @@ In de grafiek (`berekenDividendCumulatief()` in `prognose.js`) komt elke maand `
 - De jaar-afwijking (`afwijking_fractie`) is per aandeel over dezelfde, gekoppelde uitkeringen: een recente aankoop of een nog niet betaalde uitkering maakt het verschil zo niet kunstmatig groot.
   Niet berekend bij een split binnen het jaar of een rekeningoverzicht dat binnen het jaar begint.
 - Posities met bron `onbekend` of een valuta zonder FX-paar krijgen `meegeteld: false` en tellen niet mee in de totalen.
+
+---
+
+### `historisch_rendement.py` — rendement op basis van historie (Huidige portfolio)
+
+**Verantwoordelijkheid:** verwacht koersrendement en bandbreedte uit de koershistorie van de huidige posities, via het luie endpoint
+`GET /api/portfolio/<code>/historisch-rendement` (pas als het vinkje "Rendement op basis van historie" aan gaat).
+
+| Functie | Wat | Input → output |
+|---|---|---|
+| `venster()` | reeks vanaf `HISTORIE_VROEGSTE_START` (02-01-1970) t/m de peildatum | reeks → (reeks, jaren) |
+| `portfolio_index()` | nagebouwde portfolio in de huidige verdeling, dagelijks herbalanceren; begint pas als de meetellende posities samen ≥ `HISTORIE_MIN_DEKKING` (50%) van het gewicht een koers hebben | → (index, jaren_niet_compleet, dekking_bij_start) |
+| `maandrendementen()` | rendement van maandeinde tot maandeinde; de laatste maand alleen als de index tot (bijna) het einde ervan loopt (`MAAND_COMPLEET_MARGE_DAGEN`) | index → numpy-array |
+| `bootstrap_percentielpaden()` | circulaire block bootstrap: 5.000 paden (`BOOTSTRAP_PADEN`) uit blokken van 12 aaneengesloten maanden, vaste seed; per maand p10/p25/p50/p75/p90 van de groeifactor | → `{"p10": array, ...}` |
+| `horizonnen_uit_paden()` | per heel jaar H: `factor ** (1/H) − 1` in % | paden → `{H: {p10, ...}}` |
+| `positie_statistiek()` | per positie: jaren data, `historie_vanaf`, CAGR, 1-jaars range (p10–p90 van rollende 1-jaarsrendementen) | |
+| `bereken_historisch_rendement()` | orkestratie: `get_prices(tickers, HISTORIE_VROEGSTE_START)`, continue koersreeks, gewichten = huidige waarde; < 36 maandrendementen → `beschikbaar: False` + `melding` | `code` → API-dict |
+
+API: `paden` (groeifactoren maand 0 t/m 12 × `HISTORIE_MAX_HORIZON_JAREN`, 4 decimalen), `horizonnen` (`"H"` → p10..p90 in %/jaar +
+`waarschuwing` op p50), `historie_start`, `historie_jaren`, `dekking_bij_start`, `aantal_maanden`, `posities`, `waarschuwingen`.
+De frontend vermenigvuldigt alleen: waarde op maand m = startwaarde × `paden.pXX[m]` (`historiePrognosePaden()` in `prognose.js`);
+p50 is de middenlijn, p10–p90 de lichte en p25–p75 de donkere band. Past de gebruiker een veld aan, dan geldt weer het constante rendement.
+
+- USD/GBP-posities hebben in EUR pas koersen vanaf `FX_ANKER_DATUM` (2005): daarvoor ontbreekt de wisselkoers.
+- `koers_begin` (30 dagen) voorkomt dat elke opening alles vanaf 1970 opnieuw downloadt; daarna gebeurt dat één keer opnieuw.
 
 ---
 

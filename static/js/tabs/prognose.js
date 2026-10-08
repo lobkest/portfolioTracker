@@ -59,7 +59,7 @@ function haalDividendVerwachting() {
 function haalHistorischRendement() {
     return haalEenmaal(prognoseHistorie, "historisch-rendement", data => (data.onvolledig
         ? "Nog niet alle koershistorie geladen. Zet het vinkje opnieuw aan om verder te laden."
-        : "Geen positie met minstens een jaar koershistorie."));
+        : (data.melding || "Te weinig koershistorie.")));
 }
 
 const HISTORIE_STATUS_TEKST = {
@@ -93,6 +93,7 @@ function maakHistorieTabel(posities) {
                 return td;
             },
         },
+        { label: "Vanaf", waarde: p => p.historie_vanaf, renderTd: p => maakCel(p.historie_vanaf === null ? "—" : String(p.historie_vanaf)) },
         {
             label: "Gem. stijging per jaar (CAGR)",
             waarde: p => (telt(p) ? p.cagr_pct : null),
@@ -107,7 +108,8 @@ function maakHistorieTabel(posities) {
     return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit." });
 }
 
-// Vinkje "Rendement op basis van historie" (alleen Huidige portfolio): vult koersrendement, laag en hoog uit de backend.
+// Vinkje "Rendement op basis van historie" (alleen Huidige portfolio): vult koersrendement, laag en hoog uit de backend;
+// zolang niemand een veld aanpast, tekent de grafiek de bootstrap-paden (paden()).
 function maakHistorieRegelaar({ veld, el, herbereken }) {
     const RENDEMENT_VELDEN = ["rendement", "laag", "hoog"];
     let aan = false;
@@ -118,10 +120,12 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
     let horizon = null;
 
     function renderSectie() {
-        const jaren = parseFloat(veld("jaren").value);
-        el("HistorieHorizon").textContent = horizon < Math.round(jaren)
-            ? `Bandbreedte gebaseerd op ${horizon}-jaarsperioden (langste die de historie toelaat).`
-            : `Bandbreedte gebaseerd op ${horizon}-jaarsperioden.`;
+        let tekst = `Gebaseerd op historie vanaf ${data.historie_start.slice(0, 4)} ` +
+            `(${prognoseGetal(data.historie_jaren, 1)} jaar).`;
+        if (data.dekking_bij_start < 1) {
+            tekst += ` Bij de start had ${prognosePct(data.dekking_bij_start, false, 0)} van je portfolio al koersen.`;
+        }
+        el("HistorieHorizon").textContent = tekst;
         el("HistorieTabel").replaceChildren(maakHistorieTabel(data.posities));
         const teksten = [...data.waarschuwingen, data.horizonnen[String(horizon)].waarschuwing].filter(Boolean);
         el("HistorieWaarschuwingen").replaceChildren(...teksten.map(tekst => {
@@ -134,11 +138,15 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
     }
 
     function vulVelden() {
-        horizon = kiesHistorieHorizon(parseFloat(veld("jaren").value), data.max_horizon);
-        const { waarden, afgekapt } = historieVeldwaarden(data.horizonnen[String(horizon)]);
+        horizon = kiesHistorieHorizon(parseFloat(veld("jaren").value));
+        const percentielen = data.horizonnen[String(horizon)];
+        const { waarden, afgekapt } = historieVeldwaarden(percentielen);
         RENDEMENT_VELDEN.forEach(sleutel => { veld(sleutel).value = waarden[sleutel]; });
         aangepast = false;
         el("HistorieHandmatig").hidden = true;
+        el("HistorieKwartielen").textContent = `Waarschijnlijk (p25–p75): ${historiePct(percentielen.p25)} tot ` +
+            `${historiePct(percentielen.p75)} per jaar over ${horizon} jaar.`;
+        el("HistorieKwartielen").hidden = false;
         el("HistorieAfgekapt").hidden = afgekapt.length === 0;
         el("HistorieAfgekapt").textContent = afgekapt.map(a =>
             `Historisch ${prognoseGetal(a.historisch, 1)}% (${HISTORIE_VELD_NAAM[a.veld]}) afgekapt op ` +
@@ -176,7 +184,7 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
         if (handmatig) RENDEMENT_VELDEN.forEach(sleutel => { veld(sleutel).value = handmatig[sleutel]; });
         handmatig = null;
         aangepast = false;
-        ["HistorieHandmatig", "HistorieAfgekapt", "HistorieSectie"].forEach(naam => { el(naam).hidden = true; });
+        ["HistorieHandmatig", "HistorieAfgekapt", "HistorieKwartielen", "HistorieSectie"].forEach(naam => { el(naam).hidden = true; });
         herbereken();
     }
 
@@ -185,12 +193,16 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
         if (!aan || !data) return;
         aangepast = true;
         el("HistorieHandmatig").hidden = false;
+        el("HistorieKwartielen").hidden = true;
     }));
     veld("jaren").addEventListener("input", () => {
         if (aan && data && !aangepast) vulVelden();
     });
 
     return {
+        paden() {
+            return aan && data && !aangepast ? data.paden : null;
+        },
         toon() {
             const heeftCode = Boolean(huidigeData.code);
             el("HistorieVinkje").disabled = !heeftCode;
@@ -201,7 +213,7 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
                 renderSectie();
                 return;
             }
-            ["HistorieHandmatig", "HistorieAfgekapt", "HistorieSectie"].forEach(naam => { el(naam).hidden = true; });
+            ["HistorieHandmatig", "HistorieAfgekapt", "HistorieKwartielen", "HistorieSectie"].forEach(naam => { el(naam).hidden = true; });
         },
         // Geeft de handmatige waarden terug als de velden historische waarden bevatten.
         reset() {
@@ -402,7 +414,8 @@ function maakPrognoseTab({ view, prefix, metInleg, metHistorie, standaardInvoer 
             if (data && data.yield_netto !== null) dividendYield = data.yield_netto;
         }
 
-        resultaat = bouwPrognoseGrafiekData(chartData, { ...invoer, dividendYield });
+        const paden = historie ? historie.paden() : null;
+        resultaat = bouwPrognoseGrafiekData(chartData, { ...invoer, dividendYield, paden });
         if (actieveViewNaam() === view) tekenPrognoseChart(resultaat.datasets);
     }
 

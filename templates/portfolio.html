@@ -20,12 +20,13 @@
                         <input type="checkbox" id="{{ prefix }}HistorieVinkje"> Rendement op basis van historie
                     </label>
                     <span id="{{ prefix }}HistorieHandmatig" class="kleineMelding" hidden>(handmatig aangepast)</span>
-                    <span class="infoTip" data-label="Rendement op basis van historie">Berekent verwacht koersrendement en bandbreedte uit de koershistorie (max. 10 jaar) van je huidige posities. Verleden is geen garantie.</span>
+                    <span class="infoTip" data-label="Rendement op basis van historie">Berekent verwacht koersrendement en bandbreedte uit de koershistorie van je huidige posities, zo ver terug als beschikbaar. Verleden is geen garantie.</span>
                 </div>
                 <p id="{{ prefix }}HistorieNietBeschikbaar" class="kleineMelding" hidden>Alleen beschikbaar bij een opgeslagen portfolio.</p>
                 <p id="{{ prefix }}HistorieLaden" class="kleineMelding" hidden>Koershistorie ophalen...</p>
                 <p id="{{ prefix }}HistorieFout" class="foutTekst prognoseMelding" hidden></p>
                 <p id="{{ prefix }}HistorieAfgekapt" class="waarschuwingTekst prognoseMelding" hidden></p>
+                <p id="{{ prefix }}HistorieKwartielen" class="kleineMelding" hidden></p>
                 {% endif %}
                 <div class="prognoseVelden">
                     <div class="prognoseVeld">
@@ -76,7 +77,7 @@
                     <div id="{{ prefix }}HistorieTabel"></div>
                     <div id="{{ prefix }}HistorieWaarschuwingen"></div>
                     <div class="uitlegBox margeBoven8">
-                        <p><strong>Hoe is dit berekend?</strong> We nemen de koersen in euro van je huidige posities over de afgelopen 10 jaar (of korter als een positie korter bestaat), gecorrigeerd voor aandelensplits en zonder dividend. Daarmee bouwen we je huidige portfolio terug in de tijd na, in de huidige verdeling (elke dag opnieuw in die verdeling gebracht, een vereenvoudiging). Voor het gekozen aantal jaren vooruit kijken we naar alle perioden van die lengte in die historie: het midden is de middelste uitkomst, de bandbreedte loopt van de 10% slechtste tot de 10% beste perioden. De tabel toont per positie de gemiddelde stijging per jaar en de spreiding van losse jaren.</p>
+                        <p><strong>Hoe is dit berekend?</strong> We nemen de koersen in euro van je huidige posities zo ver terug als beschikbaar, gecorrigeerd voor aandelensplits en zonder dividend. Daarmee bouwen we je huidige portfolio terug in de tijd na, in de huidige verdeling (elke dag opnieuw in die verdeling gebracht, een vereenvoudiging). De nagebouwde portfolio begint pas als posities die samen minstens de helft van je portfolio vormen al koersen hebben; daarvoor rekent hij met de posities die er wel waren. Uit die historie nemen we de rendementen per maand en maken we 5.000 mogelijke toekomstpaden, door steeds willekeurig blokken van 12 aaneengesloten historische maanden aan elkaar te zetten. Zo telt elk historisch jaar mee, ook de slechte, en wordt de bandbreedte breder naarmate je verder vooruit kijkt. De middenlijn is het middelste pad; de donkere band loopt van 25% tot 75% van de paden, de lichte band van 10% tot 90%. De tabel toont per positie vanaf wanneer er koersen zijn, de gemiddelde stijging per jaar en de spreiding van losse jaren.</p>
                         <p><strong>Let op:</strong> dit is wat je huidige posities in het verleden deden. Posities die je nog bezit, zijn vaak posities die goed liepen; doortrekken overschat de toekomst meestal.</p>
                     </div>
                 </div>
