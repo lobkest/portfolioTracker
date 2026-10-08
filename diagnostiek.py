@@ -41,7 +41,7 @@ LAADTIJD_FASEN = {
     "dividend_verwachting": "Verwacht dividend",
     "historisch_rendement": "Historisch rendement",
 }
-# Aanname: een derde van gunicorns standaard-timeout (30 s); die op Render staat niet in de repo.
+# Bewust ruim onder de frontend-timeouts (55/60 s, fetchMetTimeout/UPLOAD_TIMEOUT_MS); gunicorn zelf stopt pas na 120 s.
 DREMPEL_LAADTIJD_LET_OP_SECONDEN = 10
 
 _G_ATTR = "_diagnostiek_meldingen"

@@ -8,7 +8,7 @@
         {
             id: "overzicht", label: "Overzicht", icoon: "⌂",
             views: [
-                { view: "portfolio", label: "Home" },
+                { view: "portfolio", label: "Samenvatting" },
                 { view: "statistieken", label: "Statistieken" },
                 { view: "dividend", label: "Dividend" },
                 { view: "box3", label: "Box 3" },
@@ -73,7 +73,15 @@
         return MENU_GROEPEN.filter(g => zichtbareViews(g, toegestaneViews).length > 0);
     }
 
-    const exportsObj = { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen, zichtbareViews };
+    // 1 px marge: scrollLeft is op telefoons met zoom vaak een gebroken getal.
+    function scrollFades(scrollLeft, scrollWidth, clientWidth) {
+        return {
+            links: scrollLeft > 1,
+            rechts: scrollWidth - clientWidth - scrollLeft > 1,
+        };
+    }
+
+    const exportsObj = { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen, zichtbareViews, scrollFades };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

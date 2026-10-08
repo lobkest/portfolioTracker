@@ -125,6 +125,38 @@ def _maandelijks(jaarfactor, jaren):
 
 
 class TestBootstrap(unittest.TestCase):
+    def setUp(self):
+        hr.wis_bootstrap_cache()
+
+    def test_identiek_aan_rekenen_per_pad_in_rijen(self):
+        rendementen = np.random.default_rng(7).normal(0.005, 0.04, 150)
+        maanden, n_paden, blok = 100, 300, 12
+        rng = np.random.default_rng(42)
+        starts = rng.integers(0, 150, size=(n_paden, 9))
+        posities = ((starts[:, :, None] + np.arange(blok)) % 150).reshape(n_paden, 9 * blok)[:, :maanden]
+        groei = np.hstack([np.ones((n_paden, 1)), np.cumprod(1 + rendementen[posities], axis=1)])
+        verwacht = np.percentile(groei, hr.HISTORIE_PERCENTIELEN, axis=0)
+        paden = hr.bootstrap_percentielpaden(rendementen, maanden, n_paden=n_paden, blok_maanden=blok, seed=42)
+        for sleutel, rij in zip(SLEUTELS, verwacht):
+            np.testing.assert_array_equal(paden[sleutel], rij)
+
+    def test_cache_rekent_zelfde_invoer_niet_opnieuw(self):
+        rendementen = np.random.default_rng(7).normal(0.005, 0.04, 120)
+        eerste = hr.bootstrap_percentielpaden(rendementen, 24, n_paden=100)
+        with patch.object(hr.np, "percentile", side_effect=AssertionError("opnieuw gerekend")):
+            tweede = hr.bootstrap_percentielpaden(rendementen.copy(), 24, n_paden=100)
+            with self.assertRaises(AssertionError):
+                hr.bootstrap_percentielpaden(rendementen, 24, n_paden=100, seed=1)
+            with self.assertRaises(AssertionError):
+                hr.bootstrap_percentielpaden(rendementen[:-1], 24, n_paden=100)
+        for sleutel in SLEUTELS:
+            np.testing.assert_array_equal(eerste[sleutel], tweede[sleutel])
+
+    def test_cache_geeft_kopie_terug(self):
+        eerste = hr.bootstrap_percentielpaden([0.01] * 60, 12, n_paden=50)
+        eerste["p50"][:] = 0
+        self.assertEqual(hr.bootstrap_percentielpaden([0.01] * 60, 12, n_paden=50)["p50"][0], 1.0)
+
     def test_constante_maandrendementen_geven_vijf_gelijke_paden(self):
         paden = hr.bootstrap_percentielpaden([0.01] * 60, 24, n_paden=200)
         self.assertEqual(tuple(paden), SLEUTELS)
@@ -135,6 +167,8 @@ class TestBootstrap(unittest.TestCase):
     def test_zelfde_seed_geeft_zelfde_uitkomst(self):
         rendementen = np.random.default_rng(7).normal(0.005, 0.04, 120)
         a = hr.bootstrap_percentielpaden(rendementen, 60, n_paden=500, seed=3)
+        # Anders komt b uit de cache en test dit niets.
+        hr.wis_bootstrap_cache()
         b = hr.bootstrap_percentielpaden(rendementen, 60, n_paden=500, seed=3)
         for sleutel in SLEUTELS:
             np.testing.assert_array_equal(a[sleutel], b[sleutel])

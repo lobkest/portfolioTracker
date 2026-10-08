@@ -17,7 +17,7 @@ const DIVIDEND_BRON_TEKST = {
 const BELASTING_BRON_TEKST = { eigen: "eigen data", land: "aanname land", standaard: "standaardaanname" };
 
 function prognoseGetal(x, maxDecimalen) {
-    return x.toLocaleString("nl-NL", { maximumFractionDigits: maxDecimalen });
+    return formatGetal(x, maxDecimalen, 0);
 }
 
 function prognosePct(fractie, metTeken, decimalen = 1) {

@@ -3,9 +3,7 @@
 (function (root) {
     "use strict";
 
-    function getalNL(x) {
-        return String(Number(x.toFixed(2))).replace(".", ",");
-    }
+    const { formatGetal } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
 
     function positieNamen(posities) {
         return posities.map(p => (p.naam && p.naam !== p.ticker ? `${p.naam} (${p.ticker})` : p.ticker)).join(", ");
@@ -56,7 +54,7 @@
 
     // Yahoo-ratio: 4 = 4 nieuwe stukken voor 1 oud, 0,05 = 1 nieuw voor 20 oud.
     function splitLabel(ratio) {
-        return ratio >= 1 ? `Split ${getalNL(ratio)}:1` : `Reverse split 1:${getalNL(1 / ratio)}`;
+        return ratio >= 1 ? `Split ${formatGetal(ratio, 2, 0)}:1` : `Reverse split 1:${formatGetal(1 / ratio, 2, 0)}`;
     }
 
     // Index van de eerste grafiekdatum op of na de splitdatum (ISO-datums), of -1.

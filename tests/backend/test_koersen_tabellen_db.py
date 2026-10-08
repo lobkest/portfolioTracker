@@ -1,4 +1,4 @@
-"""Nieuwe cachetabellen koersen, koers_splits en prijscheck_koersen, tegen een lokale testdatabase (CI-container).
+"""Nieuwe cachetabellen koersen en koers_splits, tegen een lokale testdatabase (CI-container).
 
 Eigen test-tickers (ZZTEST...) die nergens anders voorkomen; alles wordt voor en na elke test opgeruimd.
 """
@@ -21,7 +21,7 @@ def _ruim_op():
     from db import db_connect
     conn = db_connect()
     cur = conn.cursor()
-    for tabel in ("koersen", "koers_splits", "prijscheck_koersen"):
+    for tabel in ("koersen", "koers_splits"):
         cur.execute(f"DELETE FROM {tabel} WHERE ticker LIKE 'ZZTESTKOERS%'")
     conn.commit()
     cur.close()
@@ -83,14 +83,6 @@ class TestKoersenTabellen(unittest.TestCase):
         laatste, opgehaald = db_get_laatste_koers_update([T1])
         self.assertEqual(laatste, date(2021, 1, 26))
         self.assertIsNotNone(opgehaald)
-
-    def test_prijscheck_koers_ook_mislukte_poging_en_upsert(self):
-        from db import db_save_prijscheck_koers, db_get_cached_prijscheck_koers
-        self.assertIsNone(db_get_cached_prijscheck_koers(T1, date(2021, 1, 26)))
-        db_save_prijscheck_koers(T1, date(2021, 1, 26), None, None)
-        self.assertEqual(db_get_cached_prijscheck_koers(T1, date(2021, 1, 26)), (None, None, None, None))
-        db_save_prijscheck_koers(T1, date(2021, 1, 26), 2.51, "USD", 2.6, 2.27)
-        self.assertEqual(db_get_cached_prijscheck_koers(T1, date(2021, 1, 26)), (2.51, "USD", 2.6, 2.27))
 
 
 if __name__ == "__main__":

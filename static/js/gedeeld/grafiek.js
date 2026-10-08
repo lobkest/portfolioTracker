@@ -211,18 +211,18 @@ function renderGestapeldeStaafgrafiek(canvasId, categorieData, bronNamen, opts) 
                 const bar = eersteMeta.data[i];
                 if (!bar) return;
                 if (horizontaal) {
-                    ctx.fillText(`${som.toFixed(1)}%`, scales.x.getPixelForValue(som) + 6, bar.y);
+                    ctx.fillText(formatPct(som, 1), scales.x.getPixelForValue(som) + 6, bar.y);
                 } else {
-                    ctx.fillText(`${som.toFixed(1)}%`, bar.x, scales.y.getPixelForValue(som) - 6);
+                    ctx.fillText(formatPct(som, 1), bar.x, scales.y.getPixelForValue(som) - 6);
                 }
             });
             ctx.restore();
         }
     };
 
-    const procentAs = { stacked: true, ticks: { callback: v => `${v}%` } };
+    const procentAs = { stacked: true, ticks: { callback: v => `${formatGetal(v, 2, 0)}%` } };
     const tooltipCallbacks = {
-        label: (ctx) => `${ctx.dataset.label}: ${(horizontaal ? ctx.parsed.x : ctx.parsed.y).toFixed(1)}%`
+        label: (ctx) => `${ctx.dataset.label}: ${formatPct(horizontaal ? ctx.parsed.x : ctx.parsed.y, 1)}`
     };
     if (opts.tooltipTitel) {
         tooltipCallbacks.title = (items) => opts.tooltipTitel(categorieen[items[0].dataIndex]);

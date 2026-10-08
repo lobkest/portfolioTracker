@@ -91,7 +91,7 @@ function tekenBedrijven() {
     const subTab = document.querySelector('#subTabs [data-view="bedrijven"]');
     if (subTab) subTab.textContent = bedrijvenTitel(n);
     document.getElementById("bedrijvenDekkingTekst").textContent =
-        `Dekking: ${(data.dekking_pct * 100).toFixed(1)}% van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top ${n} + niet-gedekte ETF-holdings, samen ${overigPct.toFixed(1)}%) is hier niet in weergegeven.`;
+        `Dekking: ${formatPct(data.dekking_pct * 100, 1)} van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top ${n} + niet-gedekte ETF-holdings, samen ${formatPct(overigPct, 1)}) is hier niet in weergegeven.`;
 
     document.querySelectorAll("#bedrijvenSectie .keuzeKnop").forEach(knop => {
         const knopN = Number(knop.dataset.n);

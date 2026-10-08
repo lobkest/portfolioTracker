@@ -45,8 +45,8 @@ function toonPlatteVerdeling(verdelingObj) {
                 tooltip: {
                     callbacks: {
                         label: (ctx) => {
-                            const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
-                            return `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${pct}%)`;
+                            const pct = totaal ? ctx.parsed / totaal * 100 : 0;
+                            return `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${formatPct(pct, 1)})`;
                         }
                     }
                 },
@@ -56,7 +56,7 @@ function toonPlatteVerdeling(verdelingObj) {
                     formatter: (value, ctx) => {
                         const pct = totaal ? (value / totaal * 100) : 0;
                         if (pct < 3) return null;
-                        return [kortNaam(entries[ctx.dataIndex][0]), `${pct.toFixed(1)}%`];
+                        return [kortNaam(entries[ctx.dataIndex][0]), formatPct(pct, 1)];
                     }
                 }
             }

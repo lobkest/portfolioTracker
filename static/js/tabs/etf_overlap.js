@@ -63,7 +63,7 @@ function renderEtfOverlapTabel() {
                 td.className = "leeg";
             } else {
                 const pct = matrix[rijTicker][kolTicker] * 100;
-                td.textContent = `${pct.toFixed(0)}%`;
+                td.textContent = formatPct(pct, 0);
                 td.style.backgroundColor = `rgba(44, 122, 75, ${Math.min(pct / 100, 1) * 0.7 + (pct > 0 ? 0.1 : 0)})`;
                 td.style.color = pct > 50 ? "#fff" : "#333";
                 td.className = "klikbaar";
@@ -122,7 +122,7 @@ async function toonEtfOverlapDetail(tickerA, naamA, tickerB, naamB) {
 }
 
 function maakEtfOverlapDetailTabel(holdings, naamA, naamB) {
-    const formatGewicht = w => (w === null || w === undefined) ? "" : `${(w * 100).toFixed(2)}%`;
+    const formatGewicht = w => (w === null || w === undefined) ? "" : formatPct(w * 100, 2);
     // In beide ETF's: zelfde groen als de matrix, maar lichter voor leesbaarheid.
     const isOverlapRij = r => r.gewicht_a !== null && r.gewicht_a !== undefined
         && r.gewicht_b !== null && r.gewicht_b !== undefined;

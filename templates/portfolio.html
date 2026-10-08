@@ -106,6 +106,15 @@
         <header class="appKop">
             <a class="nieuweUploadLink" href="/">&larr; Nieuwe upload</a>
             <nav class="hoofdTabs" id="hoofdTabs" aria-label="Hoofdmenu"></nav>
+            <div class="codeChip">
+                <span class="codeChipLabel" data-vereist-code="ja" style="display: none;">Code</span>
+                <strong id="dashCode" class="codeChipCode" data-vereist-code="ja" style="display: none;"></strong>
+                <button id="kopieerCodeKnop" class="codeChipKnop" type="button" data-vereist-code="ja" style="display: none;" aria-label="Code kopiëren" title="Code kopiëren">&#x29C9;&#xFE0E;</button>
+                <span id="kopieerCodeStatus" class="codeChipStatus" role="status" hidden></span>
+                <span class="infoTip" data-label="Portfolio-code" data-vereist-code="ja" style="display: none;">Bewaar deze code om later terug te komen: vul hem in op de startpagina, dan hoef je niet opnieuw te uploaden.</span>
+                <span id="nietOpgeslagenLabel" class="codeChipLabel" data-vereist-code="nee" style="display: none;">niet opgeslagen</span>
+                <span class="infoTip" data-label="Niet opgeslagen" data-vereist-code="nee" style="display: none;">Deze analyse is eenmalig: er is geen code en niets is bewaard.</span>
+            </div>
             <button class="instellingenKnop" id="instellingenKnop" type="button" data-groep="instellingen" aria-label="Instellingen">&#9881;&#xFE0E;</button>
         </header>
         <div class="subRij">
@@ -139,8 +148,6 @@
             <div id="tab-portfolio" data-views="portfolio" style="display: none;">
                 <div class="tabSplit">
                 <div class="tabInfo">
-                <p id="codeText" data-vereist-code="ja">Code: <strong id="dashCode"></strong> — bewaar deze om later terug te komen.</p>
-                <p id="nietOpgeslagenText" data-vereist-code="nee">Niet opgeslagen — deze analyse is eenmalig, er is geen code en niets is bewaard.</p>
                 <div id="homeTotalenSectie"></div>
                 <p id="laatstBijgewerktText" class="kleineMelding margeOnder15" data-verberg-buiten="portfolio" style="display: none;"></p>
                 </div>
@@ -508,6 +515,7 @@
 
 {% block scripts %}
     <!-- Volgorde: pure modules, gedeeld/ (hulpfuncties), tabs/ (menuvolgorde), app.js als laatste: die bouwt TOON_PER_VIEW uit de tabs. -->
+    <script src="{{ url_for('static', filename='js/getallen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bestandskeuze.js') }}"></script>

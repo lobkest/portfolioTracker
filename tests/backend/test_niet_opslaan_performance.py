@@ -3,13 +3,14 @@ Bevestigt waarom 'niet opslaan' alleen de lichte ticker-check draait (zie
 CLAUDE.md: Yahoo en tickers): een 'niet opslaan'-analyse van een grotere portfolio bleef
 hangen zonder foutmelding. docs/CODE_OVERZICHT.md (6.2)
 noemt al ~84s sequentieel voor 12 posities met een warme cache --
-ruim boven de standaard gunicorn-timeout van 30s. Deze tests maken dat
+ruim boven de frontend-timeout van 60s (UPLOAD_TIMEOUT_MS; gunicorn op
+Render stopt pas na 120s). Deze tests maken dat
 kwantitatief en reproduceerbaar (offline, met een kunstmatige vertraging
 i.p.v. echte Yahoo-calls) voor een iets grotere, realistischere portfolio:
 
 1. De OUDE aanpak (verifieer_tickers_met_prijs_parallel voor de volle
    portfolio) duurt bij 25 posities met meerdere kandidaten en een koude
-   cache lang genoeg om een 30s-timeout te riskeren.
+   cache lang genoeg om de frontend-timeout te riskeren.
 2. De NIEUWE aanpak (basis_ticker_zekerheid_parallel, wat het 'niet
    opslaan'-pad in app.py nu standaard gebruikt) blijft voor dezelfde
    portfoliogrootte ruim onder een redelijke tijdslimiet -- OOK met de
@@ -116,7 +117,7 @@ class TestOudeAanpakRisicoOpTimeout(unittest.TestCase):
 
         # Verwacht ~20s (25 posities / 6 workers * ~4s per positie: 2
         # eigen prijschecks + 3 kandidaten x 2 prijschecks, à 0,5s) --
-        # ruim genoeg richting de standaard gunicorn-timeout van 30s om de
+        # ruim genoeg richting de frontend-timeout (55/60s) om de
         # hypothese te bevestigen, met marge voor tragere testomgevingen.
         self.assertGreater(duur, 10, f"verwachtte >10s als bevestiging van het timeout-risico, kreeg {duur:.1f}s")
 
@@ -148,7 +149,7 @@ class TestNieuweAanpakBlijftSnel(unittest.TestCase):
         # Sequentieel zou dit 25 x (0,1s + 0,5s) = 15s zijn -- met 8
         # parallelle workers verwacht ~ceil(25/8) x 0,6s = 1,8s. Ruime marge
         # (10s) voor tragere testomgevingen, maar nog altijd een harde
-        # garantie dat dit ver onder een 30s-gunicorn-timeout blijft.
+        # garantie dat dit ver onder de frontend-timeout (60s) blijft.
         self.assertLess(duur, 10, f"verwachtte <10s, kreeg {duur:.1f}s")
 
 

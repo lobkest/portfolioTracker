@@ -17,7 +17,7 @@ const AFSTAND_UITLEG = "Hoe ver de Excel-koers buiten Yahoo's echte high/low val
 function afstandTekst(pct) {
     if (pct == null) return "-";
     if (pct === 0) return "0%";
-    return `${pct > 0 ? "+" : "−"}${Math.abs(pct).toFixed(2)}%`;
+    return `${pct > 0 ? "+" : "−"}${formatPct(Math.abs(pct), 2)}`;
 }
 
 function voegInfoRegelToe(container, label, waarde) {
@@ -82,21 +82,21 @@ function maakPrijscontroleTabel(prijsChecks) {
         if (gecorrigeerd) heeftSplitCorrectie = true;
         const yahooKoersTekst = c.yahoo_koers == null
             ? "onbekend"
-            : gecorrigeerd ? `${c.yahoo_koers_gecorrigeerd.toFixed(3)} *` : c.yahoo_koers.toFixed(3);
+            : gecorrigeerd ? `${formatGetal(c.yahoo_koers_gecorrigeerd, 3)} *` : formatGetal(c.yahoo_koers, 3);
 
         [
             formatDatum(c.datum),
-            c.bekende_koers != null ? c.bekende_koers.toFixed(3) : "-",
+            c.bekende_koers != null ? formatGetal(c.bekende_koers, 3) : "-",
             yahooKoersTekst,
-            c.low != null ? c.low.toFixed(3) : "-",
-            c.high != null ? c.high.toFixed(3) : "-",
+            c.low != null ? formatGetal(c.low, 3) : "-",
+            c.high != null ? formatGetal(c.high, 3) : "-",
             afstandTekst(c.afstand_dagrange_pct),
         ].forEach((tekst, i) => {
             const td = document.createElement("td");
             td.textContent = tekst;
             if (i === 2 && gecorrigeerd) {
-                td.title = `Ruwe Yahoo-koers ${c.yahoo_koers.toFixed(3)}, gecorrigeerd voor een split sinds deze `
-                    + `datum (factor ×${c.split_factor.toFixed(4)}).`;
+                td.title = `Ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}, gecorrigeerd voor een split sinds deze `
+                    + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`;
             }
             rij.appendChild(td);
         });
@@ -531,7 +531,7 @@ function allePrijzenSamenvattingTekst(r) {
     const delen = [`${r.aantal_binnen}/${r.prijs_checks.length} binnen dagrange`];
     if (r.aantal_buiten) delen.push(`${r.aantal_buiten} buiten`);
     if (r.aantal_onbekend) delen.push(`${r.aantal_onbekend} zonder koersdata`);
-    if (r.max_afstand_pct) delen.push(`max. ${r.max_afstand_pct.toFixed(2)}% buiten de echte range`);
+    if (r.max_afstand_pct) delen.push(`max. ${formatPct(r.max_afstand_pct, 2)} buiten de echte range`);
     return delen.join(", ");
 }
 
@@ -602,7 +602,7 @@ async function controleerAllePrijzen(posities, knop, resultaten) {
     if (totaal.onbekend) delen.push(`${totaal.onbekend} zonder koersdata`);
     if (totaal.mislukt) delen.push(`${totaal.mislukt} posities mislukt`);
     if (totaal.maxAfstand) {
-        delen.push(`grootste afstand tot de echte range ${totaal.maxAfstand.pct.toFixed(2)}% (${totaal.maxAfstand.ticker})`);
+        delen.push(`grootste afstand tot de echte range ${formatPct(totaal.maxAfstand.pct, 2)} (${totaal.maxAfstand.ticker})`);
     }
     samenvatting.textContent = `Klaar: ${delen.join(", ")}.`;
     samenvatting.classList.toggle("negatief", totaal.buiten > 0 || totaal.mislukt > 0);

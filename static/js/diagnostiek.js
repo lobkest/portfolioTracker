@@ -3,6 +3,8 @@
 (function (root) {
     "use strict";
 
+    const { formatPct } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
+
     // Ernstigste eerst -- zelfde niveaus als in diagnostiek.py.
     const DIAGNOSTIEK_NIVEAUS = ["FOUT", "LET_OP", "INFO", "GOED"];
 
@@ -94,7 +96,7 @@
         const kolommen = tabel.kolommen || [];
         const wegingIndex = kolommen.indexOf("Weging");
         const rijen = tabel.rijen.map(rij => rij.map((cel, i) => {
-            if (i === wegingIndex && typeof cel === "number") return `${cel.toFixed(1).replace(".", ",")}%`;
+            if (i === wegingIndex && typeof cel === "number") return formatPct(cel, 1);
             return cel === null || cel === undefined ? "" : String(cel);
         }));
         return { kolommen, rijen };

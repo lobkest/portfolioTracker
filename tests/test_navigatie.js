@@ -201,15 +201,18 @@ test("portfolio.html: data-vereist-code is 'ja' of 'nee'", () => {
     }
 });
 
-test("portfolio.html: code-tekst, benchmark-keuzes en de €/%-schakelaar vereisen een code; 'niet opgeslagen' juist geen", () => {
+test("portfolio.html: code-chip, benchmark-keuzes en de €/%-schakelaar vereisen een code; 'niet opgeslagen' juist geen", () => {
     const elementen = leesPortfolioElementen();
     const vereist = id => elementen.find(e => e.attrs.id === id).attrs["data-vereist-code"];
-    assert.equal(vereist("codeText"), VEREIST_CODE_JA);
-    assert.equal(vereist("nietOpgeslagenText"), VEREIST_CODE_NEE);
+    assert.equal(vereist("dashCode"), VEREIST_CODE_JA);
+    assert.equal(vereist("kopieerCodeKnop"), VEREIST_CODE_JA);
+    assert.equal(vereist("nietOpgeslagenLabel"), VEREIST_CODE_NEE);
     assert.equal(vereist("benchmarkSelectWrapper"), VEREIST_CODE_JA);
     assert.equal(vereist("eigenAandeelSelectWrapper"), VEREIST_CODE_JA);
-    for (const id of ["codeText", "nietOpgeslagenText"]) {
-        assert.equal(tabbladVan(elementen.find(e => e.attrs.id === id)).attrs.id, "tab-portfolio", id);
+    for (const id of ["dashCode", "kopieerCodeKnop", "nietOpgeslagenLabel"]) {
+        const element = elementen.find(e => e.attrs.id === id);
+        assert.equal(tabbladVan(element), undefined, id);
+        assert.ok(element.voorouders.some(v => (v.attrs.class || "").split(" ").includes("appKop")), `${id} staat in de header`);
     }
     assert.equal(vereist("rendementWeergaveWrapper"), VEREIST_CODE_JA);
 });

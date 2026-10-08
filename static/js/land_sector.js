@@ -3,11 +3,13 @@
 (function (root) {
     "use strict";
 
+    const { formatGetal } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
+
     // null zonder proxy; etfInfo is een entry uit land_sector_verdeling.per_etf.
     function landProxyBijschrift(etfInfo) {
         const proxy = etfInfo && etfInfo.land_proxy;
         if (!proxy || !proxy.naam) return null;
-        const afwijking = Number(proxy.max_afwijking_pp || 0).toFixed(1).replace(".", ",");
+        const afwijking = formatGetal(Number(proxy.max_afwijking_pp || 0), 1);
         return `Land benaderd via ${proxy.naam} (top-10 wijkt max. ${afwijking} pp af)`;
     }
 

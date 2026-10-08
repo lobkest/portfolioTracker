@@ -156,7 +156,7 @@ function maakBox3VerkopenTabel(verkopen) {
     const kolommen = [
         { label: "Datum", waarde: r => new Date(r.datum).getTime(), renderTd: r => maakCel(formatDatum(r.datum)) },
         { label: "Positie", renderTd: r => maakCel(r.bijnaam || r.ticker) },
-        { label: "Aantal", waarde: r => r.aantal, renderTd: r => maakCel(r.aantal.toLocaleString("nl-NL")) },
+        { label: "Aantal", waarde: r => r.aantal, renderTd: r => maakCel(formatGetal(r.aantal, 3, 0)) },
         box3EuroKolom("Opbrengst", r => r.opbrengst),
         box3EuroKolom("Kostenbasis", r => r.kostenbasis),
         {

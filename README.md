@@ -24,7 +24,7 @@ uitgedacht en in python code gemaakt, daarna is pas een front-end erbij gemaakt 
   "Niet opslaan" wordt niets bewaard: een eenmalige analyse op `/analyse`.
 - **Portfolio-pagina** (`/p/<code>`): het dashboard. Het tabblad staat in de
   URL (`/p/ABC#rendement`), dus verversen, bladwijzers en de terug-knop werken
-  per tabblad. Tabbladen: Portfolio-home, Rendement (met benchmark), Per
+  per tabblad. Tabbladen: Samenvatting, Rendement (met benchmark), Per
   aandeel, Per aandeel aankoop, Verdeling, Land, Sector, Valuta, Top-bedrijven,
   ETF-overlap, Statistieken, Transacties, Prognose,
   Dividend en Instellingen (code wijzigen/verwijderen, bestanden bijwerken,

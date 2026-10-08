@@ -101,7 +101,18 @@ function ververMenu(view) {
         return chip;
     });
     document.getElementById("subTabs").replaceChildren(...chips);
+    werkSubTabFadesBij();
 }
+
+function werkSubTabFadesBij() {
+    const rij = document.getElementById("subTabs");
+    const fades = scrollFades(rij.scrollLeft, rij.scrollWidth, rij.clientWidth);
+    rij.classList.toggle("fadeLinks", fades.links);
+    rij.classList.toggle("fadeRechts", fades.rechts);
+}
+
+document.getElementById("subTabs").addEventListener("scroll", werkSubTabFadesBij, { passive: true });
+window.addEventListener("resize", werkSubTabFadesBij);
 
 // Het tabblad staat in de URL-hash; de hashchange-listener wisselt de view.
 function gaNaarView(view) {
@@ -262,6 +273,20 @@ window.addEventListener("hashchange", () => {
 
 document.getElementById("resetZoomBtn").addEventListener("click", resetZoom);
 document.getElementById("zoomIcoonKnop").addEventListener("click", resetZoom);
+
+let kopieerStatusTimer = null;
+document.getElementById("kopieerCodeKnop").addEventListener("click", async () => {
+    const status = document.getElementById("kopieerCodeStatus");
+    try {
+        await navigator.clipboard.writeText(huidigeData.code);
+        status.textContent = "Gekopieerd";
+    } catch (_) {
+        status.textContent = "Kopiëren mislukt";  // geen https of geen toestemming
+    }
+    status.hidden = false;
+    clearTimeout(kopieerStatusTimer);
+    kopieerStatusTimer = setTimeout(() => { status.hidden = true; }, 1500);
+});
 
 document.getElementById("koersenOpnieuwKnop").addEventListener("click", () => {
     window.location.reload();

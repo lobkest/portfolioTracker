@@ -1,4 +1,4 @@
-"""Koersen ophalen en cachen (tabel prijzen) en omrekenen naar EUR."""
+"""Koersen ophalen en cachen (tabel koersen) en omrekenen naar EUR."""
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor

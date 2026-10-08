@@ -94,7 +94,7 @@ function maakVerdelingLijst(titel, verdelingObj) {
     entries.forEach(([naam, fractie]) => {
         const li = document.createElement("li");
         if (naam === "Unknown") li.className = "grijsTekst";
-        li.textContent = `${naam}: ${(fractie * 100).toFixed(1)}%`;
+        li.textContent = `${naam}: ${formatPct(fractie * 100, 1)}`;
         lijst.appendChild(li);
     });
     wrapper.appendChild(lijst);

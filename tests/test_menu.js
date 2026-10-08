@@ -5,7 +5,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen } = require("../static/js/menu.js");
+const { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen, scrollFades } = require("../static/js/menu.js");
 
 const ALLE_VIEWS = MENU_GROEPEN.flatMap(g => g.views.map(v => v.view));
 
@@ -52,6 +52,28 @@ test("overzicht: Box 3 staat direct na Dividend", () => {
     const i = views.findIndex(v => v.view === "dividend");
     assert.deepEqual(views[i + 1], { view: "box3", label: "Box 3" });
     assert.equal(groepVanView("box3"), "overzicht");
+});
+
+test("overzicht: eerste subtab heet Samenvatting (view blijft portfolio)", () => {
+    assert.deepEqual(MENU_GROEPEN.find(g => g.id === "overzicht").views[0], { view: "portfolio", label: "Samenvatting" });
+    assert.ok(!MENU_GROEPEN.some(g => g.views.some(v => v.label === "Home")));
+});
+
+test("scrollFades: past alles, dan geen fade", () => {
+    assert.deepEqual(scrollFades(0, 300, 300), { links: false, rechts: false });
+});
+
+test("scrollFades: breder dan het scherm, helemaal links: alleen rechts", () => {
+    assert.deepEqual(scrollFades(0, 500, 300), { links: false, rechts: true });
+});
+
+test("scrollFades: halverwege: beide kanten", () => {
+    assert.deepEqual(scrollFades(100, 500, 300), { links: true, rechts: true });
+});
+
+test("scrollFades: helemaal rechts (ook met een halve pixel afronding): alleen links", () => {
+    assert.deepEqual(scrollFades(200, 500, 300), { links: true, rechts: false });
+    assert.deepEqual(scrollFades(199.5, 500, 300), { links: true, rechts: false });
 });
 
 test("zichtbareGroepen: alleen groepen met minstens één toegestane view", () => {
@@ -109,6 +131,11 @@ test("mobiel: subtabs scrollen horizontaal", () => {
     const sub = MOBIEL.match(/\.subTabs\s*\{([^}]*)\}/)[1];
     assert.match(sub, /overflow-x:\s*auto/);
     assert.match(sub, /flex-wrap:\s*nowrap/);
+});
+
+test("mobiel: fade-klassen van de subtabs gebruiken een masker (geen overlay die kliks blokkeert)", () => {
+    assert.match(MOBIEL, /\.subTabs\.fadeRechts\s*\{[^}]*mask-image:\s*linear-gradient/);
+    assert.match(MOBIEL, /\.subTabs\.fadeLinks\s*\{[^}]*mask-image:\s*linear-gradient/);
 });
 
 test("viewport-meta: apparaatbreedte en startschaal", () => {

@@ -4,7 +4,9 @@ Koersrendement in EUR op de continue (split-gecorrigeerde) reeks, zonder dividen
 bootstrap op de maandrendementen van de nagebouwde portfolio als geheel, niet uit losse jaren per positie: een slecht jaar
 van een kleine positie mag niet tellen alsof de hele portfolio dat jaar zo deed.
 """
+import hashlib
 import math
+import threading
 
 import numpy as np
 import pandas as pd
@@ -27,6 +29,8 @@ BOOTSTRAP_BLOK_MAANDEN = 12
 # Vast: anders verspringen de getallen bij elke klik.
 BOOTSTRAP_SEED = 42
 MAANDEN_PER_JAAR = 12
+# In-process, per gunicorn-worker; de oudste valt eruit (5 x 721 getallen per portfolio).
+BOOTSTRAP_CACHE_MAX = 64
 # Afrondingsmarge bij het vergelijken van opgetelde gewichten met HISTORIE_MIN_DEKKING.
 DEKKING_EPSILON = 1e-9
 # Weekend plus een feestdag: de laatste handelsdag ligt hooguit zoveel dagen voor het kalendereinde van de maand.
@@ -44,6 +48,10 @@ STATUS_OK = "ok"
 STATUS_TE_KORT = "te_kort"
 STATUS_GEEN_KOERS = "geen_koers"
 STATUS_NOG_NIET_GELADEN = "nog_niet_geladen"
+
+# Sleutel: hash van de maandrendementen + alle bootstrap-instellingen; zelfde invoer geeft zo zelfde uitkomst.
+_bootstrap_cache = {}
+_bootstrap_cache_lock = threading.Lock()
 
 
 def _jaren_tussen(begin, eind):
@@ -154,14 +162,40 @@ def bootstrap_percentielpaden(maandrendementen, maanden, n_paden=BOOTSTRAP_PADEN
     Circulaire block bootstrap: elk pad plakt blokken van blok_maanden aaneengesloten historische maanden aan elkaar,
     vanaf willekeurige startmaanden; een blok dat over het einde loopt, gaat verder bij het begin."""
     rendementen = np.asarray(maandrendementen, dtype=float)
+    sleutel = (hashlib.sha256(rendementen.tobytes()).hexdigest(), maanden, n_paden, blok_maanden, seed,
+               HISTORIE_PERCENTIELEN)
+    with _bootstrap_cache_lock:
+        bewaard = _bootstrap_cache.get(sleutel)
+    if bewaard is not None:
+        return {k: v.copy() for k, v in bewaard.items()}
+
     aantal_blokken = math.ceil(maanden / blok_maanden)
-    rng = np.random.default_rng(seed)
-    starts = rng.integers(0, len(rendementen), size=(n_paden, aantal_blokken))
-    posities = (starts[:, :, None] + np.arange(blok_maanden)) % len(rendementen)
-    posities = posities.reshape(n_paden, aantal_blokken * blok_maanden)[:, :maanden]
-    groei = np.hstack([np.ones((n_paden, 1)), np.cumprod(1 + rendementen[posities], axis=1)])
-    waarden = np.percentile(groei, HISTORIE_PERCENTIELEN, axis=0)
-    return {f"p{p}": rij for p, rij in zip(HISTORIE_PERCENTIELEN, waarden)}
+    with meet_tijd("bootstrap_startindices"):
+        rng = np.random.default_rng(seed)
+        starts = rng.integers(0, len(rendementen), size=(n_paden, aantal_blokken))
+        posities = (starts[:, :, None] + np.arange(blok_maanden)) % len(rendementen)
+        posities = posities.reshape(n_paden, aantal_blokken * blok_maanden)[:, :maanden].T
+    with meet_tijd("bootstrap_rendementen"):
+        factoren = 1 + rendementen[posities]
+    # Maand x pad (getransponeerd): cumprod en percentielen lopen dan over aaneengesloten geheugen; zelfde uitkomst.
+    with meet_tijd("bootstrap_cumprod"):
+        groei = np.empty((maanden + 1, n_paden))
+        groei[0] = 1.0
+        np.cumprod(factoren, axis=0, out=groei[1:])
+    with meet_tijd("bootstrap_percentielen"):
+        waarden = np.percentile(groei, HISTORIE_PERCENTIELEN, axis=1, overwrite_input=True)
+    paden = {f"p{p}": rij for p, rij in zip(HISTORIE_PERCENTIELEN, waarden)}
+
+    with _bootstrap_cache_lock:
+        if len(_bootstrap_cache) >= BOOTSTRAP_CACHE_MAX:
+            _bootstrap_cache.pop(next(iter(_bootstrap_cache)))
+        _bootstrap_cache[sleutel] = paden
+    return {k: v.copy() for k, v in paden.items()}
+
+
+def wis_bootstrap_cache():
+    with _bootstrap_cache_lock:
+        _bootstrap_cache.clear()
 
 
 def horizonnen_uit_paden(paden, max_horizon_jaren):

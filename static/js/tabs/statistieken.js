@@ -14,7 +14,7 @@ function maakPositieTabel(posities, tickerNamen) {
         {
             label: "Aantal",
             waarde: p => p.aantal,
-            renderTd: p => maakCel(p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 })),
+            renderTd: p => maakCel(formatGetal(p.aantal, 4, 0)),
         },
         {
             label: "Huidige waarde",
@@ -68,9 +68,9 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
             waarde: p => p.aantal,
             renderTd: p => {
                 const td = document.createElement("td");
-                const aantalTekst = p.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                const aantalTekst = formatGetal(p.aantal, 4, 0);
                 if (p.nog_in_bezit) {
-                    const resterendTekst = (p.resterend_aantal || 0).toLocaleString("nl-NL", { maximumFractionDigits: 4 });
+                    const resterendTekst = formatGetal(p.resterend_aantal || 0, 4, 0);
                     td.textContent = `${aantalTekst} verkocht, ${resterendTekst} nog in bezit`;
                 } else {
                     td.textContent = aantalTekst;
@@ -120,7 +120,7 @@ function maakJarenTabel(jaren) {
                 td.appendChild(jaarStrong);
                 const detail = document.createElement("div");
                 detail.className = "kleineMelding";
-                detail.textContent = `${j.dagen_verstreken}d, ${j.pct_van_jaar}% van jaar`;
+                detail.textContent = `${j.dagen_verstreken}d, ${formatGetal(j.pct_van_jaar, 1, 0)}% van jaar`;
                 td.appendChild(detail);
                 return td;
             },
@@ -159,7 +159,7 @@ function maakGeavanceerdSectie(geavanceerd) {
     rij.appendChild(maakStatTegel("Gemiddeld jaarrendement", formatPct(geavanceerd.gemiddeld_jaarrendement_pct), klasseVoorRendement(geavanceerd.gemiddeld_jaarrendement_pct)));
     rij.appendChild(maakStatTegel("XIRR", formatPct(geavanceerd.xirr_pct), klasseVoorRendement(geavanceerd.xirr_pct)));
     rij.appendChild(maakStatTegel("TWR", formatPct(geavanceerd.twr_pct), klasseVoorRendement(geavanceerd.twr_pct)));
-    rij.appendChild(maakStatTegel("Aantal jaren", geavanceerd.aantal_jaren !== null ? geavanceerd.aantal_jaren.toFixed(2) : "onbekend"));
+    rij.appendChild(maakStatTegel("Aantal jaren", formatGetal(geavanceerd.aantal_jaren, 2)));
 
     return rij;
 }

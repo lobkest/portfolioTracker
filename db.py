@@ -150,16 +150,6 @@ def db_init():
         );
     """)
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS prijzen (
-            ticker TEXT NOT NULL,
-            datum DATE NOT NULL,
-            koers_eur NUMERIC NOT NULL,
-            -- moment van ophalen; bepaalt of de koers van vandaag ververst moet worden (prijzen.py)
-            bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (ticker, datum)
-        );
-    """)
-    cur.execute("""
         CREATE TABLE IF NOT EXISTS koersen (
             ticker TEXT NOT NULL,
             datum DATE NOT NULL,
@@ -183,19 +173,6 @@ def db_init():
             -- Een volledige download vanaf deze datum begon later: Yahoo heeft niets eerder.
             gevraagd_vanaf DATE NOT NULL,
             bijgewerkt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS prijscheck_koersen (
-            ticker TEXT NOT NULL,
-            datum DATE NOT NULL,
-            -- ruwe slotkoers en dagrange in eigen valuta (zoals koersen.koers_eur, maar zonder FX)
-            slotkoers NUMERIC,
-            valuta TEXT,
-            high NUMERIC,
-            low NUMERIC,
-            opgehaald_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (ticker, datum)
         );
     """)
     cur.execute("""
@@ -840,84 +817,6 @@ def db_get_transacties_overzicht(code):
     return formatteer_transacties_overzicht(rows)
 
 
-def db_save_prices(rows):
-    """rows: (ticker, datum, koers_eur)-tuples. DO NOTHING: historische koersen veranderen niet."""
-    if not rows:
-        return
-    conn = db_connect()
-    cur = conn.cursor()
-    execute_values(
-        cur,
-        "INSERT INTO prijzen (ticker, datum, koers_eur) VALUES %s "
-        "ON CONFLICT (ticker, datum) DO NOTHING",
-        rows,
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def db_upsert_prices(rows):
-    """Alleen voor de verse koers van vandaag (kan tussentijds zijn); historie via db_save_prices()."""
-    if not rows:
-        return
-    conn = db_connect()
-    cur = conn.cursor()
-    execute_values(
-        cur,
-        "INSERT INTO prijzen (ticker, datum, koers_eur, bijgewerkt_op) VALUES %s "
-        "ON CONFLICT (ticker, datum) DO UPDATE SET "
-        "koers_eur = EXCLUDED.koers_eur, bijgewerkt_op = EXCLUDED.bijgewerkt_op",
-        rows,
-        template="(%s, %s, %s, NOW())",
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
-
-
-def db_get_laatste_prijs_update(tickers):
-    """(laatste_koersdatum, laatst_opgehaald_op in UTC), of (None, None)."""
-    if not tickers:
-        return None, None
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT MAX(datum), MAX(bijgewerkt_op) FROM prijzen WHERE ticker = ANY(%s)",
-        (tickers,),
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    return (row[0], row[1]) if row else (None, None)
-
-
-def db_get_gecachte_prijzen(tickers, vandaag, start_datum):
-    """Geeft ({ticker: (eerste_datum, laatste_datum)}, {ticker: bijgewerkt_op van vandaag}, [(ticker, datum, koers_eur)])."""
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT ticker, MIN(datum), MAX(datum) FROM prijzen WHERE ticker = ANY(%s) GROUP BY ticker",
-        (tickers,),
-    )
-    datums = {ticker: (eerste, laatste) for ticker, eerste, laatste in cur.fetchall()}
-
-    cur.execute(
-        "SELECT ticker, bijgewerkt_op FROM prijzen WHERE ticker = ANY(%s) AND datum = %s",
-        (tickers, vandaag),
-    )
-    bijgewerkt_vandaag = {ticker: bijgewerkt_op for ticker, bijgewerkt_op in cur.fetchall()}
-
-    cur.execute(
-        "SELECT ticker, datum, koers_eur FROM prijzen WHERE ticker = ANY(%s) AND datum >= %s",
-        (tickers, start_datum),
-    )
-    koersen = cur.fetchall()
-    cur.close()
-    conn.close()
-    return datums, bijgewerkt_vandaag, koersen
-
-
 def db_save_koersen(rijen, splits_per_ticker):
     """rijen: (ticker, datum, koers_eur) met RUWE koersen; splits_per_ticker: {ticker: {iso_datum: ratio}} uit
     dezelfde Yahoo-response (ook leeg). Eén transactie: koersen zonder bijbehorende splits mogen niet bestaan."""
@@ -1047,45 +946,6 @@ def db_get_laatste_koers_update(tickers):
     cur.close()
     conn.close()
     return (row[0], row[1]) if row else (None, None)
-
-
-def db_get_cached_prijscheck_koers(ticker, datum):
-    """(slotkoers, valuta, high, low), of None als nooit geprobeerd; None ín de tuple = geprobeerd, mislukt."""
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT slotkoers, valuta, high, low FROM prijscheck_koersen WHERE ticker = %s AND datum = %s",
-        (ticker, datum),
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if row is None:
-        return None
-    slotkoers, valuta, high, low = row
-    return (
-        float(slotkoers) if slotkoers is not None else None,
-        valuta,
-        float(high) if high is not None else None,
-        float(low) if low is not None else None,
-    )
-
-
-def db_save_prijscheck_koers(ticker, datum, slotkoers, valuta, high=None, low=None):
-    """Permanent, ook bij slotkoers None. Alleen RUWE waarden opslaan."""
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO prijscheck_koersen (ticker, datum, slotkoers, valuta, high, low) "
-        "VALUES (%s, %s, %s, %s, %s, %s) "
-        "ON CONFLICT (ticker, datum) DO UPDATE SET slotkoers = EXCLUDED.slotkoers, "
-        "valuta = EXCLUDED.valuta, high = EXCLUDED.high, low = EXCLUDED.low, "
-        "opgehaald_op = CURRENT_TIMESTAMP",
-        (ticker, datum, slotkoers, valuta, high, low),
-    )
-    conn.commit()
-    cur.close()
-    conn.close()
 
 
 TRANSACTIE_KOLOMMEN = [

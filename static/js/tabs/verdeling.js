@@ -27,7 +27,7 @@ function toonVerdeling() {
 
     const tekst = document.getElementById("verdelingTekst");
     tekst.style.display = "block";
-    tekst.textContent = `ETF's (streeppatroon): ${samenvatting.etf_pct.toFixed(1)}% — Aandelen: ${samenvatting.aandeel_pct.toFixed(1)}%`;
+    tekst.textContent = `ETF's (streeppatroon): ${formatPct(samenvatting.etf_pct, 1)} — Aandelen: ${formatPct(samenvatting.aandeel_pct, 1)}`;
 
     const kleuren = items.map((_, i) => kleurVoorIndex(i));
     const vlakken = items.map((item, i) => item.is_etf ? maakStrepenPatroon(kleuren[i]) : kleuren[i]);
@@ -59,8 +59,8 @@ function toonVerdeling() {
                 tooltip: {
                     callbacks: {
                         label: (ctx) => {
-                            const pct = totaal ? (ctx.parsed / totaal * 100).toFixed(1) : 0;
-                            return `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${pct}%)`;
+                            const pct = totaal ? ctx.parsed / totaal * 100 : 0;
+                            return `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${formatPct(pct, 1)})`;
                         }
                     }
                 },
@@ -70,7 +70,7 @@ function toonVerdeling() {
                     formatter: (value, ctx) => {
                         const pct = totaal ? (value / totaal * 100) : 0;
                         if (pct < 3) return null;
-                        return [kortNaam(items[ctx.dataIndex].naam), `${pct.toFixed(1)}%`];
+                        return [kortNaam(items[ctx.dataIndex].naam), formatPct(pct, 1)];
                     }
                 }
             }

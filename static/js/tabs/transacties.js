@@ -26,13 +26,13 @@ const TRANSACTIES_KOLOMMEN = [
     {
         label: "Aantal",
         sleutel: "aantal",
-        renderTd: r => maakCel(r.aantal.toLocaleString("nl-NL", { maximumFractionDigits: 4 })),
+        renderTd: r => maakCel(formatGetal(r.aantal, 4, 0)),
     },
     { label: "Koers", sleutel: "koers", renderTd: r => maakCel(r.koers === null ? "onbekend" : formatteerEuro(r.koers)) },
     {
         label: "Wisselkoers",
         sleutel: "wisselkoers",
-        renderTd: r => maakCel(r.wisselkoers === null ? "—" : r.wisselkoers.toLocaleString("nl-NL", { maximumFractionDigits: 4 })),
+        renderTd: r => maakCel(r.wisselkoers === null ? "—" : formatGetal(r.wisselkoers, 4, 0)),
     },
     { label: "Totaal (EUR)", sleutel: "totaal_eur", renderTd: r => maakCel(formatteerEuro(r.totaal_eur)) },
     {
