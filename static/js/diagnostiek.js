@@ -15,6 +15,19 @@
         GOED: "Goed",
     };
 
+    const DIAGNOSTIEK_NIVEAU_ICOON = {
+        FOUT: "✗",
+        LET_OP: "⚠",
+        INFO: "i",
+        GOED: "✓",
+    };
+
+    // Technische meldingen staan altijd onderaan, onder een eigen groepsnaam.
+    const TECHNISCHE_GROEP_LAADTIJDEN = "Laadtijden";
+    const TECHNISCHE_GROEP_YAHOO = "Koersen (Yahoo-calls)";
+
+    const SAMENVATTING_MAX_TEKENS = 120;
+
     function ernstIndex(niveau) {
         const i = DIAGNOSTIEK_NIVEAUS.indexOf(niveau);
         return i === -1 ? DIAGNOSTIEK_NIVEAUS.indexOf("INFO") : i;
@@ -90,6 +103,79 @@
             .join(", ");
     }
 
+    function normaalNiveau(niveau) {
+        return DIAGNOSTIEK_NIVEAUS[ernstIndex(niveau)];
+    }
+
+    // De Yahoo-calls herken je aan de sleutel (yahoo_kern/yahoo_verrijking in yahoo_client.py); de rest van Koersen is inhoudelijk.
+    function technischeGroep(m) {
+        if (m.categorie === "Laadtijden") return TECHNISCHE_GROEP_LAADTIJDEN;
+        if (m.categorie === "Koersen" && String(m.sleutel || "").startsWith("yahoo_")) return TECHNISCHE_GROEP_YAHOO;
+        return null;
+    }
+
+    // {aandacht, inOrde, technisch}, elk [{categorie, meldingen}] zoals groepeerPerCategorie().
+    function deelInBlokken(meldingen) {
+        const gewoon = [];
+        const technisch = [];
+        (meldingen || []).forEach(m => {
+            const groep = technischeGroep(m);
+            if (groep) technisch.push(Object.assign({}, m, { categorie: groep }));
+            else gewoon.push(m);
+        });
+        const groepen = groepeerPerCategorie(gewoon);
+        return {
+            aandacht: groepen.filter(g => categorieStandaardOpen(g.meldingen)),
+            inOrde: groepen.filter(g => !categorieStandaardOpen(g.meldingen)),
+            technisch: groepeerPerCategorie(technisch),
+        };
+    }
+
+    // null = geen filter; een onbekend niveau telt als INFO, net als in telPerNiveau().
+    function filterOpNiveau(meldingen, niveau) {
+        const lijst = meldingen || [];
+        if (!niveau) return lijst.slice();
+        return lijst.filter(m => normaalNiveau(m.niveau) === niveau);
+    }
+
+    // Nog een keer op dezelfde chip zet het filter uit.
+    function wisselNiveauFilter(huidig, aangeklikt) {
+        return huidig === aangeklikt ? null : aangeklikt;
+    }
+
+    function meervoud(aantal, enkel, meer) {
+        return `${aantal} ${aantal === 1 ? enkel : meer}`;
+    }
+
+    // Technische meldingen (bv. een trage laadtijd) tellen niet mee: die staan niet onder "Aandacht nodig".
+    function diagnostiekConclusie(meldingen) {
+        const telling = telPerNiveau((meldingen || []).filter(m => !technischeGroep(m)));
+        const fouten = telling.FOUT;
+        const punten = telling.LET_OP;
+        const foutTekst = meervoud(fouten, "fout", "fouten") + " gevonden";
+        const puntTekst = meervoud(punten, "punt", "punten") + " om naar te kijken";
+        if (fouten > 0 && punten > 0) return `${foutTekst}, ${puntTekst}`;
+        if (fouten > 0) return foutTekst;
+        if (punten > 0) return puntTekst;
+        return "Alles in orde";
+    }
+
+    // De tekst van de ernstigste melding (bij gelijk niveau de eerste), ingekort met een ellips.
+    function categorieSamenvatting(meldingen, maxTekens = SAMENVATTING_MAX_TEKENS) {
+        const lijst = meldingen || [];
+        if (lijst.length === 0) return "";
+        const ernstigste = lijst.reduce((beste, m) => (ernstIndex(m.niveau) < ernstIndex(beste.niveau) ? m : beste));
+        const tekst = String(ernstigste.tekst || "");
+        return tekst.length > maxTekens ? tekst.slice(0, maxTekens - 1).trimEnd() + "…" : tekst;
+    }
+
+    // null als label of tab ontbreekt.
+    function meldingActie(melding) {
+        const actie = melding && melding.actie;
+        if (!actie || !actie.label || !actie.tab) return null;
+        return { label: actie.label, tab: actie.tab, tekst: `→ Naar ${actie.label}` };
+    }
+
     // Cellen als tekst; de kolom "Weging" (getal in %) met 1 decimaal, bv. "76,3%". null zonder rijen.
     function diagnostiekTabelRijen(tabel) {
         if (!tabel || !Array.isArray(tabel.rijen) || tabel.rijen.length === 0) return null;
@@ -103,7 +189,9 @@
     }
 
     const exportsObj = {
-        DIAGNOSTIEK_NIVEAU_LABEL,
+        DIAGNOSTIEK_NIVEAUS, DIAGNOSTIEK_NIVEAU_LABEL, DIAGNOSTIEK_NIVEAU_ICOON,
+        normaalNiveau, deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie,
+        categorieSamenvatting, meldingActie,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
         hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
     };

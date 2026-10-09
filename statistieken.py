@@ -469,6 +469,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
         "geavanceerd": {
             "gemiddeld_jaarrendement_pct": gemiddeld_jaarrendement,
             "xirr_pct": round(xirr_fractie * 100, 2) if xirr_fractie is not None else None,
+            # Voor Diagnostiek: None door een mislukte berekening, niet door te weinig kasstromen.
+            "xirr_niet_berekend": xirr_fractie is None and len(cashflows) >= 2,
             "twr_pct": round(twr_fractie * 100, 2) if twr_fractie is not None else None,
             "aantal_jaren": aantal_jaren,
         },

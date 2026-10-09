@@ -27,6 +27,9 @@ CATEGORIE_TICKERS = "Tickers"
 
 DIAGNOSTIEK_SLEUTEL = "diagnostiek"
 
+# Link onder een melding naar het tabblad waar je het oplost; `tab` is een view-naam uit menu.js.
+ACTIE_TICKER_ZEKERHEID = {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"}
+
 # Alleen deze meet_tijd()-labels (tot aan " (") worden als laadtijd gemeld.
 LAADTIJD_FASEN = {
     "ticker_resolutie": "Tickers koppelen",
@@ -57,9 +60,10 @@ def _verzameling():
     return lijst
 
 
-def meld(categorie, niveau, tekst, sleutel=None, tabel=None):
+def meld(categorie, niveau, tekst, sleutel=None, tabel=None, actie=None):
     """Zelfde (categorie, sleutel) vervangt de eerdere melding op dezelfde plek. Gooit nooit een exception.
-    tabel: optioneel {"kolommen": [...], "rijen": [[...], ...]}, getoond onder de tekst."""
+    tabel: optioneel {"kolommen": [...], "rijen": [[...], ...]}, getoond onder de tekst.
+    actie: optioneel {"label", "tab"}, een link naar dat tabblad (bv. ACTIE_TICKER_ZEKERHEID)."""
     try:
         verzameling = _verzameling()
         if verzameling is None:
@@ -71,6 +75,8 @@ def meld(categorie, niveau, tekst, sleutel=None, tabel=None):
         nieuw = {"categorie": categorie, "niveau": niveau, "tekst": tekst, "sleutel": sleutel}
         if tabel is not None:
             nieuw["tabel"] = tabel
+        if actie is not None:
+            nieuw["actie"] = dict(actie)
         for i, bestaand in enumerate(verzameling):
             if bestaand["categorie"] == categorie and bestaand["sleutel"] == sleutel:
                 verzameling[i] = nieuw
@@ -95,7 +101,8 @@ def meldingen_sinds(eerder):
 
 def meld_opnieuw(meldingen):
     for m in meldingen or []:
-        meld(m.get("categorie"), m.get("niveau"), m.get("tekst"), m.get("sleutel"), tabel=m.get("tabel"))
+        meld(m.get("categorie"), m.get("niveau"), m.get("tekst"), m.get("sleutel"), tabel=m.get("tabel"),
+             actie=m.get("actie"))
 
 
 def meld_laadtijd(label, duur_seconden):

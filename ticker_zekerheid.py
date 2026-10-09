@@ -429,14 +429,19 @@ def beurs_status(excel_beurs, yahoo_beurs, prijs_checks, alternatieven=None):
         return None
     if yahoo_beurs in verwachte_beurzen:
         return True
-    bekende_checks = [c for c in prijs_checks if c["match"] is not None]
-    prijs_klopt = bool(bekende_checks) and not any(_prijscheck_is_probleem(c) for c in bekende_checks)
-    if prijs_klopt and excel_beurs in AMERIKAANSE_BEURZEN and yahoo_beurs in OTC_BEURZEN:
+    klopt = prijs_klopt(prijs_checks)
+    if klopt and excel_beurs in AMERIKAANSE_BEURZEN and yahoo_beurs in OTC_BEURZEN:
         return BEURS_OTC_NA_DELISTING
     op_verwachte_beurs = [a for a in alternatieven or [] if a.get("beurs") in verwachte_beurzen]
-    if prijs_klopt and op_verwachte_beurs and not any(a.get("aantal_gecontroleerd") for a in op_verwachte_beurs):
+    if klopt and op_verwachte_beurs and not any(a.get("aantal_gecontroleerd") for a in op_verwachte_beurs):
         return BEURS_GEEN_KOERSHISTORIE
     return False
+
+
+def prijs_klopt(prijs_checks):
+    """Minstens één beoordeelbare prijscheck en geen enkele met een prijsprobleem."""
+    bekende_checks = [c for c in prijs_checks if c["match"] is not None]
+    return bool(bekende_checks) and not any(_prijscheck_is_probleem(c) for c in bekende_checks)
 
 
 def _beurs_zonder_koershistorie(resultaat, beurs, beurs_waarschuwing):

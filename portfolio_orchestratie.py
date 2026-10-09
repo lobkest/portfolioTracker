@@ -13,18 +13,18 @@ except ImportError:
 from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
     db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
-    db_get_cached_openfigi_voor_isins, db_get_kassaldo,
+    db_get_cached_openfigi_voor_isins, db_get_kassaldo, db_get_dividenden, db_get_isin_ticker_product,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
     check_corporate_action_rijen, check_isin_wissels, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
     check_dagsprong, tickers_met_koersafwijking, check_koers_stilstand, _naam_per_ticker, ticker_bevindingen,
-    check_valuta_consistentie,
+    check_valuta_consistentie, check_negatief_aantal, check_verversing, check_xirr, check_dividend_zonder_positie,
 )
 from debug_utils import meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
-    CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, GOED, INFO, LET_OP,
+    ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP,
 )
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from prijzen import get_prices
@@ -35,7 +35,7 @@ from portfolio_calc import (
 )
 from split_correctie import bepaal_effectieve_datums, continue_reeks
 from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
-from dividend import bereken_dividend_samenvatting
+from dividend import bouw_dividend_samenvatting
 from statistieken import bereken_statistieken
 from portfolio_verdeling import (
     compute_land_sector_verdeling, compute_valuta_verdeling, compute_beurs_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
@@ -167,13 +167,17 @@ def _meld_check_mislukt(categorie, wat, e):
 
 
 def _meld_datakwaliteit(code, transacties_df):
-    """Diagnostiek mag het laden nooit breken."""
+    """Diagnostiek mag het laden nooit breken. code None ('niet opslaan'): zonder de check op synthetische Order ID's
+    (die meldt de upload zelf al, in Order ID's) en zonder het advies om opnieuw te uploaden."""
     try:
+        opgeslagen = code is not None
         bevindingen = (
-            check_ontbrekende_kolommen(transacties_df)
+            check_ontbrekende_kolommen(transacties_df, opgeslagen=opgeslagen)
             + check_posities_zonder_ticker(transacties_df)
-            + check_synthetische_order_ids(pd.DataFrame(db_get_order_id_rijen(code), columns=ORDER_ID_KOLOMMEN))
+            + (check_synthetische_order_ids(pd.DataFrame(db_get_order_id_rijen(code), columns=ORDER_ID_KOLOMMEN))
+               if opgeslagen else [])
             + check_corporate_action_rijen(transacties_df)
+            + check_negatief_aantal(transacties_df)
         )
         for b in bevindingen:
             meld(CATEGORIE_DATA, b["niveau"], b["tekst"], sleutel=b["sleutel"])
@@ -193,7 +197,7 @@ def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
             transacties_df, db_get_ticker_details(tickers), db_get_cached_openfigi_voor_isins(isins), ticker_waarschuwingen,
             prijs_checks)
         for b in bevindingen:
-            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"], actie=ACTIE_TICKER_ZEKERHEID)
     except Exception as e:
         _meld_check_mislukt(CATEGORIE_TICKERS, "Tickers", e)
 
@@ -204,7 +208,7 @@ def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
         tickers = sorted({t for t in ticker_per_isin_beurs.values() if t})
         valuta = {t: d.get("valuta") for t, d in db_get_ticker_details(tickers).items()}
         for b in check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta):
-            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"], actie=ACTIE_TICKER_ZEKERHEID)
     except Exception as e:
         _meld_check_mislukt(CATEGORIE_TICKERS, "Valuta-consistentie", e)
 
@@ -230,6 +234,34 @@ def _meld_plausibiliteit(transacties_df, price_data, per_ticker):
             meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
         _meld_check_mislukt(CATEGORIE_PLAUSIBILITEIT, "Plausibiliteit", e)
+
+
+def _meld_xirr(transacties_df, statistieken):
+    try:
+        geavanceerd = statistieken["geavanceerd"]
+        eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
+        for b in check_xirr(geavanceerd.get("xirr_niet_berekend"), geavanceerd.get("xirr_pct"),
+                            geavanceerd.get("aantal_jaren"), eerste_datum):
+            meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        _meld_check_mislukt(CATEGORIE_PLAUSIBILITEIT, "XIRR", e)
+
+
+def _meld_verversing(price_data, per_ticker):
+    try:
+        heeft_open_posities = any(reeks["nog_in_bezit"] for reeks in per_ticker.values())
+        for b in check_verversing(price_data.index.max(), pd.Timestamp.today(), heeft_open_posities):
+            meld(CATEGORIE_KOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        _meld_check_mislukt(CATEGORIE_KOERSEN, "Verversing", e)
+
+
+def _meld_dividend_zonder_positie(transacties_df, dividenden):
+    try:
+        for b in check_dividend_zonder_positie(transacties_df, dividenden):
+            meld(CATEGORIE_DIVIDEND, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+    except Exception as e:
+        _meld_check_mislukt(CATEGORIE_DIVIDEND, "Dividend zonder positie", e)
 
 
 def _meld_koersdekking(transacties_df, price_data):
@@ -459,6 +491,9 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             per_ticker = compute_per_ticker(transacties_df, price_data)
         with meet_tijd("kern_plausibiliteit"):
             _meld_plausibiliteit(transacties_df, price_data, per_ticker)
+        # Zonder verversen (na een bijnaam- of codewijziging) zegt een oude laatste koers niets over Yahoo.
+        if verversen:
+            _meld_verversing(price_data, per_ticker)
         with meet_tijd("kern_per_ticker_aankoop"):
             per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
     splits_per_ticker = transacties_df.attrs.get("koers_splits")
@@ -490,7 +525,10 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
 
     # Bij 'niet opslaan' is code None: geen dividendhistorie.
     with meet_tijd("dividend_samenvatting"):
-        dividend_data = bereken_dividend_samenvatting(code) if code else None
+        dividenden = db_get_dividenden(code) if code else None
+        dividend_data = bouw_dividend_samenvatting(dividenden, db_get_isin_ticker_product(code)) if dividenden else None
+    if dividenden:
+        _meld_dividend_zonder_positie(transacties_df, dividenden)
     if code:
         kassaldo = db_get_kassaldo(code)
     dividend_per_ticker = (
@@ -504,6 +542,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             dividend_totaal_netto=dividend_data["totaal_netto"] if dividend_data else None,
             kassaldo=kassaldo,
         )
+    _meld_xirr(transacties_df, statistieken)
 
     antwoord = {
         "code": code,
@@ -625,7 +664,11 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
 def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, box3_dividenden=None):
     """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking).
-    Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout)."""
+    Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout).
+    box3_dividenden: de dividendrecords uit het rekeningoverzicht, of None."""
+    with meet_tijd("basis_datakwaliteit"):
+        _meld_datakwaliteit(None, transacties_df)
+    _meld_dividend_zonder_positie(transacties_df, box3_dividenden)
     resultaat = analyze_transacties_kern(transacties_df, code, naam, kassaldo=kassaldo, box3=box3,
                                          box3_dividenden=box3_dividenden)
     if resultaat.get("chart_data") is None:

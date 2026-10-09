@@ -4,15 +4,16 @@ Een bevinding is {"niveau", "tekst", "sleutel"}.
 """
 import bisect
 
+import numpy as np
 import pandas as pd
 
 from diagnostiek import GOED, INFO, LET_OP
 from naam_verkorting import uitkeringsvorm_strijdig
 from portfolio_calc import holdings_op_datums
-from split_correctie import vind_wisselparen
-from ticker_matching import _openfigi_root_matches
-from ticker_zekerheid import BEURS_OTC_NA_DELISTING, beurs_status
-from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
+from split_correctie import isin_ketens, vind_wisselparen
+from ticker_matching import MANUAL_TICKER_OVERRIDES_ISIN, _openfigi_root_matches
+from ticker_zekerheid import BEURS_OTC_NA_DELISTING, beurs_status, prijs_klopt
+from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, getal_nl
 
 MAX_BEVINDINGEN_PER_CHECK = 5
 SYNTHETISCH_ORDER_ID_PREFIX = "SYN-"
@@ -36,6 +37,13 @@ MAX_DAGSPRONG_FRACTIE = 0.4
 MAX_FORWARD_FILL_DAGEN = 10
 # Kleinere bedragen zijn afrondingsresten (bv. na een bijna volledige verkoop): een verhouding zegt dan niets.
 MIN_BEDRAG_EUR = 1.0
+# Float-ruis bij fractionele aantallen; een echt tekort is groter.
+MIN_AANTAL_TEKORT = 1e-6
+# Ruimte voor een lang weekend met beursfeestdagen (Pasen: vrijdag en maandag dicht).
+MAX_WERKDAGEN_ZONDER_KOERS = 3
+# Korter dan een jaar: de XIRR is geannualiseerd en vergroot het rendement van die korte periode sterk uit.
+MIN_JAREN_XIRR = 1.0
+ANDERE_BEURS_PRIJS_KLOPT = "andere_beurs"
 
 
 def _bevinding(niveau, tekst, sleutel):
@@ -76,8 +84,9 @@ def _weergavenaam(rij):
     return naam if pd.notna(naam) else rij.get("product")
 
 
-def check_ontbrekende_kolommen(df):
-    """Corporate-action- en wisselrijen tellen niet mee: die hebben van nature geen kosten of waarde."""
+def check_ontbrekende_kolommen(df, opgeslagen=True):
+    """Corporate-action- en wisselrijen tellen niet mee: die hebben van nature geen kosten of waarde.
+    opgeslagen=False ('niet opslaan'): zonder het advies over backfill en opnieuw uploaden."""
     if df.empty:
         return []
     echte = _gewone_rijen(df)
@@ -88,13 +97,12 @@ def check_ontbrekende_kolommen(df):
             rijen = rijen[rijen["aantal"].astype(float) > 0]
         if rijen.empty:
             continue
-        bevindingen.append(_bevinding(
-            LET_OP,
-            f"{len(rijen)} transacties hebben geen '{kolom}' (oudste: {formatteer_datum_nl(rijen['datum'].min())}). "
-            f"Dit raakt {geraakt}. Er is geen backfill voor bestaande rijen; de oplossing is het portfolio "
-            f"te verwijderen en opnieuw te uploaden.",
-            f"data:ontbrekend:{kolom}",
-        ))
+        tekst = (f"{len(rijen)} transacties hebben geen '{kolom}' (oudste: {formatteer_datum_nl(rijen['datum'].min())}). "
+                 f"Dit raakt {geraakt}.")
+        if opgeslagen:
+            tekst += (" Er is geen backfill voor bestaande rijen; de oplossing is het portfolio "
+                      "te verwijderen en opnieuw te uploaden.")
+        bevindingen.append(_bevinding(LET_OP, tekst, f"data:ontbrekend:{kolom}"))
     return bevindingen
 
 
@@ -151,6 +159,45 @@ def check_corporate_action_rijen(df):
         for isin, groep in per_isin
     ]
     return _beperk(bevindingen, INFO, "data:corporate_action:meer")
+
+
+def _keten_isin(df):
+    """Eind-ISIN per rij: een ISIN-wissel (ook een keten A -> B -> C) is één positie."""
+    eind_van = isin_ketens(vind_wisselparen(df)[0])
+    return df["isin"].map(lambda i: eind_van.get(i, i))
+
+
+def check_negatief_aantal(df):
+    """Eindstand per dag per ISIN-keten, op ruwe aantallen en mét corporate-action- en wisselrijen (die verschuiven
+    stukken binnen de keten). Per dag, zodat de volgorde van deelorders en splitboekingen binnen een dag niet telt."""
+    if df.empty:
+        return []
+    rijen = df.dropna(subset=["isin"])
+    keten = _keten_isin(rijen)
+    dag = pd.to_datetime(rijen["datum"]).dt.normalize()
+    aantal = pd.to_numeric(rijen["aantal"], errors="coerce").fillna(0.0)
+    bevindingen = []
+    for eind, per_dag in aantal.groupby([keten, dag]).sum().groupby(level=0):
+        stand = per_dag.droplevel(0).cumsum()
+        tekort = stand[stand < -MIN_AANTAL_TEKORT]
+        if tekort.empty:
+            continue
+        datum = tekort.index[0]
+        i = stand.index.get_loc(datum)
+        voor = float(stand.iloc[i - 1]) if i else 0.0
+        van_keten = rijen[keten == eind]
+        gewone = van_keten[~_corporate_action_masker(van_keten)]
+        naam = _weergavenaam((gewone if not gewone.empty else van_keten).iloc[-1])
+        bevindingen.append((datum, _bevinding(
+            LET_OP,
+            f"{naam} ({eind}): op {formatteer_datum_nl(datum)} worden {getal_nl(voor - float(stand.iloc[i]), 4)} "
+            f"stuks verkocht terwijl je er volgens de transacties {getal_nl(voor, 4)} had. Waarschijnlijk begint de "
+            f"export na je eerste aankoop: GAK, rendement en XIRR van deze positie kloppen niet. Exporteer vanaf de "
+            f"openingsdatum van je rekening.",
+            f"data:negatief_aantal:{eind}",
+        )))
+    bevindingen.sort(key=lambda b: b[0])
+    return _beperk([b for _, b in bevindingen], LET_OP, "data:negatief_aantal:meer")
 
 
 def check_isin_wissels(df):
@@ -374,6 +421,66 @@ def check_koers_stilstand(transacties_df, price_data):
     return _beperk([b for _, b in bevindingen], LET_OP, "koers_stilstand:meer")
 
 
+def check_verversing(laatste_koersdatum, vandaag, heeft_open_posities):
+    """Per portfolio, niet per ticker: als het verversen bij Yahoo mislukt, blijft elke ticker apart onder de drempel van
+    check_koers_stilstand(). Zonder open posities wordt er bewust niet ververst."""
+    if laatste_koersdatum is None or not heeft_open_posities:
+        return []
+    laatste = pd.Timestamp(laatste_koersdatum).normalize()
+    werkdagen = int(np.busday_count((laatste + pd.Timedelta(days=1)).date(), pd.Timestamp(vandaag).date()))
+    if werkdagen <= MAX_WERKDAGEN_ZONDER_KOERS:
+        return []
+    return [_bevinding(
+        LET_OP,
+        f"De laatste koers is van {formatteer_datum_nl(laatste)}, {werkdagen} werkdagen geleden: het verversen bij "
+        f"Yahoo is waarschijnlijk mislukt. Open het portfolio later opnieuw.",
+        "koersen:verversing",
+    )]
+
+
+def check_xirr(xirr_niet_berekend, xirr_pct, aantal_jaren, eerste_datum):
+    """Velden uit bereken_statistieken()['geavanceerd']; eerste_datum = eerste transactie."""
+    if xirr_niet_berekend:
+        return [_bevinding(
+            INFO,
+            "XIRR kon niet berekend worden: de berekening vond geen oplossing voor deze kasstromen.",
+            "plausibel:xirr:niet_berekend",
+        )]
+    if xirr_pct is None or aantal_jaren is None or aantal_jaren >= MIN_JAREN_XIRR:
+        return []
+    return [_bevinding(
+        INFO,
+        f"Het portfolio loopt pas {getal_nl(aantal_jaren * 12, 0)} maanden (sinds {formatteer_datum_nl(eerste_datum)}): "
+        f"de XIRR ({getal_nl(xirr_pct)}%) is omgerekend naar een jaarrendement en vergroot het rendement van zo'n korte "
+        f"periode sterk uit.",
+        "plausibel:xirr:korte_periode",
+    )]
+
+
+def check_dividend_zonder_positie(transacties_df, dividenden):
+    """dividenden: [{isin, product, datum}]. Alleen een ISIN die in geen enkele transactie staat: dividend na een
+    verkoop is normaal, en de ISIN's van een keten staan allemaal in de wisselrijen."""
+    if not dividenden:
+        return []
+    bekend = set(transacties_df["isin"].dropna()) if not transacties_df.empty else set()
+    per_isin = {}
+    for d in dividenden:
+        if d.get("isin") and d["isin"] not in bekend:
+            per_isin.setdefault(d["isin"], []).append(d)
+    bevindingen = []
+    for isin, lijst in per_isin.items():
+        datums = [pd.Timestamp(d["datum"]) for d in lijst]
+        bevindingen.append((len(lijst), _bevinding(
+            LET_OP,
+            f"Dividend van {lijst[0].get('product') or isin} ({isin}, {len(lijst)} uitkering(en), "
+            f"{formatteer_datum_nl(min(datums))} t/m {formatteer_datum_nl(max(datums))}) hoort bij geen enkele "
+            f"transactie: begint het transactiebestand later dan het rekeningoverzicht?",
+            f"dividend:zonder_positie:{isin}",
+        )))
+    bevindingen.sort(key=lambda b: -b[0])
+    return _beperk([b for _, b in bevindingen], LET_OP, "dividend:zonder_positie:meer")
+
+
 def dis_acc_strijdigheden(echte_namen, yahoo_namen):
     """{ticker: (echte_naam, yahoo_naam)} waar de DeGiro-naam en Yahoo's longName een andere uitkeringsvorm noemen."""
     strijdig = {}
@@ -402,11 +509,14 @@ def openfigi_root_mismatches(isins_per_ticker, openfigi_cache):
 
 
 def beurs_oordeel(degiro_beurs, yahoo_beurs, prijs_checks=()):
-    """'zeker' (Yahoo-beurs past bij de DeGiro-beurs), 'beurs' (past niet), 'onzeker' (niet te beoordelen) of
-    BEURS_OTC_NA_DELISTING; via beurs_status(), dus hetzelfde oordeel als de Ticker-zekerheid-kaart."""
+    """'zeker' (Yahoo-beurs past bij de DeGiro-beurs), 'beurs' (past niet), 'onzeker' (niet te beoordelen),
+    BEURS_OTC_NA_DELISTING of ANDERE_BEURS_PRIJS_KLOPT. Via beurs_status(), met één afwijking van de
+    Ticker-zekerheid-kaart: een andere beurs met kloppende transactiekoersen is hier geen waarschuwing."""
     status = beurs_status(degiro_beurs, yahoo_beurs, list(prijs_checks))
     if status == BEURS_OTC_NA_DELISTING:
         return status
+    if status is False and prijs_klopt(list(prijs_checks)):
+        return ANDERE_BEURS_PRIJS_KLOPT
     return {True: "zeker", False: "beurs", None: "onzeker"}[status]
 
 
@@ -421,6 +531,36 @@ def check_otc_na_delisting(beurzen_per_ticker, oordeel_per_ticker, namen):
         )
         for ticker, oordeel in sorted(oordeel_per_ticker.items()) if oordeel == BEURS_OTC_NA_DELISTING
     ]
+
+
+def check_andere_beurs(beurzen_per_ticker, oordeel_per_ticker, namen):
+    """Bewust neutraal: zonder de dure alternatieven is niet te zeggen of Yahoo de Excel-beurs echt niet heeft."""
+    return [
+        _bevinding(
+            INFO,
+            f"{namen.get(ticker, ticker)} ({ticker}): koers van een andere beurs ({beurzen_per_ticker[ticker][1]}) dan "
+            f"in Excel ({beurzen_per_ticker[ticker][0]}); de transactiekoersen kloppen.",
+            f"tickers:andere_beurs:{ticker}",
+        )
+        for ticker, oordeel in sorted(oordeel_per_ticker.items()) if oordeel == ANDERE_BEURS_PRIJS_KLOPT
+    ]
+
+
+def check_isin_override(posities_per_ticker, namen, overrides=MANUAL_TICKER_OVERRIDES_ISIN):
+    """posities_per_ticker: {ticker: [(isin, beurs)]}. Alleen de ISIN-override: of een naam-override is gebruikt,
+    is achteraf niet af te leiden."""
+    bevindingen = []
+    for ticker, posities in sorted(posities_per_ticker.items()):
+        for isin, beurs in posities:
+            if overrides.get((isin, beurs)) == ticker:
+                bevindingen.append(_bevinding(
+                    INFO,
+                    f"{namen.get(ticker, ticker)} ({ticker}): ticker vastgezet via een handmatige override voor "
+                    f"({isin}, {beurs}).",
+                    f"tickers:override:{ticker}",
+                ))
+                break
+    return bevindingen
 
 
 def check_dis_acc(strijdig, namen):
@@ -489,7 +629,7 @@ def check_ticker_samenvatting(oordeel_per_ticker, redenen_per_ticker):
                for t, o in oordeel_per_ticker.items()}
     met_waarschuwing = {t: r for t, r in redenen.items() if r}
     zeker = sum(1 for t, o in oordeel_per_ticker.items()
-                if o in ("zeker", BEURS_OTC_NA_DELISTING) and t not in met_waarschuwing)
+                if o in ("zeker", BEURS_OTC_NA_DELISTING, ANDERE_BEURS_PRIJS_KLOPT) and t not in met_waarschuwing)
     onzeker = len(oordeel_per_ticker) - zeker - len(met_waarschuwing)
     tekst = (f"{len(oordeel_per_ticker)} posities: {zeker} zeker, {onzeker} onzeker (beurs niet te controleren), "
              f"{len(met_waarschuwing)} met waarschuwing")
@@ -524,12 +664,15 @@ def ticker_bevindingen(transacties_df, details, openfigi_cache, waarschuwingen, 
     prijs_checks = prijs_checks or {}
     beurzen = {t: (g["beurs"].iloc[0], (details.get(t) or {}).get("yahoo_beurs")) for t, g in rijen.groupby("ticker")}
     oordeel = {t: beurs_oordeel(degiro, yahoo, prijs_checks.get(t, ())) for t, (degiro, yahoo) in beurzen.items()}
+    posities = {t: list(dict.fromkeys(zip(g["isin"], g["beurs"]))) for t, g in rijen.groupby("ticker")}
 
     return (check_dis_acc(strijdig, namen)
             + check_openfigi_root(mismatches, namen)
             + check_openfigi_leeg(posities_per_isin, openfigi_cache)
             + check_ticker_info_onvolledig({t: details[t] for t in namen if t in details}, namen)
             + check_otc_na_delisting(beurzen, oordeel, namen)
+            + check_andere_beurs(beurzen, oordeel, namen)
+            + check_isin_override(posities, namen)
             + check_ticker_samenvatting(oordeel, redenen))
 
 

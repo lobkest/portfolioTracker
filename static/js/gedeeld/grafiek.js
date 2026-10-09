@@ -52,10 +52,14 @@ function werkZoomIcoonBij(c) {
     document.getElementById("zoomIcoonKnop").hidden = !(c && c.isZoomedOrPanned());
 }
 
+// Niet voorbij de eerste/laatste datum pannen of uitzoomen: anders blijft een lege grafiek over.
+const ZOOM_LIMIETEN = { x: { min: "original", max: "original" } };
+
 // Voor de zoombare lijngrafieken op het gedeelde canvas. Een nieuwe grafiek is niet ingezoomd: icoon weg.
 function zoomOpties() {
     werkZoomIcoonBij(null);
     return {
+        limits: ZOOM_LIMIETEN,
         pan: { enabled: true, mode: "x", onPanComplete: ({ chart: c }) => werkZoomIcoonBij(c) },
         zoom: {
             wheel: { enabled: true },

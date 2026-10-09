@@ -8,6 +8,7 @@ const assert = require("node:assert/strict");
 const {
     voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
     hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
+    deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie, categorieSamenvatting, meldingActie,
 } = require("../static/js/diagnostiek.js");
 
 const m = (categorie, niveau, tekst, sleutel = tekst) => ({ categorie, niveau, tekst, sleutel });
@@ -105,4 +106,80 @@ test("diagnostiekTabelRijen: zonder tabel of rijen null; null-cel wordt leeg", (
     assert.equal(diagnostiekTabelRijen(undefined), null);
     assert.equal(diagnostiekTabelRijen({ kolommen: ["Bedrijf"], rijen: [] }), null);
     assert.deepEqual(diagnostiekTabelRijen({ kolommen: ["Bedrijf"], rijen: [[null]] }).rijen, [[""]]);
+});
+
+test("deelInBlokken: FOUT/LET_OP naar aandacht (ernstigste eerst), de rest naar in orde", () => {
+    const blokken = deelInBlokken([
+        m("Dividend", "GOED", "a"), m("Tickers", "LET_OP", "b"), m("Data", "INFO", "c"), m("Opslaan", "FOUT", "d"),
+    ]);
+    assert.deepEqual(blokken.aandacht.map(g => g.categorie), ["Opslaan", "Tickers"]);
+    assert.deepEqual(blokken.inOrde.map(g => g.categorie), ["Data", "Dividend"]);
+    assert.deepEqual(blokken.technisch, []);
+});
+
+test("deelInBlokken: Laadtijden en Yahoo-calls altijd technisch, ook met LET_OP; andere Koersen-meldingen niet", () => {
+    const blokken = deelInBlokken([
+        m("Laadtijden", "LET_OP", "Koersen ophalen: 12,0 s.", "koersen_ophalen_kern"),
+        m("Koersen", "FOUT", "Yahoo-calls (upload): 5", "yahoo_kern"),
+        m("Koersen", "LET_OP", "Geen koersdata voor X", "geen_koers:X"),
+    ]);
+    assert.deepEqual(blokken.aandacht.map(g => g.categorie), ["Koersen"]);
+    assert.equal(blokken.aandacht[0].meldingen.length, 1);
+    assert.deepEqual(blokken.technisch.map(g => g.categorie), ["Koersen (Yahoo-calls)", "Laadtijden"]);
+    assert.deepEqual(blokken.inOrde, []);
+});
+
+test("deelInBlokken: lege invoer", () => {
+    assert.deepEqual(deelInBlokken(undefined), { aandacht: [], inOrde: [], technisch: [] });
+});
+
+test("filterOpNiveau: alleen dat niveau, onbekend telt als INFO; zonder filter alles", () => {
+    const lijst = [m("A", "FOUT", "1"), m("A", "INFO", "2"), m("B", "RAAR", "3"), m("B", "GOED", "4")];
+    assert.deepEqual(filterOpNiveau(lijst, "INFO").map(x => x.tekst), ["2", "3"]);
+    assert.deepEqual(filterOpNiveau(lijst, "FOUT").map(x => x.tekst), ["1"]);
+    assert.equal(filterOpNiveau(lijst, null).length, 4);
+    assert.deepEqual(filterOpNiveau(undefined, "FOUT"), []);
+});
+
+test("wisselNiveauFilter: aan, nog een keer = uit, andere chip = wisselen", () => {
+    assert.equal(wisselNiveauFilter(null, "FOUT"), "FOUT");
+    assert.equal(wisselNiveauFilter("FOUT", "FOUT"), null);
+    assert.equal(wisselNiveauFilter("FOUT", "INFO"), "INFO");
+});
+
+test("diagnostiekConclusie: per combinatie van niveaus", () => {
+    assert.equal(diagnostiekConclusie([m("A", "GOED", "1"), m("A", "INFO", "2")]), "Alles in orde");
+    assert.equal(diagnostiekConclusie([]), "Alles in orde");
+    assert.equal(diagnostiekConclusie([m("A", "LET_OP", "1")]), "1 punt om naar te kijken");
+    assert.equal(diagnostiekConclusie([m("A", "LET_OP", "1"), m("B", "LET_OP", "2")]), "2 punten om naar te kijken");
+    assert.equal(diagnostiekConclusie([m("A", "FOUT", "1"), m("A", "GOED", "2")]), "1 fout gevonden");
+    assert.equal(diagnostiekConclusie([m("A", "FOUT", "1"), m("B", "FOUT", "2")]), "2 fouten gevonden");
+    assert.equal(diagnostiekConclusie([m("A", "FOUT", "1"), m("B", "LET_OP", "2"), m("B", "LET_OP", "3")]),
+        "1 fout gevonden, 2 punten om naar te kijken");
+});
+
+test("diagnostiekConclusie: technische meldingen tellen niet mee", () => {
+    assert.equal(diagnostiekConclusie([
+        m("Laadtijden", "LET_OP", "traag", "basis_koersen_ophalen"), m("Koersen", "FOUT", "Yahoo", "yahoo_kern"),
+    ]), "Alles in orde");
+});
+
+test("categorieSamenvatting: tekst van de ernstigste melding, bij gelijk niveau de eerste", () => {
+    assert.equal(categorieSamenvatting([m("A", "INFO", "info"), m("A", "LET_OP", "eerste"), m("A", "LET_OP", "tweede")]),
+        "eerste");
+    assert.equal(categorieSamenvatting([]), "");
+});
+
+test("categorieSamenvatting: lange tekst ingekort met ellips", () => {
+    assert.equal(categorieSamenvatting([m("A", "FOUT", "abcdefghij")], 6), "abcde…");
+    assert.equal(categorieSamenvatting([m("A", "FOUT", "abcdef")], 6), "abcdef");
+    assert.equal(categorieSamenvatting([m("A", "FOUT", "abc   defgh")], 7), "abc…");
+});
+
+test("meldingActie: tekst met pijl; null zonder label of tab", () => {
+    const melding = Object.assign(m("Tickers", "LET_OP", "x"), { actie: { label: "Ticker-zekerheid", tab: "instellingen-ticker" } });
+    assert.deepEqual(meldingActie(melding),
+        { label: "Ticker-zekerheid", tab: "instellingen-ticker", tekst: "→ Naar Ticker-zekerheid" });
+    assert.equal(meldingActie(m("Tickers", "LET_OP", "x")), null);
+    assert.equal(meldingActie(Object.assign(m("T", "INFO", "x"), { actie: { label: "L" } })), null);
 });

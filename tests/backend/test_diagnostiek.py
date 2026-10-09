@@ -99,6 +99,30 @@ class TestMeld(unittest.TestCase):
             diagnostiek.meld_opnieuw(snapshot)
             self.assertEqual(haal_meldingen()[0]["tabel"], tabel)
 
+    def test_actie_alleen_als_meegegeven(self):
+        with self.app.test_request_context():
+            meld(CATEGORIE_WISSELKOERSEN, GOED, "zonder")
+            meld(CATEGORIE_WISSELKOERSEN, LET_OP, "met", actie=diagnostiek.ACTIE_TICKER_ZEKERHEID)
+            zonder, met = haal_meldingen()
+        self.assertNotIn("actie", zonder)
+        self.assertEqual(met["actie"], {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"})
+
+    def test_actie_is_een_kopie(self):
+        actie = {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"}
+        with self.app.test_request_context():
+            meld(CATEGORIE_WISSELKOERSEN, LET_OP, "met", actie=actie)
+            actie["tab"] = "anders"
+            self.assertEqual(haal_meldingen()[0]["actie"]["tab"], "instellingen-ticker")
+
+    def test_meld_opnieuw_speelt_actie_terug(self):
+        with self.app.test_request_context():
+            voor = haal_meldingen()
+            meld(CATEGORIE_WISSELKOERSEN, LET_OP, "met", actie=diagnostiek.ACTIE_TICKER_ZEKERHEID)
+            snapshot = diagnostiek.meldingen_sinds(voor)
+        with self.app.test_request_context():
+            diagnostiek.meld_opnieuw(snapshot)
+            self.assertEqual(haal_meldingen()[0]["actie"], diagnostiek.ACTIE_TICKER_ZEKERHEID)
+
     def test_meldingen_sinds_en_meld_opnieuw(self):
         with self.app.test_request_context():
             meld(CATEGORIE_WISSELKOERSEN, GOED, "al bekend")

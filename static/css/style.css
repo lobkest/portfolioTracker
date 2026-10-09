@@ -1230,56 +1230,95 @@ input.schakelaar:focus-visible {
     padding-left: 18px;
 }
 
+#instellingenSectie {
+    max-width: 560px;
+}
+
+.bijnaamAlles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.bijnaamChip {
+    margin: 0;
+    padding: 4px 12px;
+    font-size: 0.85em;
+    background-color: #fff;
+    color: #2c7a4b;
+    border: 1px solid #2c7a4b;
+    border-radius: 14px;
+}
+
+.bijnaamChip:hover {
+    background-color: #e3f1e8;
+}
+
+.bijnaamChip.actief,
+.bijnaamChip.actief:hover {
+    background-color: #2c7a4b;
+    color: #fff;
+}
+
+.bijnaamChip:disabled,
+.bijnaamChip:disabled:hover {
+    background-color: #fff;
+    color: #aaa;
+    border-color: #ddd;
+}
+
+.bijnaamChips .bijnaamChip {
+    padding: 2px 10px;
+    font-size: 0.8em;
+}
+
 .bijnaamRij {
-    margin-bottom: 12px;
-}
-
-.bijnaamRij input {
-    width: 300px;
-    margin-right: 8px;
-}
-
-.bijnaamKnop {
-    margin: 2px 6px 2px 0;
-}
-
-.bijnaamRij + .bijnaamRij {
-    margin-top: 22px;
-    padding-top: 14px;
-    border-top: 1px solid #ddd;
+    padding: 10px 2px;
+    border-top: 1px solid #e4e4e4;
 }
 
 .bijnaamKop {
-    margin-bottom: 8px;
-    font-size: 1.25em;
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.bijnaamNaam {
+    flex: 1;
+    min-width: 0;
     font-weight: bold;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
-.bijnaamRegel {
-    display: grid;
-    grid-template-columns: 90px auto;
-    justify-content: start;
+.bijnaamChips {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.bijnaamInvoer {
+    display: flex;
     align-items: center;
+    gap: 8px;
 }
 
-.bijnaamRegel .bijnaamKnop {
-    justify-self: start;
-    background-color: #e3f1e8;
-    color: #1d5a37;
-    border: 1px solid #b9d9c5;
+.bijnaamInvoer input {
+    flex: 1;
+    min-width: 0;
+    margin-top: 6px;
 }
 
-.bijnaamRegel .bijnaamKnop:hover {
-    background-color: #cfe7d8;
-}
-
-.bijnaamRegel .bijnaamKnop:disabled {
-    opacity: 0.6;
-    cursor: default;
+.bijnaamOk {
+    margin-top: 6px;
+    white-space: nowrap;
 }
 
 .bijnaamStatus {
-    margin-left: 8px;
+    margin-left: 4px;
 }
 
 /* Instellingen > Algemeen: schuifknop (checkbox met role="switch"); het echte vinkje blijft voor toetsenbord en schermlezer. */
@@ -1449,31 +1488,124 @@ input.schakelaar:focus-visible {
     padding-left: 10px;
 }
 
-/* Instellingen > Diagnostiek: niveau-labels (tekst + kleur, niet alleen kleur). */
-.diagnostiekToelichting > p {
+/* Instellingen > Diagnostiek: niveau's altijd als icoon of tekst, niet alleen als kleur. */
+.diagnostiekKop {
+    align-items: center;
+}
+
+.diagnostiekTeller {
     margin: 0;
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+.diagnostiekChips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 4px;
+}
+
+.diagnostiekChip {
+    margin-top: 0;
+    padding: 4px 12px;
+    border: 1px solid transparent;
+    border-radius: 14px;
+    font-size: 0.9em;
+    font-weight: bold;
+}
+
+.diagnostiekChip.actief {
+    border-color: currentColor;
+    box-shadow: inset 0 0 0 1px currentColor;
+}
+
+button.diagnostiekChip:disabled,
+button.diagnostiekChip:disabled:hover {
+    background: #f1f1f1;
+    color: #999;
+}
+
+.diagnostiekSectieKop {
+    margin: 18px 0 4px;
+    font-size: 0.85em;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #666;
+}
+
+.diagnostiekBlok {
+    border-bottom: 1px solid #e3e3e3;
+}
+
+/* Icoon over twee regels; naam + aantal bovenaan, de samenvatting eronder (alleen als het blok dicht is). */
+.diagnostiekCategorie {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+    list-style: none;
+    cursor: pointer;
+}
+
+.diagnostiekCategorie::-webkit-details-marker {
+    display: none;
+}
+
+.diagnostiekCategorie > .niveauIcoon {
+    grid-row: span 2;
+    align-self: start;
+}
+
+.diagnostiekNaam {
+    font-weight: bold;
+}
+
+.diagnostiekAantal {
+    color: #666;
+    font-size: 0.9em;
+}
+
+.diagnostiekAantal::after {
+    content: "B8";
+    display: inline-block;
+    margin-left: 6px;
+    transition: transform 0.15s;
+}
+
+.diagnostiekBlok[open] .diagnostiekAantal::after {
+    transform: rotate(90deg);
+}
+
+.diagnostiekSamenvatting {
+    grid-column: 2 / span 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 0.9em;
     color: #666;
 }
 
-.diagnostiekTeller {
-    font-weight: bold;
+.diagnostiekBlok[open] .diagnostiekSamenvatting {
+    display: none;
 }
 
-.diagnostiekBlok {
-    margin-top: 14px;
-}
-
-.diagnostiekCategorie {
-    margin: 0 0 6px;
-    font-size: 1em;
+.niveauIcoon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 0.8em;
     font-weight: bold;
-    cursor: pointer;
 }
 
 .diagnostiekLijst {
     list-style: none;
-    padding: 0;
+    padding: 0 0 6px;
     margin: 0;
 }
 
@@ -1482,7 +1614,7 @@ input.schakelaar:focus-visible {
     align-items: flex-start;
     gap: 8px;
     padding: 6px 0;
-    border-bottom: 1px solid #eee;
+    border-top: 1px solid #f0f0f0;
     overflow-wrap: anywhere;
 }
 
@@ -1491,14 +1623,44 @@ input.schakelaar:focus-visible {
     min-width: 0;
 }
 
+.diagnostiekTekst {
+    margin: 0;
+}
+
+.diagnostiekTekst .badge {
+    margin: 0 6px 0 0;
+}
+
 .diagnostiekTabel {
     margin-top: 6px;
 }
 
-.diagnostiekLijst .badge {
-    margin-left: 0;
-    min-width: 52px;
-    text-align: center;
+.diagnostiekActie {
+    margin-top: 4px;
+    padding: 0;
+    min-height: 0; /* overschrijft button { min-height: 44px } in de mobiele media query */
+    background: none;
+    color: #2c7a4b;
+    font-weight: bold;
+}
+
+.diagnostiekActie:hover {
+    background: none;
+    text-decoration: underline;
+}
+
+@media (min-width: 900px) {
+    .diagnostiekKolommen {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 32px;
+        align-items: start;
+    }
+
+    .diagnostiekKolommen.eenKolom {
+        display: block;
+        max-width: 760px;
+    }
 }
 
 .badgeFOUT {
@@ -1517,6 +1679,35 @@ input.schakelaar:focus-visible {
 }
 
 .badgeGOED {
+    background: #d4edda;
+    color: #155724;
+}
+
+/* :hover erbij, anders wint button:hover (groen). */
+.icoonFOUT,
+.chipFOUT,
+.chipFOUT:hover {
+    background: #f8d7da;
+    color: #9C0006;
+}
+
+.icoonLET_OP,
+.chipLET_OP,
+.chipLET_OP:hover {
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.icoonINFO,
+.chipINFO,
+.chipINFO:hover {
+    background: #e9ecef;
+    color: #495057;
+}
+
+.icoonGOED,
+.chipGOED,
+.chipGOED:hover {
     background: #d4edda;
     color: #155724;
 }

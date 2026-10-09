@@ -6,7 +6,7 @@ import psycopg2
 
 from debug_utils import meet_tijd
 from diagnostiek import (
-    meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
+    meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
     GOED, INFO, LET_OP, FOUT,
 )
 from split_correctie import isin_ketens, vind_wisselparen
@@ -184,7 +184,7 @@ def _meld_zoekstappen(product, isin, beurs, ticker, stappen):
     ]
     meld(CATEGORIE_TICKERS, INFO,
          f"{product} ({isin}, {beurs}): {len(stappen)} zoekopdracht(en) bij Yahoo, gekozen ticker: {ticker or 'geen'}.",
-         sleutel=f"zoekstappen:{isin}:{beurs}",
+         sleutel=f"zoekstappen:{isin}:{beurs}", actie=ACTIE_TICKER_ZEKERHEID,
          tabel={"kolommen": ["Zoekopdracht", "Resultaten (beurs)", "Match op verwachte beurs"], "rijen": rijen})
 
 

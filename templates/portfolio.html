@@ -523,7 +523,7 @@
             </div>
 
             <div id="tab-instellingen-bijnamen" data-views="instellingen-bijnamen" style="display: none;">
-                <p>Kies per aandeel de naam of typ zelf een bijnaam en druk op Enter.</p>
+                <p>Kies per aandeel een naam, of typ zelf een bijnaam.</p>
                 <div id="instellingenSectie"></div>
             </div>
 
@@ -534,12 +534,12 @@
             </div>
 
             <div id="tab-instellingen-diagnostiek" data-views="instellingen-diagnostiek" style="display: none;">
-                <div class="labelRij diagnostiekToelichting">
-                    <p>Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. Excel-meldingen verschijnen alleen direct na een upload.</p>
-                    <span class="infoTip" data-label="Diagnostiek">Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
+                <div class="labelRij diagnostiekKop">
+                    <p id="diagnostiekTeller" class="diagnostiekTeller"></p>
+                    <span class="infoTip" data-label="Diagnostiek">Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. Excel-meldingen verschijnen alleen direct na een upload. Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
                 </div>
-                <p id="diagnostiekTeller" class="diagnostiekTeller"></p>
-                <div id="diagnostiekLijst"></div>
+                <div id="diagnostiekChips" class="diagnostiekChips"></div>
+                <div id="diagnostiekLijst" class="diagnostiekKolommen"></div>
             </div>
 
             <!-- Gedeelde meldingen van de verrijking-tabbladen, daarom onder de tabblad-blokken. -->
@@ -569,6 +569,7 @@
     <script src="{{ url_for('static', filename='js/land_sector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/box3.js') }}"></script>
     <script src="{{ url_for('static', filename='js/etf_overlap.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>
