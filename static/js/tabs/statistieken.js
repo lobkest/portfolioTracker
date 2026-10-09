@@ -1,6 +1,6 @@
 // Tabblad Statistieken: totalen, posities, verkochte posities, rendement per jaar en samengesteld rendement.
 
-// "Naam (TICKER)"; de ticker in een eigen span, zodat hij op een mobiele kaart klein kan staan.
+// "Naam (TICKER)"; de ticker in een eigen span (klein en grijs).
 function maakNaamTickerCel(naam, ticker) {
     const td = document.createElement("td");
     const tickerSpan = document.createElement("span");
@@ -10,25 +10,36 @@ function maakNaamTickerCel(naam, ticker) {
     return td;
 }
 
-function maakPositieTabel(posities, tickerNamen) {
+function maakTickerKolom() {
+    return { label: "Ticker", alleenMobiel: true, renderTd: p => maakCel(p.ticker) };
+}
+
+function maakPositieTabel(posities, tickerNamen, sorteerPlek) {
+    const naam = p => (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
     const kolommen = [
         {
             label: "Naam/ticker",
-            kaartTitel: true,
-            renderTd: p => maakNaamTickerCel((tickerNamen && tickerNamen[p.ticker]) || p.ticker, p.ticker),
+            mobielRol: "titel",
+            mobielTekst: naam,
+            renderTd: p => maakNaamTickerCel(naam(p), p.ticker),
         },
         {
             label: "Aantal",
+            mobielRol: "subregel",
+            mobielTekst: p => `${formatGetal(p.aantal, 4, 0)} st`,
             waarde: p => p.aantal,
             renderTd: p => maakCel(formatGetal(p.aantal, 4, 0)),
         },
         {
             label: "Huidige waarde",
+            mobielRol: "waarde",
             waarde: p => p.huidige_waarde,
             renderTd: p => maakCel(formatteerEuro(p.huidige_waarde)),
         },
         {
             label: "GAK",
+            mobielRol: "subregel",
+            mobielTekst: p => `GAK ${formatteerEuro(p.gak)}`,
             waarde: p => p.gak,
             renderTd: p => maakCel(formatteerEuro(p.gak)),
         },
@@ -40,22 +51,26 @@ function maakPositieTabel(posities, tickerNamen) {
         {
             // Op het getal, niet op de weergavetekst.
             label: "Rendement",
+            mobielRol: "subwaarde",
             waarde: p => p.rendement_pct,
             renderTd: p => maakRendementCel(p.rendement_eur, p.rendement_pct),
         },
+        maakTickerKolom(),
         {
             label: "Dividend ontvangen",
             waarde: p => p.dividend_ontvangen || 0,
             renderTd: p => maakCel(formatteerEuro(p.dividend_ontvangen || 0)),
         },
     ];
-    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities.", kaartenOpMobiel: true });
+    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities.", compactOpMobiel: true, sorteerPlek });
 }
 
-function maakGeslotenPositiesTabel(geslotenPosities) {
+function maakGeslotenPositiesTabel(geslotenPosities, sorteerPlek) {
     const kolommen = [
         {
             label: "Status",
+            mobielRol: "subregel",
+            mobielTekst: p => p.nog_in_bezit ? "Deels verkocht" : "Gesloten",
             renderTd: p => {
                 const td = document.createElement("td");
                 const badge = document.createElement("span");
@@ -67,11 +82,16 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
         },
         {
             label: "Naam/ticker",
-            kaartTitel: true,
+            mobielRol: "titel",
+            mobielTekst: p => p.naam,
             renderTd: p => maakNaamTickerCel(p.naam, p.ticker),
         },
         {
             label: "Aantal",
+            mobielRol: "subregel",
+            mobielTekst: p => p.nog_in_bezit
+                ? `${formatGetal(p.aantal, 4, 0)} verkocht, ${formatGetal(p.resterend_aantal || 0, 4, 0)} in bezit`
+                : `${formatGetal(p.aantal, 4, 0)} st`,
             waarde: p => p.aantal,
             renderTd: p => {
                 const td = document.createElement("td");
@@ -97,9 +117,11 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
         },
         {
             label: "Rendement (koers)",
+            mobielRol: "subwaarde",
             waarde: p => p.rendement_pct,
             renderTd: p => maakRendementCel(p.rendement_eur, p.rendement_pct),
         },
+        maakTickerKolom(),
         {
             label: "Dividend ontvangen",
             // Deels verkocht: het dividend is per ticker en staat al bij de open positie.
@@ -114,7 +136,8 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
     ];
     return maakSorteerbareTabel(kolommen, geslotenPosities, {
         legeTekst: "Geen verkochte of deels verkochte posities.",
-        kaartenOpMobiel: true,
+        compactOpMobiel: true,
+        sorteerPlek,
     });
 }
 
@@ -184,8 +207,10 @@ function toonStatistieken() {
     (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
 
     document.getElementById("statistiekenTotalen").replaceChildren(maakTotalenSectie(stats.totalen));
-    document.getElementById("statistiekenPosities").replaceChildren(maakPositieTabel(stats.posities, tickerNamen));
-    document.getElementById("statistiekenGesloten").replaceChildren(maakGeslotenPositiesTabel(stats.gesloten_posities));
+    document.getElementById("statistiekenPosities").replaceChildren(
+        maakPositieTabel(stats.posities, tickerNamen, document.getElementById("statistiekenPositiesSorteer")));
+    document.getElementById("statistiekenGesloten").replaceChildren(
+        maakGeslotenPositiesTabel(stats.gesloten_posities, document.getElementById("statistiekenGeslotenSorteer")));
     document.getElementById("statistiekenJaren").replaceChildren(maakJarenTabel(stats.jaren));
     document.getElementById("statistiekenGeavanceerd").replaceChildren(maakGeavanceerdSectie(stats.geavanceerd));
 }
