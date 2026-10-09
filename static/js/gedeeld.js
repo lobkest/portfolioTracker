@@ -38,6 +38,14 @@ function sessieOpslag() {
     }
 }
 
+function lokaleOpslag() {
+    try {
+        return window.localStorage;
+    } catch (_) {
+        return null;
+    }
+}
+
 // De x-knop zet input.value = "", zodat het bestand echt niet meegaat en `change` weer afgaat.
 // Geeft de update-functie terug voor momenten zonder `change` (reset, terugknop).
 function koppelBestandWisKnop(inputId) {

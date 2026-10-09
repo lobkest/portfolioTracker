@@ -271,6 +271,15 @@ body {
     color: white;
 }
 
+/* Tabblad in ontwikkeling dat uit staat: wel zichtbaar, niet klikbaar; :hover erbij tegen .subTab:hover. */
+.subTab.uitgeschakeld,
+.subTab.uitgeschakeld:hover {
+    background: white;
+    color: #333;
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 .waarschuwingBanner {
     background: #fff3cd;
     color: #664d03;
@@ -959,6 +968,61 @@ body {
 
 .bijnaamStatus {
     margin-left: 8px;
+}
+
+/* Instellingen > Algemeen: schuifknop (checkbox met role="switch"); het echte vinkje blijft voor toetsenbord en schermlezer. */
+.schakelaar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 8px 0;
+    cursor: pointer;
+    width: fit-content;
+}
+
+.schakelaar input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    margin: 0;
+    padding: 0;
+}
+
+.schakelaarSchuif {
+    position: relative;
+    flex-shrink: 0;
+    width: 40px;
+    height: 22px;
+    border-radius: 999px;
+    background: #ccc;
+    transition: background-color 0.15s;
+}
+
+.schakelaarSchuif::after {
+    content: "";
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: white;
+    transition: transform 0.15s;
+}
+
+.schakelaar input:checked + .schakelaarSchuif {
+    background: #2c7a4b;
+}
+
+.schakelaar input:checked + .schakelaarSchuif::after {
+    transform: translateX(18px);
+}
+
+.schakelaar input:focus-visible + .schakelaarSchuif {
+    outline: 2px solid #2c7a4b;
+    outline-offset: 2px;
 }
 
 /* Instellingen > Ticker-zekerheid: één kaart per positie. */

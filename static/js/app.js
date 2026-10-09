@@ -23,7 +23,7 @@ const wisselView = maakTabWisselaar(
 );
 
 // Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
-const VIEWS_MET_CODE = ["instellingen", "instellingen-bestanden", "instellingen-bijnamen"];
+const VIEWS_MET_CODE = ["instellingen-bestanden", "instellingen-bijnamen"];
 
 const TOON_PER_VIEW = {
     "portfolio": toonPortfolio,
@@ -51,7 +51,8 @@ const TOON_PER_VIEW = {
 };
 
 function toegestaneViews() {
-    return Object.keys(TOON_PER_VIEW).filter(v => huidigeData.code || !VIEWS_MET_CODE.includes(v));
+    const uit = uitgeschakeldeViews(leesOntwikkelAan());
+    return Object.keys(TOON_PER_VIEW).filter(v => (huidigeData.code || !VIEWS_MET_CODE.includes(v)) && !uit.includes(v));
 }
 
 function viewUitUrl() {
@@ -91,13 +92,15 @@ function ververMenu(view) {
     });
 
     const groep = MENU_GROEPEN.find(g => g.id === groepId);
-    const chips = (groep ? zichtbareViews(groep, toegestaan) : []).map(v => {
+    const uit = uitgeschakeldeViews(leesOntwikkelAan());
+    const chips = (groep ? menuViews(groep, toegestaan, uit) : []).map(v => {
         const chip = document.createElement("button");
         chip.type = "button";
-        chip.className = "subTab" + (v.view === view ? " actief" : "");
+        chip.className = "subTab" + (v.view === view ? " actief" : "") + (v.uitgeschakeld ? " uitgeschakeld" : "");
         chip.dataset.view = v.view;
         chip.textContent = v.label;
-        chip.addEventListener("click", () => gaNaarView(v.view));
+        if (v.uitgeschakeld) chip.disabled = true;
+        else chip.addEventListener("click", () => gaNaarView(v.view));
         return chip;
     });
     document.getElementById("subTabs").replaceChildren(...chips);

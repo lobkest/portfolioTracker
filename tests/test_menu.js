@@ -5,7 +5,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen, scrollFades } = require("../static/js/menu.js");
+const {
+    MENU_GROEPEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen,
+    ontwikkelViews, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades,
+} = require("../static/js/menu.js");
 
 const ALLE_VIEWS = MENU_GROEPEN.flatMap(g => g.views.map(v => v.view));
 
@@ -50,7 +53,7 @@ test("rendement: Huidige portfolio staat direct na Prognose", () => {
 test("overzicht: Box 3 staat direct na Dividend", () => {
     const views = MENU_GROEPEN.find(g => g.id === "overzicht").views;
     const i = views.findIndex(v => v.view === "dividend");
-    assert.deepEqual(views[i + 1], { view: "box3", label: "Box 3" });
+    assert.deepEqual(views[i + 1], { view: "box3", label: "Box 3", inOntwikkeling: true });
     assert.equal(groepVanView("box3"), "overzicht");
 });
 
@@ -79,6 +82,47 @@ test("scrollFades: helemaal rechts (ook met een halve pixel afronding): alleen l
 test("zichtbareGroepen: alleen groepen met minstens één toegestane view", () => {
     assert.deepEqual(zichtbareGroepen(["land", "instellingen-ticker"]).map(g => g.id), ["samenstelling", "instellingen"]);
     assert.deepEqual(zichtbareGroepen([]), []);
+});
+
+test("ontwikkelViews: box3 en verder alleen gemarkeerde views", () => {
+    assert.ok(ontwikkelViews().some(v => v.view === "box3" && v.label === "Box 3"));
+    const gemarkeerd = MENU_GROEPEN.flatMap(g => g.views).filter(v => v.inOntwikkeling).map(v => v.view);
+    assert.deepEqual(ontwikkelViews().map(v => v.view), gemarkeerd);
+});
+
+test("uitgeschakeldeViews: standaard uit, aangezet niet meer", () => {
+    assert.ok(uitgeschakeldeViews([]).includes("box3"));
+    assert.deepEqual(uitgeschakeldeViews(["box3"]), []);
+});
+
+test("leesAanGezet: lege of kapotte opslag leest als []", () => {
+    assert.equal(ONTWIKKEL_OPSLAG_SLEUTEL, "ontwikkelTabsAan");
+    assert.deepEqual(leesAanGezet(null), []);
+    assert.deepEqual(leesAanGezet(""), []);
+    assert.deepEqual(leesAanGezet("{kapot"), []);
+    assert.deepEqual(leesAanGezet('{"box3": true}'), []);
+    assert.deepEqual(leesAanGezet('"box3"'), []);
+    assert.deepEqual(leesAanGezet('["box3"]'), ["box3"]);
+});
+
+test("menuViews: uitgeschakelde ontwikkel-view blijft als grijze chip, andere niet-toegestane views vallen weg", () => {
+    const overzicht = MENU_GROEPEN.find(g => g.id === "overzicht");
+    const toegestaan = ["portfolio", "dividend"];
+    const uit = menuViews(overzicht, toegestaan, ["box3"]);
+    assert.deepEqual(uit.map(v => [v.view, v.uitgeschakeld]), [["portfolio", false], ["dividend", false], ["box3", true]]);
+
+    const aan = menuViews(overzicht, [...toegestaan, "box3"], []);
+    assert.equal(aan.find(v => v.view === "box3").uitgeschakeld, false);
+    assert.ok(!aan.some(v => v.view === "transacties" || v.view === "statistieken"));
+});
+
+test("eersteView: slaat een uitgeschakelde ontwikkel-view over", () => {
+    const uit = uitgeschakeldeViews([]);
+    const toegestaan = ALLE_VIEWS.filter(v => !uit.includes(v));
+    for (const groep of MENU_GROEPEN) {
+        assert.ok(!uit.includes(eersteView(groep.id, toegestaan)), groep.id);
+    }
+    assert.equal(eersteView("overzicht", ["box3", "transacties"].filter(v => !uit.includes(v))), "transacties");
 });
 
 // --- Regressiebewaking mobiele CSS/viewport (geen DOM nodig: leest de bronbestanden) ---

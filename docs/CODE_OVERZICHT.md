@@ -6,6 +6,7 @@
 > Bijgewerkt op 07-10-2026: de ISIN-keten (`isin_ketens()`; Ticker-zekerheid, upload en backfill groeperen op (eind-ISIN, beurs)), `/ticker-zekerheid/wijzig`
 > en `/ticker-zekerheid/alle-prijzen`, de dagrange-marge van 2% en de afstand tot de dagrange, de batch-prijscheck, de zoeksessie van `_yahoo_search()`,
 > `rekening_regels`, de bronkolommen van `transacties`, en de testaantallen (geteld op 07-10-2026).
+> Bijgewerkt op 09-10-2026: ETF-overlap toont de korte namen (`etf_overlap.js`, gedeelde `laadYahooNamen()` met Bijnamen).
 > Alles hieronder is uit de bronbestanden gelezen, niet uit CLAUDE.md overgenomen. Waar ik iets niet zeker
 > kon vaststellen staat het woord **onzeker**. Hoe CLAUDE.md en de code zich tot elkaar verhouden, staat onderaan
 > bij [Stand van zaken](#stand-van-zaken-claudemd-en-de-code).
@@ -16,6 +17,7 @@
 2. [De route van een upload, stap voor stap](#2-de-route-van-een-upload-stap-voor-stap)
 3. [Per Python-module](#3-per-python-module)
 4. [Database](#4-database)
+   - [Databaseschema (diagrammen)](#databaseschema)
 5. [Frontend](#5-frontend)
 6. [Externe bronnen](#6-externe-bronnen)
 7. [Tests](#7-tests)
@@ -67,7 +69,7 @@ per laadbeurt) zijn weggelaten uit het diagram omdat veel modules ze importeren;
 flowchart LR
     subgraph FE["Browser"]
         HTML["templates/<br/>basis.html, start.html, portfolio.html"]
-        JS["static/js/<br/>start.js, app.js, gedeeld.js, infotip.js,<br/>navigatie.js, overdracht.js, menu.js, prognose.js,<br/>transacties.js, bedrijven.js, dividend.js,<br/>diagnostiek.js, bestandskeuze.js, koersen.js, per_aandeel.js,<br/>land_sector.js, gedeeld/*.js, tabs/*.js"]
+        JS["static/js/<br/>start.js, app.js, gedeeld.js, infotip.js,<br/>navigatie.js, overdracht.js, menu.js, prognose.js,<br/>transacties.js, bedrijven.js, dividend.js,<br/>diagnostiek.js, bestandskeuze.js, koersen.js, per_aandeel.js,<br/>land_sector.js, etf_overlap.js, gedeeld/*.js, tabs/*.js"]
     end
 
     subgraph ROUTES["Routes"]
@@ -277,7 +279,7 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 
 - Er worden **geen Order ID's** bepaald, niets naar Postgres geschreven, en er is **geen code**.
 - `bestand2` (rekeningoverzicht) wordt wel verwerkt, maar niet opgeslagen: `_dividend_niet_opslaan()` (zie A4) en het kassaldo (zie A3). Transacties en Dividend lezen `transacties_lijst` en `dividend` uit het antwoord in plaats van een fetch.
-- De frontend verbergt alleen de tabbladen die de database nodig hebben (Algemeen, Bestanden bijwerken en Bijnamen, `VIEWS_MET_CODE`, zie 5.3).
+- De frontend verbergt alleen de tabbladen die de database nodig hebben (Bestanden bijwerken en Bijnamen, `VIEWS_MET_CODE`, zie 5.3); op Algemeen alleen de blokken verwijderen en code wijzigen (`data-vereist-code="ja"`).
 - De dure, prijs-geverifieerde ticker-check draait hier bewust **niet** mee; de frontend kan die later los aanvragen via `POST /api/ticker-zekerheid-check` (zie [hoofdstuk 5](#5-frontend)). Reden (uit de commentaren): een groter portfolio met koude cache liep anders over de gunicorn-timeout.
 - Om dezelfde reden geen ETF-land-proxy: die zoektocht (iShares-screener + holdings-CSV's) kost met een koude cache ~9 s binnen `/upload`. Land komt dan uit de eigen top-10 van Yahoo.
 
@@ -479,7 +481,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | `/api/portfolio/<code>/bijnamen` | POST | `set_bijnamen()` | body `{"namen": {ticker: naam}}`; lege namen vallen weg, de rest in één transactie via `db_wijzig_bijnamen()`; geeft de kern terug | `pasBijnamenToe()` (alle knoppen en het invoerveld op Bijnamen) |
 | `/api/portfolio/<code>/bijnaam` | POST | `set_bijnaam()` | `UPDATE transacties SET product = ...` voor alle rijen met die ticker | — (alleen tests; de frontend gebruikt `/bijnamen`) |
 | `/api/portfolio/<code>/reset-bijnaam` | POST | `reset_bijnaam()` | `product` = live `longName` (`haal_long_names()`, bewaard met `bewaar_long_names()`), anders `echte_naam` | — (alleen tests) |
-| `/api/portfolio/<code>/korte-namen` | GET | `get_korte_namen()` | `{"namen": bepaal_korte_naam_voorstellen()}`: `[{ticker, huidig, long_name, voorstel}]`, schrijft geen bijnamen; 502 als er nergens een naam is (live noch in `ticker_info`) | `laadYahooNamen()` |
+| `/api/portfolio/<code>/korte-namen` | GET | `get_korte_namen()` | `{"namen": bepaal_korte_naam_voorstellen()}`: `[{ticker, huidig, long_name, voorstel}]`, schrijft geen bijnamen; 502 als er nergens een naam is (live noch in `ticker_info`) | `laadYahooNamen()` (Bijnamen en ETF-overlap) |
 | `/api/portfolio/<code>/korte-namen` | POST | `pas_korte_namen_toe()` | berekent de voorstellen opnieuw, `db_wijzig_bijnamen()` voor alle tickers met een voorstel (één transactie) | — (alleen tests; "Alle korte namen" gaat via `/bijnamen`) |
 | `/api/portfolio/<code>` | DELETE | `verwijder_portfolio()` | `db_delete_portfolio()` + cache wissen | handler van `#verwijderPortfolioBtn` |
 | `/api/portfolio/<code>/wijzig-code` | POST | `wijzig_code()` | valideert met `is_geldige_code()`, dan `db_wijzig_portfolio_code()` | handler van `#wijzigCodeBtn` |
@@ -1386,6 +1388,7 @@ Alle tabellen worden aangemaakt in `db_init()` (`db.py`), PostgreSQL bij Neon. E
 "anonieme marktdata/cache" zijn (`koersen`, `koers_splits`, `ticker_info`, `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings`, `ticker_prijscheck`, `ticker_splits`, `openfigi_cache`,
 `ishares_fondsen`, `etf_proxy`).
 `db_delete_portfolio()` verwijdert alleen de eerste groep; de caches blijven staan.
+Diagrammen met alle tabellen en koppelingen: [Databaseschema](#databaseschema).
 
 ### 4.1 Persoonlijke data
 
@@ -1525,6 +1528,233 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 
 **Let op bij tests:** een deel van de tests werkt met een **echte database** (zie hoofdstuk 7) en gebruikt eigen test-codes (zoals `TESTDIV`). Die tests draaien alleen tegen een lokale database (CI-container of Docker), nooit tegen Neon.
 
+## Databaseschema
+
+Overgenomen uit `db_init()` (`db.py`). Twee diagrammen: de portfolio-data en de caches. In de kolomlijsten staat `PK` voor primary key, `FK` voor foreign key en `UK` voor een kolom in een `UNIQUE`-constraint (de constraint zelf staat erachter).
+
+**Diagram 1: portfolio-data**
+
+```mermaid
+erDiagram
+    portfolios ||--o{ transacties : "code (FK)"
+    portfolios ||..o{ dividenden : "code"
+    portfolios ||..o| kassaldo : "code"
+    portfolios ||..o{ rekening_regels : "code"
+    transacties }o..o{ dividenden : "code + isin"
+
+    portfolios {
+        TEXT code PK
+        TEXT naam
+        TIMESTAMP aangemaakt_op
+    }
+    transacties {
+        SERIAL id PK
+        TEXT code FK, UK "UNIQUE(code, order_id)"
+        DATE datum
+        TEXT product "bijnaam"
+        TEXT isin
+        TEXT beurs
+        TEXT ticker
+        NUMERIC aantal
+        NUMERIC koers "EUR per stuk"
+        NUMERIC totaal_eur
+        TEXT order_id UK
+        TEXT echte_naam
+        NUMERIC transactiekosten
+        NUMERIC waarde_eur
+        TIME tijd
+        NUMERIC wisselkoers
+        TEXT uitvoeringsplaats
+        NUMERIC koers_lokaal
+        TEXT koers_valuta
+        NUMERIC lokale_waarde
+        TEXT lokale_waarde_valuta
+        NUMERIC autofx_kosten
+    }
+    dividenden {
+        SERIAL id PK
+        TEXT code UK "UNIQUE(code, dividend_id), geen FK"
+        TEXT dividend_id UK
+        DATE datum
+        TEXT product
+        TEXT isin
+        TEXT valuta
+        NUMERIC bruto_eur
+        NUMERIC belasting_eur
+        NUMERIC netto_eur
+        BOOLEAN herinvesteerd
+    }
+    kassaldo {
+        TEXT code PK "geen FK"
+        NUMERIC saldo_eur
+        NUMERIC netto_gestort_eur
+        DATE eerste_datum
+        DATE per_datum
+        BOOLEAN vanaf_opening
+    }
+    rekening_regels {
+        SERIAL id PK
+        TEXT code UK "UNIQUE(code, regel_id), geen FK"
+        TEXT regel_id UK
+        DATE datum
+        TIME tijd
+        DATE valutadatum
+        TEXT product
+        TEXT isin
+        TEXT omschrijving
+        NUMERIC fx
+        TEXT mutatie_valuta
+        NUMERIC mutatie
+        TEXT saldo_valuta
+        NUMERIC saldo
+        TEXT order_id
+    }
+```
+
+**Diagram 2: cache-tabellen**
+
+`transacties` staat er vereenvoudigd in (alleen `ticker` en `isin`): zo raakt de portfolio-data de caches. `koersen` bevat daarnaast FX-paren (`USDEUR=X`) die niet uit `transacties` komen.
+
+```mermaid
+erDiagram
+    transacties }o..o{ koersen : "ticker"
+    transacties }o..o{ koers_splits : "ticker"
+    transacties }o..o| koers_begin : "ticker"
+    transacties }o..o| ticker_info : "ticker"
+    transacties }o..o| ticker_land_sector : "ticker"
+    transacties }o..o{ ticker_prijscheck : "ticker"
+    transacties }o..o| ticker_splits : "ticker"
+    transacties }o..o| ticker_dividenden : "ticker"
+    transacties }o..o| openfigi_cache : "isin"
+    transacties }o..o| etf_proxy : "isin = bron_isin"
+    ticker_info ||..o{ etf_sector_verdeling : "ticker = etf_ticker"
+    ticker_info ||..o{ etf_holdings : "ticker = etf_ticker"
+    etf_holdings }o..o| ticker_land_sector : "holding_ticker = ticker"
+    etf_proxy }o..o| ishares_fondsen : "proxy_isin = isin"
+
+    transacties {
+        TEXT ticker
+        TEXT isin
+    }
+    koersen {
+        TEXT ticker PK
+        DATE datum PK
+        NUMERIC koers_eur "ruw, in EUR"
+        TIMESTAMP bijgewerkt_op
+    }
+    koers_splits {
+        TEXT ticker PK
+        DATE datum PK
+        NUMERIC ratio
+    }
+    koers_begin {
+        TEXT ticker PK
+        DATE gevraagd_vanaf
+        TIMESTAMP bijgewerkt_op
+    }
+    ticker_info {
+        TEXT ticker PK
+        BOOLEAN is_etf
+        TEXT quote_type
+        TEXT valuta
+        TEXT yahoo_beurs
+        TEXT fund_family
+        TEXT category
+        TIMESTAMP bijgewerkt_op
+        TEXT long_name
+    }
+    ticker_land_sector {
+        TEXT ticker PK
+        TEXT land
+        TEXT sector
+        TIMESTAMP bijgewerkt_op
+    }
+    etf_sector_verdeling {
+        TEXT etf_ticker PK
+        TEXT sector PK
+        NUMERIC gewicht
+        TIMESTAMP bijgewerkt_op
+    }
+    etf_holdings {
+        TEXT etf_ticker PK
+        TEXT holding_naam PK
+        TEXT holding_ticker
+        NUMERIC gewicht
+        TEXT land
+        TEXT bron
+        TIMESTAMP bijgewerkt_op
+    }
+    ticker_prijscheck {
+        TEXT ticker PK
+        DATE datum PK
+        NUMERIC yahoo_slotkoers
+        TEXT valuta
+        TIMESTAMP opgehaald_op
+        NUMERIC high
+        NUMERIC low
+    }
+    ticker_splits {
+        TEXT ticker PK
+        JSONB splits
+        TIMESTAMP bijgewerkt_op
+    }
+    ticker_dividenden {
+        TEXT ticker PK
+        JSONB dividenden
+        NUMERIC dividend_rate
+        NUMERIC trailing_rate
+        TIMESTAMP bijgewerkt_op
+    }
+    openfigi_cache {
+        TEXT isin PK
+        JSONB resultaten
+        TIMESTAMP opgehaald_op
+    }
+    ishares_fondsen {
+        TEXT portfolio_id PK "iShares-fonds-id, geen portfolio-code"
+        TEXT isin
+        TEXT naam
+        TEXT product_url
+        TEXT asset_class
+        TEXT regio
+        TEXT markt_type
+        TEXT sub_asset_class
+        JSONB strategie_codes
+        NUMERIC fondsgrootte
+        TIMESTAMP opgehaald_op
+    }
+    etf_proxy {
+        TEXT bron_isin PK
+        TEXT proxy_isin "NULL = geen proxy"
+        TEXT proxy_naam
+        NUMERIC max_afwijking_pp
+        JSONB vergelijking
+        TIMESTAMP bepaald_op
+        JSONB proxy_land
+    }
+```
+
+**Legenda:** doorgetrokken lijn (`--`) = echte foreign key in de database; stippellijn (`..`) = logische koppeling die alleen in de code bestaat. Een samengestelde primary key staat als `PK` op elke kolom ervan.
+
+**Afhankelijkheden**
+
+| Van → naar | Koppelkolom(men) | FK | Bij verwijderen van een portfolio |
+|---|---|---|---|
+| `transacties` → `portfolios` | `code` | ja | `db_delete_portfolio()` verwijdert de transacties vóór de portfolio (de FK heeft geen `ON DELETE CASCADE`). |
+| `dividenden` → `portfolios` | `code` | nee | Gaat mee: `db_delete_portfolio()` verwijdert ze expliciet. |
+| `kassaldo` → `portfolios` | `code` | nee | Gaat mee, expliciet verwijderd. |
+| `rekening_regels` → `portfolios` | `code` | nee | Gaat mee, expliciet verwijderd. |
+| `dividenden` → `transacties` | `code` + `isin` | nee | Beide gaan mee; de koppeling geeft een dividend zijn ticker en bijnaam (`bouw_dividend_samenvatting()`). |
+| `transacties` → `koersen`, `koers_splits`, `koers_begin` | `ticker` | nee | Cache blijft staan (`get_prices()`). |
+| `transacties` → `ticker_info`, `ticker_land_sector`, `ticker_splits`, `ticker_dividenden`, `ticker_prijscheck` | `ticker` | nee | Cache blijft staan. |
+| `transacties` → `openfigi_cache` | `isin` | nee | Cache blijft staan. |
+| `transacties` → `etf_proxy` | `isin` = `bron_isin` | nee | Blijft staan; alleen "opnieuw bepalen" wist de rijen van die portfolio (`db_wis_etf_proxies_voor_portfolio()`). |
+| `ticker_info` → `etf_sector_verdeling`, `etf_holdings` | `ticker` = `etf_ticker` (alleen bij `is_etf`) | nee | Cache blijft staan. |
+| `etf_holdings` → `ticker_land_sector` | `holding_ticker` = `ticker` | nee | Cache blijft staan. |
+| `etf_proxy` → `ishares_fondsen` | `proxy_isin` = `isin` | nee | Cache blijft staan. |
+
+Bij een schemawijziging in `db_init()` ook deze diagrammen en de tabel bijwerken.
+
 ## 5. Frontend
 
 ### 5.1 De bestanden en hoe ze samenwerken
@@ -1536,13 +1766,13 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 | `templates/portfolio.html` | De **portfolio-pagina** (`/p/<code>` en `/analyse`): `#laadFout` en `#dashboardSection` (zijmenu + `.content`). Elk tabblad heeft een eigen verborgen blok `<div id="tab-<view>" data-views="<view>">` met de vaste opmaak erin (koppen, uitleg, formuliervelden, lege containers); de scripts in `static/js/tabs/` vullen alleen in. Eén gedeelde `<canvas id="rendementChart">` in `#chartWrapper` dient voor **alle** grafiek-tabbladen en verhuist naar het `data-grafiek-plek` van het actieve tabblad. |
 | `static/js/app.js` | Opstarten, gedeelde toestand en navigatie van de portfolio-pagina (~300 regels): `huidigeData`, `chart`, `verrijkingStatus`; `startPortfolioPagina()`, `haalPortfolioOp()`, `toonDashboard()` met `RESET_PER_TAB`; `wisselView()`, `pasViewToe()`, `plaatsGrafiek()`, `gaNaarView()`, `TOON_PER_VIEW`, `VIEWS_MET_CODE`; `laadVerrijking()` en `toonVerrijkingWachtstatusIndienNodig()`; de hoofdtabs/subtabs (`ververMenu()`, met de scroll-fades via `werkSubTabFadesBij()`) en de ticker-waarschuwingsbanner. Laadt als laatste script. |
 | `static/js/gedeeld/` | Hulpfuncties met DOM of Chart.js die meerdere tabbladen gebruiken (alleen portfolio-pagina, geen tests): `opmaak.js` (`formatDatum()`, `formatteerEuro()`, `formatPct()`, `klasseVoorRendement()`, `kortNaam()`, `toonAlleen()`), `grafiek.js` (kleurenpalet, `kleurVoorIndex()`, `kleurVoorTicker()`, `maakStrepenPatroon()`, `updateChart()`, `renderGestapeldeStaafgrafiek()`), `tabel.js` (`maakSorteerbareTabel()`, `maakCel()`, `maakRendementCel()`) en `tegels.js` (`maakStatTegel()`, `maakTotalenSectie()`). Niet te verwarren met `gedeeld.js`: dat delen de start- en de portfolio-pagina. |
-| `static/js/tabs/` | Eén bestand per tabblad met de DOM-code van dat tabblad: de `toon...()`-functie, de eigen toestand (met een `reset...()`-functie als die per portfolio geldt, zie 5.2), de `fetch()`-aanroepen en de event-listeners. Welk bestand bij welk tabblad hoort staat in 5.4. `land_sector.js` bedient vier tabbladen (Land, Sector, Valuta en Beurs delen de weergavekeuze). Staat er een bestand met dezelfde naam direct in `static/js/` (`prognose.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `diagnostiek.js`, `per_aandeel.js`, `land_sector.js`), dan is dat de pure, geteste rekenkern en het bestand in `tabs/` de DOM-kant. |
+| `static/js/tabs/` | Eén bestand per tabblad met de DOM-code van dat tabblad: de `toon...()`-functie, de eigen toestand (met een `reset...()`-functie als die per portfolio geldt, zie 5.2), de `fetch()`-aanroepen en de event-listeners. Welk bestand bij welk tabblad hoort staat in 5.4. `land_sector.js` bedient vier tabbladen (Land, Sector, Valuta en Beurs delen de weergavekeuze). Staat er een bestand met dezelfde naam direct in `static/js/` (`prognose.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `diagnostiek.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`), dan is dat de pure, geteste rekenkern en het bestand in `tabs/` de DOM-kant. |
 | `static/js/start.js` | De startpagina: submit-handlers van `#uploadForm` en `#codeForm`, `gaNaarPortfolioPagina()`, `toonStartMelding()`. |
 | `static/js/gedeeld.js` | DOM-helpers voor beide pagina's: `fetchMetTimeout()`, `UPLOAD_TIMEOUT_MS`, `toonLaadOverlay()`/`verbergLaadOverlay()`, `sessieOpslag()`, `koppelBestandWisKnop()` (startpagina en Bestanden bijwerken). |
 | `static/js/navigatie.js` | Pure logica voor paden en URL's: `portfolioPad()`, `startPadMetMelding()`, `viewUitHash()`, `viewInLijst()`, `elementZichtbaar()` (zichtbaarheid uit `data-views` en `data-vereist-code`), `maakTabWisselaar()` (de fade tussen tabbladen, zie 5.3), `startMeldingTekst()` en de constanten (`START_PAD`, `ANALYSE_PAD`, `STANDAARD_VIEW`, de meldingsleutels). |
 | `static/js/overdracht.js` | Pure logica voor de eenmalige overdracht start → portfolio-pagina: `bewaarOverdracht(opslag, data)`, `haalOverdracht(opslag, code)` (wist na lezen). De opslag komt als parameter mee, zodat de test een nep-object kan gebruiken. |
 | `static/js/prognose.js` | Rekenkern van het Prognose-tabblad: `berekenPrognose()` (gebruikt `berekenPrognosePad()`, `berekenGeinvesteerdPad()` en `maandRenteVanJaarPct()`), `valideerPrognoseInvoer()` (met `{ metInleg: false }` zonder inlegvelden), `genereerToekomstDatums()`, `berekenDividendCumulatief()` en `bouwPrognoseGrafiekData()` (optioneel `dividendYield`: extra lijn waarde + verwacht dividend). Puur JS, geen DOM. Maandrente = `(1 + jaarrendement)^(1/12) − 1`; inleg komt na de groei van die maand erbij. |
-| `static/js/menu.js` | `MENU_GROEPEN` (hoofdtabs, subtabs, tandwiel) en de pure functies `groepVanView()`, `eersteView()`, `zichtbareGroepen()`, `zichtbareViews()` en `scrollFades()` (aan welke kant van de subtab-rij een fade hoort). |
+| `static/js/menu.js` | `MENU_GROEPEN` (hoofdtabs, subtabs, tandwiel; `inOntwikkeling` markeert een tabblad in ontwikkeling) en de pure functies `groepVanView()`, `eersteView()`, `zichtbareGroepen()`, `zichtbareViews()`, `menuViews()` (subtab-chips, incl. grijze uitgeschakelde), `ontwikkelViews()`, `uitgeschakeldeViews()`, `leesAanGezet()` (met `ONTWIKKEL_OPSLAG_SLEUTEL`) en `scrollFades()` (aan welke kant van de subtab-rij een fade hoort). |
 | `static/js/transacties.js` | Sorteren en pagineren voor het Transacties-tabblad: `sorteerTransacties()`, `totaalPaginas()`, `pagineer()`. De tabelbouwer `maakSorteerbareTabel()` gebruikt de laatste twee voor elke tabel met paginering. |
 | `static/js/dividend.js` | Pure logica voor de dividendgrafiek: `bouwDividendDatasets()` (één dataset per ticker; bij één datum zichtbare punten, `DIVIDEND_ENKEL_PUNT_RADIUS`, omdat één punt geen lijn geeft). |
 | `static/js/bedrijven.js` | Pure logica voor het Top-N-bedrijven-tabblad: `maakBedrijfsnaamLeesbaar()` en `maakUniekeWeergaveNamen()` (nettere namen, **alleen voor weergave**; de ruwe naam blijft de sleutel), `breekLabelAf()`, `effectieveTopN()`, `kiesTopN()`, `snijTopBedrijven()` (lijst inkorten tot N en het restant herberekenen), `gebruikHorizontaleStaven()`, `bedrijvenTitel()` en de constante `BEDRIJVEN_TOP_N_KNOPPEN`. |
@@ -1550,6 +1780,7 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 | `static/js/koersen.js` | Pure logica voor de meldingen bovenaan het dashboard en de splitlabels: `koersMeldingTekst()` (koersen nog niet compleet / ontbreken, uit de koersstatus van de kern), `tickerWaarschuwingTekst()` (de bannertekst per reden), `splitLabel()` (zelfde tekst als `split_tekst()` in Python) en `splitLabelIndex()` (op welk grafieklabel een split valt). |
 | `static/js/per_aandeel.js` | Pure logica voor Per aandeel: `aandeelLandSectorRegels()` maakt van `land_sector_verdeling.per_aandeel` de regels Land/Sector ("onbekend" grijs); `null` voor een ETF of als de verrijking er nog niet is. De DOM-kant is `toonAandeelLandSector()` in `tabs/per_aandeel.js`. |
 | `static/js/land_sector.js` | Pure logica voor de landbron van ETF's: `landProxyBijschrift()` ("Land benaderd via … (top-10 wijkt max. X pp af)", `null` zonder proxy) en `landDekkingRegels()` (de regels onder de landgrafiek: eerst de ETF's met alleen een top-10, dan één regel per proxy). Gebruikt door `toonLand()` (`tabs/land_sector.js`) en `toonEtfDrilldown()` (`tabs/per_aandeel.js`). |
+| `static/js/etf_overlap.js` | Pure logica voor ETF-overlap: `etfWeergaveNaam()` kiest de naam in de matrix (korte naam uit `yahooNamen`, anders de huidige bijnaam, anders de ticker). **Alleen weergave**: er wordt niets opgeslagen. De DOM-kant is `renderEtfOverlapTabel()` in `tabs/etf_overlap.js`. |
 | `static/js/bestandskeuze.js` | `bestandSelectieWeergave()`: welke tekst de rij "gekozen bestand + x-knop" onder een bestandsveld toont (DOM-kant: `koppelBestandWisKnop()` in `gedeeld.js`), en `bijwerkenSuccesTekst()`: de melding na Bestanden bijwerken. Beide pagina's laden dit bestand. |
 | `static/js/infotip.js` | Bouwt van `<span class="infoTip">` een (i)-knop met tooltip (`initInfoTips()`, start vanzelf bij `DOMContentLoaded`). Raakt de DOM, heeft geen exports en (nog) geen test. |
 | `static/css/style.css` | Opmaak, één bestand (~1350 regels) met bovenaan een inhoudsopgave en zes secties: 1 basis (reset, elementen, `[hidden]`), 2 layout en menu, 3 gedeelde componenten, 4 per tabblad, 5 hulpklassen die moeten winnen (kleuren `.positief`/`.negatief`/`.mild`/`.gedempt`/`.vet` en marges `.margeBoven10`, `.margeOnder15`, ...), 6 mobiel. Sectie 5 staat bewust na 3 en 4: bij gelijke specificiteit wint de latere regel. Onder `@media (max-width: 768px)` (en liggend tot 900 px) worden de hoofdtabs een vaste onderbalk. `.badge` (+ kleurvarianten `.badgeHerinvesteerd`, `.badgeDeelsVerkocht`, `.badgeGesloten`) is het kleine label in een tabelcel. Wat de JS bouwt krijgt zijn opmaak uit klassen, niet uit inline stijlen: `.dataTabel`/`.compacteTabel`/`.kleineTabel`/`.overlapMatrix` (tabellen), `.tegelRij`/`.statTegel`/`.statWaarde` (tegels), `.tickerKaart` en verwanten (Ticker-zekerheid), `.paginaNavigatie`. Ook `portfolio.html` heeft geen inline stijlen meer, op `style="display: none;"` na (elementen die JS of de zichtbaarheidslogica aan- en uitzet). In JS blijft inline alleen wat uit data of de zichtbaarheidslogica komt: `display`, de hoogte van de Top-bedrijven-grafiek en de celkleur in de overlap-matrix. Zet JS een klasse met `className =` op een element uit de HTML, neem dan de vaste klasse van dat element mee (zoals `"melding foutTekst"` bij `#instellingenMsg`). Er is geen dark mode. |
@@ -1558,7 +1789,7 @@ Herstel: het portfolio verwijderen (Instellingen) en het bestand opnieuw uploade
 De portfolio-pagina laadt in de `<head>` de externe bibliotheken van cdnjs (Chart.js 4.4.0, hammer.js 2.0.8, chartjs-plugin-zoom 2.0.1, chartjs-plugin-datalabels 2.2.0,
 chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1) en na de gedeelde scripts, in deze volgorde:
 
-1. de pure modules `prognose.js`, `menu.js`, `bestandskeuze.js`, `diagnostiek.js`, `bedrijven.js`, `transacties.js`, `dividend.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`;
+1. de pure modules `prognose.js`, `menu.js`, `bestandskeuze.js`, `diagnostiek.js`, `bedrijven.js`, `transacties.js`, `dividend.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`;
 2. `gedeeld/opmaak.js`, `gedeeld/grafiek.js`, `gedeeld/tabel.js`, `gedeeld/tegels.js`;
 3. de tabbladen in menuvolgorde: `tabs/portfolio.js`, `rendement.js`, `per_aandeel.js`, `per_aandeel_aankoop.js`, `verdeling.js`, `land_sector.js`, `bedrijven.js`, `etf_overlap.js`, `statistieken.js`, `transacties.js`, `prognose.js`, `dividend.js`, `instellingen.js`, `bestanden_bijwerken.js`, `bijnamen.js`, `ticker_zekerheid.js`, `diagnostiek.js`;
 4. als laatste `app.js`.
@@ -1569,7 +1800,7 @@ Ze zijn gewone `<script>`-tags, geen ES-modules. `tests/test_scripts.js` bewaakt
 
 **Browsercache.** De script- en CSS-adressen hebben geen versie-parameter. Flask stuurt statische bestanden met `Cache-Control: no-cache` en een `ETag` (`SEND_FILE_MAX_AGE_DEFAULT` is niet ingesteld): de browser mag ze bewaren, maar vraagt bij elke paginalading per bestand na of het veranderd is. Na een deploy krijg je dus vanzelf de nieuwe scripts; een harde refresh (Ctrl+F5) is alleen nodig als er iets tussen zit dat die header negeert.
 
-**Het "pure module"-patroon.** `prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `diagnostiek.js`, `bestandskeuze.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js` en `land_sector.js` zijn een IIFE `(function (root) { ... })(window of globalThis)` die aan het eind ofwel
+**Het "pure module"-patroon.** `prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `diagnostiek.js`, `bestandskeuze.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js` en `etf_overlap.js` zijn een IIFE `(function (root) { ... })(window of globalThis)` die aan het eind ofwel
 `module.exports` zet (onder Node, voor de tests) ofwel `Object.assign(root, exportsObj)` (in de browser). Daardoor worden hun functies gewone **globale functies** die `app.js`, `start.js` en de scripts in `gedeeld/` en `tabs/`
 zonder `import` kunnen aanroepen — en tegelijk zijn ze met `node --test` te testen zonder browser. Zo'n bestand raakt bewust geen DOM aan.
 
@@ -1593,7 +1824,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 - `sessionStorage` wordt alleen gebruikt voor de eenmalige overdracht van de startpagina naar de portfolio-pagina (zie 2.6), en die wordt na het lezen gewist. Pagina verversen op `/p/<code>` haalt de portfolio dus opnieuw op bij de server (zie 2.8); op `/analyse` ga je terug naar de startpagina.
 - Overige gedeelde toestand in `app.js`: `chart`, `verrijkingStatus` (`null`/`"laden"`/`"fout"`/`"klaar"`) en `actieveView`.
 - Toestand van één tabblad staat bovenaan het bestand van dat tabblad in `tabs/`: `prognoseInvoer` en `prognoseResultaat` (`prognose.js`), `benchmarkVergelijkingData` en `eigenAandeelVergelijkingData` (`rendement.js`),
-  `transactiesRuweLijst` en `transactiesStaat` (sorteerkolom, richting, pagina, rijen per pagina; `transacties.js`), `landSectorWeergave` (`"taart"`/`"staaf"`, `land_sector.js`), `meerHistorieUitgeput` (`per_aandeel_aankoop.js`), `bedrijvenTopN` en `bedrijvenChart` (`bedrijven.js`), `etfOverlapMetVerkocht` (`etf_overlap.js`), `yahooNamen` en de laadstatus ervan (`bijnamen.js`), en
+  `transactiesRuweLijst` en `transactiesStaat` (sorteerkolom, richting, pagina, rijen per pagina; `transacties.js`), `landSectorWeergave` (`"taart"`/`"staaf"`, `land_sector.js`), `meerHistorieUitgeput` (`per_aandeel_aankoop.js`), `bedrijvenTopN` en `bedrijvenChart` (`bedrijven.js`), `etfOverlapMetVerkocht` (`etf_overlap.js`), `yahooNamen` en de laadstatus ervan (`bijnamen.js`, ook gelezen door `etf_overlap.js`), en
   `diagnostiekMeldingen` + `diagnostiekOpenKeuze` (de meldingen van de laatste laadbeurt en welke categorieën je zelf open/dicht hebt gezet; `diagnostiek.js`).
 - **Resetten bij een nieuwe portfolio.** Elk tab-bestand met toestand die bij één portfolio hoort, heeft een eigen `reset...()` zonder parameters: `resetDiagnostiek()`, `resetPrognose()` (resultaat, dividend-vinkje en opgehaald dividend van beide prognose-tabbladen; de invoer blijft), `resetRendement()` (ook de twee keuzelijsten), `resetPerAandeelAankoop()`, `resetTransacties()` (rijen per pagina blijft), `resetEtfOverlap()` en `resetKorteNamen()` (de opgehaalde Yahoo-namen van Bijnamen). `toonDashboard()` roept ze allemaal aan via de lijst `RESET_PER_TAB` in `app.js`. Bewust zonder reset: `land_sector.js` (taart/staaf-keuze) en `bedrijven.js` (gekozen top-N); dat zijn weergavekeuzes die over portfolio's heen blijven staan. `tests/test_scripts.js` controleert dat elke functie in `RESET_PER_TAB` bestaat en dat elk ander tab-bestand met een `let` op het hoogste niveau een reset in de lijst heeft (op die twee uitzonderingen na, die met reden in de test staan).
 
@@ -1611,9 +1842,10 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
    (b) **Tekenen.** Het object `TOON_PER_VIEW` koppelt elke view aan zijn `toon...()`-functie (zie de tabel hieronder); `TOON_PER_VIEW[view]?.()` roept hem aan (`?.` = alleen als er een functie is; `instellingen` heeft er geen).
 4a. Website (breed scherm): de pagina vult de schermbreedte. Samenvatting, Dividend, Rendement, Prognose, Top-bedrijven en de twee Posities-tabbladen hebben `<div class="tabSplit">` met links `.tabInfo` (informatie, instellingen) en rechts `.tabGrafiek` (de gedeelde grafiek via `data-grafiek-plek`); de grid-regels staan in een desktop-`@media` in `style.css`, op mobiel blijft het blokken onder elkaar. Bij Posities vervangen de knoppen in `[data-aandeel-knoppen]` (`bouwAandeelKnoppen()` in `tabs/per_aandeel.js`) de dropdown `#aandeelSelect` op de website; de select blijft de bron van de keuze, een klik zet hem en stuurt een `change`-event. De dropdown is op de website met CSS verborgen, de knoppen op mobiel.
 4. Mobiel (zelfde breakpoint als voorheen): de hoofdtabs zijn een vaste onderbalk (`env(safe-area-inset-bottom)`), de subtabs een horizontaal scrollbare rij bovenaan de content. Past die rij niet, dan vaagt de kant met verborgen chips uit: `werkSubTabFadesBij()` (`app.js`) zet `fadeLinks`/`fadeRechts` op `#subTabs` na elke `ververMenu()`, bij scrollen en bij `resize` (ook schermrotatie), op basis van `scrollFades()`. De fade is een `mask-image` op de rij zelf, geen overlay: hij klopt op elke achtergrond en blokkeert geen kliks. Het eerste subtab van Overzicht heet "Samenvatting" (view `portfolio`). Een `matchMedia("(max-width: 768px)")`-listener (in `tabs/bedrijven.js`) hertekent het Top-N-bedrijven-tabblad (staand/liggend, zie `tekenBedrijven()`) bij het kantelen van het scherm of een venster-formaatwijziging over dat breakpoint heen, als dat tabblad open staat.
-5. Bij een "niet opslaan"-analyse (`data.code` is leeg) verbergt `ververMenu()` de subtabs Algemeen, Bestanden bijwerken en Bijnamen (`VIEWS_MET_CODE`); Dividend en Transacties lezen `huidigeData.dividend` en `huidigeData.transacties_lijst`. Een hash naar zo'n tabblad valt dan terug op `portfolio`.
+5. Bij een "niet opslaan"-analyse (`data.code` is leeg) verbergt `ververMenu()` de subtabs Bestanden bijwerken en Bijnamen (`VIEWS_MET_CODE`); Algemeen blijft bereikbaar (voor de schuifknoppen), alleen verwijderen en code wijzigen verdwijnen daar (`data-vereist-code="ja"`); Dividend en Transacties lezen `huidigeData.dividend` en `huidigeData.transacties_lijst`. Een hash naar zo'n tabblad valt dan terug op `portfolio`.
 6. "Nieuwe upload" staat links in de header en is een gewone link naar `/`.
 7. Instellingen: na "Code wijzigen" past `history.replaceState()` de URL aan naar `/p/<nieuwe code>` (zonder herladen, de hash blijft staan); na verwijderen gaat de pagina met `location.replace()` naar `/?melding=verwijderd`, zodat de terug-knop niet op de verwijderde portfolio uitkomt.
+8. Tabbladen in ontwikkeling (`inOntwikkeling: true` in `MENU_GROEPEN`, nu alleen Box 3) staan standaard uit. De keuze staat per browser in `localStorage` (`ONTWIKKEL_OPSLAG_SLEUTEL`, via `lokaleOpslag()` in `gedeeld.js`; zonder opslag staat alles uit). Uit: de chip blijft zichtbaar maar grijs en `disabled` (`.subTab.uitgeschakeld`), de view telt niet mee in `toegestaneViews()` (een hash erheen valt terug op `portfolio`, `eersteView()` slaat hem over). Aanzetten gaat met een schuifknop in Instellingen > Algemeen (`tabs/instellingen.js`, gegenereerd uit `ontwikkelViews()`); omzetten roept direct `ververMenu()` aan. Een tweede tabblad in ontwikkeling = alleen het veld toevoegen.
 
 ### 5.4 Tabel per tabblad
 
@@ -1629,7 +1861,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 | Valuta (`valuta`) | `land_sector.js` | `toonValuta()` | `valuta_verdeling.valuta` / `valuta_per_bron` (verrijking) | idem (zelfde taart/staaf-keuze als Land en Sector) |
 | Beurs (`beurs`) | `land_sector.js` | `toonBeurs()` | `beurs_verdeling` (`beurs` / `beurs_per_bron`, met vinkje `beurs_euronext` / `beurs_euronext_per_bron`; `aantal_beurzen(_euronext)`) (verrijking) | idem; erboven "Je posities staan op X beurzen." (`#beursTekst`), eronder vinkje "Euronext-beurzen samenvoegen" (`#euronextCheckbox`) |
 | Top N bedrijven (`bedrijven`) | `bedrijven.js` | `toonBedrijven()` (en `tekenBedrijven()`) | `bedrijven_verdeling` (verrijking) | gestapelde staaf (`renderGestapeldeStaafgrafiek()`), met keuzeknoppen 10/20/50 en een invulveld |
-| ETF-overlap (`etfoverlap`) | `etf_overlap.js` | `renderEtfOverlapTabel()`; klik op een vakje → `toonEtfOverlapDetail()` | `etf_overlap`; detail via `GET /api/etf-overlap-detail?a=&b=` | **HTML-tabel**, geen Chart.js: matrix met achtergrondintensiteit; detailtabel `maakEtfOverlapDetailTabel()` |
+| ETF-overlap (`etfoverlap`) | `etf_overlap.js` | `renderEtfOverlapTabel()`; klik op een vakje → `toonEtfOverlapDetail()` | `etf_overlap`; detail via `GET /api/etf-overlap-detail?a=&b=`; korte namen via `GET .../korte-namen` (`laadYahooNamen()`, gedeeld met Bijnamen) | **HTML-tabel**, geen Chart.js: matrix met achtergrondintensiteit; detailtabel `maakEtfOverlapDetailTabel()`. Eerst met de huidige namen; met een code en status `leeg` start `laadYahooNamen()` op de achtergrond, daarna hertekent de matrix met de korte namen (`etfWeergaveNaam()`). Na `fout` geen nieuwe poging (anders een lus van requests); bij niet opslaan geen request |
 | Statistieken (`statistieken`) | `statistieken.js` | `toonStatistieken()` | `huidigeData.statistieken` | tabellen (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`, `maakJarenTabel()`, `maakGeavanceerdSectie()`) via `maakSorteerbareTabel()`; geen grafiek |
 | Transacties (`transacties`) | `transacties.js` | `toonTransacties()`, `renderTransactiesTabel()` | `GET .../transacties` (één keer, dan onthouden in `transactiesRuweLijst`); bij "niet opslaan" `huidigeData.transacties_lijst` | `maakSorteerbareTabel()` met `TRANSACTIES_KOLOMMEN`, de toestand `transactiesStaat` en `sorteerTransacties()` als sortering: sorteren over de **volledige** lijst en paginering (25 of 50 per pagina); kolommen o.a. Beurs en Wisselkoers (`—` als leeg) |
 | Rendement, %-weergave | `rendement.js` | `toonRendementOverTijd()` (via de €/%-schakelaar in `toonRendement()`) | `GET .../rendement-over-tijd` (bij elke keer opnieuw) | lijngrafiek met drie lijnen Rendement%, XIRR%, TWR% (tooltip via `formatPct`); alleen met code |
@@ -1638,7 +1870,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 | Box 3 (`box3`) | `box3.js` (pure helpers: `leesBox3Bedrag()`, `bouwBox3Invoer()`, `box3GrafiekReeksen()`, `box3RenteWaarschuwing()`, `box3AllesVerkopenReeks()`) en `tabs/box3.js` | `toonBox3()`, `berekenBox3()`, `renderBox3()` | basis via `GET .../box3` (één keer per portfolio, in `box3Basis`) of `huidigeData.box3_basis`; daarna bij openen en bij elke invoerwijziging (debounce 400 ms) `POST /api/box3/bereken`. De invoer wordt nergens opgeslagen | staafgrafiek per jaar, drie stelsels naast elkaar (`updateStaafChart()` in `gedeeld/grafiek.js`); tegels; per stelsel een uitleg en een jaartabel (`maakSorteerbareTabel()`) met badges "tot vandaag", "geschat", "voorlopig", "kosten onvolledig"; tabel met verkopen. Vinkje "Toon B als ik nu alles verkoop" (`#box3AllesVerkopen`) voegt een grijze staaf in het lopende jaar toe (zonder nieuwe aanvraag, uit `box3LaatsteBerekening`); waarschuwing bij spaargeld zonder rente; badge "tegenbewijs tot vandaag" in het lopende jaar van het huidige stelsel |
 | Instellingen (`instellingen`) | `instellingen.js` | *(geen toon-functie; statisch blok `#tab-instellingen`, het bestand bevat alleen de listeners van de twee knoppen)* | `DELETE /api/portfolio/<code>`; `POST .../wijzig-code` | twee formulier-achtige knoppen: data verwijderen, code wijzigen |
 | Bestanden bijwerken (`instellingen-bestanden`) | `bestanden_bijwerken.js` | *(geen toon-functie; statisch formulier `#bestandenBijwerkenForm`)* | `POST .../bijwerken` | twee bestandsvelden (transacties, rekeningoverzicht) met x-knop; na succes `toonDashboard(data)` en een melding |
-| Bijnamen (`instellingen-bijnamen`) | `bijnamen.js` | `toonInstellingen()`, `renderBijnamen()`; `laadYahooNamen()`, `pasBijnamenToe()` | `huidigeData.tickers`; `GET .../korte-namen` (Yahoo-naam en kort voorstel per ticker, één keer per portfolio); `POST .../bijnamen` | per ticker drie knoppen (Excel-, Yahoo- en korte naam) en een invoerveld (Enter slaat op), plus een balk "Alles:" die één bron voor alle posities toepast |
+| Bijnamen (`instellingen-bijnamen`) | `bijnamen.js` | `toonInstellingen()`, `renderBijnamen()`; `laadYahooNamen()`, `pasBijnamenToe()` | `huidigeData.tickers`; `GET .../korte-namen` (Yahoo-naam en kort voorstel per ticker, één keer per portfolio, gedeeld met ETF-overlap: `laadYahooNamen()` start geen tweede request zolang er een loopt en hertekent daarna het actieve tabblad); `POST .../bijnamen` | per ticker drie knoppen (Excel-, Yahoo- en korte naam) en een invoerveld (Enter slaat op), plus een balk "Alles:" die één bron voor alle posities toepast |
 | Ticker-zekerheid (`instellingen-ticker`) | `ticker_zekerheid.js` | `toonInstellingenTicker()` (opgeslagen) of `toonInstellingenTickerBasis()` (niet opslaan) | `GET .../ticker-zekerheid/lijst`, dan per positie `GET .../ticker-zekerheid/positie` (maximaal 4 tegelijk, `voerMetConcurrencyLimietUit()`, `TICKER_POSITIE_TIMEOUT_MS` = 30 s per aanroep); bij "niet opslaan" `huidigeData.ticker_zekerheid` en `POST /api/ticker-zekerheid-check` | kaarten per positie (`maakTickerZekerheidKaart()`, `maakPrijscontroleTabel()`, `maakAlternatievenTabel()`, ...); beide tabellen beoordelen op "Binnen dagrange" (alternatieven als `matches/gecontroleerd`, uitleg in `DAGRANGE_UITLEG`), de %-afwijking wordt niet meer getoond; de prijscontroletabel heeft een kolom "Afstand tot range" (`afstand_dagrange_pct`, `afstandTekst()`). Bij een ISIN-keten een regel "ISIN: A → B". Bij een `aanbevolen_alternatief` de knop "Gebruik ... als ticker" (`maakTickerWijzigKnop()`, `POST .../ticker-zekerheid/wijzig`). Bovenaan de knop "Controleer alle aankoop-/verkoopprijzen" (`controleerAllePrijzen()`: per positie `GET .../ticker-zekerheid/alle-prijzen`, maximaal 4 tegelijk, met een totaal en de grootste afstand tot de range) |
 | Diagnostiek (`instellingen-diagnostiek`) | `diagnostiek.js` | `toonDiagnostiek()` | **geen eigen API**: de `diagnostiek`-sleutel uit de antwoorden van upload, ophalen en `/verrijking`, verzameld in `diagnostiekMeldingen` | teller + één inklapbaar `<details>`-blok per categorie (zie `diagnostiek.py` in hoofdstuk 3); een melding met `tabel` krijgt een scrollbare tabel eronder (`maakDiagnostiekTabel()`) |
 
@@ -1700,8 +1932,8 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 - **Python:** `unittest` (geen pytest), 87 bestanden `tests/backend/test_*.py` met samen 953 `def test_...`-methodes (geteld op 08-10-2026). `tests/backend/` heeft een
   `__init__.py`; elk bestand zet daarnaast zelf `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt. `tests/db_helper.py` staat één map hoger.
-- **JavaScript:** 15 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 08-10-2026 slaagden alle 204 tests (`test_prognose.js` 32, `test_menu.js` 19, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 6, `test_diagnostiek.js` 14, `test_navigatie.js` 32, `test_overdracht.js` 10, `test_dividend.js` 6, `test_koersen.js` 10, `test_per_aandeel.js` 3, `test_land_sector.js` 4, `test_box3.js` 7, `test_getallen.js` 7, `test_scripts.js` 10).
-  Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `bestandskeuze.js`, `diagnostiek.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`).
+- **JavaScript:** 16 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 09-10-2026 slaagden alle 214 tests (`test_prognose.js` 32, `test_menu.js` 24, `test_transacties.js` 14, `test_bedrijven.js` 30, `test_bestandskeuze.js` 6, `test_diagnostiek.js` 14, `test_navigatie.js` 32, `test_overdracht.js` 10, `test_dividend.js` 6, `test_koersen.js` 10, `test_per_aandeel.js` 3, `test_land_sector.js` 4, `test_box3.js` 7, `test_etf_overlap.js` 5, `test_getallen.js` 7, `test_scripts.js` 10).
+  Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `bestandskeuze.js`, `diagnostiek.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`).
   Drie bestanden lezen daarnaast bronbestanden als tekst: `test_menu.js` (`style.css` en `basis.html`, mobiele CSS-regels), `test_navigatie.js` (`portfolio.html`: tabblad-blokken, `data-views`, `data-verberg-buiten`, `data-vereist-code`, `data-grafiek-plek`, en de id's uit de toestand-lijsten in `tabs/`) en `test_scripts.js` (script- en stylesheet-tags in de templates tegen de bestanden in `static/`, en `RESET_PER_TAB` tegen de tab-bestanden, zie 5.1 en 5.2).
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
 - **Wat ik zelf gedaan heb:** op 06-10-2026 de JS-tests (170 geslaagd). De Python-suite is bij deze controle niet opnieuw gedraaid (de aantallen hierboven zijn geteld); de vorige keer, met een lege `DATABASE_URL` in Git Bash (in cmd werkt dat niet, zie 7.3), slaagden alle uitgevoerde tests. De 16 **[DB]**-bestanden draaien zonder lokale database alleen hun database-vrije klassen; de rest wordt overgeslagen (zie hieronder).
@@ -1732,7 +1964,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand (of een deel ervan) word
 | `db.py` (echte database) | `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_koersen_tabellen_db.py` (6: `koersen`, `koers_splits`) — allemaal **[DB]**; `test_order_ids_en_transactie.py` (7: `db_transactie()` database-vrij, de gerichte Order ID-queries en `find_matching_code()` **[DB]**) |
 | `tests/db_helper.py` (de skip-decorator zelf) | `test_db_helper.py` (8, database-vrij: alleen localhost/127.0.0.1 toegestaan, Neon-URL geweigerd vóór een verbindingspoging) |
 | Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | database-vrij: `test_pagina_routes.py` (10, de pagina-routes `/`, `/p/<code>` en `/analyse`; bewaakt ook dat elk element-id uit alle scripts die een pagina laadt op die pagina bestaat en dat `maxlength` uit `CODE_LENGTH` komt), `test_basis_cache.py` (3), `test_herbepaal_tickers_ophalen_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (5), `test_koersstatus.py` (4: `bepaal_koersstatus()` en `splits_voor_grafiek()`), `test_korte_namen_routes.py` (11), `test_niet_opslaan_overzichten.py` (10), `test_upload_verwerking.py` (7), `test_bestanden_bijwerken.py` (21, eigendomscheck, ongeldig rekeningoverzicht en `/bijwerken` met gemockte database); `test_bronkolommen.py` (9: de zes bronkolommen inlezen database-vrij; opslaan en aanvullen **[DB]**); `test_upload_route_foutafhandeling.py` (10, deels **[DB]**; o.a. rollback en sluiten van de schrijftransactie in de opslaan-tak); **[DB]**: `test_gefaseerd_laden.py` (5), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_ticker_zekerheid_positie_route.py` (5, ook `/wijzig` over een keten), `test_corporate_action_filtering.py` (7) |
-| JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js`, `test_bestandskeuze.js`, `test_diagnostiek.js`, `test_navigatie.js`, `test_overdracht.js`, `test_dividend.js`, `test_koersen.js`, `test_per_aandeel.js`, `test_land_sector.js`, `test_box3.js`, `test_getallen.js`, `test_scripts.js` |
+| JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js`, `test_bestandskeuze.js`, `test_diagnostiek.js`, `test_navigatie.js`, `test_overdracht.js`, `test_dividend.js`, `test_koersen.js`, `test_per_aandeel.js`, `test_land_sector.js`, `test_box3.js`, `test_etf_overlap.js`, `test_getallen.js`, `test_scripts.js` |
 
 **Niet (direct) getest, voor zover ik zag:** `dprint()` in `debug_utils.py` (`meet_tijd()` wel, via `test_diagnostiek_laden.py`), `infotip.js`, `gedeeld.js`, `start.js`, `app.js` en de scripts in `gedeeld/` en `tabs/` (alles met DOM).
 
@@ -1753,7 +1985,7 @@ Andere commando's (met `.env` hernoemd zoals hierboven):
 python -m unittest discover -s tests -p "test_rendement.py" -v
 
 :: alle JavaScript-tests (zelfde commando als de CI, geen database nodig)
-node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js tests/test_navigatie.js tests/test_overdracht.js tests/test_dividend.js tests/test_koersen.js tests/test_per_aandeel.js tests/test_land_sector.js tests/test_box3.js tests/test_getallen.js tests/test_scripts.js
+node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js tests/test_navigatie.js tests/test_overdracht.js tests/test_dividend.js tests/test_koersen.js tests/test_per_aandeel.js tests/test_land_sector.js tests/test_box3.js tests/test_etf_overlap.js tests/test_getallen.js tests/test_scripts.js
 ```
 
 `set DATABASE_URL=` werkt in cmd **niet**: het verwijdert de variabele, en daarna leest `load_dotenv()` de Neon-URL uit `.env` alsnog in. Alleen in Git Bash werkt een lege waarde: `DATABASE_URL= python -m unittest discover -s tests -v`.

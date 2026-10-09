@@ -11,7 +11,7 @@
                 { view: "portfolio", label: "Samenvatting" },
                 { view: "statistieken", label: "Statistieken" },
                 { view: "dividend", label: "Dividend" },
-                { view: "box3", label: "Box 3" },
+                { view: "box3", label: "Box 3", inOntwikkeling: true },
                 { view: "transacties", label: "Transacties" },
             ],
         },
@@ -73,6 +73,33 @@
         return MENU_GROEPEN.filter(g => zichtbareViews(g, toegestaneViews).length > 0);
     }
 
+    // Per browser (localStorage): JSON-lijst van de aangezette views met inOntwikkeling.
+    const ONTWIKKEL_OPSLAG_SLEUTEL = "ontwikkelTabsAan";
+
+    function ontwikkelViews() {
+        return MENU_GROEPEN.flatMap(g => g.views.filter(v => v.inOntwikkeling).map(v => ({ view: v.view, label: v.label })));
+    }
+
+    function uitgeschakeldeViews(aanGezet) {
+        return ontwikkelViews().map(v => v.view).filter(v => !aanGezet.includes(v));
+    }
+
+    function leesAanGezet(tekst) {
+        try {
+            const lijst = JSON.parse(tekst);
+            return Array.isArray(lijst) ? lijst.filter(v => typeof v === "string") : [];
+        } catch (_) {
+            return [];
+        }
+    }
+
+    // Een uitgeschakelde ontwikkel-view staat niet in toegestaneViews maar blijft als (grijze) chip zichtbaar.
+    function menuViews(groep, toegestaneViews, uitgeschakeld) {
+        return groep.views
+            .filter(v => toegestaneViews.includes(v.view) || (v.inOntwikkeling && uitgeschakeld.includes(v.view)))
+            .map(v => ({ ...v, uitgeschakeld: uitgeschakeld.includes(v.view) }));
+    }
+
     // 1 px marge: scrollLeft is op telefoons met zoom vaak een gebroken getal.
     function scrollFades(scrollLeft, scrollWidth, clientWidth) {
         return {
@@ -81,7 +108,10 @@
         };
     }
 
-    const exportsObj = { MENU_GROEPEN, groepVanView, eersteView, zichtbareGroepen, zichtbareViews, scrollFades };
+    const exportsObj = {
+        MENU_GROEPEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen, zichtbareViews,
+        ontwikkelViews, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades,
+    };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

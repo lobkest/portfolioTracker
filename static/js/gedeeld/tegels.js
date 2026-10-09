@@ -1,5 +1,8 @@
 // Tegels met een label en een grote waarde (Portfolio-home en Statistieken).
 
+// Tijdelijk uit: de DeGiro-totaaltegel moet nog nagekeken worden; op true zetten om hem terug te zien.
+const TOON_TOTAAL_DEGIRO_TEGEL = false;
+
 function maakStatTegel(label, waardeTekst, klasse) {
     const tegel = document.createElement("div");
     tegel.className = "statTegel";
@@ -37,7 +40,7 @@ function maakTotalenSectie(totalen) {
         ));
     }
 
-    if (totalen.totaal_degiro_eur !== null && totalen.totaal_degiro_eur !== undefined) {
+    if (TOON_TOTAAL_DEGIRO_TEGEL && totalen.totaal_degiro_eur !== null && totalen.totaal_degiro_eur !== undefined) {
         rij.appendChild(maakStatTegel(
             "Totaal (rendement + dividend + cash) (wat DeGiro laat zien)",
             formatteerEuro(totalen.totaal_degiro_eur),

@@ -28,7 +28,10 @@ function renderEtfOverlapTabel() {
     if (etfs.length < 2) return;
 
     const tickerNamen = {};
-    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
+    const korteNamen = yahooNamenStatus === "klaar" ? yahooNamen : null;
+    (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = etfWeergaveNaam(t.ticker, t.naam, korteNamen); });
+    // Alleen bij "leeg": na "fout" zou de hertekening de fetch steeds opnieuw starten.
+    if (huidigeData.code && yahooNamenStatus === "leeg") laadYahooNamen();
 
     // De matrix is symmetrisch: alleen de driehoek boven de diagonaal, dus geen eerste kolom en laatste rij.
     const rijEtfs = etfs.slice(0, -1);

@@ -11,7 +11,9 @@ function resetKorteNamen() {
     yahooNamenFout = "";
 }
 
+// Gedeeld met ETF-overlap: één request voor beide tabbladen.
 async function laadYahooNamen() {
+    if (yahooNamenStatus === "laden") return;
     const code = huidigeData.code;
     yahooNamenStatus = "laden";
     try {
@@ -29,7 +31,9 @@ async function laadYahooNamen() {
         yahooNamenStatus = "fout";
         yahooNamenFout = e.message === "TIMEOUT" ? "Yahoo reageerde niet op tijd." : e.message;
     }
-    renderBijnamen();
+    const view = actieveViewNaam();
+    if (view === "instellingen-bijnamen") renderBijnamen();
+    else if (view === "etfoverlap") renderEtfOverlapTabel();
 }
 
 async function pasBijnamenToe(namen, laadTekst, succesTekst) {

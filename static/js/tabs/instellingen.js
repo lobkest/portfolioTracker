@@ -1,4 +1,54 @@
-// Tabblad Instellingen: portfolio verwijderen en de code wijzigen.
+// Tabblad Instellingen: tabbladen in ontwikkeling aan/uit, portfolio verwijderen en de code wijzigen.
+
+// Zonder opslag (privévenster, geblokkeerd) gedraagt alles zich alsof het uit staat.
+function leesOntwikkelAan() {
+    try {
+        const opslag = lokaleOpslag();
+        return opslag ? leesAanGezet(opslag.getItem(ONTWIKKEL_OPSLAG_SLEUTEL)) : [];
+    } catch (_) {
+        return [];
+    }
+}
+
+function bewaarOntwikkelAan(views) {
+    try {
+        lokaleOpslag()?.setItem(ONTWIKKEL_OPSLAG_SLEUTEL, JSON.stringify(views));
+    } catch (_) {
+        // niet bewaard: de keuze geldt dan niet na herladen
+    }
+}
+
+function maakOntwikkelSchakelaar({ view, label }, aan) {
+    const rij = document.createElement("label");
+    rij.className = "schakelaar";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.setAttribute("role", "switch");
+    input.checked = aan;
+    input.dataset.ontwikkelView = view;
+    const schuif = document.createElement("span");
+    schuif.className = "schakelaarSchuif";
+    const tekst = document.createElement("span");
+    tekst.textContent = label;
+    rij.append(input, schuif, tekst);
+    return rij;
+}
+
+const aanBijStart = leesOntwikkelAan();
+document.getElementById("ontwikkelSchakelaars").replaceChildren(
+    ...ontwikkelViews().map(v => maakOntwikkelSchakelaar(v, aanBijStart.includes(v.view))),
+);
+
+document.getElementById("ontwikkelSchakelaars").addEventListener("change", (e) => {
+    const view = e.target.dataset.ontwikkelView;
+    if (!view) return;
+    const aan = leesOntwikkelAan().filter(v => v !== view);
+    if (e.target.checked) aan.push(view);
+    bewaarOntwikkelAan(aan);
+    if (!huidigeData) return;
+    if (toegestaneViews().includes(actieveView)) ververMenu(actieveView);
+    else gaNaarView(STANDAARD_VIEW);
+});
 
 document.getElementById("verwijderPortfolioBtn").addEventListener("click", async () => {
     if (!huidigeData || !huidigeData.code) return;
