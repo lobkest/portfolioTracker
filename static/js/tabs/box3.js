@@ -186,12 +186,12 @@ function renderBox3Tegels(data) {
     });
     const variant = data.b_alles_verkopen;
     if (variant) {
-        const tegel = maakStatTegel("B als je nu alles verkoopt (dit jaar)", bedrag(variant.belasting));
-        const extra = document.createElement("div");
-        extra.className = "kleineMelding";
-        extra.textContent = `${variant.extra_belasting >= 0 ? "+" : ""}${formatteerEuro(variant.extra_belasting)} t.o.v. niet verkopen`;
-        tegel.appendChild(extra);
-        rij.appendChild(tegel);
+        rij.appendChild(maakStatTegel(
+            "B als je nu alles verkoopt (dit jaar)",
+            bedrag(variant.belasting),
+            "",
+            `${variant.extra_belasting >= 0 ? "+" : ""}${formatteerEuro(variant.extra_belasting)} t.o.v. niet verkopen`
+        ));
     }
     document.getElementById("box3Tegels").replaceChildren(rij);
 }

@@ -3,7 +3,7 @@
 // Tijdelijk uit: de DeGiro-totaaltegel moet nog nagekeken worden; op true zetten om hem terug te zien.
 const TOON_TOTAAL_DEGIRO_TEGEL = false;
 
-function maakStatTegel(label, waardeTekst, klasse) {
+function maakStatTegel(label, waardeTekst, klasse, subtekst) {
     const tegel = document.createElement("div");
     tegel.className = "statTegel";
 
@@ -16,6 +16,13 @@ function maakStatTegel(label, waardeTekst, klasse) {
     waardeDiv.textContent = waardeTekst;
     waardeDiv.className = `statWaarde ${klasse || ""}`;
     tegel.appendChild(waardeDiv);
+
+    if (subtekst) {
+        const subDiv = document.createElement("div");
+        subDiv.textContent = subtekst;
+        subDiv.className = "kleineMelding";
+        tegel.appendChild(subDiv);
+    }
 
     return tegel;
 }
@@ -51,7 +58,9 @@ function maakTotalenSectie(totalen) {
     if (totalen.all_time_high && totalen.all_time_high.waarde !== null) {
         rij.appendChild(maakStatTegel(
             "Hoogste rendement",
-            `${formatteerEuro(totalen.all_time_high.waarde)} (${formatDatum(totalen.all_time_high.datum)})`
+            formatteerEuro(totalen.all_time_high.waarde),
+            "",
+            formatDatum(totalen.all_time_high.datum)
         ));
     }
 

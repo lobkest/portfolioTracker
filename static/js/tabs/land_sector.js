@@ -6,7 +6,8 @@ let landSectorWeergave = "taart";
 function toonPlatteVerdeling(verdelingObj) {
     if (chart) chart.destroy();
 
-    const entries = Object.entries(verdelingObj || {}).filter(([, bedrag]) => bedrag > 0);
+    const totaal = Object.values(verdelingObj || {}).filter(bedrag => bedrag > 0).reduce((som, bedrag) => som + bedrag, 0);
+    const entries = zichtbareVerdeling(verdelingObj, totaal);
     if (entries.length === 0) {
         document.getElementById("geenData").style.display = "block";
         return;
@@ -22,7 +23,6 @@ function toonPlatteVerdeling(verdelingObj) {
         return b[1] - a[1];
     });
 
-    const totaal = entries.reduce((som, [, bedrag]) => som + bedrag, 0);
     let kleurIdx = 0;
     const kleuren = entries.map(([naam]) => (naam === "Unknown" || naam === "Overig") ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++));
 
@@ -55,7 +55,7 @@ function toonPlatteVerdeling(verdelingObj) {
                     font: { weight: "bold", size: 11 },
                     formatter: (value, ctx) => {
                         const pct = totaal ? (value / totaal * 100) : 0;
-                        if (pct < 3) return null;
+                        if (pct < TAART_LABEL_MIN_PCT) return null;
                         return [kortNaam(entries[ctx.dataIndex][0]), formatPct(pct, 1)];
                     }
                 }

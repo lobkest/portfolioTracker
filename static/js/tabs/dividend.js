@@ -75,18 +75,33 @@ function renderDividendStats(data) {
 
 function toonDividendChart(cumulatief) {
     if (chart) chart.destroy();
-    const labelsNL = cumulatief.datums.map(formatDatum);
     const naamVoorTicker = ticker => (huidigeData.tickers.find(t => t.ticker === ticker) || {}).naam || ticker;
-    const datasets = bouwDividendDatasets(cumulatief, naamVoorTicker, kleurVoorTicker);
+    const eersteTransactie = huidigeData.chart_data && huidigeData.chart_data.labels[0];
+    const vandaagIso = new Date().toISOString().slice(0, 10);
+    const trapreeksen = bouwDividendTrapreeksen(cumulatief, eersteTransactie, vandaagIso);
+    const datasets = bouwDividendDatasets(trapreeksen, naamVoorTicker, kleurVoorTicker);
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "line",
-        data: { labels: labelsNL, datasets },
+        data: { datasets },
         options: {
             responsive: true,
             maintainAspectRatio: false,
             locale: "nl-NL",
             scales: {
+                x: {
+                    type: "time",
+                    time: {
+                        tooltipFormat: "dd-MM-yyyy",
+                        displayFormats: {
+                            day: "dd-MM-yyyy",
+                            week: "dd-MM-yyyy",
+                            month: "MM-yyyy",
+                            quarter: "MM-yyyy",
+                            year: "yyyy"
+                        }
+                    }
+                },
                 y: { stacked: true, beginAtZero: true, title: { display: true, text: "Cumulatief dividend (€)" } }
             },
             plugins: {

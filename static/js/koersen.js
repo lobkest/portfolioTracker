@@ -62,7 +62,27 @@
         return labelsIso.findIndex(label => label >= splitDatum);
     }
 
-    const exportsObj = { koersMeldingTekst, tickerWaarschuwingTekst, splitLabel, splitLabelIndex };
+    // Kandidaten zonder koersdata én zonder valuta/land/sector zeggen niets; die worden alleen geteld.
+    function splitsAlternatieven(alternatieven) {
+        const zichtbaar = [];
+        let aantalVerborgen = 0;
+        (alternatieven || []).forEach(alt => {
+            const leeg = !alt.aantal_gecontroleerd && !alt.valuta && !alt.land && !alt.sector;
+            if (leeg) aantalVerborgen += 1;
+            else zichtbaar.push(alt);
+        });
+        return { zichtbaar, aantalVerborgen };
+    }
+
+    function verborgenAlternatievenTekst(aantal) {
+        if (!aantal) return null;
+        return `${aantal} ${aantal === 1 ? "kandidaat" : "kandidaten"} zonder koersdata verborgen`;
+    }
+
+    const exportsObj = {
+        koersMeldingTekst, tickerWaarschuwingTekst, splitLabel, splitLabelIndex,
+        splitsAlternatieven, verborgenAlternatievenTekst,
+    };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

@@ -1,15 +1,21 @@
 // Tabblad Statistieken: totalen, posities, verkochte posities, rendement per jaar en samengesteld rendement.
 
+// "Naam (TICKER)"; de ticker in een eigen span, zodat hij op een mobiele kaart klein kan staan.
+function maakNaamTickerCel(naam, ticker) {
+    const td = document.createElement("td");
+    const tickerSpan = document.createElement("span");
+    tickerSpan.className = "naamTicker";
+    tickerSpan.textContent = `(${ticker})`;
+    td.append(`${naam} `, tickerSpan);
+    return td;
+}
+
 function maakPositieTabel(posities, tickerNamen) {
     const kolommen = [
         {
             label: "Naam/ticker",
-            renderTd: p => {
-                const td = document.createElement("td");
-                const naam = (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
-                td.textContent = `${naam} (${p.ticker})`;
-                return td;
-            },
+            kaartTitel: true,
+            renderTd: p => maakNaamTickerCel((tickerNamen && tickerNamen[p.ticker]) || p.ticker, p.ticker),
         },
         {
             label: "Aantal",
@@ -43,7 +49,7 @@ function maakPositieTabel(posities, tickerNamen) {
             renderTd: p => maakCel(formatteerEuro(p.dividend_ontvangen || 0)),
         },
     ];
-    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities." });
+    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities.", kaartenOpMobiel: true });
 }
 
 function maakGeslotenPositiesTabel(geslotenPosities) {
@@ -61,7 +67,8 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
         },
         {
             label: "Naam/ticker",
-            renderTd: p => maakCel(`${p.naam} (${p.ticker})`),
+            kaartTitel: true,
+            renderTd: p => maakNaamTickerCel(p.naam, p.ticker),
         },
         {
             label: "Aantal",
@@ -105,7 +112,10 @@ function maakGeslotenPositiesTabel(geslotenPosities) {
             },
         },
     ];
-    return maakSorteerbareTabel(kolommen, geslotenPosities, { legeTekst: "Geen verkochte of deels verkochte posities." });
+    return maakSorteerbareTabel(kolommen, geslotenPosities, {
+        legeTekst: "Geen verkochte of deels verkochte posities.",
+        kaartenOpMobiel: true,
+    });
 }
 
 function maakJarenTabel(jaren) {

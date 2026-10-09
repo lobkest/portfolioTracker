@@ -1,29 +1,65 @@
 // Pure logica voor de dividendgrafiek (zonder DOM, getest onder Node).
 
-(function (root) {  // omhulsel is een trucje om de exports te laten werken in Node en browser beide. 
-    "use strict"; 
+(function (root) {  // omhulsel is een trucje om de exports te laten werken in Node en browser beide.
+    "use strict";
 
-    const DIVIDEND_ENKEL_PUNT_RADIUS = 5;
+    const DIVIDEND_START_DAGEN_VOOR_EERSTE_UITKERING = 30;
 
-    function bouwDividendDatasets(cumulatief, naamVoorTicker, kleurVoorTicker) {
-        // Eén datum geeft geen lijnstuk: zonder zichtbare punten blijft de grafiek leeg.
-        const puntRadius = cumulatief.datums.length === 1 ? DIVIDEND_ENKEL_PUNT_RADIUS : 0;
-        return Object.keys(cumulatief.per_ticker).map(ticker => {
+    function isoMinDagen(isoDatum, dagen) {
+        const d = new Date(`${isoDatum.slice(0, 10)}T00:00:00Z`);
+        d.setUTCDate(d.getUTCDate() - dagen);
+        return d.toISOString().slice(0, 10);
+    }
+
+    // Eerste transactie alleen als die vóór de eerste uitkering ligt; anders zou het startpunt (0) ná een sprong komen.
+    function bepaalDividendStart(eersteUitkering, eersteTransactie) {
+        if (eersteTransactie && eersteTransactie.slice(0, 10) < eersteUitkering) {
+            return { datum: eersteTransactie.slice(0, 10), bron: "eerste_transactie" };
+        }
+        return {
+            datum: isoMinDagen(eersteUitkering, DIVIDEND_START_DAGEN_VOOR_EERSTE_UITKERING),
+            bron: "eerste_uitkering_min_dagen",
+        };
+    }
+
+    // Elke ticker krijgt dezelfde x-waarden (start, alle uitkeringsdatums, vandaag): nodig om goed te stapelen.
+    function bouwDividendTrapreeksen(cumulatief, eersteTransactie, vandaag) {
+        const datums = cumulatief.datums;
+        if (datums.length === 0) return { start: null, per_ticker: {} };
+        const start = bepaalDividendStart(datums[0], eersteTransactie);
+        const eind = vandaag > datums[datums.length - 1] ? vandaag : null;
+
+        const per_ticker = {};
+        for (const [ticker, waarden] of Object.entries(cumulatief.per_ticker)) {
+            const reeks = [{ x: start.datum, y: 0 }];
+            datums.forEach((datum, i) => reeks.push({ x: datum, y: waarden[i] }));
+            if (eind) reeks.push({ x: eind, y: waarden[waarden.length - 1] });
+            per_ticker[ticker] = reeks;
+        }
+        return { start, per_ticker };
+    }
+
+    function bouwDividendDatasets(trapreeksen, naamVoorTicker, kleurVoorTicker) {
+        return Object.keys(trapreeksen.per_ticker).map(ticker => {
             const kleur = kleurVoorTicker(ticker);
             return {
                 label: naamVoorTicker(ticker),
-                data: cumulatief.per_ticker[ticker],
+                data: trapreeksen.per_ticker[ticker],
                 borderColor: kleur,
                 backgroundColor: kleur,
                 fill: true,
-                pointRadius: puntRadius,
-                pointHoverRadius: Math.max(4, puntRadius),
+                // "before": vlak op de vorige waarde tot de uitkeringsdatum, dan omhoog.
+                stepped: "before",
+                pointRadius: 0,
+                pointHoverRadius: 4,
                 borderWidth: 1.5,
             };
         });
     }
 
-    const exportsObj = { DIVIDEND_ENKEL_PUNT_RADIUS, bouwDividendDatasets };
+    const exportsObj = {
+        DIVIDEND_START_DAGEN_VOOR_EERSTE_UITKERING, bepaalDividendStart, bouwDividendTrapreeksen, bouwDividendDatasets,
+    };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

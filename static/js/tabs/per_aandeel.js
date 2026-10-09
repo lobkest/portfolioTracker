@@ -84,7 +84,7 @@ function maakVerdelingLijst(titel, verdelingObj) {
     kop.className = "sectieTitel";
     wrapper.appendChild(kop);
 
-    const entries = Object.entries(verdelingObj || {}).sort((a, b) => {
+    const entries = zichtbareVerdeling(verdelingObj, 1).sort((a, b) => {
         if (a[0] === "Unknown") return 1;
         if (b[0] === "Unknown") return -1;
         return b[1] - a[1];

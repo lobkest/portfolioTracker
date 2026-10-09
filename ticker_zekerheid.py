@@ -417,21 +417,41 @@ def _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin):
 
 
 BEURS_OTC_NA_DELISTING = "otc_na_delisting"
+BEURS_GEEN_KOERSHISTORIE = "geen_koershistorie_verwachte_beurs"
 
 
-def beurs_status(excel_beurs, yahoo_beurs, prijs_checks):
+def beurs_status(excel_beurs, yahoo_beurs, prijs_checks, alternatieven=None):
     """True/False/None, of BEURS_OTC_NA_DELISTING: Amerikaanse beurs in Excel, OTC bij Yahoo
-    en alle bekende prijschecks kloppen (zoals XELA na de delisting van Nasdaq)."""
+    en alle bekende prijschecks kloppen (zoals XELA na de delisting van Nasdaq), of BEURS_GEEN_KOERSHISTORIE:
+    de prijs klopt en alle doorgerekende alternatieven op de verwachte beurs hadden geen koersdata."""
     verwachte_beurzen = BEURS_MAP.get(excel_beurs, [])
     if not (excel_beurs and yahoo_beurs and verwachte_beurzen):
         return None
     if yahoo_beurs in verwachte_beurzen:
         return True
-    if excel_beurs in AMERIKAANSE_BEURZEN and yahoo_beurs in OTC_BEURZEN:
-        bekende_checks = [c for c in prijs_checks if c["match"] is not None]
-        if bekende_checks and not any(_prijscheck_is_probleem(c) for c in bekende_checks):
-            return BEURS_OTC_NA_DELISTING
+    bekende_checks = [c for c in prijs_checks if c["match"] is not None]
+    prijs_klopt = bool(bekende_checks) and not any(_prijscheck_is_probleem(c) for c in bekende_checks)
+    if prijs_klopt and excel_beurs in AMERIKAANSE_BEURZEN and yahoo_beurs in OTC_BEURZEN:
+        return BEURS_OTC_NA_DELISTING
+    op_verwachte_beurs = [a for a in alternatieven or [] if a.get("beurs") in verwachte_beurzen]
+    if prijs_klopt and op_verwachte_beurs and not any(a.get("aantal_gecontroleerd") for a in op_verwachte_beurs):
+        return BEURS_GEEN_KOERSHISTORIE
     return False
+
+
+def _beurs_zonder_koershistorie(resultaat, beurs, beurs_waarschuwing):
+    """Na de alternatieven: had geen enkele notering op de verwachte beurs koersdata, dan is de afwijkende beurs
+    geen fout. Zonder andere waarschuwing wordt het "zeker", net als bij OTC na delisting."""
+    status = beurs_status(beurs, resultaat["yahoo_beurs"], resultaat["prijs_checks"], resultaat["alternatieven"])
+    if status != BEURS_GEEN_KOERSHISTORIE:
+        return resultaat
+    regels = [r for r in (resultaat["waarschuwing"] or "").split("\n") if r and r != beurs_waarschuwing]
+    return {
+        **resultaat,
+        "beurs_klopt": status,
+        "waarschuwing": "\n".join(regels) or None,
+        "zekerheid": resultaat["zekerheid"] if regels else "zeker",
+    }
 
 
 def _voeg_kaartvelden_toe(resultaat, beurs):
@@ -542,11 +562,13 @@ def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, 
     resultaat = _voeg_kaartvelden_toe(resultaat, beurs)
     _tz_print(isin, f"kaartvelden (is_etf {resultaat['is_etf']})", t, y)
     # Bij het zoeken was "zeker" al een beurs-match; een opgeslagen ticker moet dat nog bewijzen.
+    beurs_waarschuwing = None
     if opgeslagen_ticker and resultaat["beurs_klopt"] is False:
-        resultaat = _met_waarschuwing(resultaat, (
+        beurs_waarschuwing = (
             f"Opgeslagen ticker '{opgeslagen_ticker}' staat bij Yahoo op {resultaat['yahoo_beurs']}, "
             f"de transacties op {beurs}."
-        ))
+        )
+        resultaat = _met_waarschuwing(resultaat, beurs_waarschuwing)
     # Vóór de alternatieven: een ontbrekende root maakt "zeker" onzeker, en dan moeten ze wél doorgerekend.
     t, y = time.time(), _tz_stand()
     openfigi = haal_openfigi_resultaten(isin)
@@ -559,6 +581,7 @@ def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, 
     t, y = time.time(), _tz_stand()
     resultaat = _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi)
     _tz_print(isin, f"alternatieven ({len(resultaat['alternatieven'])} doorgerekend)", t, y)
+    resultaat = _beurs_zonder_koershistorie(resultaat, beurs, beurs_waarschuwing)
     _tz_print(isin, "TOTAAL", t0, y0)
     return resultaat
 

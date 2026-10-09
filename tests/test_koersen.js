@@ -4,7 +4,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { koersMeldingTekst, tickerWaarschuwingTekst, splitLabel, splitLabelIndex } = require("../static/js/koersen.js");
+const {
+    koersMeldingTekst, tickerWaarschuwingTekst, splitLabel, splitLabelIndex,
+    splitsAlternatieven, verborgenAlternatievenTekst,
+} = require("../static/js/koersen.js");
 
 test("alles compleet: geen melding", () => {
     assert.equal(koersMeldingTekst([], []), null);
@@ -72,4 +75,20 @@ test("tickerwaarschuwing: koers, OpenFIGI en beide apart gegroepeerd", () => {
 
 test("tickerwaarschuwing: zonder redenen (oud antwoord) telt als koers", () => {
     assert.match(tickerWaarschuwingTekst([{ ticker: "X", naam: "X" }]), /Bij 1 positie \(X\) wijkt de koers/);
+});
+
+test("alternatieven zonder koersdata en zonder valuta/land/sector worden verborgen en geteld", () => {
+    const leeg = { ticker: "IE000A9G9R73.SG", aantal_gecontroleerd: 0, valuta: null, land: null, sector: null };
+    const metData = { ticker: "ST4R.DE", aantal_gecontroleerd: 3, valuta: "EUR" };
+    const alleenValuta = { ticker: "X.AS", aantal_gecontroleerd: 0, valuta: "USD" };
+    const { zichtbaar, aantalVerborgen } = splitsAlternatieven([leeg, metData, alleenValuta]);
+    assert.deepEqual(zichtbaar.map(a => a.ticker), ["ST4R.DE", "X.AS"]);
+    assert.equal(aantalVerborgen, 1);
+    assert.deepEqual(splitsAlternatieven(undefined), { zichtbaar: [], aantalVerborgen: 0 });
+});
+
+test("tekst voor verborgen alternatieven: enkelvoud, meervoud, niets", () => {
+    assert.equal(verborgenAlternatievenTekst(1), "1 kandidaat zonder koersdata verborgen");
+    assert.equal(verborgenAlternatievenTekst(2), "2 kandidaten zonder koersdata verborgen");
+    assert.equal(verborgenAlternatievenTekst(0), null);
 });

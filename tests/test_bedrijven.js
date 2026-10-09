@@ -234,3 +234,15 @@ test("gebruikHorizontaleStaven: >15 bedrijven of smal scherm -> horizontaal", ()
     assert.equal(gebruikHorizontaleStaven(10, 768), true);
     assert.equal(gebruikHorizontaleStaven(10, 769), false);
 });
+
+test("aandeelsoort aan het eind valt weg (hoofdletterongevoelig), met behoudSuffix wordt Ag AG", () => {
+    assert.equal(leesbaar("Siemens Ag Registered Shares"), "Siemens");
+    assert.equal(leesbaar("RHEINMETALL AG ORDINARY SHARES NEW"), "Rheinmetall");
+    assert.equal(leesbaar("Shell Plc Ordinary Shares"), "Shell");
+    assert.equal(leesbaar("Siemens Ag Registered Shares", { behoudSuffix: true }), "Siemens AG");
+});
+
+test("aandeelsoort alleen aan het eind en nooit de hele naam", () => {
+    assert.equal(leesbaar("Registered Shares"), "Registered Shares");
+    assert.equal(leesbaar("Ordinary Shares Holding Inc"), "Ordinary Shares Holding");
+});

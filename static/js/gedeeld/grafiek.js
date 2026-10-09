@@ -125,6 +125,9 @@ function updateStaafChart(labels, datasets, waardeFormatter = formatteerEuro) {
     });
 }
 
+// Kleinere taartpunten krijgen geen label (de legenda blijft volledig).
+const TAART_LABEL_MIN_PCT = 5;
+
 // Alleen voor een leesbare legenda; de data verandert niet.
 const BRON_OVERIG_DREMPEL = 0.005;
 const BRON_OVERIG_SLEUTEL = "__overige_bronnen__";

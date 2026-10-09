@@ -157,16 +157,21 @@ def get_valuta(ticker):
     return "GBP" if valuta == "GBp" else valuta
 
 
+# Yahoo-sleutels die aan elkaar geschreven zijn; de rest volgt uit "_" -> spatie.
+SECTOR_WEERGAVE = {"realestate": "Real Estate"}
+
+
 def _sector_naam(sector_key):
-    """'consumer_cyclical' -> 'Consumer Cyclical'."""
-    return sector_key.replace("_", " ").title()
+    """'consumer_cyclical' -> 'Consumer Cyclical'; ook op al opgemaakte namen uit de cache ('Realestate')."""
+    sleutel = sector_key.lower().replace("_", "").replace(" ", "")
+    return SECTOR_WEERGAVE.get(sleutel) or sector_key.replace("_", " ").title()
 
 
 def get_etf_sector_verdeling(ticker):
     """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet)."""
     cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
-        return cached
+        return {_sector_naam(sector): gewicht for sector, gewicht in cached.items()}
 
     try:
         _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")

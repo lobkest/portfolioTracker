@@ -57,6 +57,7 @@ function maakBedrijvenTopNKeuze(beschikbaar) {
     const input = document.createElement("input");
     input.type = "number";
     input.id = "bedrijvenTopNInput";
+    input.className = "topNInvoer";
     input.min = "1";
     input.max = String(beschikbaar);
     input.step = "1";

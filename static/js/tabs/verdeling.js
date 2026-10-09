@@ -69,7 +69,7 @@ function toonVerdeling() {
                     font: { weight: "bold", size: 11 },
                     formatter: (value, ctx) => {
                         const pct = totaal ? (value / totaal * 100) : 0;
-                        if (pct < 3) return null;
+                        if (pct < TAART_LABEL_MIN_PCT) return null;
                         return [kortNaam(items[ctx.dataIndex].naam), formatPct(pct, 1)];
                     }
                 }

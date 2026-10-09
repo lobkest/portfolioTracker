@@ -43,6 +43,9 @@ function maakBeursRegel(excelBeurs, yahooBeurs, beursKlopt) {
     } else if (beursKlopt === "otc_na_delisting") {
         beursRegel.classList.add("positief");
         beursRegel.textContent = `✓ ${tekst} (nu OTC, waarschijnlijk na delisting)`;
+    } else if (beursKlopt === "geen_koershistorie_verwachte_beurs") {
+        beursRegel.textContent = `ℹ️ ${tekst} — Yahoo heeft geen koershistorie voor de notering op ${excelBeurs}; `
+            + `koers van ${yahooBeurs} gebruikt (zelfde fonds, prijs klopt).`;
     } else {
         beursRegel.textContent = tekst;
     }
@@ -329,14 +332,22 @@ function maakTickerZekerheidKaart(p) {
         altKop.className = "tickerKop";
         rij.appendChild(altKop);
 
+        const { zichtbaar, aantalVerborgen } = splitsAlternatieven(p.alternatieven);
         // Per kandidaat: een alternatief kan een ander type zijn dan de positie.
-        const aandeelAlternatieven = p.alternatieven.filter(alt => !alt.is_etf);
-        const etfAlternatieven = p.alternatieven.filter(alt => alt.is_etf);
+        const aandeelAlternatieven = zichtbaar.filter(alt => !alt.is_etf);
+        const etfAlternatieven = zichtbaar.filter(alt => alt.is_etf);
         if (aandeelAlternatieven.length > 0) {
             rij.appendChild(maakAlternatievenTabel(aandeelAlternatieven, p.aanbevolen_alternatief, false));
         }
         if (etfAlternatieven.length > 0) {
             rij.appendChild(maakAlternatievenTabel(etfAlternatieven, p.aanbevolen_alternatief, true));
+        }
+        const verborgenTekst = verborgenAlternatievenTekst(aantalVerborgen);
+        if (verborgenTekst) {
+            const notitie = document.createElement("p");
+            notitie.className = "tickerNotitie";
+            notitie.textContent = verborgenTekst;
+            rij.appendChild(notitie);
         }
     }
 

@@ -23,6 +23,10 @@ VOORBEELDEN = [
     ("Akzo Nobel N.V.", None, "Akzo Nobel"),
     ("Mastercard Incorporated", None, "Mastercard"),
     ("BYD Co Ltd", None, "BYD"),
+    ("Siemens AG Registered Shares", None, "Siemens"),
+    ("Rheinmetall Ag Ordinary Shares New", None, "Rheinmetall"),
+    ("SHELL PLC ORDINARY SHARES", None, "SHELL"),
+    ("Registered Shares", None, "Registered Shares"),
 ]
 
 

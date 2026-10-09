@@ -7,6 +7,8 @@ RUIS_WOORDEN = {"core", "etf", "ucits"}
 VALUTA_CODES = {"usd", "eur", "gbp", "chf"}
 KLASSE_WOORDEN = {"acc", "dist", "dis", "accumulating", "distributing"}
 JURIDISCHE_ACHTERVOEGSELS = {"inc", "incorporated", "nv", "co", "ltd", "corp", "plc", "se", "ag"}
+# Langste eerst: "Ordinary Shares New" mag niet als "Ordinary Shares" + "New" blijven hangen.
+AANDEELSOORT_STAARTEN = (("ordinary", "shares", "new"), ("ordinary", "shares"), ("registered", "shares"))
 
 
 def _sleutel(woord):
@@ -44,6 +46,13 @@ def _verwijder_staart(tokens):
     return t
 
 
+def _verwijder_aandeelsoort(tokens):
+    for staart in AANDEELSOORT_STAARTEN:
+        if len(tokens) > len(staart) and tuple(_sleutel(w) for w in tokens[-len(staart):]) == staart:
+            return tokens[:-len(staart)]
+    return list(tokens)
+
+
 def _verwijder_juridische_achtervoegsels(tokens):
     t = list(tokens)
     while len(t) > 1:
@@ -67,6 +76,7 @@ def _korte_naam_en_merk(long_name, fund_family):
     merk_sleutels = MERK_WOORDEN | _woorden(fund_family)
     tokens, merk = _verwijder_merk_vooraan(long_name.split(), merk_sleutels)
     tokens = [w for w in tokens if _sleutel(w) not in RUIS_WOORDEN]
+    tokens = _verwijder_aandeelsoort(tokens)
     tokens = _verwijder_staart(tokens)
     tokens = _verwijder_juridische_achtervoegsels(tokens)
 

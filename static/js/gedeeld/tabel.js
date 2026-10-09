@@ -20,6 +20,8 @@ function maakRendementCel(eurWaarde, pctWaarde) {
 // een tabwissel overleeft; met paginaGrootte komt er paginanavigatie onder de tabel.
 // opts.sorteer(rijen, sleutel, richting): eigen sortering; elke kolom met een sleutel is dan sorteerbaar.
 // opts.klasse: CSS-klasse van de tabel (standaard dataTabel).
+// opts.kaartenOpMobiel: op mobiel elke rij als kaart (CSS), met een "Sorteer op"-keuze i.p.v. de kolomkoppen;
+// een kolom met kaartTitel is dan de titel van de kaart.
 function maakSorteerbareTabel(kolommen, rijen, opts) {
     opts = opts || {};
     if (!rijen || rijen.length === 0) {
@@ -33,12 +35,16 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
 
     const tabel = document.createElement("table");
     tabel.className = opts.klasse || "dataTabel";
+    if (opts.kaartenOpMobiel) tabel.classList.add("kaartTabel");
+    const thead = document.createElement("thead");
     const kopRij = document.createElement("tr");
     const tbody = document.createElement("tbody");
     const koppen = [];
 
     const nav = staat.paginaGrootte ? document.createElement("div") : null;
     if (nav) nav.className = "paginaNavigatie";
+
+    const sorteerSelect = opts.kaartenOpMobiel ? document.createElement("select") : null;
 
     function sorteer() {
         if (staat.sorteerKolom === null) return rijen;
@@ -87,6 +93,9 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
             const indicator = staat.sorteerKolom === sleutel ? (staat.sorteerRichting === "asc" ? " ▲" : " ▼") : "";
             th.textContent = label + indicator;
         });
+        if (sorteerSelect) {
+            sorteerSelect.value = staat.sorteerKolom === null ? "" : `${staat.sorteerKolom}|${staat.sorteerRichting}`;
+        }
 
         let getoond = sorteer();
         if (nav) {
@@ -98,7 +107,14 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
 
         tbody.replaceChildren(...getoond.map(rij => {
             const tr = document.createElement("tr");
-            kolommen.forEach(kol => tr.appendChild(kol.renderTd(rij)));
+            kolommen.forEach(kol => {
+                const td = kol.renderTd(rij);
+                if (opts.kaartenOpMobiel) {
+                    td.setAttribute("data-label", kol.label);
+                    if (kol.kaartTitel) td.classList.add("kaartTitel");
+                }
+                tr.appendChild(td);
+            });
             return tr;
         }));
     }
@@ -106,7 +122,8 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
     kolommen.forEach((kol, index) => {
         const th = document.createElement("th");
         const sleutel = kol.sleutel ?? index;
-        if (kol.waarde || (opts.sorteer && kol.sleutel)) {
+        const sorteerbaar = Boolean(kol.waarde || (opts.sorteer && kol.sleutel));
+        if (sorteerbaar) {
             th.className = "sorteerbaar";
             th.addEventListener("click", () => {
                 if (staat.sorteerKolom === sleutel) {
@@ -120,10 +137,13 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
             });
         }
         kopRij.appendChild(th);
-        koppen.push({ th, label: kol.label, sleutel });
+        koppen.push({ th, label: kol.label, sleutel, sorteerbaar });
     });
 
-    tabel.appendChild(kopRij);
+    const sorteerKeuze = sorteerSelect ? maakSorteerKeuze() : null;
+
+    thead.appendChild(kopRij);
+    tabel.appendChild(thead);
     tabel.appendChild(tbody);
     teken();
 
@@ -131,9 +151,41 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
     const wrapper = document.createElement("div");
     wrapper.className = "tabelWrapper";
     wrapper.appendChild(tabel);
-    if (!nav) return wrapper;
+    if (!nav && !sorteerKeuze) return wrapper;
 
-    const metNavigatie = document.createElement("div");
-    metNavigatie.append(wrapper, nav);
-    return metNavigatie;
+    const geheel = document.createElement("div");
+    if (sorteerKeuze) geheel.appendChild(sorteerKeuze);
+    geheel.appendChild(wrapper);
+    if (nav) geheel.appendChild(nav);
+    return geheel;
+
+    // Waarde "<sleutel>|<richting>"; zet dezelfde staat als een klik op de kolomkop.
+    function maakSorteerKeuze() {
+        const opties = [new Option("Standaardvolgorde", "")];
+        koppen.forEach(({ label, sleutel, sorteerbaar }) => {
+            if (!sorteerbaar) return;
+            opties.push(new Option(`${label} (hoog → laag)`, `${sleutel}|desc`));
+            opties.push(new Option(`${label} (laag → hoog)`, `${sleutel}|asc`));
+        });
+        sorteerSelect.replaceChildren(...opties);
+        sorteerSelect.addEventListener("change", () => {
+            if (sorteerSelect.value === "") {
+                staat.sorteerKolom = null;
+            } else {
+                const [sleutel, richting] = sorteerSelect.value.split("|");
+                const kop = koppen.find(k => String(k.sleutel) === sleutel);
+                staat.sorteerKolom = kop.sleutel;
+                staat.sorteerRichting = richting;
+            }
+            if (nav) staat.pagina = 1;
+            teken();
+        });
+
+        const label = document.createElement("label");
+        label.className = "sorteerKeuze";
+        label.append("Sorteer op ", sorteerSelect);
+        return label;
+    }
 }
+
+if (typeof module !== "undefined") module.exports = { maakSorteerbareTabel, maakCel };

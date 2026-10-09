@@ -30,7 +30,16 @@
         return regels;
     }
 
-    const exportsObj = { landProxyBijschrift, landDekkingRegels };
+    // Onder deze grens toont formatPct(.., 1) "0,0%".
+    const ZICHTBAAR_MIN_PCT = 0.05;
+
+    // [naam, waarde] zonder de rijen die op 0,0% afronden (ook "Unknown"); pct = waarde / noemer * 100.
+    function zichtbareVerdeling(verdelingObj, noemer) {
+        if (!noemer) return [];
+        return Object.entries(verdelingObj || {}).filter(([, waarde]) => waarde / noemer * 100 >= ZICHTBAAR_MIN_PCT);
+    }
+
+    const exportsObj = { landProxyBijschrift, landDekkingRegels, zichtbareVerdeling };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

@@ -19,6 +19,9 @@
         "inc", "corp", "corporation", "ltd", "limited", "plc", "nv", "sa", "ag", "se", "co", "company",
     ]);
 
+    // Aandeelsoort aan het eind valt altijd weg; langste eerst ("Ordinary Shares New").
+    const AANDEELSOORT_STAARTEN = [["ordinary", "shares", "new"], ["ordinary", "shares"], ["registered", "shares"]];
+
     // Vaste schrijfwijze van een juridisch achtervoegsel dat WEL blijft staan
     // (alleen bij een botsing tussen twee bedrijven, zie maakUniekeWeergaveNamen).
     const SUFFIX_WEERGAVE = {
@@ -76,6 +79,15 @@
         return uit;
     }
 
+    function verwijderAandeelsoort(tokens) {
+        for (const staart of AANDEELSOORT_STAARTEN) {
+            if (tokens.length <= staart.length) continue;
+            const eind = tokens.slice(-staart.length).map(t => t.replace(/[.,]/g, "").toLowerCase());
+            if (eind.every((w, i) => w === staart[i])) return tokens.slice(0, -staart.length);
+        }
+        return tokens;
+    }
+
     function formatteerWoord(woord, isEerste) {
         const zonderLeesteken = woord.replace(/[.,]+$/, "");
         const sleutel = zonderLeesteken.toLowerCase();
@@ -109,7 +121,7 @@
 
         // "META PLATFORMS INC- CLASS A" / "ALPHABET INC. - CLASS A": een
         // losstaand streepje weg, streepjes binnen een woord (Coca-Cola) blijven.
-        let tokens = naam.trim().replace(/\s+-\s*|\s*-\s+/g, " ").replace(/\s+/g, " ").split(" ");
+        let tokens = verwijderAandeelsoort(naam.trim().replace(/\s+-\s*|\s*-\s+/g, " ").replace(/\s+/g, " ").split(" "));
 
         let klasse = [];
         const n = tokens.length;
