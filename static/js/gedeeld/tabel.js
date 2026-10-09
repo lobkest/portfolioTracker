@@ -19,16 +19,18 @@ function maakRendementCel(eurWaarde, pctWaarde) {
 // opts.staat {sorteerKolom, sorteerRichting, pagina, paginaGrootte}: van de aanroeper, zodat de keuze
 // een tabwissel overleeft; met paginaGrootte komt er paginanavigatie onder de tabel.
 // opts.sorteer(rijen, sleutel, richting): eigen sortering; elke kolom met een sleutel is dan sorteerbaar.
-// opts.klasse: CSS-klasse van de tabel (standaard dataTabel).
+// opts.klasse: CSS-klasse van de tabel (standaard dataTabel). opts.rijKlasse: rij => klasse|null, voor <tr> én de mobiele rij.
+// kol.uitleg: tooltip op de kolomkop.
 // opts.compactOpMobiel: op mobiel (CSS) i.p.v. de tabel een compacte rij per positie die uitklapt, plus een
 // "Sorteer op"-keuze i.p.v. de kolomkoppen; die komt in opts.sorteerPlek als die er is, anders boven de rijen.
 // Per kolom dan: mobielRol (zie MOBIEL_ROLLEN, standaard "detail"), mobielTekst: rij => tekst voor titel en
-// subregel, alleenMobiel: niet in de tabel.
+// subregel, alleenMobiel: niet in de tabel, alleenTabel: niet in de mobiele rij. Een detail zonder inhoud valt weg.
 const MOBIEL_ROLLEN = ["titel", "subregel", "waarde", "subwaarde", "detail"];
 
 function mobielIndeling(kolommen) {
     const indeling = Object.fromEntries(MOBIEL_ROLLEN.map(rol => [rol, []]));
     kolommen.forEach(kol => {
+        if (kol.alleenTabel) return;
         const rol = kol.mobielRol || "detail";
         if (!indeling[rol]) throw new Error(`Onbekende mobielRol: ${rol}`);
         indeling[rol].push(kol);
@@ -53,7 +55,7 @@ function celAlsSpan(kol, rij, klasse) {
     return span;
 }
 
-function maakMobieleRij(indeling, rij) {
+function maakMobieleRij(indeling, rij, klasse) {
     const knop = document.createElement("button");
     knop.type = "button";
     knop.className = indeling.waarde.length ? "mobielRij" : "mobielRij mobielRijZonderWaarde";
@@ -73,10 +75,12 @@ function maakMobieleRij(indeling, rij) {
     details.className = "mobielDetails";
     details.hidden = true;
     indeling.detail.forEach(kol => {
+        const waarde = celAlsSpan(kol, rij, "mobielDetailWaarde");
+        if (!waarde.childNodes.length) return;
         const label = document.createElement("span");
         label.className = "mobielDetailLabel";
         label.textContent = kol.label;
-        details.append(label, celAlsSpan(kol, rij, "mobielDetailWaarde"));
+        details.append(label, waarde);
     });
 
     knop.addEventListener("click", () => {
@@ -86,6 +90,7 @@ function maakMobieleRij(indeling, rij) {
     });
 
     const li = document.createElement("li");
+    if (klasse) li.className = klasse;
     li.append(knop, details);
     return li;
 }
@@ -113,11 +118,17 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
     const nav = staat.paginaGrootte ? document.createElement("div") : null;
     if (nav) nav.className = "paginaNavigatie";
 
-    const sorteerSelect = opts.compactOpMobiel ? document.createElement("select") : null;
+    const heeftSorteerbareKolom = kolommen.some(kol => !kol.alleenMobiel && isSorteerbaar(kol));
+    const sorteerSelect = opts.compactOpMobiel && heeftSorteerbareKolom ? document.createElement("select") : null;
     const indeling = opts.compactOpMobiel ? mobielIndeling(kolommen) : null;
     const mobieleLijst = indeling ? document.createElement("ul") : null;
     if (mobieleLijst) mobieleLijst.className = "mobieleLijst";
     const tabelKolommen = kolommen.filter(kol => !kol.alleenMobiel);
+    const rijKlasse = rij => (opts.rijKlasse ? opts.rijKlasse(rij) : null);
+
+    function isSorteerbaar(kol) {
+        return Boolean(kol.waarde || (opts.sorteer && kol.sleutel));
+    }
 
     function sorteer() {
         if (staat.sorteerKolom === null) return rijen;
@@ -180,17 +191,20 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
 
         tbody.replaceChildren(...getoond.map(rij => {
             const tr = document.createElement("tr");
+            const klasse = rijKlasse(rij);
+            if (klasse) tr.className = klasse;
             tabelKolommen.forEach(kol => tr.appendChild(kol.renderTd(rij)));
             return tr;
         }));
-        if (mobieleLijst) mobieleLijst.replaceChildren(...getoond.map(rij => maakMobieleRij(indeling, rij)));
+        if (mobieleLijst) mobieleLijst.replaceChildren(...getoond.map(rij => maakMobieleRij(indeling, rij, rijKlasse(rij))));
     }
 
     kolommen.forEach((kol, index) => {
         if (kol.alleenMobiel) return;
         const th = document.createElement("th");
         const sleutel = kol.sleutel ?? index;
-        const sorteerbaar = Boolean(kol.waarde || (opts.sorteer && kol.sleutel));
+        const sorteerbaar = isSorteerbaar(kol);
+        if (kol.uitleg) th.title = kol.uitleg;
         if (sorteerbaar) {
             th.className = "sorteerbaar";
             th.addEventListener("click", () => {
@@ -219,7 +233,7 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
     const wrapper = document.createElement("div");
     wrapper.className = "tabelWrapper";
     wrapper.appendChild(tabel);
-    if (!nav && !sorteerKeuze) return wrapper;
+    if (!nav && !sorteerKeuze && !mobieleLijst) return wrapper;
 
     const geheel = document.createElement("div");
     if (sorteerKeuze && opts.sorteerPlek) {

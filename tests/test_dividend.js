@@ -72,3 +72,19 @@ test("geen dividenden: geen datasets", () => {
     assert.equal(trap.start, null);
     assert.deepEqual(bouwDividendDatasets(trap, naam, kleur), []);
 });
+
+const { dividendSubregel, dividendSubwaarde } = require("../static/js/dividend.js");
+
+test("dividendSubregel: EUR wordt niet genoemd, vreemde valuta wel", () => {
+    assert.equal(dividendSubregel("01-10-2026", "EUR"), "01-10-2026");
+    assert.equal(dividendSubregel("01-10-2026", null), "01-10-2026");
+    assert.equal(dividendSubregel("01-10-2026", "USD"), "01-10-2026 · USD");
+});
+
+test("dividendSubwaarde: met belasting bruto en aftrek, zonder alleen bruto", () => {
+    assert.equal(dividendSubwaarde(25.11, -3.77), "bruto €25,11 · -€3,77");
+    assert.equal(dividendSubwaarde(25.11, 3.77), "bruto €25,11 · -€3,77");
+    assert.equal(dividendSubwaarde(25.11, 0), "bruto €25,11");
+    assert.equal(dividendSubwaarde(25.11, -0.001), "bruto €25,11");
+    assert.equal(dividendSubwaarde(25.11, null), "bruto €25,11");
+});

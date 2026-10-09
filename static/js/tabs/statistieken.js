@@ -145,6 +145,8 @@ function maakJarenTabel(jaren) {
     const kolommen = [
         {
             label: "Jaar",
+            mobielRol: "titel",
+            mobielTekst: j => String(j.jaar),
             waarde: j => j.jaar,
             renderTd: j => {
                 const td = document.createElement("td");
@@ -159,6 +161,13 @@ function maakJarenTabel(jaren) {
             },
         },
         {
+            label: "Ingelegd en dagen",
+            alleenMobiel: true,
+            mobielRol: "subregel",
+            mobielTekst: jaarSubregel,
+            renderTd: j => maakCel(jaarSubregel(j)),
+        },
+        {
             label: "Startwaarde",
             waarde: j => j.startwaarde,
             renderTd: j => maakCel(formatteerEuro(j.startwaarde)),
@@ -170,19 +179,30 @@ function maakJarenTabel(jaren) {
         },
         {
             label: "Eindwaarde",
+            mobielRol: "waarde",
             waarde: j => j.eindwaarde,
             renderTd: j => maakCel(formatteerEuro(j.eindwaarde)),
         },
         {
             label: "Winst",
+            mobielRol: "subwaarde",
             waarde: j => j.winst_eur,
             renderTd: j => maakRendementCel(j.winst_eur, j.winst_pct),
+        },
+        {
+            label: "% van jaar",
+            alleenMobiel: true,
+            renderTd: j => maakCel(`${formatGetal(j.pct_van_jaar, 1, 0)}%`),
         },
     ];
 
     // Standaard nieuwste jaar eerst.
     const rijen = [...jaren].reverse();
-    return maakSorteerbareTabel(kolommen, rijen, { legeTekst: "Geen jaargegevens beschikbaar." });
+    return maakSorteerbareTabel(kolommen, rijen, {
+        legeTekst: "Geen jaargegevens beschikbaar.",
+        compactOpMobiel: true,
+        sorteerPlek: document.getElementById("statistiekenJarenSorteer"),
+    });
 }
 
 function maakGeavanceerdSectie(geavanceerd) {

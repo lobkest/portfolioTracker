@@ -14,6 +14,8 @@ const DIVIDEND_BRON_TEKST = {
     onbekend: "Onbekend — niet meegeteld",
 };
 
+const PROGNOSE_HERBEREKEN_MS = 400;
+
 const BELASTING_BRON_TEKST = { eigen: "eigen data", land: "aanname land", standaard: "standaardaanname" };
 
 function prognoseGetal(x, maxDecimalen) {
@@ -70,42 +72,67 @@ const HISTORIE_STATUS_TEKST = {
 
 const HISTORIE_VELD_NAAM = { rendement: "koersrendement", laag: "lage kant", hoog: "hoge kant" };
 
-function historiePct(pct) {
-    return pct === null || pct === undefined ? "—" : `${prognoseGetal(pct, 1)}%`;
+function grijzeCelAls(grijs, tekst) {
+    const td = maakCel(tekst);
+    if (grijs) td.className = "grijsTekst";
+    return td;
+}
+
+function maakKortBadge() {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = "kort";
+    return badge;
 }
 
 function maakHistorieTabel(posities) {
     const telt = p => p.status === "ok";
     const kolommen = [
-        { label: "Aandeel/ETF", renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin) },
-        { label: "Gewicht", waarde: p => p.gewicht, renderTd: p => maakCel(p.gewicht === null ? "—" : prognosePct(p.gewicht)) },
         {
-            label: "Jaren data",
-            waarde: p => p.beschikbare_jaren,
+            label: "Aandeel/ETF",
+            mobielRol: "titel",
+            mobielTekst: p => p.bijnaam || p.ticker || p.isin,
+            renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin),
+        },
+        { label: "Gewicht en jaren data", alleenMobiel: true, mobielRol: "subregel", mobielTekst: historieMobielSubregel, renderTd: p => maakCel(historieMobielSubregel(p)) },
+        {
+            label: "Gem. stijging per jaar",
+            alleenMobiel: true,
+            mobielRol: "waarde",
+            // De titel is platte tekst (tabel.js), dus de badge staat hier, bij de CAGR waar hij over gaat.
             renderTd: p => {
-                const td = maakCel(prognoseGetal(p.beschikbare_jaren, 1));
-                if (telt(p) && p.kort) {
-                    const badge = document.createElement("span");
-                    badge.className = "badge";
-                    badge.textContent = "kort";
-                    td.appendChild(badge);
-                }
+                const td = grijzeCelAls(!telt(p), historieMobielWaarde(p));
+                if (telt(p) && p.kort) td.appendChild(maakKortBadge());
                 return td;
             },
         },
-        { label: "Vanaf", waarde: p => p.historie_vanaf, renderTd: p => maakCel(p.historie_vanaf === null ? "—" : String(p.historie_vanaf)) },
+        { label: "1-jaars range", alleenMobiel: true, mobielRol: "subwaarde", renderTd: p => maakCel(historieMobielSubwaarde(p)) },
+        { label: "Gewicht", alleenTabel: true, waarde: p => p.gewicht, renderTd: p => maakCel(p.gewicht === null ? "—" : prognosePct(p.gewicht)) },
+        {
+            label: "Jaren data",
+            alleenTabel: true,
+            waarde: p => p.beschikbare_jaren,
+            renderTd: p => {
+                const td = maakCel(prognoseGetal(p.beschikbare_jaren, 1));
+                if (telt(p) && p.kort) td.appendChild(maakKortBadge());
+                return td;
+            },
+        },
+        { label: "Vanaf", alleenTabel: true, waarde: p => p.historie_vanaf, renderTd: p => maakCel(p.historie_vanaf === null ? "—" : String(p.historie_vanaf)) },
         {
             label: "Gem. stijging per jaar (CAGR)",
+            alleenTabel: true,
             waarde: p => (telt(p) ? p.cagr_pct : null),
             renderTd: p => maakCel(telt(p) ? historiePct(p.cagr_pct) : (HISTORIE_STATUS_TEKST[p.status] || p.status)),
         },
         {
             label: "1-jaars range (p10 – p90)",
+            alleenTabel: true,
             renderTd: p => maakCel(telt(p) && p.laag_1j_pct !== null
                 ? `${historiePct(p.laag_1j_pct)} – ${historiePct(p.hoog_1j_pct)}` : "—"),
         },
     ];
-    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit." });
+    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit.", compactOpMobiel: true });
 }
 
 // Vinkje "Rendement op basis van historie" (alleen Huidige portfolio): vult koersrendement, laag en hoog uit de backend;
@@ -144,8 +171,7 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
         RENDEMENT_VELDEN.forEach(sleutel => { veld(sleutel).value = waarden[sleutel]; });
         aangepast = false;
         el("HistorieHandmatig").hidden = true;
-        el("HistorieKwartielen").textContent = `Waarschijnlijk (p25–p75): ${historiePct(percentielen.p25)} tot ` +
-            `${historiePct(percentielen.p75)} per jaar over ${horizon} jaar.`;
+        el("HistorieKwartielen").textContent = historieKwartielenTekst(percentielen.p25, percentielen.p75, horizon);
         el("HistorieKwartielen").hidden = false;
         el("HistorieAfgekapt").hidden = afgekapt.length === 0;
         el("HistorieAfgekapt").textContent = afgekapt.map(a =>
@@ -236,10 +262,19 @@ function eigenDividendTekst(p) {
 
 function maakDividendVerwachtingTabel(posities, perDatum) {
     const kolommen = [
-        { label: "Aandeel/ETF", renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin) },
-        { label: "Aantal", waarde: p => p.aantal, renderTd: p => maakCel(prognoseGetal(p.aantal, 4)) },
+        {
+            label: "Aandeel/ETF",
+            mobielRol: "titel",
+            mobielTekst: p => p.bijnaam || p.ticker || p.isin,
+            renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin),
+        },
+        { label: "Aantal en dividend per aandeel", alleenMobiel: true, mobielRol: "subregel", mobielTekst: dividendMobielSubregel, renderTd: p => maakCel(dividendMobielSubregel(p)) },
+        { label: "Netto per jaar", alleenMobiel: true, mobielRol: "waarde", renderTd: p => grijzeCelAls(!p.meegeteld, dividendMobielWaarde(p)) },
+        { label: "Bronbelasting", alleenMobiel: true, mobielRol: "subwaarde", renderTd: p => maakCel(dividendMobielSubwaarde(p)) },
+        { label: "Aantal", alleenTabel: true, waarde: p => p.aantal, renderTd: p => maakCel(prognoseGetal(p.aantal, 4)) },
         {
             label: "Dividend per aandeel per jaar",
+            alleenTabel: true,
             renderTd: p => maakCel(p.per_aandeel_jaar === null ? "—" : `${prognoseGetal(p.per_aandeel_jaar, 4)} ${p.valuta || ""}`),
         },
         { label: "Bron", renderTd: p => maakCel(dividendBronTekst(p.bron, perDatum)) },
@@ -250,23 +285,23 @@ function maakDividendVerwachtingTabel(posities, perDatum) {
         },
         {
             label: "Netto per jaar",
+            alleenTabel: true,
             waarde: p => p.netto_eur_jaar,
             renderTd: p => maakCel(p.meegeteld ? formatteerEuro(p.netto_eur_jaar) : "niet meegeteld"),
         },
         { label: "Eigen data", waarde: p => p.eigen_bruto_eur_jaar, renderTd: p => maakCel(eigenDividendTekst(p)) },
     ];
-    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit." });
+    return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit.", compactOpMobiel: true });
 }
 
 function renderDividendVerwachting(prefix, data) {
     document.getElementById(`${prefix}DividendTabel`).replaceChildren(
         maakDividendVerwachtingTabel(data.posities, data.eigen_per_datum));
-    let totaal = `Totaal netto per jaar: ${formatteerEuro(data.totaal_netto_eur_jaar)}`;
-    if (data.yield_netto !== null) {
-        totaal += ` — netto yield ${prognosePct(data.yield_netto, false, 2)} van de huidige waarde (${formatteerEuro(data.huidige_waarde_eur)}).`;
-    }
-    if (!data.eigen_data) totaal += " Geen rekeningoverzicht geüpload: geen vergelijking met eigen dividend.";
-    document.getElementById(`${prefix}DividendTotaal`).textContent = totaal;
+    const { hoofd, noot } = dividendTotaalTekst(data);
+    document.getElementById(`${prefix}DividendTotaal`).textContent = hoofd;
+    const nootEl = document.getElementById(`${prefix}DividendTotaalNoot`);
+    nootEl.textContent = noot;
+    nootEl.hidden = !noot;
 
     const nietMeegeteld = data.posities.filter(p => !p.meegeteld);
     const melding = document.getElementById(`${prefix}DividendNietMeegeteld`);
@@ -278,6 +313,7 @@ function renderDividendVerwachting(prefix, data) {
 function tekenPrognoseChart(datasets) {
     if (chart) chart.destroy();
     datasets = datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5, ...ds }));
+    const smal = isSmalScherm();
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "line",
@@ -305,6 +341,9 @@ function tekenPrognoseChart(datasets) {
             plugins: {
                 legend: {
                     labels: {
+                        boxWidth: smal ? 12 : 40,
+                        padding: smal ? 6 : 10,
+                        font: { size: smal ? 11 : 12 },
                         filter: (item, data) => !(data.datasets[item.datasetIndex] || {})._verbergInLegenda
                     }
                 },
@@ -326,7 +365,7 @@ function maakPrognoseTab({ view, prefix, metInleg, metHistorie, standaardInvoer 
     const veld = sleutel => document.getElementById(prefix + sleutel[0].toUpperCase() + sleutel.slice(1));
     const el = naam => document.getElementById(prefix + naam);
 
-    // Invoer blijft bewaard zolang de pagina open is; rekenen pas na "Bereken".
+    // Invoer blijft bewaard zolang de pagina open is.
     let invoer = { ...standaardInvoer };
     let resultaat = null;
     // Standaard aan; zonder code (niet opslaan) kan het niet. Mislukt het ophalen, dan gaat het uit tot de volgende portfolio.
@@ -419,15 +458,20 @@ function maakPrognoseTab({ view, prefix, metInleg, metHistorie, standaardInvoer 
         if (actieveViewNaam() === view) tekenPrognoseChart(resultaat.datasets);
     }
 
+    let wachtend = null;
     velden.forEach(sleutel => {
+        veld(sleutel).addEventListener("input", () => {
+            clearTimeout(wachtend);
+            wachtend = setTimeout(berekenEnToon, PROGNOSE_HERBEREKEN_MS);
+        });
         veld(sleutel).addEventListener("keydown", (e) => {
             if (e.key === "Enter") {
                 e.preventDefault();
+                clearTimeout(wachtend);
                 berekenEnToon();
             }
         });
     });
-    el("BerekenBtn").addEventListener("click", () => berekenEnToon());
     el("DividendVinkje").addEventListener("change", (e) => {
         dividendAan = e.target.checked;
         toonDividendSectie();

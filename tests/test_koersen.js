@@ -92,3 +92,52 @@ test("tekst voor verborgen alternatieven: enkelvoud, meervoud, niets", () => {
     assert.equal(verborgenAlternatievenTekst(2), "2 kandidaten zonder koersdata verborgen");
     assert.equal(verborgenAlternatievenTekst(0), null);
 });
+
+const {
+    prijscontroleSubregel, prijscontroleSplitTekst, dagrangeOordeel,
+    alternatiefDagrangeTekst, alternatiefSubregel, alternatiefControleTekst, alternatiefUitkeringsvormTekst,
+} = require("../static/js/koersen.js");
+
+test("prijscontrole-subregel zonder split-correctie", () => {
+    const c = { bekende_koers: 28.32, yahoo_koers: 28.2 };
+    assert.equal(prijscontroleSubregel(c), "Excel 28,320 · Yahoo 28,200");
+    assert.equal(prijscontroleSplitTekst(c), null);
+});
+
+test("prijscontrole-subregel met split-correctie: gecorrigeerde koers met *, split in de details", () => {
+    const c = { bekende_koers: 100, yahoo_koers: 25, yahoo_koers_gecorrigeerd: 100, split_factor: 4 };
+    assert.equal(prijscontroleSubregel(c), "Excel 100,000 · Yahoo 100,000 *");
+    assert.equal(prijscontroleSplitTekst(c), "×4, ruwe Yahoo-koers 25,000");
+});
+
+test("prijscontrole-subregel zonder koersen", () => {
+    assert.equal(prijscontroleSubregel({ bekende_koers: null, yahoo_koers: null }), "Excel - · Yahoo onbekend");
+});
+
+test("dagrangeOordeel: ✓ / ✗ / – met de bestaande klassen", () => {
+    assert.deepEqual([true, false, null, undefined].map(b => [dagrangeOordeel(b).tekst, dagrangeOordeel(b).klasse]), [
+        ["✓", "positief"], ["✗", "negatief"], ["–", "gedempt"], ["–", "gedempt"],
+    ]);
+});
+
+test("alternatief: subregel bij ETF alleen beurs en valuta, bij aandeel ook land en sector", () => {
+    const alt = { beurs: "AMS", valuta: "EUR", land: "Nederland", sector: null };
+    assert.equal(alternatiefSubregel(alt, true), "AMS · EUR");
+    assert.equal(alternatiefSubregel(alt, false), "AMS · EUR · Nederland · onbekend");
+    assert.equal(alternatiefSubregel({}, true), "onbekend · onbekend");
+});
+
+test("alternatief: dagrangetekst en details", () => {
+    const goed = { aantal_matches: 1, aantal_gecontroleerd: 1 };
+    assert.equal(alternatiefDagrangeTekst(goed), "1/1");
+    assert.equal(alternatiefControleTekst(goed), "1 van 1 datums binnen de dagrange");
+    assert.equal(alternatiefUitkeringsvormTekst(goed), null);
+
+    const strijdig = { aantal_matches: 2, aantal_gecontroleerd: 3, uitkeringsvorm_strijdig: true };
+    assert.equal(alternatiefDagrangeTekst(strijdig), "2/3 (DIS/ACC wijkt af)");
+    assert.match(alternatiefUitkeringsvormTekst(strijdig), /DIS\/ACC/);
+
+    const leeg = { aantal_matches: 0, aantal_gecontroleerd: 0 };
+    assert.equal(alternatiefDagrangeTekst(leeg), "geen prijsdata");
+    assert.equal(alternatiefControleTekst(leeg), "geen koersdata om te controleren");
+});

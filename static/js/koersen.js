@@ -79,9 +79,58 @@
         return `${aantal} ${aantal === 1 ? "kandidaat" : "kandidaten"} zonder koersdata verborgen`;
     }
 
+    function prijscontroleYahooTekst(c) {
+        if (c.yahoo_koers == null) return "onbekend";
+        return c.yahoo_koers_gecorrigeerd != null ? `${formatGetal(c.yahoo_koers_gecorrigeerd, 3)} *` : formatGetal(c.yahoo_koers, 3);
+    }
+
+    function prijscontroleSubregel(c) {
+        const excel = c.bekende_koers != null ? formatGetal(c.bekende_koers, 3) : "-";
+        return `Excel ${excel} · Yahoo ${prijscontroleYahooTekst(c)}`;
+    }
+
+    // null zonder split-correctie.
+    function prijscontroleSplitTekst(c) {
+        if (c.yahoo_koers_gecorrigeerd == null) return null;
+        return `×${formatGetal(c.split_factor, 4, 0)}, ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}`;
+    }
+
+    const DAGRANGE_OORDEEL = {
+        true: { tekst: "✓", klasse: "positief", uitleg: "Excel-koers valt binnen het intraday-high/low van deze handelsdag (±2% of €0,50)" },
+        false: { tekst: "✗", klasse: "negatief", uitleg: "Excel-koers valt buiten het intraday-high/low van deze handelsdag (±2% of €0,50)" },
+        null: { tekst: "–", klasse: "gedempt", uitleg: "Geen High/Low-data beschikbaar voor deze datum" },
+    };
+
+    function dagrangeOordeel(binnenDagrange) {
+        return DAGRANGE_OORDEEL[typeof binnenDagrange === "boolean" ? binnenDagrange : null];
+    }
+
+    function alternatiefDagrangeTekst(alt) {
+        if (!alt.aantal_gecontroleerd) return "geen prijsdata";
+        return `${alt.aantal_matches}/${alt.aantal_gecontroleerd}${alt.uitkeringsvorm_strijdig ? " (DIS/ACC wijkt af)" : ""}`;
+    }
+
+    function alternatiefSubregel(alt, isEtf) {
+        const delen = [alt.beurs || "onbekend", alt.valuta || "onbekend"];
+        if (!isEtf) delen.push(alt.land || "onbekend", alt.sector || "onbekend");
+        return delen.join(" · ");
+    }
+
+    function alternatiefControleTekst(alt) {
+        if (!alt.aantal_gecontroleerd) return "geen koersdata om te controleren";
+        return `${alt.aantal_matches} van ${alt.aantal_gecontroleerd} datums binnen de dagrange`;
+    }
+
+    // null als de uitkeringsvorm niet strijdig is.
+    function alternatiefUitkeringsvormTekst(alt) {
+        return alt.uitkeringsvorm_strijdig ? "DIS/ACC in de Yahoo-naam wijkt af van de DeGiro-naam" : null;
+    }
+
     const exportsObj = {
         koersMeldingTekst, tickerWaarschuwingTekst, splitLabel, splitLabelIndex,
         splitsAlternatieven, verborgenAlternatievenTekst,
+        prijscontroleYahooTekst, prijscontroleSubregel, prijscontroleSplitTekst, dagrangeOordeel,
+        alternatiefDagrangeTekst, alternatiefSubregel, alternatiefControleTekst, alternatiefUitkeringsvormTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

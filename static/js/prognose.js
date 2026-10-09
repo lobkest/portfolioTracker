@@ -3,6 +3,7 @@
 
 (function (root) {
     "use strict";
+    const { formatGetal, formatteerEuro } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
 
     // Geometrisch, niet /12: over 12 maanden komt dan precies het jaarrendement uit.
     function maandRenteVanJaarPct(rendementPct) {
@@ -215,6 +216,65 @@
         return { datasets };
     }
 
+    function historiePct(pct) {
+        return pct === null || pct === undefined ? "—" : `${formatGetal(pct, 1, 0)}%`;
+    }
+
+    function fractieAlsPct(fractie, decimalen = 1) {
+        return `${formatGetal(fractie * 100, decimalen, 0)}%`;
+    }
+
+    function historieKwartielenTekst(p25, p75, horizon) {
+        return `Waarschijnlijk ${formatGetal(p25, 1, 0)}–${historiePct(p75)} per jaar (historie, ${horizon} jaar)`;
+    }
+
+    // De volledige statustekst past niet in de smalle waardekolom; de subregel toont de jaren al.
+    const HISTORIE_STATUS_KORT = { te_kort: "telt niet mee", geen_koers: "geen koershistorie", nog_niet_geladen: "nog niet geladen" };
+
+    function historieMobielSubregel(p) {
+        const delen = [p.gewicht === null ? "—" : fractieAlsPct(p.gewicht)];
+        if (p.beschikbare_jaren !== null && p.beschikbare_jaren !== undefined) {
+            const vanaf = p.historie_vanaf === null || p.historie_vanaf === undefined ? "" : ` (vanaf ${p.historie_vanaf})`;
+            delen.push(`${formatGetal(p.beschikbare_jaren, 1, 0)} jaar data${vanaf}`);
+        }
+        return delen.join(" · ");
+    }
+
+    function historieMobielWaarde(p) {
+        return p.status === "ok" ? `${historiePct(p.cagr_pct)}/jaar` : (HISTORIE_STATUS_KORT[p.status] || p.status);
+    }
+
+    function historieMobielSubwaarde(p) {
+        if (p.status !== "ok" || p.laag_1j_pct === null || p.laag_1j_pct === undefined) return "";
+        return `1j: ${historiePct(p.laag_1j_pct)} – ${historiePct(p.hoog_1j_pct)}`;
+    }
+
+    function dividendMobielSubregel(p) {
+        const delen = [`${formatGetal(p.aantal, 4, 0)} st`];
+        if (p.per_aandeel_jaar !== null && p.per_aandeel_jaar !== undefined) {
+            delen.push(`${formatGetal(p.per_aandeel_jaar, 4, 0)} ${p.valuta || ""}`.trim());
+        }
+        return delen.join(" · ");
+    }
+
+    function dividendMobielWaarde(p) {
+        return p.meegeteld ? formatteerEuro(p.netto_eur_jaar) : "niet meegeteld";
+    }
+
+    function dividendMobielSubwaarde(p) {
+        return `bronbelasting ${fractieAlsPct(p.belasting_fractie)}`;
+    }
+
+    // {hoofd, noot}: hoofd = totaal + yield, noot alleen zonder rekeningoverzicht.
+    function dividendTotaalTekst(data) {
+        let hoofd = `Totaal netto ${formatteerEuro(data.totaal_netto_eur_jaar)} per jaar`;
+        if (data.yield_netto !== null) {
+            hoofd += ` · netto yield ${fractieAlsPct(data.yield_netto, 2)} van ${formatteerEuro(data.huidige_waarde_eur)}`;
+        }
+        const noot = data.eigen_data ? "" : "Geen rekeningoverzicht geüpload: geen vergelijking met eigen dividend.";
+        return { hoofd, noot };
+    }
+
     const exportsObj = {
         maandRenteVanJaarPct,
         berekenPrognosePad,
@@ -230,7 +290,16 @@
         bouwPrognoseGrafiekData,
         RENDEMENT_MIN_PCT,
         RENDEMENT_MAX_PCT,
-        HISTORIE_MAX_HORIZON_JAREN
+        HISTORIE_MAX_HORIZON_JAREN,
+        historiePct,
+        historieKwartielenTekst,
+        historieMobielSubregel,
+        historieMobielWaarde,
+        historieMobielSubwaarde,
+        dividendMobielSubregel,
+        dividendMobielWaarde,
+        dividendMobielSubwaarde,
+        dividendTotaalTekst
     };
 
     if (typeof module !== "undefined" && module.exports) {

@@ -60,131 +60,97 @@ function maakPrijscontroleTabel(prijsChecks) {
         return p;
     }
 
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
+    const getal = x => (x != null ? formatGetal(x, 3) : "-");
+    const kolommen = [
+        { label: "Datum", mobielRol: "titel", renderTd: c => maakCel(formatDatum(c.datum)) },
+        { label: "Excel-koers", alleenTabel: true, renderTd: c => maakCel(getal(c.bekende_koers)) },
+        {
+            label: "Yahoo-koers",
+            alleenTabel: true,
+            renderTd: c => {
+                const td = maakCel(prijscontroleYahooTekst(c));
+                if (c.yahoo_koers_gecorrigeerd != null) {
+                    td.title = `Ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}, gecorrigeerd voor een split sinds deze `
+                        + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`;
+                }
+                return td;
+            },
+        },
+        {
+            label: "Koersen",
+            alleenMobiel: true,
+            mobielRol: "subregel",
+            mobielTekst: prijscontroleSubregel,
+            renderTd: c => maakCel(prijscontroleSubregel(c)),
+        },
+        { label: "Low", renderTd: c => maakCel(getal(c.low)) },
+        { label: "High", renderTd: c => maakCel(getal(c.high)) },
+        { label: "Split-correctie", alleenMobiel: true, renderTd: c => maakCel(prijscontroleSplitTekst(c) || "") },
+        { label: "Afstand tot range", uitleg: AFSTAND_UITLEG, mobielRol: "subwaarde", renderTd: c => maakCel(afstandTekst(c.afstand_dagrange_pct)) },
+        {
+            label: "Binnen dagrange",
+            uitleg: DAGRANGE_UITLEG,
+            mobielRol: "waarde",
+            renderTd: c => {
+                const oordeel = dagrangeOordeel(c.binnen_dagrange);
+                const td = maakCel(oordeel.tekst);
+                td.className = oordeel.klasse;
+                td.title = oordeel.uitleg;
+                return td;
+            },
+        },
+    ];
 
-    const tabel = document.createElement("table");
-    tabel.className = "kleineTabel";
-    wrapper.appendChild(tabel);
+    const geheel = maakSorteerbareTabel(kolommen, prijsChecks, { klasse: "kleineTabel", compactOpMobiel: true });
 
-    const kop = document.createElement("tr");
-    ["Datum", "Excel-koers", "Yahoo-koers", "Low", "High", "Afstand tot range", "Binnen dagrange"].forEach(tekst => {
-        const th = document.createElement("th");
-        th.textContent = tekst;
-        if (tekst === "Binnen dagrange") th.title = DAGRANGE_UITLEG;
-        if (tekst === "Afstand tot range") th.title = AFSTAND_UITLEG;
-        kop.appendChild(th);
-    });
-    tabel.appendChild(kop);
-
-    let heeftSplitCorrectie = false;
-
-    prijsChecks.forEach(c => {
-        const rij = document.createElement("tr");
-        const gecorrigeerd = c.yahoo_koers_gecorrigeerd != null;
-        if (gecorrigeerd) heeftSplitCorrectie = true;
-        const yahooKoersTekst = c.yahoo_koers == null
-            ? "onbekend"
-            : gecorrigeerd ? `${formatGetal(c.yahoo_koers_gecorrigeerd, 3)} *` : formatGetal(c.yahoo_koers, 3);
-
-        [
-            formatDatum(c.datum),
-            c.bekende_koers != null ? formatGetal(c.bekende_koers, 3) : "-",
-            yahooKoersTekst,
-            c.low != null ? formatGetal(c.low, 3) : "-",
-            c.high != null ? formatGetal(c.high, 3) : "-",
-            afstandTekst(c.afstand_dagrange_pct),
-        ].forEach((tekst, i) => {
-            const td = document.createElement("td");
-            td.textContent = tekst;
-            if (i === 2 && gecorrigeerd) {
-                td.title = `Ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}, gecorrigeerd voor een split sinds deze `
-                    + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`;
-            }
-            rij.appendChild(td);
-        });
-
-        const dagrangeTd = document.createElement("td");
-        if (c.binnen_dagrange === true) {
-            dagrangeTd.textContent = "✓";
-            dagrangeTd.className = "positief";
-            dagrangeTd.title = "Excel-koers valt binnen het intraday-high/low van deze handelsdag (±2% of €0,50)";
-        } else if (c.binnen_dagrange === false) {
-            dagrangeTd.textContent = "✗";
-            dagrangeTd.className = "negatief";
-            dagrangeTd.title = "Excel-koers valt buiten het intraday-high/low van deze handelsdag (±2% of €0,50)";
-        } else {
-            dagrangeTd.textContent = "–";
-            dagrangeTd.className = "gedempt";
-            dagrangeTd.title = "Geen High/Low-data beschikbaar voor deze datum";
-        }
-        rij.appendChild(dagrangeTd);
-        tabel.appendChild(rij);
-    });
-
-    if (heeftSplitCorrectie) {
+    if (prijsChecks.some(c => c.yahoo_koers_gecorrigeerd != null)) {
         const voetnoot = document.createElement("p");
         voetnoot.className = "tickerNotitie tickerVoetnoot";
         voetnoot.textContent = "* gecorrigeerd voor een aandelensplitsing die na deze datum heeft plaatsgevonden "
-            + "(zweef over de koers voor details).";
-        wrapper.appendChild(voetnoot);
+            + "(zweef over de koers of tik op de rij voor details).";
+        geheel.appendChild(voetnoot);
     }
 
-    return wrapper;
+    return geheel;
 }
 
 // isEtf bepaalt de kolommen: land/sector alleen voor aandelen.
 function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
-    const wrapper = document.createElement("div");
-    wrapper.className = "tabelWrapper";
+    const isAanbevolen = alt => aanbevolenAlternatief === alt.ticker;
+    const tekstKolom = (label, veld) => ({ label, alleenTabel: true, renderTd: alt => maakCel(alt[veld] || "onbekend") });
+    const kolommen = [
+        {
+            label: "Ticker",
+            mobielRol: "titel",
+            mobielTekst: alt => (isAanbevolen(alt) ? `${alt.ticker} · aanbevolen` : alt.ticker),
+            renderTd: alt => maakCel(alt.ticker),
+        },
+        tekstKolom("Beurs", "beurs"),
+        ...(isEtf ? [] : [tekstKolom("Land", "land"), tekstKolom("Sector", "sector")]),
+        tekstKolom("Valuta", "valuta"),
+        {
+            label: "Kenmerken",
+            alleenMobiel: true,
+            mobielRol: "subregel",
+            mobielTekst: alt => alternatiefSubregel(alt, isEtf),
+            renderTd: alt => maakCel(alternatiefSubregel(alt, isEtf)),
+        },
+        {
+            label: "Binnen dagrange",
+            uitleg: `Op hoeveel van de gecontroleerde datums de Excel-koers binnen de dagrange van deze kandidaat valt. ${DAGRANGE_UITLEG}`,
+            mobielRol: "waarde",
+            renderTd: alt => maakCel(alternatiefDagrangeTekst(alt)),
+        },
+        { label: "Prijscontrole", alleenMobiel: true, renderTd: alt => maakCel(alternatiefControleTekst(alt)) },
+        { label: "Uitkeringsvorm", alleenMobiel: true, renderTd: alt => maakCel(alternatiefUitkeringsvormTekst(alt) || "") },
+        { label: "", alleenTabel: true, renderTd: alt => maakCel(isAanbevolen(alt) ? "← aanbevolen" : "") },
+    ];
 
-    const tabel = document.createElement("table");
-    tabel.className = "kleineTabel";
-    wrapper.appendChild(tabel);
-
-    const kolomLabels = isEtf
-        ? ["Ticker", "Beurs", "Valuta", "Binnen dagrange", ""]
-        : ["Ticker", "Beurs", "Land", "Sector", "Valuta", "Binnen dagrange", ""];
-
-    const kop = document.createElement("tr");
-    kolomLabels.forEach(tekst => {
-        const th = document.createElement("th");
-        th.textContent = tekst;
-        if (tekst === "Binnen dagrange") {
-            th.title = `Op hoeveel van de gecontroleerde datums de Excel-koers binnen de dagrange van deze kandidaat valt. ${DAGRANGE_UITLEG}`;
-        }
-        kop.appendChild(th);
+    return maakSorteerbareTabel(kolommen, alternatieven, {
+        klasse: "kleineTabel",
+        compactOpMobiel: true,
+        rijKlasse: alt => (isAanbevolen(alt) ? "aanbevolen" : null),
     });
-    tabel.appendChild(kop);
-
-    alternatieven.forEach(alt => {
-        const rij = document.createElement("tr");
-        const aanbevolen = aanbevolenAlternatief === alt.ticker;
-        if (aanbevolen) rij.className = "aanbevolen";
-
-        const dagrangeTekst = !alt.aantal_gecontroleerd
-            ? "geen prijsdata"
-            : `${alt.aantal_matches}/${alt.aantal_gecontroleerd}${alt.uitkeringsvorm_strijdig ? " (DIS/ACC wijkt af)" : ""}`;
-        const waarden = isEtf
-            ? [alt.ticker, alt.beurs || "onbekend", alt.valuta || "onbekend", dagrangeTekst]
-            : [
-                alt.ticker, alt.beurs || "onbekend", alt.land || "onbekend", alt.sector || "onbekend",
-                alt.valuta || "onbekend", dagrangeTekst,
-            ];
-        waarden.forEach(tekst => {
-            const td = document.createElement("td");
-            td.textContent = tekst;
-            rij.appendChild(td);
-        });
-
-        const labelTd = document.createElement("td");
-        if (aanbevolen) labelTd.textContent = "← aanbevolen";
-        rij.appendChild(labelTd);
-
-        tabel.appendChild(rij);
-    });
-
-    return wrapper;
 }
 
 // Eén regel i.p.v. de ruwe resultaten (soms 100+ rijen); geen regel als er geen oordeel is.

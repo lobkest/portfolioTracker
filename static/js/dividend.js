@@ -2,6 +2,7 @@
 
 (function (root) {  // omhulsel is een trucje om de exports te laten werken in Node en browser beide.
     "use strict";
+    const { formatteerEuro } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
 
     const DIVIDEND_START_DAGEN_VOOR_EERSTE_UITKERING = 30;
 
@@ -57,8 +58,21 @@
         });
     }
 
+    // Mobiele rij van Alle uitkeringen: "01-10-2026 · USD"; EUR wordt niet genoemd.
+    function dividendSubregel(datumTekst, valuta) {
+        return valuta && valuta !== "EUR" ? `${datumTekst} · ${valuta}` : datumTekst;
+    }
+
+    // "bruto €25,11 · -€3,77"; zonder belasting alleen het brutobedrag. Belasting is altijd een aftrek.
+    function dividendSubwaarde(brutoEur, belastingEur) {
+        const bruto = `bruto ${formatteerEuro(brutoEur)}`;
+        if (typeof belastingEur !== "number" || Math.abs(belastingEur) < 0.005) return bruto;
+        return `${bruto} · ${formatteerEuro(-Math.abs(belastingEur))}`;
+    }
+
     const exportsObj = {
         DIVIDEND_START_DAGEN_VOOR_EERSTE_UITKERING, bepaalDividendStart, bouwDividendTrapreeksen, bouwDividendDatasets,
+        dividendSubregel, dividendSubwaarde,
     };
 
     if (typeof module !== "undefined" && module.exports) {

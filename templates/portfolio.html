@@ -14,61 +14,77 @@
 {% block inhoud %}
     {# Tabbladen Prognose en Huidige portfolio: zelfde formulier (prefix = id-voorvoegsel), Huidige portfolio zonder inleg. #}
     {% macro prognose_formulier(prefix, met_inleg, met_historie=false) %}
-                {% if met_historie %}
-                <div class="labelRij prognoseLabelRij margeBoven10">
-                    <label class="checkboxLabel">
-                        <input type="checkbox" id="{{ prefix }}HistorieVinkje"> Rendement op basis van historie
-                    </label>
-                    <span id="{{ prefix }}HistorieHandmatig" class="kleineMelding" hidden>(handmatig aangepast)</span>
-                    <span class="infoTip" data-label="Rendement op basis van historie">Berekent verwacht koersrendement en bandbreedte uit de koershistorie van je huidige posities, zo ver terug als beschikbaar. Verleden is geen garantie.</span>
+                <h3 class="prognoseKop">Aannames</h3>
+                <div class="prognoseVeld">
+                    <label for="{{ prefix }}Jaren">Jaren vooruit</label>
+                    <input type="number" id="{{ prefix }}Jaren" min="0" max="100" step="1" inputmode="numeric">
                 </div>
-                <p id="{{ prefix }}HistorieNietBeschikbaar" class="kleineMelding" hidden>Alleen beschikbaar bij een opgeslagen portfolio.</p>
-                <p id="{{ prefix }}HistorieLaden" class="kleineMelding" hidden>Koershistorie ophalen...</p>
-                <p id="{{ prefix }}HistorieFout" class="foutTekst prognoseMelding" hidden></p>
-                <p id="{{ prefix }}HistorieAfgekapt" class="waarschuwingTekst prognoseMelding" hidden></p>
-                <p id="{{ prefix }}HistorieKwartielen" class="kleineMelding" hidden></p>
-                {% endif %}
-                <div class="prognoseVelden">
-                    <div class="prognoseVeld">
-                        <label for="{{ prefix }}Jaren">Aantal jaren vooruit</label>
-                        <input type="number" id="{{ prefix }}Jaren" min="0" max="100" step="1">
-                    </div>
-                    <div class="prognoseVeld">
-                        <div class="labelRij prognoseLabelRij">
-                            <label for="{{ prefix }}Rendement">Verwacht koersrendement per jaar (%)</label>
-                            <span class="infoTip" data-label="Koersrendement">Alleen koersstijging, zonder dividend. Vul je hier een totaalrendement in (bijv. 7% voor een wereldindex), zet het dividend-vinkje dan uit, anders telt dividend dubbel.</span>
+                <fieldset class="prognoseGroep">
+                    <legend class="prognoseGroepKop">
+                        Rendement per jaar (%)
+                        <span class="infoTip" data-label="Koersrendement">Alleen koersstijging, zonder dividend. Vul je hier een totaalrendement in (bijv. 7% voor een wereldindex), zet het dividend-vinkje dan uit, anders telt dividend dubbel.</span>
+                    </legend>
+                    <div class="prognoseRaster prognoseRaster3">
+                        <div class="prognoseVeld">
+                            <label for="{{ prefix }}Rendement">Verwacht</label>
+                            <input type="number" id="{{ prefix }}Rendement" step="0.1" inputmode="decimal">
                         </div>
-                        <input type="number" id="{{ prefix }}Rendement" step="0.1">
+                        <div class="prognoseVeld">
+                            <label for="{{ prefix }}Laag">Laag</label>
+                            <input type="number" id="{{ prefix }}Laag" step="0.1" inputmode="decimal">
+                        </div>
+                        <div class="prognoseVeld">
+                            <label for="{{ prefix }}Hoog">Hoog</label>
+                            <input type="number" id="{{ prefix }}Hoog" step="0.1" inputmode="decimal">
+                        </div>
                     </div>
-                    <div class="prognoseVeld">
-                        <label for="{{ prefix }}Laag">Bandbreedte — laag (%)</label>
-                        <input type="number" id="{{ prefix }}Laag" step="0.1">
-                    </div>
-                    <div class="prognoseVeld">
-                        <label for="{{ prefix }}Hoog">Bandbreedte — hoog (%)</label>
-                        <input type="number" id="{{ prefix }}Hoog" step="0.1">
-                    </div>
-                    {% if met_inleg %}
-                    <div class="prognoseVeld">
-                        <label for="{{ prefix }}Jaarlijks">Jaarlijkse inleg (€)</label>
-                        <input type="number" id="{{ prefix }}Jaarlijks" min="0" step="50">
-                    </div>
-                    <div class="prognoseVeld">
-                        <label for="{{ prefix }}Maandelijks">Maandelijkse inleg (€)</label>
-                        <input type="number" id="{{ prefix }}Maandelijks" min="0" step="10">
-                    </div>
+                    {% if met_historie %}
+                    <p id="{{ prefix }}HistorieKwartielen" class="kleineMelding prognoseKwartielen" hidden></p>
                     {% endif %}
-                </div>
-                <label class="checkboxLabel margeBoven14">
-                    <input type="checkbox" id="{{ prefix }}DividendVinkje"> Inclusief verwacht dividend (netto, niet herbelegd)
-                </label>
-                <p id="{{ prefix }}DividendNietBeschikbaar" class="kleineMelding" hidden>Alleen beschikbaar bij een opgeslagen portfolio.</p>
-                <p id="{{ prefix }}DividendLaden" class="kleineMelding" hidden>Verwacht dividend ophalen...</p>
-                <p id="{{ prefix }}DividendFout" class="foutTekst prognoseMelding" hidden></p>
-                <button id="{{ prefix }}BerekenBtn" type="button" class="margeBoven14">Bereken</button>
+                </fieldset>
+                {% if met_inleg %}
+                <fieldset class="prognoseGroep">
+                    <legend class="prognoseGroepKop">Inleg (€)</legend>
+                    <div class="prognoseRaster prognoseRaster2">
+                        <div class="prognoseVeld">
+                            <label for="{{ prefix }}Jaarlijks">Jaarlijks</label>
+                            <input type="number" id="{{ prefix }}Jaarlijks" min="0" step="50" inputmode="decimal">
+                        </div>
+                        <div class="prognoseVeld">
+                            <label for="{{ prefix }}Maandelijks">Maandelijks</label>
+                            <input type="number" id="{{ prefix }}Maandelijks" min="0" step="10" inputmode="decimal">
+                        </div>
+                    </div>
+                </fieldset>
+                {% endif %}
                 <p id="{{ prefix }}Foutmelding" class="foutTekst prognoseMelding" style="display: none;"></p>
                 <p id="{{ prefix }}Waarschuwing" class="waarschuwingTekst prognoseMelding" style="display: none;"></p>
-                <p class="prognoseVoetnoot">Doorgetrokken lijn = historische data. Gestippelde lijn + gearceerd gebied = prognose (aanname, geen garantie).</p>
+                <div class="prognoseSchakelaars">
+                    {% if met_historie %}
+                    <div class="schakelaarRij">
+                        <span class="schakelaarTekst">
+                            <label for="{{ prefix }}HistorieVinkje">Rendement uit historie</label>
+                            <span class="infoTip" data-label="Rendement uit historie">Berekent verwacht koersrendement en bandbreedte uit de koershistorie van je huidige posities, zo ver terug als beschikbaar. Verleden is geen garantie.</span>
+                        </span>
+                        <input type="checkbox" role="switch" class="schakelaar" id="{{ prefix }}HistorieVinkje">
+                    </div>
+                    <p id="{{ prefix }}HistorieNietBeschikbaar" class="kleineMelding schakelaarMelding" hidden>Alleen beschikbaar bij een opgeslagen portfolio.</p>
+                    <p id="{{ prefix }}HistorieLaden" class="kleineMelding schakelaarMelding" hidden>Koershistorie ophalen...</p>
+                    <p id="{{ prefix }}HistorieHandmatig" class="kleineMelding schakelaarMelding" hidden>Handmatig aangepast.</p>
+                    <p id="{{ prefix }}HistorieFout" class="foutTekst prognoseMelding schakelaarMelding" hidden></p>
+                    <p id="{{ prefix }}HistorieAfgekapt" class="waarschuwingTekst prognoseMelding schakelaarMelding" hidden></p>
+                    {% endif %}
+                    <div class="schakelaarRij">
+                        <span class="schakelaarTekst">
+                            <label for="{{ prefix }}DividendVinkje">Verwacht dividend meetellen</label>
+                            <span class="infoTip" data-label="Verwacht dividend">Netto (na bronbelasting) en niet herbelegd: het dividend blijft als geld naast je belegging staan.</span>
+                        </span>
+                        <input type="checkbox" role="switch" class="schakelaar" id="{{ prefix }}DividendVinkje">
+                    </div>
+                    <p id="{{ prefix }}DividendNietBeschikbaar" class="kleineMelding schakelaarMelding" hidden>Alleen beschikbaar bij een opgeslagen portfolio.</p>
+                    <p id="{{ prefix }}DividendLaden" class="kleineMelding schakelaarMelding" hidden>Verwacht dividend ophalen...</p>
+                    <p id="{{ prefix }}DividendFout" class="foutTekst prognoseMelding schakelaarMelding" hidden></p>
+                </div>
     {% endmacro %}
     {% macro prognose_historie_sectie(prefix) %}
                 <div id="{{ prefix }}HistorieSectie" class="margeBoven20" hidden>
@@ -76,24 +92,27 @@
                     <p id="{{ prefix }}HistorieHorizon" class="kleineMelding"></p>
                     <div id="{{ prefix }}HistorieTabel"></div>
                     <div id="{{ prefix }}HistorieWaarschuwingen"></div>
-                    <div class="uitlegBox margeBoven8">
-                        <p><strong>Hoe is dit berekend?</strong> We nemen de koersen in euro van je huidige posities zo ver terug als beschikbaar, gecorrigeerd voor aandelensplits en zonder dividend. Daarmee bouwen we je huidige portfolio terug in de tijd na, in de huidige verdeling (elke dag opnieuw in die verdeling gebracht, een vereenvoudiging). De nagebouwde portfolio begint pas als posities die samen minstens de helft van je portfolio vormen al koersen hebben; daarvoor rekent hij met de posities die er wel waren. Uit die historie nemen we de rendementen per maand en maken we 5.000 mogelijke toekomstpaden, door steeds willekeurig blokken van 12 aaneengesloten historische maanden aan elkaar te zetten. Zo telt elk historisch jaar mee, ook de slechte, en wordt de bandbreedte breder naarmate je verder vooruit kijkt. De middenlijn is het middelste pad; de donkere band loopt van 25% tot 75% van de paden, de lichte band van 10% tot 90%. De tabel toont per positie vanaf wanneer er koersen zijn, de gemiddelde stijging per jaar en de spreiding van losse jaren.</p>
+                    <details class="uitlegBox margeBoven8">
+                        <summary>Hoe is dit berekend?</summary>
+                        <p>We nemen de koersen in euro van je huidige posities zo ver terug als beschikbaar, gecorrigeerd voor aandelensplits en zonder dividend. Daarmee bouwen we je huidige portfolio terug in de tijd na, in de huidige verdeling (elke dag opnieuw in die verdeling gebracht, een vereenvoudiging). De nagebouwde portfolio begint pas als posities die samen minstens de helft van je portfolio vormen al koersen hebben; daarvoor rekent hij met de posities die er wel waren. Uit die historie nemen we de rendementen per maand en maken we 5.000 mogelijke toekomstpaden, door steeds willekeurig blokken van 12 aaneengesloten historische maanden aan elkaar te zetten. Zo telt elk historisch jaar mee, ook de slechte, en wordt de bandbreedte breder naarmate je verder vooruit kijkt. De middenlijn is het middelste pad; de donkere band loopt van 25% tot 75% van de paden, de lichte band van 10% tot 90%. De tabel toont per positie vanaf wanneer er koersen zijn, de gemiddelde stijging per jaar en de spreiding van losse jaren.</p>
                         <p><strong>Let op:</strong> dit is wat je huidige posities in het verleden deden. Posities die je nog bezit, zijn vaak posities die goed liepen; doortrekken overschat de toekomst meestal.</p>
-                    </div>
+                    </details>
                 </div>
     {% endmacro %}
     {% macro prognose_dividend_sectie(prefix) %}
                 <div id="{{ prefix }}DividendSectie" class="margeBoven20" hidden>
                     <h3>Verwacht dividend</h3>
                     <div id="{{ prefix }}DividendTabel"></div>
-                    <p id="{{ prefix }}DividendTotaal" class="margeBoven8"></p>
+                    <p id="{{ prefix }}DividendTotaal" class="dividendTotaalRegel"></p>
+                    <p id="{{ prefix }}DividendTotaalNoot" class="kleineMelding" hidden></p>
                     <p id="{{ prefix }}DividendNietMeegeteld" class="waarschuwingTekst prognoseMelding" hidden></p>
-                    <div class="uitlegBox margeBoven8">
-                        <p><strong>Hoe is dit berekend?</strong> Per positie: dividend per aandeel van de afgelopen 12 maanden (Yahoo) × je huidige aantal × wisselkoers, min bronbelasting. Uitkeringen van vóór een aandelensplit tellen niet mee. Ligt een split minder dan een jaar terug, dan gebruiken we Yahoo's verwachte jaarbedrag. Heb je een rekeningoverzicht geüpload, dan vergelijken we dit met je eigen ontvangen dividend; afwijkingen staan bij Instellingen &gt; Diagnostiek.</p>
+                    <details class="uitlegBox margeBoven8">
+                        <summary>Hoe is dit berekend?</summary>
+                        <p>Per positie: dividend per aandeel van de afgelopen 12 maanden (Yahoo) × je huidige aantal × wisselkoers, min bronbelasting. Uitkeringen van vóór een aandelensplit tellen niet mee. Ligt een split minder dan een jaar terug, dan gebruiken we Yahoo's verwachte jaarbedrag. Heb je een rekeningoverzicht geüpload, dan vergelijken we dit met je eigen ontvangen dividend; afwijkingen staan bij Instellingen &gt; Diagnostiek.</p>
                         <p><strong>Bruto vs. netto.</strong> Bruto is het dividend dat het bedrijf of fonds uitkeert. Netto is wat er op je rekening komt na bronbelasting: bijvoorbeeld 15% voor Nederlandse en (via DeGiro) Amerikaanse aandelen, 0% voor Ierse ETF's. Bij een Iers fonds is de Amerikaanse belasting al binnen het fonds ingehouden en dus niet zichtbaar. Nederlandse dividendbelasting kun je meestal verrekenen in je aangifte; netto is dan iets voorzichtig.</p>
                         <p><strong>Niet herbelegd.</strong> Het dividend blijft als geld naast je belegging staan en groeit zelf niet mee. Elke maand komt er 1/12 van de netto yield over de verwachte waarde van dat moment bij.</p>
                         <p>Accumulerende fondsen keren niets uit: hun dividend zit al in de koers.</p>
-                    </div>
+                    </details>
                 </div>
     {% endmacro %}
     <div class="container" id="laadFout" hidden>
@@ -295,7 +314,10 @@
                         <div id="statistiekenGeslotenSorteer"></div>
                     </div>
                     <div id="statistiekenGesloten"></div>
-                    <h3 class="sectieKop">Rendement per jaar</h3>
+                    <div class="kopMetSorteer">
+                        <h3 class="sectieKop">Rendement per jaar</h3>
+                        <div id="statistiekenJarenSorteer"></div>
+                    </div>
                     <div id="statistiekenJaren"></div>
                     <h3 class="margeBoven24 margeOnder0">Samengesteld rendement</h3>
                     <div id="statistiekenGeavanceerd"></div>
@@ -363,7 +385,10 @@
                 <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
                 </div>
                 <div id="dividendUitkeringenSectie" class="margeBoven20" hidden>
-                    <h3>Alle uitkeringen</h3>
+                    <div class="kopMetSorteer">
+                        <h3>Alle uitkeringen</h3>
+                        <div id="dividendUitkeringenSorteer"></div>
+                    </div>
                     <div id="dividendUitkeringenTabel" class="scrollbareTabel"></div>
                 </div>
             </div>
@@ -538,6 +563,7 @@
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/dividend.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/statistieken.js') }}"></script>
     <script src="{{ url_for('static', filename='js/koersen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/per_aandeel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/land_sector.js') }}"></script>

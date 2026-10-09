@@ -211,3 +211,35 @@ test("subwaarde houdt de klassen van de cel (groen/rood); zonder waarde-kolom ee
     assert.equal(knop.className, "mobielRij mobielRijZonderWaarde");
     assert.equal(knop.children[2].className, "mobielSubwaarde rendementCel positief");
 });
+
+test("compactOpMobiel zonder sorteerbare kolommen: geen sorteerkeuze, wel de mobiele lijst", () => {
+    const kolommen = [
+        { label: "Naam", mobielRol: "titel", renderTd: r => maakCel(r.naam) },
+        { label: "Aantal", mobielRol: "waarde", renderTd: r => maakCel(String(r.aantal)) },
+    ];
+    const element = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true });
+    assert.equal(element.zoek("select").length, 0);
+    assert.equal(element.zoek("ul")[0].children.length, 4);
+});
+
+test("rijKlasse: op de <tr> én op de mobiele rij", () => {
+    const element = maakSorteerbareTabel(KOLOMMEN, RIJEN, {
+        compactOpMobiel: true,
+        rijKlasse: r => (r.naam === "C" ? "aanbevolen" : null),
+    });
+    assert.deepEqual(element.zoek("tbody")[0].zoek("tr").map(tr => tr.className), ["", "", "aanbevolen", ""]);
+    assert.deepEqual(element.zoek("ul")[0].children.map(li => li.className), ["", "", "aanbevolen", ""]);
+});
+
+test("alleenTabel niet in de mobiele rij; detail zonder inhoud valt weg; uitleg als tooltip op de kop", () => {
+    const kolommen = [
+        { label: "Naam", mobielRol: "titel", renderTd: r => maakCel(r.naam) },
+        { label: "Label", alleenTabel: true, uitleg: "Uitleg", renderTd: r => maakCel(`label-${r.naam}`) },
+        { label: "Leeg", alleenMobiel: true, renderTd: () => maakCel("") },
+        { label: "Aantal", renderTd: r => maakCel(String(r.aantal)) },
+    ];
+    const element = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true });
+    assert.deepEqual(element.zoek("th").map(th => [th.textContent, th.title]), [["Naam", undefined], ["Label", "Uitleg"], ["Aantal", undefined]]);
+    const details = element.zoek("ul")[0].children[0].children[1];
+    assert.deepEqual(details.children.map(tekst), ["Aantal", "3"]);
+});

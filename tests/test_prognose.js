@@ -20,7 +20,15 @@ const {
     bouwPrognoseGrafiekData,
     RENDEMENT_MIN_PCT,
     RENDEMENT_MAX_PCT,
-    HISTORIE_MAX_HORIZON_JAREN
+    HISTORIE_MAX_HORIZON_JAREN,
+    historieKwartielenTekst,
+    historieMobielSubregel,
+    historieMobielWaarde,
+    historieMobielSubwaarde,
+    dividendMobielSubregel,
+    dividendMobielWaarde,
+    dividendMobielSubwaarde,
+    dividendTotaalTekst
 } = require("../static/js/prognose.js");
 
 test("kiesHistorieHorizon: afronden, begrenzen op maxHorizon, minimaal 1", () => {
@@ -328,4 +336,56 @@ test("bouwPrognoseGrafiekData: met paden rekent de dividendlijn over p50", () =>
     const lijn = datasets.find(ds => ds.label === "Waarde + verwacht dividend, niet herbelegd (€)");
     // Maand 1: p50 = 8500 x 1,005 plus 1% dividend over de startwaarde 8500.
     assertClose(lijn.data[1].y, 8500 * 1.005 + 85);
+});
+
+test("historieKwartielenTekst: korte p25–p75-regel", () => {
+    assert.equal(historieKwartielenTekst(10.94, 15.7, 10), "Waarschijnlijk 10,9–15,7% per jaar (historie, 10 jaar)");
+});
+
+const telendePositie = {
+    status: "ok", gewicht: 0.123, beschikbare_jaren: 8.5, historie_vanaf: 2016,
+    cagr_pct: 9.84, laag_1j_pct: -12.3, hoog_1j_pct: 28,
+};
+
+test("historie mobiel: positie die meetelt", () => {
+    assert.equal(historieMobielSubregel(telendePositie), "12,3% · 8,5 jaar data (vanaf 2016)");
+    assert.equal(historieMobielWaarde(telendePositie), "9,8%/jaar");
+    assert.equal(historieMobielSubwaarde(telendePositie), "1j: -12,3% – 28%");
+});
+
+test("historie mobiel: positie die niet meetelt toont korte status en geen range", () => {
+    const p = { ...telendePositie, status: "te_kort", beschikbare_jaren: 0.4, historie_vanaf: 2026, cagr_pct: null };
+    assert.equal(historieMobielSubregel(p), "12,3% · 0,4 jaar data (vanaf 2026)");
+    assert.equal(historieMobielWaarde(p), "telt niet mee");
+    assert.equal(historieMobielSubwaarde(p), "");
+});
+
+test("historie mobiel: zonder koershistorie, gewicht of jaren", () => {
+    const p = { status: "geen_koers", gewicht: null, beschikbare_jaren: null, historie_vanaf: null, laag_1j_pct: null };
+    assert.equal(historieMobielSubregel(p), "—");
+    assert.equal(historieMobielWaarde(p), "geen koershistorie");
+    assert.equal(historieMobielWaarde({ status: "iets_nieuws" }), "iets_nieuws");
+});
+
+test("dividend mobiel: meegetelde positie", () => {
+    const p = { aantal: 12.5, per_aandeel_jaar: 0.85, valuta: "USD", meegeteld: true, netto_eur_jaar: 8.4, belasting_fractie: 0.15 };
+    assert.equal(dividendMobielSubregel(p), "12,5 st · 0,85 USD");
+    assert.equal(dividendMobielWaarde(p), "€8,40");
+    assert.equal(dividendMobielSubwaarde(p), "bronbelasting 15%");
+});
+
+test("dividend mobiel: niet meegeteld en zonder dividend per aandeel", () => {
+    const p = { aantal: 3, per_aandeel_jaar: null, valuta: null, meegeteld: false, netto_eur_jaar: null, belasting_fractie: 0 };
+    assert.equal(dividendMobielSubregel(p), "3 st");
+    assert.equal(dividendMobielWaarde(p), "niet meegeteld");
+    assert.equal(dividendMobielSubwaarde(p), "bronbelasting 0%");
+});
+
+test("dividendTotaalTekst: totaal, yield en noot zonder rekeningoverzicht", () => {
+    assert.deepEqual(
+        dividendTotaalTekst({ totaal_netto_eur_jaar: 123.4, yield_netto: 0.0123, huidige_waarde_eur: 10000, eigen_data: false }),
+        { hoofd: "Totaal netto €123,40 per jaar · netto yield 1,23% van €10.000,00", noot: "Geen rekeningoverzicht geüpload: geen vergelijking met eigen dividend." });
+    assert.deepEqual(
+        dividendTotaalTekst({ totaal_netto_eur_jaar: 0, yield_netto: null, huidige_waarde_eur: 0, eigen_data: true }),
+        { hoofd: "Totaal netto €0,00 per jaar", noot: "" });
 });

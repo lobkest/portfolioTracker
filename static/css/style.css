@@ -842,21 +842,19 @@ body {
 
 /* ETF-overlap: matrix van ETF x ETF. */
 .overlapMatrix {
-    width: 100%;
+    width: auto;
     table-layout: auto;
     border-collapse: collapse;
     font-size: 0.85em;
 }
 
 .overlapMatrix th {
-    padding: 4px 8px;
+    padding: 4px 12px;
     text-align: center;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
 }
 
-/* Namenkolom zo smal als de langste naam; de cijferkolommen delen de rest. */
 .overlapMatrix th.rijKop {
-    width: 1%;
     white-space: nowrap;
     text-align: left;
 }
@@ -901,15 +899,12 @@ body {
     margin-top: 0;
 }
 
-.prognoseVelden {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    margin-top: 10px;
+.prognoseKop {
+    margin: 14px 0 8px 0;
 }
 
 .prognoseVeld {
-    width: 170px;
+    max-width: 130px;
 }
 
 .prognoseVeld label {
@@ -917,8 +912,42 @@ body {
     font-size: 0.85em;
 }
 
-.prognoseLabelRij {
-    margin-top: 0;
+.prognoseGroep {
+    border: 0;
+    margin: 14px 0 0 0;
+    padding: 0;
+    min-width: 0;
+}
+
+.prognoseGroepKop {
+    padding: 0;
+    margin-bottom: 6px;
+    font-weight: bold;
+    font-size: 0.95em;
+}
+
+/* Gelijke kolommen, ook op mobiel op één rij. */
+.prognoseRaster {
+    display: grid;
+    gap: 8px;
+    max-width: 420px;
+}
+
+.prognoseRaster3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.prognoseRaster2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 280px;
+}
+
+.prognoseRaster .prognoseVeld {
+    max-width: none;
+}
+
+.prognoseKwartielen {
+    margin: 6px 0 0 0;
 }
 
 .prognoseMelding {
@@ -926,10 +955,86 @@ body {
     margin-top: 10px;
 }
 
-.prognoseVoetnoot {
-    color: #888;
-    font-size: 0.8em;
-    margin-top: 10px;
+.prognoseSchakelaars {
+    max-width: 420px;
+    margin-top: 16px;
+    padding-top: 6px;
+    border-top: 1px solid #e4e4e4;
+}
+
+.schakelaarRij {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.schakelaarTekst {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.schakelaarTekst label {
+    margin-top: 0;
+    font-weight: normal;
+}
+
+.schakelaarMelding {
+    margin: 0 0 6px 0;
+}
+
+input.schakelaar {
+    appearance: none;
+    -webkit-appearance: none;
+    flex-shrink: 0;
+    position: relative;
+    width: 40px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    border-radius: 11px;
+    background: #c4c4c4;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+input.schakelaar::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s;
+}
+
+input.schakelaar:checked {
+    background: #2c7a4b;
+}
+
+input.schakelaar:checked::before {
+    transform: translateX(18px);
+}
+
+input.schakelaar:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input.schakelaar:focus-visible {
+    outline: 2px solid #2c7a4b;
+    outline-offset: 2px;
+}
+
+.dividendTotaalRegel {
+    margin: 8px 0 2px 0;
+    font-weight: bold;
+    font-size: 0.95em;
 }
 
 .dividendTotaal {
@@ -1149,8 +1254,13 @@ body {
     padding: 2px 14px 2px 0;
 }
 
-.kleineTabel tr.aanbevolen {
+.kleineTabel tr.aanbevolen,
+.mobieleLijst li.aanbevolen {
     background: #eaf6ee;
+}
+
+.mobieleLijst li.aanbevolen .mobielTitel {
+    color: #2c7a4b;
 }
 
 .kleineTabel tr.aanbevolen td:last-child {
@@ -1498,12 +1608,6 @@ body {
         font-size: 1em;
     }
 
-    /* ETF-overlap: op een smal scherm de oude, scrollbare matrix. */
-    .overlapMatrix {
-        width: auto;
-        table-layout: auto;
-    }
-
     /* Niet in smalle kolommen persen: de .tabelWrapper eromheen scrolt horizontaal. */
     .tickerKaart .kleineTabel th,
     .tickerKaart .kleineTabel td {
@@ -1515,10 +1619,6 @@ body {
         max-width: 140px;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-
-    .overlapMatrix th.rijKop {
-        width: auto;
     }
 
     /* Compacter, zodat de hele startpagina zonder scrollen op een telefoonscherm past. */

@@ -265,7 +265,12 @@ function renderGestapeldeStaafgrafiek(canvasId, categorieData, bronNamen, opts) 
     });
 }
 
-// Zelfde voorwaarde als de mobiele layout in style.css: onder de grafiek, anders ernaast.
+// Zelfde voorwaarde als de mobiele layout in style.css.
+function isSmalScherm() {
+    return window.matchMedia("(max-width: 768px), (max-width: 900px) and (orientation: landscape)").matches;
+}
+
+// Op een smal scherm onder de grafiek, anders ernaast.
 function legendaPositie() {
-    return window.matchMedia("(max-width: 768px), (max-width: 900px) and (orientation: landscape)").matches ? "bottom" : "right";
+    return isSmalScherm() ? "bottom" : "right";
 }

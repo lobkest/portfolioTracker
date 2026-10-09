@@ -10,23 +10,33 @@ function maakDividendTotalenTabel(perTicker) {
     return maakSorteerbareTabel(kolommen, perTicker, { klasse: "compacteTabel", legeTekst: "Nog geen dividend ontvangen." });
 }
 
-// Bedragen zijn altijd EUR; 'valuta' is de oorspronkelijke valuta en staat alleen tussen haakjes.
-function formatteerDividendBedrag(bedragEur, valuta) {
-    const basis = formatteerEuro(bedragEur);
-    if (basis === "onbekend" || !valuta || valuta === "EUR") return basis;
-    return `${basis} (${valuta})`;
+// Bedragen zijn altijd EUR; 'valuta' is de oorspronkelijke valuta en staat alleen tussen haakjes (niet op mobiel).
+function maakDividendBedragCel(bedragEur, valuta) {
+    const td = maakCel(formatteerEuro(bedragEur));
+    if (td.textContent !== "onbekend" && valuta && valuta !== "EUR") {
+        const valutaSpan = document.createElement("span");
+        valutaSpan.className = "alleenBreed";
+        valutaSpan.textContent = ` (${valuta})`;
+        td.appendChild(valutaSpan);
+    }
+    return td;
 }
 
 function maakDividendUitkeringenTabel(lijst) {
     const kolommen = [
         {
             label: "Datum",
+            mobielRol: "subregel",
+            mobielTekst: r => dividendSubregel(formatDatum(r.datum), r.valuta),
             // Timestamp: maakSorteerbareTabel rekent wa - wb.
             waarde: r => new Date(r.datum).getTime(),
             renderTd: r => maakCel(formatDatum(r.datum)),
         },
         {
             label: "Aandeel",
+            mobielRol: "titel",
+            // De titel is platte tekst, dus geen badge: het label staat erachter.
+            mobielTekst: r => r.herinvesteerd === true ? `${r.bijnaam} (herinvesteerd)` : r.bijnaam,
             renderTd: r => {
                 const td = document.createElement("td");
                 td.textContent = r.bijnaam;
@@ -44,21 +54,37 @@ function maakDividendUitkeringenTabel(lijst) {
         {
             label: "Bruto",
             waarde: r => r.bruto_eur,
-            renderTd: r => maakCel(formatteerDividendBedrag(r.bruto_eur, r.valuta)),
+            renderTd: r => maakDividendBedragCel(r.bruto_eur, r.valuta),
         },
         {
             label: "Belasting",
             waarde: r => r.belasting_eur,
-            renderTd: r => maakCel(formatteerDividendBedrag(r.belasting_eur, r.valuta)),
+            renderTd: r => maakDividendBedragCel(r.belasting_eur, r.valuta),
         },
         {
             label: "Netto",
+            mobielRol: "waarde",
             waarde: r => r.netto_eur,
-            renderTd: r => maakCel(formatteerDividendBedrag(r.netto_eur, r.valuta)),
+            renderTd: r => maakDividendBedragCel(r.netto_eur, r.valuta),
+        },
+        {
+            label: "Bruto en belasting",
+            alleenMobiel: true,
+            mobielRol: "subwaarde",
+            renderTd: r => maakCel(dividendSubwaarde(r.bruto_eur, r.belasting_eur)),
+        },
+        {
+            label: "Valuta",
+            alleenMobiel: true,
+            renderTd: r => maakCel(r.valuta || "EUR"),
         },
     ];
 
-    return maakSorteerbareTabel(kolommen, lijst, { legeTekst: "Geen uitkeringen beschikbaar." });
+    return maakSorteerbareTabel(kolommen, lijst, {
+        legeTekst: "Geen uitkeringen beschikbaar.",
+        compactOpMobiel: true,
+        sorteerPlek: document.getElementById("dividendUitkeringenSorteer"),
+    });
 }
 
 function renderDividendUitkeringenlijst(lijst) {
