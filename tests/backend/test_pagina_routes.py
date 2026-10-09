@@ -35,7 +35,7 @@ class TestPaginaRoutes(unittest.TestCase):
 
     def test_start_laadt_geen_dashboard_scripts(self):
         html = self.client.get("/").get_data(as_text=True)
-        self.assertIn('src="/static/js/start.js"', html)
+        self.assertIn('src="/static/js/start.js?v=', html)
         self.assertNotIn("app.js", html)
         self.assertNotIn("chart.umd", html)
 
@@ -57,14 +57,14 @@ class TestPaginaRoutes(unittest.TestCase):
         for pad in ("/", "/p/ABC", "/analyse"):
             html = self.client.get(pad).get_data(as_text=True)
             self.assertIn('id="laadOverlay"', html, pad)
-            self.assertIn('href="/static/css/style.css"', html, pad)
+            self.assertIn('href="/static/css/style.css?v=', html, pad)
             for script in ("navigatie.js", "overdracht.js", "gedeeld.js", "infotip.js"):
-                self.assertIn(f'src="/static/js/{script}"', html, pad)
+                self.assertIn(f'src="/static/js/{script}?v=', html, pad)
 
     def test_gedeelde_scripts_staan_voor_het_paginascript(self):
         for pad, paginascript in (("/", "start.js"), ("/p/ABC", "app.js")):
             html = self.client.get(pad).get_data(as_text=True)
-            self.assertIn(f'src="/static/js/{paginascript}"', html, pad)
+            self.assertIn(f'src="/static/js/{paginascript}?v=', html, pad)
             self.assertLess(html.index("gedeeld.js"), html.index(paginascript), pad)
             self.assertLess(html.index("overdracht.js"), html.index(paginascript), pad)
 
@@ -75,7 +75,7 @@ class TestPaginaRoutes(unittest.TestCase):
         for pad, paginascript in (("/", "start.js"), ("/p/ABC", "app.js")):
             html = self.client.get(pad).get_data(as_text=True)
             ids_html = set(re.findall(r'id="([^"]+)"', html))
-            scripts = re.findall(r'src="/static/js/([^"]+)"', html)
+            scripts = re.findall(r'src="/static/js/([^"?]+)', html)
             self.assertIn(paginascript, scripts, pad)
             bronnen = {}
             for script in scripts:

@@ -45,6 +45,13 @@ button:hover {
     background-color: #235f3b;
 }
 
+button:disabled,
+button:disabled:hover {
+    background-color: #c4c4c4;
+    color: #f4f4f4;
+    cursor: not-allowed;
+}
+
 /* --- 2. Layout en menu --- */
 
 body {
@@ -65,19 +72,50 @@ body {
     width: 100%;
 }
 
-.startContainer {
-    max-width: 900px;
+/* Startpagina: twee kaarten onder elkaar op de grijze achtergrond, ook op desktop (één smalle kolom is het rustigst). */
+.startPagina {
+    width: 100%;
+    max-width: 480px;
+    padding: 0 16px 40px;
 }
 
-/* Desktop: upload en code naast elkaar; de scheidingslijn tussen de twee formulieren is dan overbodig. */
-.startFormulieren {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 40px;
+.startKop h1 {
+    margin: 0;
 }
 
-.startFormulieren hr {
-    display: none;
+.startSubregel {
+    margin: 4px 0 20px;
+    color: #888;
+}
+
+.startKaart {
+    background: white;
+    padding: 20px;
+    margin-bottom: 16px;
+    border: 1px solid #e4e4e4;
+    border-radius: 12px;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.startKaart h2 {
+    margin: 0 0 4px;
+    font-size: 1.15em;
+}
+
+.codeRij {
+    display: flex;
+    gap: 8px;
+}
+
+.codeRij input {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    letter-spacing: 0.15em;
+}
+
+.codeRij button {
+    margin: 0;
 }
 
 .dashboard {
@@ -536,6 +574,194 @@ body {
     display: block;
 }
 
+/* Schakelaar: checkbox met role="switch" in een .schakelaarRij (tekst links, schakelaar rechts). Prognose en startpagina. */
+.schakelaarRij {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 8px 0;
+}
+
+.schakelaarTekst {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.schakelaarTekst label {
+    margin-top: 0;
+    font-weight: normal;
+}
+
+.schakelaarTekst.metSubregel {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+}
+
+input.schakelaar {
+    appearance: none;
+    -webkit-appearance: none;
+    flex-shrink: 0;
+    position: relative;
+    width: 40px;
+    height: 22px;
+    margin: 0;
+    padding: 0;
+    min-height: 22px; /* overschrijft input { min-height: 44px } in de mobiele media query */
+    border-radius: 11px;
+    background: #c4c4c4;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+input.schakelaar::before {
+    content: "";
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s;
+}
+
+input.schakelaar:checked {
+    background: #2c7a4b;
+}
+
+input.schakelaar:checked::before {
+    transform: translateX(18px);
+}
+
+input.schakelaar:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+input.schakelaar:focus-visible {
+    outline: 2px solid #2c7a4b;
+    outline-offset: 2px;
+}
+
+/* Verborgen maar nog focusbaar en voorleesbaar (bv. een file-input achter een eigen label). */
+.visueelVerborgen {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    min-height: 0;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.kleinLabel {
+    font-size: 0.85em;
+    font-weight: normal;
+    color: #666;
+}
+
+.volleBreedte {
+    width: 100%;
+}
+
+/* Startpagina: aanklikbaar vak per bestand; het label is het tikvlak, x-knop en (i) staan ernaast. */
+.bestandVak {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 4px 10px 4px 4px;
+    border: 1.5px dashed #b9c9bf;
+    border-radius: 10px;
+    background: #fafcfb;
+}
+
+.bestandVak.gekozen {
+    border-style: solid;
+    border-color: #2c7a4b;
+    background: #eaf4ee;
+}
+
+.bestandVak.slepen {
+    border-color: #2c7a4b;
+    background: #eaf4ee;
+}
+
+.bestandVakLabel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 8px;
+    font-weight: normal;
+    cursor: pointer;
+}
+
+.visueelVerborgen:focus-visible + .bestandVakLabel {
+    outline: 2px solid #2c7a4b;
+    outline-offset: 2px;
+    border-radius: 6px;
+}
+
+.bestandVakIcoon {
+    flex-shrink: 0;
+    font-size: 1.6em;
+    line-height: 1;
+}
+
+.bestandVakTekst {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.bestandVakTitel {
+    font-weight: bold;
+}
+
+.bestandVakEis,
+.bestandVakHint {
+    font-size: 0.85em;
+    font-weight: normal;
+    color: #888;
+}
+
+.bestandVak.gekozen .bestandVakHint,
+.bestandVak:not(.gekozen) .bestandWisKnop {
+    display: none;
+}
+
+.bestandVakVinkje {
+    color: #2c7a4b;
+    font-weight: bold;
+}
+
+/* Zonder muis (telefoon) heet het tikken, met muis klikken of slepen. */
+.alleenMuis {
+    display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .alleenMuis {
+        display: inline;
+    }
+
+    .alleenAanraak {
+        display: none;
+    }
+}
+
 /* Rij "gekozen bestand + x-knop" onder een bestandsveld op de startpagina
    (zie koppelBestandWisKnop() in start.js). */
 .bestandKeuze {
@@ -548,6 +774,11 @@ body {
 /* Zonder deze regel wint display: flex hierboven van het hidden-attribuut. */
 .bestandKeuze[hidden] {
     display: none;
+}
+
+.bestandVak .bestandKeuze {
+    margin-top: 0;
+    gap: 6px;
 }
 
 .bestandKeuzeNaam {
@@ -962,73 +1193,8 @@ body {
     border-top: 1px solid #e4e4e4;
 }
 
-.schakelaarRij {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px 0;
-}
-
-.schakelaarTekst {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.schakelaarTekst label {
-    margin-top: 0;
-    font-weight: normal;
-}
-
 .schakelaarMelding {
     margin: 0 0 6px 0;
-}
-
-input.schakelaar {
-    appearance: none;
-    -webkit-appearance: none;
-    flex-shrink: 0;
-    position: relative;
-    width: 40px;
-    height: 22px;
-    margin: 0;
-    padding: 0;
-    border-radius: 11px;
-    background: #c4c4c4;
-    cursor: pointer;
-    transition: background 0.15s;
-}
-
-input.schakelaar::before {
-    content: "";
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    background: white;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
-    transition: transform 0.15s;
-}
-
-input.schakelaar:checked {
-    background: #2c7a4b;
-}
-
-input.schakelaar:checked::before {
-    transform: translateX(18px);
-}
-
-input.schakelaar:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-}
-
-input.schakelaar:focus-visible {
-    outline: 2px solid #2c7a4b;
-    outline-offset: 2px;
 }
 
 .dividendTotaalRegel {
@@ -1478,23 +1644,6 @@ input.schakelaar:focus-visible {
         border-radius: 0;
     }
 
-    /* Onder elkaar, met het code-formulier bovenaan. */
-    .startFormulieren {
-        display: flex;
-        flex-direction: column;
-        gap: 0;
-    }
-
-    .startFormulieren hr {
-        display: block;
-        width: 100%;
-        order: -1;
-    }
-
-    #codeForm {
-        order: -2;
-    }
-
     .aandeelKnoppen {
         display: none;
     }
@@ -1622,45 +1771,46 @@ input.schakelaar:focus-visible {
     }
 
     /* Compacter, zodat de hele startpagina zonder scrollen op een telefoonscherm past. */
-    .startContainer {
-        padding-top: calc(8px + env(safe-area-inset-top));
-        padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    .startPagina {
+        padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
     }
 
-    .startContainer h1 {
+    .startKop h1 {
         font-size: 1.3em;
-        margin: 4px 0 8px;
     }
 
-    .startContainer > p:not(#startMelding):not(#errorMsg) {
-        display: none;
-    }
-
-    .startContainer p:empty {
-        display: none;
-    }
-
-    .startContainer label,
-    .startContainer .labelRij {
-        margin-top: 8px;
+    .startSubregel {
+        margin-bottom: 12px;
         font-size: 0.9em;
     }
 
-    .startContainer .labelRij > label {
-        margin-top: 0;
+    .startPagina p:empty {
+        display: none;
     }
 
-    .startContainer input,
-    .startContainer button {
-        margin-top: 3px;
+    .startKaart {
+        padding: 14px;
+        margin-bottom: 12px;
     }
 
-    .startContainer button[type="submit"] {
+    .startKaart label.kleinLabel {
         margin-top: 10px;
     }
 
-    .startContainer hr {
-        margin: 12px 0 4px;
+    .bestandVak {
+        margin-top: 8px;
+    }
+
+    .bestandVakLabel {
+        padding: 4px;
+    }
+
+    .startKaart .schakelaarRij {
+        padding: 6px 0;
+    }
+
+    .startKaart button[type="submit"].volleBreedte {
+        margin-top: 8px;
     }
 
     .dashboard {

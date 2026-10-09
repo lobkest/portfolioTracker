@@ -26,11 +26,51 @@ function gaNaarPortfolioPagina(data) {
     return true;
 }
 
-const bestandKeuzeBijwerkers = ["bestand1", "bestand2"].map(koppelBestandWisKnop);
+const BESTAND_IDS = ["bestand1", "bestand2"];
+const bestandKeuzeBijwerkers = BESTAND_IDS.map(koppelBestandWisKnop);
+
+function werkKnoppenBij() {
+    const transacties = document.getElementById("bestand1");
+    document.getElementById("uploadKnop").disabled = !uploadKnopActief(transacties.files ? transacties.files.length : 0);
+    const codeInput = document.getElementById("codeInput");
+    document.getElementById("ophaalKnop").disabled = !ophaalKnopActief(codeInput.value, Number(codeInput.dataset.codeLengte));
+}
 
 function werkBestandKeuzesBij() {
     bestandKeuzeBijwerkers.forEach((werkBij) => werkBij());
+    werkKnoppenBij();
 }
+
+// Alleen het eerste Excel-bestand: de inputs nemen er maar één.
+function koppelSleepNaarVak(inputId) {
+    const input = document.getElementById(inputId);
+    const vak = input.closest(".bestandVak");
+    ["dragenter", "dragover"].forEach((type) => vak.addEventListener(type, (e) => {
+        e.preventDefault();
+        vak.classList.add("slepen");
+    }));
+    vak.addEventListener("dragleave", (e) => {
+        if (!vak.contains(e.relatedTarget)) vak.classList.remove("slepen");
+    });
+    vak.addEventListener("drop", (e) => {
+        e.preventDefault();
+        vak.classList.remove("slepen");
+        const bestand = Array.from(e.dataTransfer.files).find((f) => isExcelBestandsnaam(f.name));
+        if (!bestand) return;
+        const overdracht = new DataTransfer();
+        overdracht.items.add(bestand);
+        input.files = overdracht.files;
+        input.dispatchEvent(new Event("change"));
+    });
+}
+
+BESTAND_IDS.forEach((id) => {
+    koppelSleepNaarVak(id);
+    document.getElementById(id).addEventListener("change", werkKnoppenBij);
+    // Na de listener van koppelBestandWisKnop(), die de input al heeft geleegd.
+    document.getElementById(`${id}WisKnop`).addEventListener("click", werkKnoppenBij);
+});
+document.getElementById("codeInput").addEventListener("input", werkKnoppenBij);
 
 // reset geeft geen `change` en de inputs zijn pas daarna leeg: volgende tick.
 document.getElementById("uploadForm").addEventListener("reset", () => {
@@ -77,7 +117,7 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
 
 document.getElementById("codeForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    const code = document.getElementById("codeInput").value.trim().toUpperCase();
+    const code = normaliseerCode(document.getElementById("codeInput").value);
     if (!code) return;
     document.getElementById("errorMsg").textContent = "";
     // Dit vinkje komt nooit in de URL van de portfolio-pagina: een refresh zou de dure herbepaling herhalen.

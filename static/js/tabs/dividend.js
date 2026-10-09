@@ -35,8 +35,6 @@ function maakDividendUitkeringenTabel(lijst) {
         {
             label: "Aandeel",
             mobielRol: "titel",
-            // De titel is platte tekst, dus geen badge: het label staat erachter.
-            mobielTekst: r => r.herinvesteerd === true ? `${r.bijnaam} (herinvesteerd)` : r.bijnaam,
             renderTd: r => {
                 const td = document.createElement("td");
                 td.textContent = r.bijnaam;

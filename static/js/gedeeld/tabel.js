@@ -23,8 +23,8 @@ function maakRendementCel(eurWaarde, pctWaarde) {
 // kol.uitleg: tooltip op de kolomkop.
 // opts.compactOpMobiel: op mobiel (CSS) i.p.v. de tabel een compacte rij per positie die uitklapt, plus een
 // "Sorteer op"-keuze i.p.v. de kolomkoppen; die komt in opts.sorteerPlek als die er is, anders boven de rijen.
-// Per kolom dan: mobielRol (zie MOBIEL_ROLLEN, standaard "detail"), mobielTekst: rij => tekst voor titel en
-// subregel, alleenMobiel: niet in de tabel, alleenTabel: niet in de mobiele rij. Een detail zonder inhoud valt weg.
+// Per kolom dan: mobielRol (zie MOBIEL_ROLLEN, standaard "detail"), mobielTekst: rij => platte tekst voor titel
+// en subregel (zonder: de titel neemt de opgemaakte cel over, met badges), alleenMobiel: niet in de tabel, alleenTabel: niet in de mobiele rij. Een detail zonder inhoud valt weg.
 const MOBIEL_ROLLEN = ["titel", "subregel", "waarde", "subwaarde", "detail"];
 
 function mobielIndeling(kolommen) {
@@ -63,7 +63,10 @@ function maakMobieleRij(indeling, rij, klasse) {
 
     const titel = document.createElement("span");
     titel.className = "mobielTitel";
-    titel.textContent = indeling.titel.map(kol => mobielTekst(kol, rij)).join(" ");
+    indeling.titel.forEach((kol, i) => {
+        if (i) titel.append(" ");
+        titel.append(kol.mobielTekst ? kol.mobielTekst(rij) : celAlsSpan(kol, rij, ""));
+    });
     const subregel = document.createElement("span");
     subregel.className = "mobielSubregel";
     subregel.textContent = voegSubregelSamen(indeling.subregel.map(kol => mobielTekst(kol, rij)));

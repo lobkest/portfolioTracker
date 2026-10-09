@@ -5,7 +5,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { bestandSelectieWeergave, bijwerkenSuccesTekst } = require("../static/js/bestandskeuze.js");
+const {
+    bestandSelectieWeergave, bijwerkenSuccesTekst, isExcelBestandsnaam,
+    uploadKnopActief, normaliseerCode, ophaalKnopActief,
+} = require("../static/js/bestandskeuze.js");
 
 test("geen bestand gekozen: rij verborgen, geen tekst", () => {
     assert.deepEqual(bestandSelectieWeergave([]), { zichtbaar: false, tekst: "" });
@@ -41,4 +44,29 @@ test("bijwerkenSuccesTekst: vermeldt een verwerkt rekeningoverzicht", () => {
         bijwerkenSuccesTekst({ nieuwe_transacties: 0, dividend_verwerkt: true }),
         "Geen nieuwe transacties gevonden. Rekeningoverzicht (dividend) verwerkt.",
     );
+});
+
+test("excel-bestandsnaam: .xls en .xlsx, hoofdletters maken niet uit", () => {
+    assert.equal(isExcelBestandsnaam("Transactions.xls"), true);
+    assert.equal(isExcelBestandsnaam("Account.XLSX"), true);
+    assert.equal(isExcelBestandsnaam("Account.csv"), false);
+    assert.equal(isExcelBestandsnaam("xlsx"), false);
+    assert.equal(isExcelBestandsnaam(undefined), false);
+});
+
+test("uploadknop alleen actief met een transactiebestand", () => {
+    assert.equal(uploadKnopActief(0), false);
+    assert.equal(uploadKnopActief(1), true);
+});
+
+test("code normaliseren: spaties weg, hoofdletters", () => {
+    assert.equal(normaliseerCode("  abc "), "ABC");
+    assert.equal(normaliseerCode(null), "");
+});
+
+test("ophaalknop alleen actief bij precies de codelengte", () => {
+    assert.equal(ophaalKnopActief("", 3), false);
+    assert.equal(ophaalKnopActief("ab", 3), false);
+    assert.equal(ophaalKnopActief(" abc ", 3), true);
+    assert.equal(ophaalKnopActief("ABCD", 3), false);
 });

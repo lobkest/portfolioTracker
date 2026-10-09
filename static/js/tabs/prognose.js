@@ -88,23 +88,23 @@ function maakKortBadge() {
 function maakHistorieTabel(posities) {
     const telt = p => p.status === "ok";
     const kolommen = [
+        { label: "Aandeel/ETF", alleenTabel: true, renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin) },
         {
             label: "Aandeel/ETF",
+            alleenMobiel: true,
             mobielRol: "titel",
-            mobielTekst: p => p.bijnaam || p.ticker || p.isin,
-            renderTd: p => maakCel(p.bijnaam || p.ticker || p.isin),
+            renderTd: p => {
+                const td = maakCel(p.bijnaam || p.ticker || p.isin);
+                if (telt(p) && p.kort) td.appendChild(maakKortBadge());
+                return td;
+            },
         },
         { label: "Gewicht en jaren data", alleenMobiel: true, mobielRol: "subregel", mobielTekst: historieMobielSubregel, renderTd: p => maakCel(historieMobielSubregel(p)) },
         {
             label: "Gem. stijging per jaar",
             alleenMobiel: true,
             mobielRol: "waarde",
-            // De titel is platte tekst (tabel.js), dus de badge staat hier, bij de CAGR waar hij over gaat.
-            renderTd: p => {
-                const td = grijzeCelAls(!telt(p), historieMobielWaarde(p));
-                if (telt(p) && p.kort) td.appendChild(maakKortBadge());
-                return td;
-            },
+            renderTd: p => grijzeCelAls(!telt(p), historieMobielWaarde(p)),
         },
         { label: "1-jaars range", alleenMobiel: true, mobielRol: "subwaarde", renderTd: p => maakCel(historieMobielSubwaarde(p)) },
         { label: "Gewicht", alleenTabel: true, waarde: p => p.gewicht, renderTd: p => maakCel(p.gewicht === null ? "—" : prognosePct(p.gewicht)) },

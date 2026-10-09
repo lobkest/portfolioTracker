@@ -179,7 +179,7 @@ test("sorteerkeuze geeft dezelfde volgorde als klikken op de kolomkop", () => {
     select.value = "1|asc";
     select.dispatch("change");
     assert.deepEqual(namen(viaSelect), opgaandViaKop);
-    const mobieleTitels = viaSelect.zoek("ul")[0].children.map(li => li.children[0].children[0].textContent);
+    const mobieleTitels = viaSelect.zoek("ul")[0].children.map(li => tekst(li.children[0].children[0]));
     assert.deepEqual(mobieleTitels, opgaandViaKop);
     assert.equal(viaSelect.zoek("th")[1].textContent, "Waarde ▲");
 });
@@ -210,6 +210,35 @@ test("subwaarde houdt de klassen van de cel (groen/rood); zonder waarde-kolom ee
     const knop = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("button")[0];
     assert.equal(knop.className, "mobielRij mobielRijZonderWaarde");
     assert.equal(knop.children[2].className, "mobielSubwaarde rendementCel positief");
+});
+
+test("mobiele titel neemt een badge uit renderTd over", () => {
+    const kolommen = [{
+        label: "Naam",
+        mobielRol: "titel",
+        renderTd: r => {
+            const td = maakCel(r.naam);
+            const badge = document.createElement("span");
+            badge.className = "badge";
+            badge.textContent = "kort";
+            td.appendChild(badge);
+            return td;
+        },
+    }];
+    const titel = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("button")[0].children[0];
+    assert.equal(titel.className, "mobielTitel");
+    const badges = titel.zoek("span").filter(s => s.className === "badge");
+    assert.equal(badges.length, 1);
+    assert.equal(badges[0].textContent, "kort");
+});
+
+test("mobiele titel met mobielTekst blijft platte tekst, meerdere titelkolommen met een spatie", () => {
+    const kolommen = [
+        { label: "Naam", mobielRol: "titel", mobielTekst: r => `${r.naam}!`, renderTd: r => { const td = maakCel(r.naam); td.appendChild(document.createElement("span")); return td; } },
+        { label: "Code", mobielRol: "titel", mobielTekst: r => `c-${r.naam}`, renderTd: r => maakCel(r.naam) },
+    ];
+    const titel = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("button")[0].children[0];
+    assert.deepEqual(titel.children, ["A!", " ", "c-A"]);
 });
 
 test("compactOpMobiel zonder sorteerbare kolommen: geen sorteerkeuze, wel de mobiele lijst", () => {

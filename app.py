@@ -52,8 +52,10 @@ from portfolio_orchestratie import (
 from portfolio_verdeling import bereken_etf_overlap_detail
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
+from static_versie import registreer_static_versies
 
 app = Flask(__name__)
+registreer_static_versies(app)
 
 # Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
 if os.environ.get("DATABASE_URL"):
@@ -82,7 +84,7 @@ MELDING_PER_EIGENDOMSFOUT = {
 
 @app.route("/")
 def home():
-    return render_template("start.html")
+    return render_template("start.html", code_lengte=CODE_LENGTH)
 
 
 # Alleen de template: de pagina haalt de data zelf op, dus geen database hier.

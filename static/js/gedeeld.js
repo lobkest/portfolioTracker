@@ -53,6 +53,8 @@ function koppelBestandWisKnop(inputId) {
     const rij = document.getElementById(`${inputId}Keuze`);
     const naam = document.getElementById(`${inputId}Naam`);
     const wisKnop = document.getElementById(`${inputId}WisKnop`);
+    // Startpagina: het hele vak wisselt van uiterlijk (hint weg, x-knop erbij).
+    const vak = input.closest(".bestandVak");
 
     function werkBij() {
         const namen = Array.from(input.files || [], (f) => f.name);
@@ -60,6 +62,7 @@ function koppelBestandWisKnop(inputId) {
         naam.textContent = weergave.tekst;
         naam.title = weergave.tekst;
         rij.hidden = !weergave.zichtbaar;
+        if (vak) vak.classList.toggle("gekozen", weergave.zichtbaar);
     }
 
     input.addEventListener("change", werkBij);
