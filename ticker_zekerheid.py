@@ -918,8 +918,23 @@ def vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=None,
             for i, (product, isin, beurs, transacties) in enumerate(posities)
         }
         for future in as_completed(future_naar_index):
-            resultaten[future_naar_index[future]] = future.result()
+            i = future_naar_index[future]
+            try:
+                resultaten[i] = future.result()
+            except Exception as e:
+                product, isin, beurs, _transacties = posities[i]
+                print(f"[ticker] WARN lichte check mislukt voor {ascii(product)} ({isin}, {beurs}): {ascii(e)}")
+                resultaten[i] = _geen_ticker_resultaat()
     return resultaten
+
+
+def _geen_ticker_resultaat():
+    """Zelfde vorm als find_ticker_met_snelle_prijscheck() zonder gevonden ticker."""
+    return {
+        "ticker": None, "zekerheid": "geen_match", "alternatieven": [],
+        "prijs_checks": [], "prijswaarschuwing": None,
+        "openfigi_root_bekend": None, "openfigi_root_matches": None,
+    }
 
 
 def verifieer_tickers_met_prijs_parallel(posities, max_workers=6):

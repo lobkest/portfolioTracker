@@ -92,9 +92,13 @@ def _haal_splits_op(ticker):
     try:
         _tel_yahoo_call("yf.Ticker.splits")
         splits = yf.Ticker(ticker).splits
+        # yfinance geeft bij sommige tickers None i.p.v. een exception (bv. "Period 'max' is invalid").
+        if splits is None:
+            print(f"[prijscheck] WARN '{ticker}': geen split-data van Yahoo")
+            return {}
+        resultaat = {pd.Timestamp(datum).date().isoformat(): float(ratio) for datum, ratio in splits.items()}
     except Exception:
         return {}
-    resultaat = {pd.Timestamp(datum).date().isoformat(): float(ratio) for datum, ratio in splits.items()}
     db_save_splits(ticker, resultaat)
     return resultaat
 
