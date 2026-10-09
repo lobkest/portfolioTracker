@@ -271,15 +271,6 @@ body {
     color: white;
 }
 
-/* Tabblad in ontwikkeling dat uit staat: wel zichtbaar, niet klikbaar; :hover erbij tegen .subTab:hover. */
-.subTab.uitgeschakeld,
-.subTab.uitgeschakeld:hover {
-    background: white;
-    color: #333;
-    opacity: 0.45;
-    cursor: not-allowed;
-}
-
 .waarschuwingBanner {
     background: #fff3cd;
     color: #664d03;
@@ -313,6 +304,26 @@ body {
 .segmentKnop.actief:hover {
     background-color: #2c7a4b;
     color: white;
+}
+
+/* Tabblad of onderdeel in ontwikkeling dat uit staat: wel zichtbaar, niet klikbaar; :hover erbij tegen de eigen hover. */
+.subTab.uitgeschakeld,
+.subTab.uitgeschakeld:hover,
+.segmentKnop.uitgeschakeld,
+.segmentKnop.uitgeschakeld:hover {
+    background: white;
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.subTab.uitgeschakeld,
+.subTab.uitgeschakeld:hover {
+    color: #333;
+}
+
+.segmentKnop.uitgeschakeld,
+.segmentKnop.uitgeschakeld:hover {
+    color: #2c7a4b;
 }
 
 .laadOverlay {
@@ -803,7 +814,7 @@ body {
 /* ETF-overlap: matrix van ETF x ETF. */
 .overlapMatrix {
     width: 100%;
-    table-layout: fixed;
+    table-layout: auto;
     border-collapse: collapse;
     font-size: 0.85em;
 }
@@ -814,9 +825,10 @@ body {
     overflow-wrap: anywhere;
 }
 
-/* Eerste kolom (namen) breder dan de gelijke cijferkolommen. */
+/* Namenkolom zo smal als de langste naam; de cijferkolommen delen de rest. */
 .overlapMatrix th.rijKop {
-    width: 22%;
+    width: 1%;
+    white-space: nowrap;
     text-align: left;
 }
 
@@ -1023,6 +1035,11 @@ body {
 .schakelaar input:focus-visible + .schakelaarSchuif {
     outline: 2px solid #2c7a4b;
     outline-offset: 2px;
+}
+
+/* Instellingen > Algemeen: een code is maar een paar tekens; width: 100% blijft, zodat het veld op mobiel niet breder wordt dan het scherm. */
+.codeInvoer {
+    max-width: 12rem;
 }
 
 /* Instellingen > Ticker-zekerheid: één kaart per positie. */

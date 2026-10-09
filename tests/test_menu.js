@@ -6,8 +6,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-    MENU_GROEPEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen,
-    ontwikkelViews, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades,
+    MENU_GROEPEN, ONTWIKKEL_ONDERDELEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen,
+    ontwikkelViews, ontwikkelItems, ontwikkelAan, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades,
 } = require("../static/js/menu.js");
 
 const ALLE_VIEWS = MENU_GROEPEN.flatMap(g => g.views.map(v => v.view));
@@ -123,6 +123,40 @@ test("eersteView: slaat een uitgeschakelde ontwikkel-view over", () => {
         assert.ok(!uit.includes(eersteView(groep.id, toegestaan)), groep.id);
     }
     assert.equal(eersteView("overzicht", ["box3", "transacties"].filter(v => !uit.includes(v))), "transacties");
+});
+
+test("ontwikkelItems: eerst de views, dan de onderdelen, met labels", () => {
+    const items = ontwikkelItems();
+    assert.deepEqual(items.find(i => i.id === "box3"), { id: "box3", label: "Box 3" });
+    assert.deepEqual(items.find(i => i.id === "rendement-pct"), { id: "rendement-pct", label: "Rendement in %" });
+    assert.ok(items.findIndex(i => i.id === "box3") < items.findIndex(i => i.id === "rendement-pct"));
+});
+
+test("ONTWIKKEL_ONDERDELEN: geen id is ook een view-naam", () => {
+    for (const { id } of ONTWIKKEL_ONDERDELEN) {
+        assert.ok(!ALLE_VIEWS.includes(id), id);
+    }
+});
+
+test("ontwikkelViews/uitgeschakeldeViews: onderdelen tellen niet mee", () => {
+    assert.ok(!ontwikkelViews().some(v => v.view === "rendement-pct"));
+    assert.ok(!uitgeschakeldeViews([]).includes("rendement-pct"));
+    assert.deepEqual(uitgeschakeldeViews(["box3", "rendement-pct"]), []);
+});
+
+test("ontwikkelAan: alleen aan als het id in de lijst staat", () => {
+    assert.equal(ontwikkelAan("rendement-pct", []), false);
+    assert.equal(ontwikkelAan("rendement-pct", ["box3"]), false);
+    assert.equal(ontwikkelAan("rendement-pct", ["rendement-pct"]), true);
+});
+
+test("menuViews: een aangezet onderdeel verandert de chips niet", () => {
+    const rendement = MENU_GROEPEN.find(g => g.id === "rendement");
+    const toegestaan = ["rendement", "prognose", "prognose-huidig"];
+    const zonder = menuViews(rendement, toegestaan, uitgeschakeldeViews([]));
+    const met = menuViews(rendement, toegestaan, uitgeschakeldeViews(["rendement-pct"]));
+    assert.deepEqual(met, zonder);
+    assert.ok(met.every(v => !v.uitgeschakeld));
 });
 
 // --- Regressiebewaking mobiele CSS/viewport (geen DOM nodig: leest de bronbestanden) ---

@@ -18,14 +18,14 @@ function bewaarOntwikkelAan(views) {
     }
 }
 
-function maakOntwikkelSchakelaar({ view, label }, aan) {
+function maakOntwikkelSchakelaar({ id, label }, aan) {
     const rij = document.createElement("label");
     rij.className = "schakelaar";
     const input = document.createElement("input");
     input.type = "checkbox";
     input.setAttribute("role", "switch");
     input.checked = aan;
-    input.dataset.ontwikkelView = view;
+    input.dataset.ontwikkelId = id;
     const schuif = document.createElement("span");
     schuif.className = "schakelaarSchuif";
     const tekst = document.createElement("span");
@@ -36,14 +36,14 @@ function maakOntwikkelSchakelaar({ view, label }, aan) {
 
 const aanBijStart = leesOntwikkelAan();
 document.getElementById("ontwikkelSchakelaars").replaceChildren(
-    ...ontwikkelViews().map(v => maakOntwikkelSchakelaar(v, aanBijStart.includes(v.view))),
+    ...ontwikkelItems().map(item => maakOntwikkelSchakelaar(item, ontwikkelAan(item.id, aanBijStart))),
 );
 
 document.getElementById("ontwikkelSchakelaars").addEventListener("change", (e) => {
-    const view = e.target.dataset.ontwikkelView;
-    if (!view) return;
-    const aan = leesOntwikkelAan().filter(v => v !== view);
-    if (e.target.checked) aan.push(view);
+    const id = e.target.dataset.ontwikkelId;
+    if (!id) return;
+    const aan = leesOntwikkelAan().filter(v => v !== id);
+    if (e.target.checked) aan.push(id);
     bewaarOntwikkelAan(aan);
     if (!huidigeData) return;
     if (toegestaneViews().includes(actieveView)) ververMenu(actieveView);

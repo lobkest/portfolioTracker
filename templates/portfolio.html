@@ -450,13 +450,15 @@
                 <div id="ontwikkelSchakelaars"></div>
 
                 <div id="verwijderPortfolioBlok" class="margeBoven24" data-vereist-code="ja" style="display: none;">
+                    <h3 class="margeBoven0">Portfolio verwijderen</h3>
                     <p>Wil je stoppen met deze portfolio? Je kunt alle opgeslagen data (transacties en code) permanent uit de database verwijderen.</p>
                     <button id="verwijderPortfolioBtn" class="gevaarKnop">Verwijder mijn data uit de database</button>
                 </div>
 
                 <div id="wijzigCodeBlok" class="margeBoven24" data-vereist-code="ja" style="display: none;">
+                    <h3 class="margeBoven0">Nieuwe code</h3>
                     <p>Wil je een andere, zelfgekozen code voor deze portfolio? De huidige code en alle gekoppelde data blijven behouden, alleen de code zelf wijzigt.</p>
-                    <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{{ code_lengte }}" class="hoofdletters">
+                    <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{{ code_lengte }}" class="hoofdletters codeInvoer">
                     <button id="wijzigCodeBtn">Code wijzigen</button>
                 </div>
             </div>

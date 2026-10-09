@@ -6,6 +6,7 @@ let benchmarkVergelijkingen = {};
 // Los van de benchmark: beide vergelijkingslijnen kunnen tegelijk zichtbaar zijn.
 let eigenAandeelVergelijkingData = null;
 let rendementWeergave = "euro";
+const RENDEMENT_PCT_ID = "rendement-pct";
 
 function resetRendement() {
     rendementWeergave = "euro";
@@ -15,6 +16,11 @@ function resetRendement() {
 }
 
 function toonRendement() {
+    const pctAan = ontwikkelAan(RENDEMENT_PCT_ID, leesOntwikkelAan());
+    if (!pctAan) rendementWeergave = "euro";
+    const pctKnop = document.querySelector('#rendementWeergaveWrapper .segmentKnop[data-weergave="pct"]');
+    pctKnop.disabled = !pctAan;
+    pctKnop.classList.toggle("uitgeschakeld", !pctAan);
     const procent = Boolean(huidigeData.code) && rendementWeergave === "pct";
     document.querySelectorAll("#rendementWeergaveWrapper .segmentKnop").forEach(knop => {
         knop.classList.toggle("actief", knop.dataset.weergave === rendementWeergave);
@@ -205,6 +211,7 @@ document.getElementById("eigenAandeelSelect").addEventListener("change", (e) => 
 
 document.querySelectorAll("#rendementWeergaveWrapper .segmentKnop").forEach(knop => {
     knop.addEventListener("click", () => {
+        if (knop.disabled || knop.classList.contains("uitgeschakeld")) return;
         rendementWeergave = knop.dataset.weergave;
         toonRendement();
     });

@@ -73,7 +73,12 @@
         return MENU_GROEPEN.filter(g => zichtbareViews(g, toegestaneViews).length > 0);
     }
 
-    // Per browser (localStorage): JSON-lijst van de aangezette views met inOntwikkeling.
+    // Onderdelen binnen een tabblad (geen view); het id mag geen view-naam zijn.
+    const ONTWIKKEL_ONDERDELEN = [
+        { id: "rendement-pct", label: "Rendement in %" },
+    ];
+
+    // Per browser (localStorage): JSON-lijst van de aangezette views en onderdeel-id's in ontwikkeling.
     const ONTWIKKEL_OPSLAG_SLEUTEL = "ontwikkelTabsAan";
 
     function ontwikkelViews() {
@@ -82,6 +87,14 @@
 
     function uitgeschakeldeViews(aanGezet) {
         return ontwikkelViews().map(v => v.view).filter(v => !aanGezet.includes(v));
+    }
+
+    function ontwikkelItems() {
+        return [...ontwikkelViews().map(v => ({ id: v.view, label: v.label })), ...ONTWIKKEL_ONDERDELEN];
+    }
+
+    function ontwikkelAan(id, aanGezet) {
+        return aanGezet.includes(id);
     }
 
     function leesAanGezet(tekst) {
@@ -109,8 +122,9 @@
     }
 
     const exportsObj = {
-        MENU_GROEPEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen, zichtbareViews,
-        ontwikkelViews, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades,
+        MENU_GROEPEN, ONTWIKKEL_ONDERDELEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen,
+        zichtbareViews, ontwikkelViews, ontwikkelItems, ontwikkelAan, uitgeschakeldeViews, leesAanGezet, menuViews,
+        scrollFades,
     };
 
     if (typeof module !== "undefined" && module.exports) {
