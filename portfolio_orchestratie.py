@@ -311,10 +311,15 @@ def _meld_etf_land_proxy(ticker, proxy, naam):
              sleutel=f"etf_land_proxy:{ticker}")
 
 
+def _isin_per_ticker(transacties_df):
+    """Laatste ISIN per ticker (bij een ISIN-keten de nieuwste)."""
+    rijen = transacties_df.dropna(subset=["ticker", "isin"]).drop_duplicates(subset=["ticker"], keep="last")
+    return dict(zip(rijen["ticker"], rijen["isin"]))
+
+
 def _bepaal_land_proxies(transacties_df, is_etf_map):
     """{ticker: etf_proxy-rij}; {} bij een fout: de proxy mag de verrijking nooit breken."""
-    rijen = transacties_df.dropna(subset=["ticker", "isin"]).drop_duplicates(subset=["ticker"], keep="last")
-    isin_per_etf = {t: i for t, i in zip(rijen["ticker"], rijen["isin"]) if is_etf_map.get(t, False)}
+    isin_per_etf = {t: i for t, i in _isin_per_ticker(transacties_df).items() if is_etf_map.get(t, False)}
     try:
         return land_proxies_voor_etfs(isin_per_etf)
     except Exception as e:
@@ -566,7 +571,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
             is_etf_map = classify_tickers(list(huidige_holdings.index))
             # Na classify_tickers(): db_save_long_names() werkt alleen bestaande rijen bij.
             vul_ontbrekende_long_names(list(huidige_holdings.index))
-            _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map)
+            _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map, _isin_per_ticker(transacties_df))
 
         with meet_tijd("verrijking_land_proxy"):
             land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map) if gebruik_proxy else {}

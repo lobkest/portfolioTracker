@@ -4,12 +4,10 @@ import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 
-from db import (
-    db_get_ishares_fondsen, db_save_ishares_fondsen, db_get_etf_proxies, db_save_etf_proxy, db_get_ticker_details,
-)
-from etf_holdings_provider import fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina
+from db import db_get_etf_proxies, db_save_etf_proxy, db_get_ticker_details
+from etf_holdings_provider import fetch_ishares_holdings_via_productpagina
 from portfolio_verdeling import bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT, EUROPESE_LANDEN
-from ticker_classificatie import get_etf_holdings
+from ticker_classificatie import get_etf_holdings, ishares_fondsen
 
 MAX_PROXY_KANDIDATEN = 5
 MAX_AFWIJKING_PROXY_PP = 1.0
@@ -215,16 +213,6 @@ def _heeft_proxy_nodig(holdings):
     return dekking["onbekend_pct"] > DREMPEL_ONBEKEND_LAND_PCT
 
 
-def _ishares_fondsen():
-    fondsen = db_get_ishares_fondsen()
-    if fondsen is not None:
-        return fondsen
-    fondsen = fetch_ishares_fondsenlijst()
-    if fondsen:
-        db_save_ishares_fondsen(fondsen)
-    return fondsen
-
-
 def _resultaat(keuze, aantal_kandidaten, proxy_land=None, reden=None):
     """De vorm van een etf_proxy-rij."""
     gekozen, beste = keuze["gekozen"], keuze["beste"]
@@ -252,7 +240,7 @@ def _bepaal_proxy(ticker, holdings, categorie):
     if regio is None:
         return _resultaat(geen, 0, reden=f"geen regio te bepalen (category: {categorie or 'leeg'})")
 
-    fondsen = _ishares_fondsen()
+    fondsen = ishares_fondsen()
     if not fondsen:
         return None
     kandidaten = kies_kandidaten(fondsen, regio, markttype_bronfonds(categorie, landen), categorie)

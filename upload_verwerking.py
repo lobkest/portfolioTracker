@@ -386,8 +386,11 @@ def _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers)
         key = (isin, beurs)
         stappen = list(detail.get("zoekstappen") or [])
         if not detail["ticker"]:
-            detail = _probeer_andere_productnamen(groepen[key], isin, transacties, bekende_tickers.get(key))
-            stappen += detail["zoekstappen"]
+            try:
+                detail = _probeer_andere_productnamen(groepen[key], isin, transacties, bekende_tickers.get(key))
+                stappen += detail["zoekstappen"]
+            except Exception as e:
+                print(f"[ticker] WARN tweede poging mislukt voor {ascii(naam)} ({isin}, {beurs}): {ascii(e)}")
         _meld_zoekstappen(naam, isin, beurs, detail["ticker"], stappen)
         ticker_per_positie[key] = detail["ticker"]
 

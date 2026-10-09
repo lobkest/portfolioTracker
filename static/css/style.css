@@ -764,6 +764,22 @@ body {
     cursor: not-allowed;
 }
 
+/* Aankopen: blauw, zodat "meer historie" niet lijkt op de groene aandeelknoppen. */
+.historieKnop {
+    background-color: #2f6690;
+}
+
+.historieKnop:hover:not(:disabled) {
+    background-color: #24506f;
+}
+
+.historieKnop:disabled,
+.historieKnop:disabled:hover {
+    background-color: #2f6690;
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
 /* Rendement-vergelijking: dezelfde tinten als de lijnen in de grafiek (benchmark oranje, eigen aandeel paars). */
 .vergelijkKnoppen {
     display: none;

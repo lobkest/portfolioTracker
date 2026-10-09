@@ -8,11 +8,13 @@ from yahooquery import Ticker as YahooqueryTicker
 from db import (
     db_save_classification, db_get_cached_land_sector, db_save_land_sector,
     db_get_cached_etf_sector_verdeling, db_save_etf_sector_verdeling, db_get_cached_etf_holdings, db_save_etf_holdings,
-    db_get_ticker_details, db_save_long_names,
+    db_get_ticker_details, db_save_long_names, db_get_ishares_fondsen, db_save_ishares_fondsen,
 )
 from debug_utils import dprint
 from yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
-from etf_holdings_provider import ETF_HOLDINGS_BRON, fetch_provider_holdings
+from etf_holdings_provider import (
+    ETF_HOLDINGS_BRON, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
+)
 
 
 def _fetch_yf_info(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
@@ -180,32 +182,66 @@ def get_etf_sector_verdeling(ticker):
     return sector_dict
 
 
-def get_etf_holdings(ticker):
-    """[{holding_naam, holding_ticker, gewicht (0-1), land, bron}]: eerst de provider, anders yfinance's top 10.
-    Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider-URL bekend is."""
-    heeft_provider_url = ticker in ETF_HOLDINGS_BRON
+def ishares_fondsen():
+    """iShares-fondsenlijst uit de cache (ISHARES_FONDSEN_GELDIGHEID), anders uit de screener; None bij een fout."""
+    fondsen = db_get_ishares_fondsen()
+    if fondsen is not None:
+        return fondsen
+    fondsen = fetch_ishares_fondsenlijst()
+    if fondsen:
+        db_save_ishares_fondsen(fondsen)
+    return fondsen
 
+
+def _ishares_fonds_voor_isin(isin):
+    if not isin:
+        return None
+    return next((f for f in ishares_fondsen() or [] if f["isin"] == isin), None)
+
+
+def _provider_holdings_naar_cache(provider_holdings):
+    return [
+        {
+            "holding_naam": h["naam"],
+            "holding_ticker": None,
+            "gewicht": h["gewicht"] / 100.0,
+            "land": h["land"],
+            "bron": "provider_csv",
+        }
+        for h in provider_holdings
+    ]
+
+
+def _haal_provider_holdings(ticker, ishares_fonds):
+    if ticker in ETF_HOLDINGS_BRON:
+        return fetch_provider_holdings(ticker)
+    holdings = fetch_ishares_holdings_via_productpagina(ishares_fonds["product_url"])
+    if not holdings:
+        print(f"[etf-holdings] WARN '{ticker}' ({ishares_fonds['isin']}): iShares-holdings via productpagina "
+              f"niet opgehaald, terugval op yfinance top-10")
+    return holdings
+
+
+def get_etf_holdings(ticker, isin=None):
+    """[{holding_naam, holding_ticker, gewicht (0-1), land, bron}]: eerst de provider, anders yfinance's top 10.
+    Provider = ETF_HOLDINGS_BRON, of met isin elk iShares-fonds uit de screener (exacte ISIN).
+    Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider bekend is."""
     cached = db_get_cached_etf_holdings(ticker)
+    if cached and cached[0]["bron"] == "provider_csv":
+        return cached
+
+    ishares_fonds = None if ticker in ETF_HOLDINGS_BRON else _ishares_fonds_voor_isin(isin)
+    heeft_provider = ticker in ETF_HOLDINGS_BRON or ishares_fonds is not None
     if cached is not None:
-        cached_bron = cached[0]["bron"] if cached else "yfinance_top10"
-        if cached_bron == "provider_csv" or not heeft_provider_url:
+        if not heeft_provider:
             return cached
         dprint(f"[etf-holdings] '{ticker}': yfinance-top10-cache is nog vers, maar er is inmiddels "
-               f"een provider-URL bekend -> alsnog proberen te upgraden naar de volledige lijst")
+               f"een provider bekend -> alsnog proberen te upgraden naar de volledige lijst")
 
-    if heeft_provider_url:
-        provider_holdings = fetch_provider_holdings(ticker)
+    if heeft_provider:
+        provider_holdings = _haal_provider_holdings(ticker, ishares_fonds)
         if provider_holdings:
-            holdings = [
-                {
-                    "holding_naam": h["naam"],
-                    "holding_ticker": None,
-                    "gewicht": h["gewicht"] / 100.0,
-                    "land": h["land"],
-                    "bron": "provider_csv",
-                }
-                for h in provider_holdings
-            ]
+            holdings = _provider_holdings_naar_cache(provider_holdings)
             db_save_etf_holdings(ticker, holdings)
             return holdings
 
@@ -275,13 +311,16 @@ def classify_tickers(tickers):
     return result
 
 
-def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, max_workers=8):
-    """Vult alleen de caches, zodat de verdelingsfuncties daarna sequentieel alleen cache-hits krijgen."""
+def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, isin_per_ticker=None, max_workers=8):
+    """Vult alleen de caches, zodat de verdelingsfuncties daarna sequentieel alleen cache-hits krijgen.
+    Alleen hier krijgt get_etf_holdings() de ISIN mee; de latere aanroepen lezen de cache."""
+    isin_per_ticker = isin_per_ticker or {}
+
     def _warm(ticker):
         get_valuta(ticker)
         if is_etf_map.get(ticker, False):
             get_etf_sector_verdeling(ticker)
-            get_etf_holdings(ticker)
+            get_etf_holdings(ticker, isin_per_ticker.get(ticker))
         else:
             get_land_sector(ticker)
 
