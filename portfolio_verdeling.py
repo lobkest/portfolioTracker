@@ -3,7 +3,8 @@ import re
 
 import pandas as pd
 
-from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector, get_valuta
+from ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector, get_valutas
+from transactie_utils import _is_corporate_action_row
 
 # Fractie van het totaal (0.005 = 0,5%); alleen voor de taart.
 LAND_OVERIG_DREMPEL = 0.005
@@ -49,12 +50,12 @@ BEURS_NAMEN = {
 }
 EURONEXT_BEURZEN = frozenset(code for code, naam in BEURS_NAMEN.items() if naam.startswith("Euronext"))
 
-# De frontend knipt zelf in; BEDRIJVEN_TOP_N_KNOPPEN (bedrijven.js) moet <= het maximum blijven.
 VERDELING_OVER_TIJD_TOP_N = 10
 # Pandas-periode: per week de laatste echte koersdag als meetpunt.
 VERDELING_OVER_TIJD_FREQUENTIE = "W"
 VERDELING_OVERIG_SLEUTEL = "__overig__"
 
+# De frontend knipt zelf in; BEDRIJVEN_TOP_N_KNOPPEN (bedrijven.js) moet <= het maximum blijven.
 BEDRIJVEN_TOP_N_STANDAARD = 10
 BEDRIJVEN_TOP_N_MAX = 50
 
@@ -357,6 +358,44 @@ def bereken_land_dekking(holdings):
     return {"onbekend_pct": max(0.0, 100 - bekend_pct), "dekking_pct": dekking_pct, "rijen": rijen}
 
 
+def land_sector_fracties(ticker, is_etf, proxy=None):
+    """Land- en sectorverdeling van één ticker. proxy: etf_proxy-rij of None. Sleutels:
+      land_pct, sector_pct: {naam: fractie}, met het niet-gedekte restant als "Unknown"
+      land_bron: "proxy", de holdings-bron of None (aandeel); land_proxy: {naam, max_afwijking_pp} of None
+    """
+    if not is_etf:
+        land, sector = get_land_sector(ticker)
+        return {"land_pct": {land: 1.0}, "sector_pct": {sector: 1.0}, "land_bron": None, "land_proxy": None}
+
+    # Niet-gedekt restant naar Unknown, zodat de totalen kloppen.
+    sector_verdeling = get_etf_sector_verdeling(ticker)
+    sector_pct = dict(sector_verdeling)
+    restant_sector = max(0.0, 1.0 - sum(sector_verdeling.values()))
+    if restant_sector > 1e-9:
+        sector_pct["Unknown"] = sector_pct.get("Unknown", 0.0) + restant_sector
+
+    land_proxy = None
+    if proxy and proxy.get("proxy_isin") and proxy.get("proxy_land"):
+        land_bron = "proxy"
+        land_pct = dict(proxy["proxy_land"])
+        land_proxy = {"naam": proxy["proxy_naam"], "max_afwijking_pp": proxy["max_afwijking_pp"]}
+    else:
+        holdings = get_etf_holdings(ticker)
+        land_bron = holdings[0]["bron"] if holdings else "yfinance_top10"
+        land_pct = {}
+        for h in holdings:
+            land_pct[h["land"] or "Unknown"] = land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
+        restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
+        if restant_land > 1e-9:
+            land_pct["Unknown"] = land_pct.get("Unknown", 0.0) + restant_land
+    return {"land_pct": land_pct, "sector_pct": sector_pct, "land_bron": land_bron, "land_proxy": land_proxy}
+
+
+def _aandeel_land_sector(ticker):
+    fracties = land_sector_fracties(ticker, False)
+    return next(iter(fracties["land_pct"])), next(iter(fracties["sector_pct"]))
+
+
 def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_proxies=None):
     """Bedragen in €. land_proxies: {ticker: etf_proxy-rij} (etf_proxy.py); met een proxy_isin komt het
     land van de ETF uit de proxy (land_bron 'proxy'), sector blijft van Yahoo. Sleutels:
@@ -395,40 +434,18 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
             continue
 
         if is_etf_map.get(ticker, False):
-            # Niet-gedekt restant naar Unknown, zodat de totalen kloppen.
-            sector_verdeling = get_etf_sector_verdeling(ticker)
-            etf_sector_pct = dict(sector_verdeling)
-            restant_sector = max(0.0, 1.0 - sum(sector_verdeling.values()))
-            if restant_sector > 1e-9:
-                etf_sector_pct["Unknown"] = etf_sector_pct.get("Unknown", 0.0) + restant_sector
-
-            proxy = (land_proxies or {}).get(ticker)
-            land_proxy = None
-            if proxy and proxy.get("proxy_isin") and proxy.get("proxy_land"):
-                land_bron = "proxy"
-                etf_land_pct = dict(proxy["proxy_land"])
-                land_proxy = {"naam": proxy["proxy_naam"], "max_afwijking_pp": proxy["max_afwijking_pp"]}
-            else:
-                holdings = get_etf_holdings(ticker)
-                land_bron = holdings[0]["bron"] if holdings else "yfinance_top10"
-                etf_land_pct = {}
-                for h in holdings:
-                    etf_land_pct[h["land"] or "Unknown"] = etf_land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
-                restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
-                if restant_land > 1e-9:
-                    etf_land_pct["Unknown"] = etf_land_pct.get("Unknown", 0.0) + restant_land
-
-            for naam, gewicht in etf_sector_pct.items():
+            fracties = land_sector_fracties(ticker, True, (land_proxies or {}).get(ticker))
+            for naam, gewicht in fracties["sector_pct"].items():
                 optellen(sector, naam, waarde * gewicht)
                 optellen_per_bron(sector_per_bron, naam, ticker, waarde * gewicht)
-            for naam, gewicht in etf_land_pct.items():
+            for naam, gewicht in fracties["land_pct"].items():
                 optellen(land, naam, waarde * gewicht)
                 optellen_per_bron(land_per_bron, naam, ticker, waarde * gewicht)
 
-            per_etf[ticker] = {"land": etf_land_pct, "sector": etf_sector_pct, "land_bron": land_bron,
-                               "land_proxy": land_proxy}
+            per_etf[ticker] = {"land": fracties["land_pct"], "sector": fracties["sector_pct"],
+                               "land_bron": fracties["land_bron"], "land_proxy": fracties["land_proxy"]}
         else:
-            aandeel_land, aandeel_sector = get_land_sector(ticker)
+            aandeel_land, aandeel_sector = _aandeel_land_sector(ticker)
             per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
             optellen(land, aandeel_land, waarde)
             optellen_per_bron(land_per_bron, aandeel_land, ticker, waarde)
@@ -437,7 +454,7 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
 
     for ticker in huidige_holdings.index:
         if ticker not in per_aandeel and not is_etf_map.get(ticker, False):
-            aandeel_land, aandeel_sector = get_land_sector(ticker)
+            aandeel_land, aandeel_sector = _aandeel_land_sector(ticker)
             per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
 
     land_europa_gegroepeerd = _groepeer_europa_samen(land)
@@ -459,6 +476,67 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
 
 def gewichten_per_positie(tickers):
     return {t: {t: 1.0} for t in tickers}
+
+
+def gewichten_per_valuta(tickers):
+    return {ticker: {valuta: 1.0} for ticker, valuta in get_valutas(tickers).items()}
+
+
+def _als_gewichten(pct):
+    """Lege of None-sleutel → "Unknown"; een som boven 1 (afronding bij de bron) terug naar 1, anders klopt het totaal niet."""
+    gewichten = {}
+    for naam, fractie in pct.items():
+        if fractie and fractie > 0:
+            gewichten[naam or "Unknown"] = gewichten.get(naam or "Unknown", 0.0) + float(fractie)
+    som = sum(gewichten.values())
+    if som <= 0:
+        return {"Unknown": 1.0}
+    return {naam: f / som for naam, f in gewichten.items()} if som > 1 else gewichten
+
+
+def gewichten_per_land(fracties_per_ticker, europa_samenvoegen=False):
+    """fracties_per_ticker: {ticker: land_sector_fracties()}; Europa met dezelfde landenlijst als de taart."""
+    return {
+        ticker: _als_gewichten(_groepeer_europa_samen(f["land_pct"]) if europa_samenvoegen else f["land_pct"])
+        for ticker, f in fracties_per_ticker.items()
+    }
+
+
+def gewichten_per_sector(fracties_per_ticker):
+    return {ticker: _als_gewichten(f["sector_pct"]) for ticker, f in fracties_per_ticker.items()}
+
+
+def _beurs_codes(transacties_df):
+    # Lege beurs niet laten wegvallen in een groupby: het totaal moet gelijk blijven aan Verdeling.
+    return transacties_df["beurs"].fillna("Onbekend")
+
+
+def _beurs_naam(code, euronext_samenvoegen):
+    if euronext_samenvoegen and code in EURONEXT_BEURZEN:
+        return "Euronext"
+    return BEURS_NAMEN.get(code, code)
+
+
+def gewichten_per_beurs(transacties_df, euronext_samenvoegen=False):
+    """Een ticker op meerdere beursnamen naar verhouding van de gekochte stuks (zie CLAUDE.md: Data en rekenen)."""
+    df = transacties_df.dropna(subset=["ticker"]).reset_index(drop=True)
+    namen = _beurs_codes(df).map(lambda code: _beurs_naam(code, euronext_samenvoegen))
+    gekocht = df["aantal"].astype(float).clip(lower=0)
+    # Splitboekingen (DEG) zijn geen aankoop; alleen als er niets anders is tellen ze mee.
+    corporate_action = df.apply(_is_corporate_action_row, axis=1).astype(bool)
+
+    gewichten = {}
+    for ticker, rijen in df.groupby("ticker").groups.items():
+        stuks = gekocht[rijen]
+        aankopen = stuks[~corporate_action[rijen]]
+        if aankopen.sum() > 0:
+            stuks = aankopen
+        per_naam = stuks.groupby(namen[stuks.index]).sum()
+        if per_naam.sum() <= 0:
+            per_naam = pd.Series(1.0, index=namen[rijen].unique())
+        totaal = float(per_naam.sum())
+        gewichten[ticker] = {naam: float(n) / totaal for naam, n in per_naam.items() if n > 0}
+    return gewichten
 
 
 def _meetpunten(dagen):
@@ -517,15 +595,19 @@ def compute_valuta_verdeling(transacties_df, price_data):
     huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
 
-    valuta = {}
-    valuta_per_bron = {}
+    waarden = {}
     for ticker, aantal in huidige_holdings.items():
         if ticker not in price_data.columns:
             continue
         waarde = float(aantal) * float(laatste_prijzen[ticker])
-        if waarde <= 0:
-            continue
-        naam = get_valuta(ticker)
+        if waarde > 0:
+            waarden[ticker] = waarde
+    valuta_per_ticker = get_valutas(waarden)
+
+    valuta = {}
+    valuta_per_bron = {}
+    for ticker, waarde in waarden.items():
+        naam = valuta_per_ticker[ticker]
         valuta[naam] = valuta.get(naam, 0.0) + waarde
         rij = valuta_per_bron.setdefault(naam, {})
         rij[ticker] = rij.get(ticker, 0.0) + waarde
@@ -540,9 +622,7 @@ def compute_beurs_verdeling(transacties_df, price_data):
       aantal_beurzen, aantal_beurzen_euronext
     """
     transacties_df = transacties_df.dropna(subset=["ticker"])
-    # Lege beurs niet laten wegvallen in de groupby: het totaal moet gelijk blijven aan Verdeling.
-    beurzen = transacties_df["beurs"].fillna("Onbekend")
-    holdings = transacties_df.groupby([transacties_df["ticker"], beurzen])["aantal"].sum()
+    holdings = transacties_df.groupby([transacties_df["ticker"], _beurs_codes(transacties_df)])["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
 
     beurs, beurs_per_bron = {}, {}
@@ -553,8 +633,8 @@ def compute_beurs_verdeling(transacties_df, price_data):
         waarde = float(aantal) * float(laatste_prijzen[ticker])
         if waarde <= 0:
             continue
-        naam = BEURS_NAMEN.get(code, code)
-        naam_euronext = "Euronext" if code in EURONEXT_BEURZEN else naam
+        naam = _beurs_naam(code, False)
+        naam_euronext = _beurs_naam(code, True)
         for totalen, per_bron, n in ((beurs, beurs_per_bron, naam), (euronext, euronext_per_bron, naam_euronext)):
             totalen[n] = totalen.get(n, 0.0) + waarde
             rij = per_bron.setdefault(n, {})

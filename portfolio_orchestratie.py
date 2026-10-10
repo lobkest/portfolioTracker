@@ -23,7 +23,7 @@ from diagnostiek_checks import (
     check_valuta_consistentie, check_negatief_aantal, check_verversing, check_xirr, check_dividend_zonder_positie,
     check_order_ids_rekening, check_prijscheck_zonder_fx,
 )
-from debug_utils import meet_tijd
+from debug_utils import dprint, meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
     ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND,
@@ -44,7 +44,8 @@ from portfolio_verdeling import (
     compute_land_sector_verdeling, compute_valuta_verdeling, compute_beurs_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
     bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX, bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT,
-    bereken_verdeling_over_tijd, gewichten_per_positie,
+    bereken_verdeling_over_tijd, gewichten_per_positie, gewichten_per_valuta, gewichten_per_beurs,
+    gewichten_per_land, gewichten_per_sector, land_sector_fracties,
 )
 from ticker_classificatie import (
     classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, bewaar_long_names, vul_ontbrekende_long_names,
@@ -491,19 +492,55 @@ def bepaal_korte_naam_voorstellen(code):
     return [{"ticker": t, "huidig": huidig[t], "long_name": long_names[t], "voorstel": voorstellen.get(t)} for t in tickers]
 
 
-VERDELING_OVER_TIJD_DIMENSIES = ("positie",)
+VERDELING_OVER_TIJD_DIMENSIES = ("positie", "valuta", "beurs", "land", "sector")
 
 
-def bouw_verdeling_over_tijd(code, dimensie):
-    """None bij een onbekende code; alleen dimensie 'positie'."""
+def _land_sector_fracties_over_tijd(transacties_df, tickers):
+    """(is_etf_map, {ticker: land_sector_fracties()}) voor alle tickers, ook gesloten posities: eerst de caches warm.
+    Gesloten ETF's krijgen zo hun echte land/sector (zie CLAUDE.md: Data en rekenen)."""
+    huidige = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
+    gesloten = [t for t in tickers if abs(float(huidige.get(t, 0.0))) <= 1e-6]
+    dprint(f"[over-tijd] {len(gesloten)} gesloten positie(s) van {len(tickers)} ticker(s) mee opgewarmd")
+    with meet_tijd(f"over_tijd_land_sector_opwarmen ({len(tickers)} ticker(s))"):
+        is_etf_map = classify_tickers(tickers)
+        _verwarm_land_sector_cache_parallel(tickers, is_etf_map, _isin_per_ticker(transacties_df))
+        land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map)
+    with meet_tijd("over_tijd_land_sector_fracties"):
+        fracties = {t: land_sector_fracties(t, is_etf_map.get(t, False), land_proxies.get(t)) for t in tickers}
+    return is_etf_map, fracties
+
+
+def _beperkte_dekking(is_etf_map, fracties, ticker_namen):
+    """Bijnamen van ETF's met land alleen uit Yahoo's top-10, zonder proxy."""
+    return sorted(
+        ticker_namen.get(t, t) for t, f in fracties.items()
+        if is_etf_map.get(t, False) and f["land_bron"] == "yfinance_top10"
+    )
+
+
+def bouw_verdeling_over_tijd(code, dimensie, samenvoegen=False):
+    """None bij een onbekende code. `samenvoegen`: Euronext bij 'beurs', Europa bij 'land', anders genegeerd.
+    Land en sector krijgen ook `beperkte_dekking` (zie _beperkte_dekking)."""
     naam, transacties_df, price_data = haal_portfolio_basis(code)
     if naam is None:
         return None
     if price_data.empty:
         return {"labels": [], "totaal": [], "reeksen": []}
     waarde_df = waarde_per_ticker_per_dag(transacties_df, price_data)
-    return bereken_verdeling_over_tijd(
-        waarde_df, gewichten_per_positie(waarde_df.columns), _ticker_namen(transacties_df))
+    tickers = list(waarde_df.columns)
+    if dimensie == "valuta":
+        gewichten, namen = gewichten_per_valuta(tickers), {}
+    elif dimensie == "beurs":
+        gewichten, namen = gewichten_per_beurs(transacties_df, samenvoegen), {}
+    elif dimensie in ("land", "sector"):
+        is_etf_map, fracties = _land_sector_fracties_over_tijd(transacties_df, tickers)
+        gewichten = gewichten_per_land(fracties, samenvoegen) if dimensie == "land" else gewichten_per_sector(fracties)
+        resultaat = bereken_verdeling_over_tijd(waarde_df, gewichten, {})
+        resultaat["beperkte_dekking"] = _beperkte_dekking(is_etf_map, fracties, _ticker_namen(transacties_df))
+        return resultaat
+    else:
+        gewichten, namen = gewichten_per_positie(tickers), _ticker_namen(transacties_df)
+    return bereken_verdeling_over_tijd(waarde_df, gewichten, namen)
 
 
 def build_portfolio_response(code, verversen=True):

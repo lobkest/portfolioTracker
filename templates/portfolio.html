@@ -157,12 +157,26 @@
             <select id="aandeelSelect" class="margeOnder15" data-views="peraandeel peraandeelaankoop" style="display: none;"></select>
             <button id="weergaveToggleBtn" class="margeBoven0 margeOnder10" data-views="land sector valuta beurs" style="display: none;">Wissel weergave (taart/staaf)</button>
 
+            <div id="overTijdKeuze" class="overTijdKeuze margeOnder15" data-verberg-buiten="verdeling land sector valuta beurs" style="display: none;">
+                <div class="segmentKeuze" role="group" aria-label="Verdeling">
+                    <button type="button" class="segmentKnop actief" data-modus="nu">Nu</button>
+                    <button type="button" class="segmentKnop" data-modus="tijd">Over tijd</button>
+                </div>
+                <div id="overTijdWeergave" class="segmentKeuze" role="group" aria-label="Weergave" style="display: none;">
+                    <button type="button" class="segmentKnop actief" data-weergave="pct">%</button>
+                    <button type="button" class="segmentKnop" data-weergave="euro">&euro;</button>
+                </div>
+            </div>
+            <p id="overTijdMsg" data-verberg-buiten="verdeling land sector valuta beurs" style="display: none;"></p>
+
             <!-- De ene gedeelde grafiek: plaatsGrafiek() verhuist dit blok naar het data-grafiek-plek van het tabblad. -->
             <div id="chartWrapper" style="display: none;">
                 <div class="chart-wrapper">
                     <canvas id="rendementChart"></canvas>
                     <button id="zoomIcoonKnop" class="zoomIcoonKnop" type="button" aria-label="Zoom resetten" hidden>&#x27F2;</button>
                 </div>
+                <p id="overTijdUitleg" class="kleineMelding" data-verberg-buiten="verdeling land sector valuta beurs" style="display: none;"></p>
+                <p id="overTijdDekking" class="kleineMelding waarschuwingTekst" data-verberg-buiten="land" style="display: none;"></p>
             </div>
 
             <div id="tab-portfolio" data-views="portfolio" style="display: none;">
@@ -239,20 +253,8 @@
             </div>
 
             <div id="tab-verdeling" data-views="verdeling" style="display: none;">
-                <div id="verdelingModusWrapper" class="verdelingModus margeOnder15" data-verberg-buiten="verdeling" style="display: none;">
-                    <div class="segmentKeuze" role="group" aria-label="Verdeling">
-                        <button type="button" class="segmentKnop actief" data-modus="nu">Nu</button>
-                        <button type="button" class="segmentKnop" data-modus="tijd">Over tijd</button>
-                    </div>
-                    <div id="verdelingTijdWeergave" class="segmentKeuze" role="group" aria-label="Weergave" style="display: none;">
-                        <button type="button" class="segmentKnop actief" data-weergave="pct">%</button>
-                        <button type="button" class="segmentKnop" data-weergave="euro">&euro;</button>
-                    </div>
-                </div>
                 <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
-                <p id="verdelingOverTijdMsg" data-verberg-buiten="verdeling" style="display: none;"></p>
                 <div data-grafiek-plek></div>
-                <p id="verdelingOverTijdUitleg" class="kleineMelding" data-verberg-buiten="verdeling" style="display: none;">Aandeel van elke positie in de totale waarde, per week. Verschuivingen komen door aan- en verkopen én door koersverschillen tussen posities.</p>
                 <div id="verdelingUitleg" class="verdelingUitleg" data-verberg-buiten="verdeling" style="display: none;">
                     <span><span class="verdelingSwatch verdelingSwatchEtf"></span>ETF</span>
                     <span><span class="verdelingSwatch"></span>Aandeel</span>
@@ -597,6 +599,7 @@
     <script src="{{ url_for('static', filename='js/tabs/rendement.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/per_aandeel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/per_aandeel_aankoop.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/verdeling_over_tijd.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/verdeling.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/land_sector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/bedrijven.js') }}"></script>

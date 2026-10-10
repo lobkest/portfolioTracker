@@ -204,25 +204,35 @@
         return `${voorvoegsel} (${formatUploadMoment(upload.geupload_op)}${bijwerken})`;
     }
 
-    // uploads nieuwste eerst, zoals /upload-meldingen. {laatste: {titel, meldingen, aantalOokLive} of null,
-    // ouder: [{titel, meldingen}]}; uit de laatste upload valt weg wat ook live bestaat (de live versie wint).
+    // Alleen een expliciete false: een oude rij zonder het veld telt veilig als ook_live (telt niet mee).
+    function alleenBijUpload(m) {
+        return m.ook_live === false;
+    }
+
+    // uploads nieuwste eerst, zoals /upload-meldingen. {laatste: {titel, meldingen, standBijUpload, aantalOokLive} of
+    // null, ouder: [{titel, meldingen}]}. meldingen: alleen-bij-upload, zonder wat ook live bestaat (de live versie wint);
+    // standBijUpload: wat gewoon laden opnieuw berekent (ook_live), zoals het bij de upload was.
     function uploadBlokken(uploads, live) {
         const lijst = uploads || [];
         if (lijst.length === 0) return { laatste: null, ouder: [] };
         const liveSleutels = new Set((live || []).map(meldingSleutel));
         const [laatste, ...ouder] = lijst;
         const alle = laatste.meldingen || [];
-        const eigen = alle.filter(m => !liveSleutels.has(meldingSleutel(m)));
+        const uploadEigen = alle.filter(alleenBijUpload);
+        const eigen = uploadEigen.filter(m => !liveSleutels.has(meldingSleutel(m)));
         return {
-            laatste: { titel: uploadTitel(laatste, "Laatste upload"), meldingen: eigen, aantalOokLive: alle.length - eigen.length },
+            laatste: {
+                titel: uploadTitel(laatste, "Laatste upload"), meldingen: eigen,
+                standBijUpload: alle.filter(m => !alleenBijUpload(m)), aantalOokLive: uploadEigen.length - eigen.length,
+            },
             ouder: ouder.slice(0, MAX_OUDERE_UPLOADS).map(u => ({ titel: uploadTitel(u, "Eerdere upload"), meldingen: u.meldingen || [] })),
         };
     }
 
-    // Voor de conclusiezin en de chips: live plus de laatste upload; bij dezelfde categorie + sleutel wint live.
+    // Voor de conclusiezin en de chips: live plus wat alleen bij de laatste upload ontstond; bij dezelfde sleutel wint live.
     function meldingenVoorTelling(live, uploads) {
         const laatste = (uploads && uploads[0] && uploads[0].meldingen) || [];
-        return voegMeldingenSamen(laatste, live);
+        return voegMeldingenSamen(laatste.filter(alleenBijUpload), live);
     }
 
     function uploadOokLiveTekst(aantal) {

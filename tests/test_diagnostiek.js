@@ -193,20 +193,30 @@ test("formatUploadMoment: dd-mm-jjjj hh:mm, leeg bij een ongeldige datum", () =>
 });
 
 const upload = (moment, meldingen, soort = "upload") => ({ soort, geupload_op: moment, meldingen });
+const bewaard = (melding, ookLive) => Object.assign({}, melding, { ook_live: ookLive });
 
 test("uploadBlokken: zonder uploads geen blok", () => {
     assert.deepEqual(uploadBlokken(null, []), { laatste: null, ouder: [] });
     assert.deepEqual(uploadBlokken([], []), { laatste: null, ouder: [] });
 });
 
-test("uploadBlokken: wat ook live bestaat valt weg uit de laatste upload, de rest blijft", () => {
-    const opgeslagen = m("Opslaan", "GOED", "3 opgeslagen", "insert");
-    const ookLive = m("Tickers", "LET_OP", "oud", "tickers:dis_acc:X");
-    const blokken = uploadBlokken([upload("2026-10-10T09:05:00", [opgeslagen, ookLive])],
-                                  [m("Tickers", "INFO", "nu", "tickers:dis_acc:X")]);
+test("uploadBlokken: ook_live apart als stand bij upload, alleen-bij-upload zonder live dubbelen", () => {
+    const opgeslagen = bewaard(m("Opslaan", "GOED", "3 opgeslagen", "insert"), false);
+    const orderIds = bewaard(m("Order ID's", "GOED", "alle echt", "order_ids"), false);
+    const ticker = bewaard(m("Tickers", "LET_OP", "oud", "tickers:dis_acc:X"), true);
+    const blokken = uploadBlokken([upload("2026-10-10T09:05:00", [opgeslagen, orderIds, ticker])],
+                                  [m("Order ID's", "GOED", "alle echt", "order_ids")]);
     assert.equal(blokken.laatste.titel, "Laatste upload (10-10-2026 09:05)");
     assert.deepEqual(blokken.laatste.meldingen, [opgeslagen]);
+    assert.deepEqual(blokken.laatste.standBijUpload, [ticker]);
     assert.equal(blokken.laatste.aantalOokLive, 1);
+});
+
+test("uploadBlokken: oude rij zonder ook_live hoort bij de stand bij upload", () => {
+    const oud = m("Opslaan", "GOED", "3 opgeslagen", "insert");
+    const blokken = uploadBlokken([upload("2026-10-10T09:05:00", [oud])], []);
+    assert.deepEqual(blokken.laatste.meldingen, []);
+    assert.deepEqual(blokken.laatste.standBijUpload, [oud]);
 });
 
 test("uploadBlokken: hooguit 4 eerdere uploads, bijwerken in de titel", () => {
@@ -222,14 +232,35 @@ test("uploadBlokken: hooguit 4 eerdere uploads, bijwerken in de titel", () => {
     assert.equal(blokken.ouder[0].meldingen[0].tekst, "d9");
 });
 
-test("meldingenVoorTelling: live plus de laatste upload, live wint bij dezelfde sleutel", () => {
-    const live = [m("Tickers", "INFO", "nu", "x"), m("Data", "LET_OP", "data", "d")];
-    const uploads = [upload("2026-10-10T09:05:00", [m("Tickers", "FOUT", "oud", "x"), m("Opslaan", "LET_OP", "o", "o")]),
-                     upload("2026-10-01T09:05:00", [m("Opslaan", "FOUT", "ouder", "z")])];
+test("meldingenVoorTelling: live plus alleen-bij-upload van de laatste upload, live wint bij dezelfde sleutel", () => {
+    const live = [m("Order ID's", "INFO", "nu", "x"), m("Data", "LET_OP", "data", "d")];
+    const uploads = [upload("2026-10-10T09:05:00", [bewaard(m("Order ID's", "FOUT", "oud", "x"), false),
+                                                    bewaard(m("Opslaan", "LET_OP", "o", "o"), false)]),
+                     upload("2026-10-01T09:05:00", [bewaard(m("Opslaan", "FOUT", "ouder", "z"), false)])];
     const samen = meldingenVoorTelling(live, uploads);
     assert.deepEqual(samen.map(x => x.tekst), ["nu", "o", "data"]);
     assert.equal(diagnostiekConclusie(samen), "2 punten om naar te kijken");
     assert.deepEqual(meldingenVoorTelling(live, null), live);
+});
+
+test("meldingenVoorTelling: een na de upload opgeloste ticker-waarschuwing telt niet meer", () => {
+    const uploads = [upload("2026-10-10T09:05:00", [
+        bewaard(m("Tickers", "LET_OP", "verkeerde share class", "tickers:dis_acc:X"), true),
+        bewaard(m("Opslaan", "GOED", "3 opgeslagen", "insert"), false),
+    ])];
+    assert.equal(diagnostiekConclusie(meldingenVoorTelling([], uploads)), "Alles in orde");
+});
+
+test("meldingenVoorTelling: een Order ID-melding van de upload telt wel mee", () => {
+    const uploads = [upload("2026-10-10T09:05:00", [
+        bewaard(m("Order ID's", "LET_OP", "1 order staat alleen in de transacties", "order_ids:rekening:alleen_transacties"), false),
+    ])];
+    assert.equal(diagnostiekConclusie(meldingenVoorTelling([], uploads)), "1 punt om naar te kijken");
+});
+
+test("meldingenVoorTelling: oude rij zonder ook_live telt niet mee", () => {
+    const uploads = [upload("2026-10-10T09:05:00", [m("Order ID's", "LET_OP", "zonder veld", "order_ids:rekening:x")])];
+    assert.deepEqual(meldingenVoorTelling([], uploads), []);
 });
 
 test("uploadOokLiveTekst: enkelvoud en meervoud", () => {

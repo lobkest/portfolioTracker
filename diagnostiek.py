@@ -34,6 +34,17 @@ BEWAARDE_UPLOAD_CATEGORIEEN = (
     CATEGORIE_REKENINGOVERZICHT,
 )
 MAX_BEWAARDE_UPLOADS = 5
+# Ontstaan alleen tijdens een upload (Excel, zoeken of de vergelijking van beide bestanden nodig); de rest van de
+# bewaarde meldingen berekent gewoon laden opnieuw ("ook_live"): die tellen niet mee, anders blijft een opgeloste
+# waarschuwing staan tot de volgende upload. Een onbekende sleutel telt als ook_live.
+ALLEEN_BIJ_UPLOAD_CATEGORIEEN = (CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS, CATEGORIE_REKENINGOVERZICHT)
+ALLEEN_BIJ_UPLOAD_SLEUTELS = {
+    CATEGORIE_WISSELKOERSEN: ("excel_wisselkoers",),
+    CATEGORIE_TICKERS: ("zoekstappen:", "tickers:valuta:", "check_mislukt:Valuta-consistentie"),
+    CATEGORIE_DIVIDEND: ("dividend_samenvatting", "dividend_zonder_conversie_overig", "dividend:"),
+}
+# Uitzonderingen op de voorvoegsels hierboven.
+OOK_LIVE_SLEUTELS = {CATEGORIE_DIVIDEND: ("dividend:zonder_positie:",)}
 
 # Link onder een melding naar het tabblad waar je het oplost; `tab` is een view-naam uit menu.js.
 ACTIE_TICKER_ZEKERHEID = {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"}
@@ -107,8 +118,19 @@ def meldingen_sinds(eerder):
     return [m for m in haal_meldingen() if m not in eerder]
 
 
+def alleen_bij_upload(melding):
+    categorie, sleutel = melding.get("categorie"), str(melding.get("sleutel") or "")
+    if categorie in ALLEEN_BIJ_UPLOAD_CATEGORIEEN:
+        return True
+    if sleutel.startswith(OOK_LIVE_SLEUTELS.get(categorie, ())):
+        return False
+    return sleutel.startswith(ALLEEN_BIJ_UPLOAD_SLEUTELS.get(categorie, ()))
+
+
 def upload_meldingen_om_te_bewaren(meldingen):
-    return [m for m in meldingen or [] if m.get("categorie") in BEWAARDE_UPLOAD_CATEGORIEEN]
+    """Kopieën met 'ook_live' erbij (zie ALLEEN_BIJ_UPLOAD_CATEGORIEEN)."""
+    return [{**m, "ook_live": not alleen_bij_upload(m)}
+            for m in meldingen or [] if m.get("categorie") in BEWAARDE_UPLOAD_CATEGORIEEN]
 
 
 def meld_opnieuw(meldingen):

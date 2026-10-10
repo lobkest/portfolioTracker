@@ -160,7 +160,7 @@ function pasViewToe(view) {
 }
 
 // Wist per tab-bestand de toestand van de vorige portfolio (zie CLAUDE.md: Frontend).
-const RESET_PER_TAB = [resetDiagnostiek, resetVerdeling, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetKorteNamen, resetBox3];
+const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetKorteNamen, resetBox3];
 
 function toonDashboard(data) {
     huidigeData = data;

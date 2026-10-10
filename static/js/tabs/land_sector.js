@@ -69,6 +69,11 @@ function toonLand() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
     const europaCheckbox = document.getElementById("europaCheckbox");
+    if (toonOverTijdIndienGekozen("land", europaCheckbox.checked)) {
+        document.getElementById("landDekkingTekst").style.display = "none";
+        document.getElementById("europaCheckboxWrapper").style.display = "flex";
+        return;
+    }
     if (toonVerrijkingWachtstatusIndienNodig()) {
         document.getElementById("europaCheckboxWrapper").style.display = "none";
         return;
@@ -102,6 +107,7 @@ function toonLand() {
 function toonSector() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
+    if (toonOverTijdIndienGekozen("sector")) return;
     if (toonVerrijkingWachtstatusIndienNodig()) return;
 
     const lsv = huidigeData.land_sector_verdeling;
@@ -118,6 +124,7 @@ function toonSector() {
 function toonValuta() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
+    if (toonOverTijdIndienGekozen("valuta")) return;
     if (toonVerrijkingWachtstatusIndienNodig()) return;
 
     const vv = huidigeData.valuta_verdeling;
@@ -136,6 +143,11 @@ function toonBeurs() {
     document.getElementById("geenData").style.display = "none";
     const tekst = document.getElementById("beursTekst");
     tekst.style.display = "none";
+    const samenvoegen = document.getElementById("euronextCheckbox").checked;
+    if (toonOverTijdIndienGekozen("beurs", samenvoegen)) {
+        document.getElementById("euronextCheckboxWrapper").style.display = "flex";
+        return;
+    }
     if (toonVerrijkingWachtstatusIndienNodig()) {
         document.getElementById("euronextCheckboxWrapper").style.display = "none";
         return;
@@ -143,20 +155,19 @@ function toonBeurs() {
 
     const bv = huidigeData.beurs_verdeling;
     document.getElementById("euronextCheckboxWrapper").style.display = "flex";
-    const samen = document.getElementById("euronextCheckbox").checked;
-    const verdeling = bv && (samen ? bv.beurs_euronext : bv.beurs);
+    const verdeling = bv && (samenvoegen ? bv.beurs_euronext : bv.beurs);
 
     if (landSectorWeergave === "staaf") {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values(verdeling || {}).reduce((s, w) => s + w, 0);
-        const perBron = bv && (samen ? bv.beurs_euronext_per_bron : bv.beurs_per_bron);
+        const perBron = bv && (samenvoegen ? bv.beurs_euronext_per_bron : bv.beurs_per_bron);
         chart = renderGestapeldeStaafgrafiek("rendementChart", perBron, tickerNamen, { totaal });
     } else {
         toonPlatteVerdeling(verdeling);
     }
 
-    const aantal = bv ? (samen ? bv.aantal_beurzen_euronext : bv.aantal_beurzen) : 0;
+    const aantal = bv ? (samenvoegen ? bv.aantal_beurzen_euronext : bv.aantal_beurzen) : 0;
     if (aantal > 0) {
         tekst.textContent = `Je posities staan op ${aantal} ${aantal === 1 ? "beurs" : "beurzen"}.`;
         tekst.style.display = "block";

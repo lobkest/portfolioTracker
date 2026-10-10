@@ -11,15 +11,18 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from portfolio_calc import compute_per_ticker, compute_value_over_time, waarde_per_ticker_per_dag
+import portfolio_verdeling
+import ticker_classificatie
 from portfolio_verdeling import (
-    VERDELING_OVERIG_SLEUTEL, bereken_verdeling_over_tijd, gewichten_per_positie,
+    VERDELING_OVERIG_SLEUTEL, bereken_verdeling_over_tijd, compute_beurs_verdeling, compute_valuta_verdeling,
+    gewichten_per_beurs, gewichten_per_positie, gewichten_per_valuta,
 )
 
 
-def _rij(datum, ticker, aantal, totaal_eur):
+def _rij(datum, ticker, aantal, totaal_eur, beurs="EAM", product=None):
     return {
         "ticker": ticker, "datum": pd.Timestamp(datum), "aantal": aantal, "adj_aantal": aantal,
-        "koers": 0.0, "totaal_eur": totaal_eur, "waarde_eur": totaal_eur, "beurs": "EAM", "product": ticker,
+        "koers": 0.0, "totaal_eur": totaal_eur, "waarde_eur": totaal_eur, "beurs": beurs, "product": product or ticker,
     }
 
 
@@ -141,6 +144,111 @@ class TestBerekenVerdelingOverTijd(unittest.TestCase):
         self.assertEqual(bereken_verdeling_over_tijd(_waarde_df({"A": [0.0] * 3}), {}, {}), leeg)
 
 
+class TestGewichtenPerValuta(unittest.TestCase):
+    def test_cache_hit_zonder_yahoo_en_normalisatie(self):
+        cache = {"A": {"valuta": "GBp", "quote_type": "EQUITY"}, "B": {"valuta": None, "quote_type": "ETF"},
+                 "C": {"valuta": "USD", "quote_type": None}}
+        with patch.object(ticker_classificatie, "db_get_ticker_details", return_value=cache), \
+             patch.object(ticker_classificatie, "get_valuta") as mock_valuta:
+            res = gewichten_per_valuta(["A", "B", "C"])
+        mock_valuta.assert_not_called()
+        self.assertEqual(res, {"A": {"GBP": 1.0}, "B": {"Unknown": 1.0}, "C": {"USD": 1.0}})
+
+    def test_ontbrekende_ticker_via_get_valuta(self):
+        with patch.object(ticker_classificatie, "db_get_ticker_details",
+                          return_value={"A": {"valuta": "EUR", "quote_type": "ETF"}}), \
+             patch.object(ticker_classificatie, "get_valuta", return_value="USD") as mock_valuta:
+            res = gewichten_per_valuta(["A", "B"])
+        mock_valuta.assert_called_once_with("B")
+        self.assertEqual(res, {"A": {"EUR": 1.0}, "B": {"USD": 1.0}})
+
+    def test_normaliseer_valuta(self):
+        self.assertEqual(ticker_classificatie.normaliseer_valuta("GBp"), "GBP")
+        self.assertEqual(ticker_classificatie.normaliseer_valuta(""), "Unknown")
+        self.assertEqual(ticker_classificatie.normaliseer_valuta(None), "Unknown")
+        self.assertEqual(ticker_classificatie.normaliseer_valuta("USD"), "USD")
+
+
+class TestGewichtenPerBeurs(unittest.TestCase):
+    def test_eam_en_xams_zijn_een_naam(self):
+        df = pd.DataFrame([_rij("2024-01-02", "A", 5.0, -50.0, "EAM"), _rij("2024-01-03", "A", 5.0, -50.0, "XAMS")])
+        self.assertEqual(gewichten_per_beurs(df), {"A": {"Euronext Amsterdam": 1.0}})
+
+    def test_euronext_samenvoegen_tradegate_apart(self):
+        df = pd.DataFrame([_rij("2024-01-02", "A", 5.0, -50.0, "EAM"), _rij("2024-01-02", "B", 5.0, -50.0, "EPA"),
+                           _rij("2024-01-02", "C", 5.0, -50.0, "TDG")])
+        self.assertEqual(gewichten_per_beurs(df, euronext_samenvoegen=True),
+                         {"A": {"Euronext": 1.0}, "B": {"Euronext": 1.0}, "C": {"Tradegate": 1.0}})
+        self.assertEqual(gewichten_per_beurs(df)["B"], {"Euronext Parijs": 1.0})
+
+    def test_twee_beursnamen_naar_gekochte_stuks_ook_als_gesloten(self):
+        # 6 op Xetra en 2 op Tradegate gekocht, alles verkocht op Xetra: som van de aantallen 0, gekocht 6 : 2.
+        df = pd.DataFrame([_rij("2024-01-02", "A", 6.0, -60.0, "XET"), _rij("2024-01-03", "A", 2.0, -20.0, "TDG"),
+                           _rij("2024-01-04", "A", -8.0, 80.0, "XET")])
+        self.assertEqual(gewichten_per_beurs(df), {"A": {"Xetra": 0.75, "Tradegate": 0.25}})
+
+    def test_splitboeking_telt_niet_als_aankoop(self):
+        df = pd.DataFrame([_rij("2024-01-02", "A", 1.0, -10.0, "XET"),
+                           _rij("2024-01-05", "A", 3.0, 0.0, "DEG", product="A NON TRADEABLE")])
+        self.assertEqual(gewichten_per_beurs(df), {"A": {"Xetra": 1.0}})
+
+    def test_lege_beurs_onbekend(self):
+        df = pd.DataFrame([_rij("2024-01-02", "A", 1.0, -10.0, None)])
+        self.assertEqual(gewichten_per_beurs(df), {"A": {"Onbekend": 1.0}})
+
+
+class TestWaakhondPerDimensie(unittest.TestCase):
+    """Elke dimensie verdeelt dezelfde euro's: som van de reeksen = totaal = totaal van 'positie'."""
+
+    def _df_en_koersen(self):
+        df = pd.DataFrame([
+            _rij("2024-01-02", "A", 10.0, -100.0, "EAM"),
+            _rij("2024-01-03", "B", 2.0, -40.0, "XET"),
+            _rij("2024-01-03", "B", 1.0, -20.0, "TDG"),
+            _rij("2024-01-04", "C", 4.0, -40.0, "EPA"),
+            _rij("2024-01-10", "A", -5.0, 55.0, "EAM"),
+        ])
+        dagen = pd.date_range("2024-01-01", "2024-01-20", freq="D")
+        koersen = pd.DataFrame({"A": np.linspace(10, 13, 20), "B": np.linspace(20, 18, 20),
+                                "C": np.linspace(10, 11, 20)}, index=dagen)
+        return df, koersen
+
+    def _check(self, res, referentie):
+        for i in range(len(res["labels"])):
+            som = sum(r["waarde"][i] for r in res["reeksen"])
+            self.assertAlmostEqual(som, res["totaal"][i], delta=0.05)
+        self.assertEqual(res["totaal"], referentie["totaal"])
+        self.assertEqual(res["labels"], referentie["labels"])
+
+    def test_valuta_en_beurs(self):
+        df, koersen = self._df_en_koersen()
+        waarde = waarde_per_ticker_per_dag(df, koersen)
+        positie = bereken_verdeling_over_tijd(waarde, gewichten_per_positie(waarde.columns), {})
+        with patch.object(portfolio_verdeling, "get_valutas", return_value={"A": "EUR", "B": "USD", "C": "EUR"}):
+            valuta = bereken_verdeling_over_tijd(waarde, gewichten_per_valuta(waarde.columns), {})
+        self._check(valuta, positie)
+        for samenvoegen in (False, True):
+            self._check(bereken_verdeling_over_tijd(waarde, gewichten_per_beurs(df, samenvoegen), {}), positie)
+
+    def test_laatste_meetpunt_gelijk_aan_huidige_verdeling(self):
+        df, koersen = self._df_en_koersen()
+        waarde = waarde_per_ticker_per_dag(df, koersen)
+        valutas = {"A": "EUR", "B": "USD", "C": "EUR"}
+
+        def laatste(res):
+            return {r["sleutel"]: r["waarde"][-1] for r in res["reeksen"] if r["waarde"][-1]}
+
+        with patch.object(portfolio_verdeling, "get_valutas", side_effect=lambda t: {x: valutas[x] for x in t}):
+            over_tijd = laatste(bereken_verdeling_over_tijd(waarde, gewichten_per_valuta(waarde.columns), {}))
+            nu = compute_valuta_verdeling(df, koersen)["valuta"]
+        self.assertEqual(over_tijd, {k: round(v, 2) for k, v in nu.items()})
+
+        nu_beurs = compute_beurs_verdeling(df, koersen)
+        for samenvoegen, sleutel in ((False, "beurs"), (True, "beurs_euronext")):
+            over_tijd = laatste(bereken_verdeling_over_tijd(waarde, gewichten_per_beurs(df, samenvoegen), {}))
+            self.assertEqual(over_tijd, {k: round(v, 2) for k, v in nu_beurs[sleutel].items()})
+
+
 class TestVerdelingOverTijdRoute(unittest.TestCase):
     def setUp(self):
         import app as app_module
@@ -154,9 +262,19 @@ class TestVerdelingOverTijdRoute(unittest.TestCase):
 
     def test_onbekende_dimensie_400(self):
         with self._basis():
-            for url in ("/api/portfolio/ZZTEST/verdeling-over-tijd?dimensie=land",
+            for url in ("/api/portfolio/ZZTEST/verdeling-over-tijd?dimensie=bedrijven",
                         "/api/portfolio/ZZTEST/verdeling-over-tijd"):
                 self.assertEqual(self.client.get(url).status_code, 400)
+
+    def test_valuta_en_beurs_200(self):
+        with self._basis(), patch.object(portfolio_verdeling, "get_valutas",
+                                         side_effect=lambda t: {x: "EUR" for x in t}):
+            valuta = self.client.get("/api/portfolio/ZZTEST/verdeling-over-tijd?dimensie=valuta")
+            beurs = self.client.get("/api/portfolio/ZZTEST/verdeling-over-tijd?dimensie=beurs&samenvoegen=1")
+        self.assertEqual(valuta.status_code, 200)
+        self.assertEqual([r["sleutel"] for r in valuta.get_json()["reeksen"]], ["EUR"])
+        self.assertEqual(beurs.status_code, 200)
+        self.assertEqual([r["sleutel"] for r in beurs.get_json()["reeksen"]], ["Euronext"])
 
     def test_onbekende_code_404(self):
         with patch.object(self.orchestratie, "haal_portfolio_basis", return_value=(None, None, None)):

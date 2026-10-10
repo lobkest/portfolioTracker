@@ -16,8 +16,8 @@ import db
 import upload_verwerking as uv
 from diagnostiek import (
     CATEGORIE_DATA, CATEGORIE_DIVIDEND, CATEGORIE_KOERSEN, CATEGORIE_LAADTIJDEN, CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS,
-    CATEGORIE_REKENINGOVERZICHT, CATEGORIE_TICKERS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, meld,
-    upload_meldingen_om_te_bewaren,
+    CATEGORIE_REKENINGOVERZICHT, CATEGORIE_TICKERS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, alleen_bij_upload,
+    meld, upload_meldingen_om_te_bewaren,
 )
 
 try:
@@ -35,7 +35,40 @@ class TestFilterOpCategorie(unittest.TestCase):
         bewaard = [_m(c) for c in (CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, CATEGORIE_TICKERS,
                                    CATEGORIE_DIVIDEND, CATEGORIE_REKENINGOVERZICHT)]
         niet = [_m(c) for c in (CATEGORIE_DATA, CATEGORIE_KOERSEN, CATEGORIE_LAADTIJDEN, "Plausibiliteit", "Splits")]
-        self.assertEqual(upload_meldingen_om_te_bewaren(niet + bewaard), bewaard)
+        uit = upload_meldingen_om_te_bewaren(niet + bewaard)
+        self.assertEqual([{k: v for k, v in m.items() if k != "ook_live"} for m in uit], bewaard)
+
+    def test_ook_live_per_melding_en_origineel_ongewijzigd(self):
+        origineel = _m(CATEGORIE_OPSLAAN, "insert_opgeslagen")
+        [uit] = upload_meldingen_om_te_bewaren([origineel])
+        self.assertIs(uit["ook_live"], False)
+        self.assertNotIn("ook_live", origineel)
+
+
+class TestAlleenBijUpload(unittest.TestCase):
+    def test_indeling_per_categorie_en_sleutel(self):
+        alleen_bij_upload_verwacht = {
+            (CATEGORIE_OPSLAAN, "insert_opgeslagen"): True,
+            (CATEGORIE_ORDER_IDS, "order_ids"): True,
+            (CATEGORIE_ORDER_IDS, "order_ids:rekening:alleen_transacties"): True,
+            (CATEGORIE_REKENINGOVERZICHT, "rekening:verrekening_aandelen"): True,
+            (CATEGORIE_WISSELKOERSEN, "excel_wisselkoers"): True,
+            (CATEGORIE_WISSELKOERSEN, "USDEUR=X"): False,
+            (CATEGORIE_WISSELKOERSEN, "prijscheck_geen_fx:NESN.SW"): False,
+            (CATEGORIE_TICKERS, "zoekstappen:NL0010273215:EAM"): True,
+            (CATEGORIE_TICKERS, "tickers:valuta:AAPL"): True,
+            (CATEGORIE_TICKERS, "check_mislukt:Valuta-consistentie"): True,
+            (CATEGORIE_TICKERS, "tickers:dis_acc:VWCE.DE"): False,
+            (CATEGORIE_TICKERS, "tickers:samenvatting"): False,
+            (CATEGORIE_DIVIDEND, "dividend_samenvatting"): True,
+            (CATEGORIE_DIVIDEND, "dividend_zonder_conversie_overig"): True,
+            (CATEGORIE_DIVIDEND, "dividend:US0378331005:2024-03-01"): True,
+            (CATEGORIE_DIVIDEND, "dividend:zonder_positie:GB00B10RZP78"): False,
+            (CATEGORIE_DIVIDEND, "div_verwachting:ok"): False,
+            (CATEGORIE_TICKERS, "een_nieuwe_sleutel"): False,
+        }
+        uitkomst = {(c, s): alleen_bij_upload(_m(c, s)) for c, s in alleen_bij_upload_verwacht}
+        self.assertEqual(uitkomst, alleen_bij_upload_verwacht)
 
     def test_leeg_of_none(self):
         self.assertEqual(upload_meldingen_om_te_bewaren(None), [])
@@ -63,7 +96,7 @@ class TestBewaarZonderDatabase(unittest.TestCase):
         opslaan, _ = self._bewaar()
         code, soort, meldingen, maximum = opslaan.call_args.args
         self.assertEqual((code, soort, maximum), ("ZZTEST", "upload", 5))
-        self.assertEqual([m["sleutel"] for m in meldingen], ["insert_opgeslagen"])
+        self.assertEqual([(m["sleutel"], m["ook_live"]) for m in meldingen], [("insert_opgeslagen", False)])
 
     def test_fout_wordt_alleen_een_logregel(self):
         _, uitvoer = self._bewaar(side_effect=RuntimeError("db weg"))
@@ -154,10 +187,12 @@ class TestUploadMeldingenDatabase(unittest.TestCase):
         with Flask(__name__).test_request_context():
             meld(CATEGORIE_OPSLAAN, GOED, "3 transacties opgeslagen.", sleutel="insert_opgeslagen")
             meld(CATEGORIE_LAADTIJDEN, INFO, "Koersen ophalen: 1,0 s.", sleutel="basis_koersen_ophalen")
+            meld(CATEGORIE_TICKERS, LET_OP, "DIS/ACC", sleutel="tickers:dis_acc:VWCE.DE")
             uv.bewaar_upload_meldingen(self.CODE, uv.UPLOAD_SOORT_BIJWERKEN)
         [upload] = db.db_get_upload_meldingen(self.CODE)
         self.assertEqual(upload["soort"], "bijwerken")
-        self.assertEqual([m["sleutel"] for m in upload["meldingen"]], ["insert_opgeslagen"])
+        self.assertEqual([(m["sleutel"], m["ook_live"]) for m in upload["meldingen"]],
+                         [("insert_opgeslagen", False), ("tickers:dis_acc:VWCE.DE", True)])
 
 
 if __name__ == "__main__":

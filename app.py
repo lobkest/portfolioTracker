@@ -356,8 +356,16 @@ def verdeling_over_tijd(code):
     dimensie = request.args.get("dimensie", "")
     if dimensie not in VERDELING_OVER_TIJD_DIMENSIES:
         return jsonify({"error": f"Onbekende dimensie '{dimensie}'."}), 400
-    with db_deel_verbinding():
-        result = bouw_verdeling_over_tijd(code, dimensie)
+    samenvoegen = request.args.get("samenvoegen") == "1"
+    try:
+        with db_deel_verbinding():
+            result = bouw_verdeling_over_tijd(code, dimensie, samenvoegen)
+    except Exception as e:
+        print(f"[over-tijd] WARN {dimensie} mislukt: {type(e).__name__}: {e!a}")
+        return jsonify({
+            "error": "De verdeling over tijd berekenen is mislukt of duurde te lang. Probeer het opnieuw: "
+                     "wat al is opgehaald blijft bewaard, dus een tweede poging gaat sneller."
+        }), 500
     if result is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
     return jsonify(result)

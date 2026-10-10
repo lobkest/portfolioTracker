@@ -149,12 +149,32 @@ def get_land_sector(ticker):
     return (land or "Unknown", sector or "Unknown")
 
 
-def get_valuta(ticker):
-    """Noteringsvaluta, met "Unknown" i.p.v. None; Yahoo's "GBp" (pence) telt als GBP."""
-    valuta = _ticker_details_met_cache(ticker).get("valuta")
+def normaliseer_valuta(valuta):
+    """"Unknown" i.p.v. leeg; Yahoo's "GBp" (pence) telt als GBP."""
     if not valuta:
         return "Unknown"
     return "GBP" if valuta == "GBp" else valuta
+
+
+def get_valuta(ticker):
+    return normaliseer_valuta(_ticker_details_met_cache(ticker).get("valuta"))
+
+
+def get_valutas(tickers):
+    """{ticker: valuta} met één cache-query; alleen tickers zonder verse cacherij gaan via get_valuta() (Yahoo)."""
+    tickers = list(tickers)
+    details = db_get_ticker_details(tickers)
+    valutas = {}
+    via_yahoo = 0
+    for ticker in tickers:
+        rij = details.get(ticker)
+        if _rij_is_vers(rij):
+            valutas[ticker] = normaliseer_valuta(rij.get("valuta"))
+        else:
+            valutas[ticker] = get_valuta(ticker)
+            via_yahoo += 1
+    dprint(f"[valuta] {via_yahoo} van {len(tickers)} ticker(s) niet in de cache, via Yahoo")
+    return valutas
 
 
 # Yahoo-sleutels die aan elkaar geschreven zijn; de rest volgt uit "_" -> spatie.

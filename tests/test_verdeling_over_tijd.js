@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 
-const { VERDELING_OVERIG_SLEUTEL, verdelingOverTijdDatasets } = require("../static/js/verdeling_over_tijd.js");
+const { VERDELING_OVERIG_SLEUTEL, verdelingOverTijdDatasets, beperkteDekkingRegel } = require("../static/js/verdeling_over_tijd.js");
 
 const DATA = {
     labels: ["2024-01-07", "2024-01-14"],
@@ -34,6 +34,12 @@ test("verdelingOverTijdDatasets: kleur per sleutel, Overig grijs", () => {
     assert.equal(overig.borderColor, "grijs");
 });
 
+test("verdelingOverTijdDatasets: Unknown en Onbekend grijs, de kleurindex telt alleen gekleurde reeksen", () => {
+    const data = { reeksen: ["Unknown", "EUR", "Onbekend", "USD"].map(sleutel => ({ sleutel, naam: sleutel, waarde: [1], pct: [25] })) };
+    const kleuren = verdelingOverTijdDatasets(data, "pct", (sleutel, index) => `kleur-${index}`, "grijs").map(ds => ds.backgroundColor);
+    assert.deepEqual(kleuren, ["grijs", "kleur-0", "grijs", "kleur-1"]);
+});
+
 test("verdelingOverTijdDatasets: eerste vlak vanaf de as, de rest gestapeld op de vorige", () => {
     const datasets = verdelingOverTijdDatasets(DATA, "pct", kleurVoor, "grijs");
     assert.deepEqual(datasets.map(ds => ds.fill), ["origin", "-1"]);
@@ -42,4 +48,10 @@ test("verdelingOverTijdDatasets: eerste vlak vanaf de as, de rest gestapeld op d
 test("verdelingOverTijdDatasets: zonder reeksen een lege lijst", () => {
     assert.deepEqual(verdelingOverTijdDatasets({ labels: [], totaal: [], reeksen: [] }, "pct", kleurVoor, "grijs"), []);
     assert.deepEqual(verdelingOverTijdDatasets(null, "pct", kleurVoor, "grijs"), []);
+});
+
+test("beperkteDekkingRegel: namen in een regel, null zonder namen", () => {
+    assert.equal(beperkteDekkingRegel(["Wereld ETF", "EM ETF"]), "Beperkte landdekking (alleen top-10 holdings) voor: Wereld ETF, EM ETF.");
+    assert.equal(beperkteDekkingRegel([]), null);
+    assert.equal(beperkteDekkingRegel(undefined), null);
 });

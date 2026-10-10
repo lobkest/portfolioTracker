@@ -177,7 +177,7 @@ function maakUploadSectie(blok, standaardOpen, keuzePrefix, ookLive = 0) {
     const sectie = maakDiagnostiekSectie(blok.titel, groepen, standaardOpen, keuzePrefix);
     const notities = [];
     if (ookLive > 0) notities.push(uploadOokLiveTekst(ookLive));
-    if (groepen.length === 0 && ookLive === 0) notities.push("Geen meldingen met dit niveau.");
+    if (groepen.length === 0 && ookLive === 0 && blok.meldingen.length > 0) notities.push("Geen meldingen met dit niveau.");
     notities.forEach(tekst => {
         const p = document.createElement("p");
         p.className = "gedempt";
@@ -192,7 +192,19 @@ function toonUploadMeldingen() {
     plek.replaceChildren();
     const blokken = uploadBlokken(diagnostiekUploads, diagnostiekMeldingen);
     if (!blokken.laatste) return;
-    plek.appendChild(maakUploadSectie(blokken.laatste, null, "upload0:", blokken.laatste.aantalOokLive));
+    const laatste = maakUploadSectie(blokken.laatste, null, "upload0:", blokken.laatste.aantalOokLive);
+    const stand = blokken.laatste.standBijUpload;
+    if (stand.length > 0) {
+        const groep = document.createElement("details");
+        groep.className = "diagnostiekStandBijUpload";
+        const kop = document.createElement("summary");
+        kop.textContent = `Stand bij upload (wordt nu opnieuw berekend) (${stand.length})`;
+        groep.appendChild(kop);
+        groepeerPerCategorie(filterOpNiveau(stand, diagnostiekNiveauFilter))
+            .forEach(g => groep.appendChild(maakDiagnostiekCategorie(g, false, "upload0stand:")));
+        laatste.appendChild(groep);
+    }
+    plek.appendChild(laatste);
     if (blokken.ouder.length === 0) return;
     const ouder = document.createElement("details");
     ouder.className = "diagnostiekOudereUploads";
