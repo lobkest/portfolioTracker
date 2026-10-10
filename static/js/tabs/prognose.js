@@ -107,6 +107,7 @@ function maakHistorieTabel(posities) {
             renderTd: p => grijzeCelAls(!telt(p), historieMobielWaarde(p)),
         },
         { label: "1-jaars range", alleenMobiel: true, mobielRol: "subwaarde", renderTd: p => maakCel(historieMobielSubwaarde(p)) },
+        { label: "Toelichting", alleenMobiel: true, renderTd: p => maakCel(telt(p) ? "" : (HISTORIE_STATUS_TEKST[p.status] || p.status)) },
         { label: "Gewicht", alleenTabel: true, waarde: p => p.gewicht, renderTd: p => maakCel(p.gewicht === null ? "—" : prognosePct(p.gewicht)) },
         {
             label: "Jaren data",
@@ -253,13 +254,6 @@ function maakHistorieRegelaar({ veld, el, herbereken }) {
     };
 }
 
-function eigenDividendTekst(p) {
-    if (p.eigen_bruto_eur_jaar === null || p.eigen_bruto_eur_jaar === undefined) return "—";
-    let tekst = `${formatteerEuro(p.eigen_bruto_eur_jaar)} bruto (${p.eigen_aantal_uitkeringen} uitk.)`;
-    if (p.afwijking_fractie !== null) tekst += `, afwijking ${prognosePct(p.afwijking_fractie, true)}`;
-    return tekst;
-}
-
 function maakDividendVerwachtingTabel(posities, perDatum) {
     const kolommen = [
         {
@@ -289,7 +283,7 @@ function maakDividendVerwachtingTabel(posities, perDatum) {
             waarde: p => p.netto_eur_jaar,
             renderTd: p => maakCel(p.meegeteld ? formatteerEuro(p.netto_eur_jaar) : "niet meegeteld"),
         },
-        { label: "Eigen data", waarde: p => p.eigen_bruto_eur_jaar, renderTd: p => maakCel(eigenDividendTekst(p)) },
+        { label: "Ontvangen (12 mnd)", waarde: p => p.eigen_bruto_eur_jaar, renderTd: p => maakCel(eigenDividendTekst(p)) },
     ];
     return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen posities in bezit.", compactOpMobiel: true });
 }

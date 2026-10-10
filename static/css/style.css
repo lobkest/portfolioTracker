@@ -967,6 +967,31 @@ input.schakelaar:focus-visible {
     font-size: 0.9em;
 }
 
+/* Verdeling: uitleg ETF/Aandeel onder de taart, los van de legenda van de posities. Grijs en strepen als in grafiek.js. */
+.verdelingUitleg {
+    gap: 16px;
+    margin-top: 12px;
+    font-size: 0.85em;
+    color: #555;
+}
+
+.verdelingUitleg > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.verdelingSwatch {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    background-color: #6b6b66;
+}
+
+.verdelingSwatchEtf {
+    background-image: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.6) 0 2px, transparent 2px 5px);
+}
+
 /* Keuzeknoppen (Top-bedrijven: 10 / 20 / 50): zelfde groentint en radius als
    de gewone knoppen; de actieve is gevuld, de rest omlijnd. */
 .topNRij {
@@ -1269,10 +1294,6 @@ input.schakelaar:focus-visible {
     border-color: #ddd;
 }
 
-.bijnaamChips .bijnaamChip {
-    padding: 2px 10px;
-    font-size: 0.8em;
-}
 
 .bijnaamRij {
     padding: 10px 2px;
@@ -1294,10 +1315,55 @@ input.schakelaar:focus-visible {
     text-overflow: ellipsis;
 }
 
-.bijnaamChips {
+.bijnaamOpties {
     display: flex;
-    gap: 6px;
+    flex-direction: column;
+    gap: 4px;
     margin-top: 6px;
+}
+
+/* Raakvlak minstens 44px (vingerbreed); lange namen breken af i.p.v. afgekapt te worden. */
+.bijnaamOptie {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    width: 100%;
+    min-height: 44px;
+    margin: 0;
+    padding: 4px 10px;
+    text-align: left;
+    background-color: #fff;
+    color: #222;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+}
+
+.bijnaamOptie:hover {
+    background-color: #e3f1e8;
+    border-color: #2c7a4b;
+}
+
+.bijnaamOptie.actief,
+.bijnaamOptie.actief:hover {
+    background-color: #2c7a4b;
+    border-color: #2c7a4b;
+    color: #fff;
+}
+
+.bijnaamOptie:disabled,
+.bijnaamOptie:disabled:hover {
+    background-color: #fff;
+    border-color: #eee;
+    color: #aaa;
+}
+
+.bijnaamOptieLabel {
+    font-size: 0.75em;
+    opacity: 0.8;
+}
+
+.bijnaamOptieNaam {
+    overflow-wrap: anywhere;
 }
 
 .bijnaamInvoer {
@@ -1873,6 +1939,12 @@ button.diagnostiekChip:disabled:hover {
 
     .mobielRij:hover {
         background: #f7f7f7;
+    }
+
+    .mobielRijVast,
+    .mobielRijVast:hover {
+        background: none;
+        cursor: default;
     }
 
     .mobielTitel,

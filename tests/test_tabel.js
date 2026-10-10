@@ -207,8 +207,8 @@ test("subwaarde houdt de klassen van de cel (groen/rood); zonder waarde-kolom ee
             renderTd: r => { const td = maakCel(String(r.waarde)); td.className = "rendementCel positief"; return td; },
         },
     ];
-    const knop = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("button")[0];
-    assert.equal(knop.className, "mobielRij mobielRijZonderWaarde");
+    const knop = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("ul")[0].children[0].children[0];
+    assert.equal(knop.className, "mobielRij mobielRijZonderWaarde mobielRijVast");
     assert.equal(knop.children[2].className, "mobielSubwaarde rendementCel positief");
 });
 
@@ -225,7 +225,7 @@ test("mobiele titel neemt een badge uit renderTd over", () => {
             return td;
         },
     }];
-    const titel = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("button")[0].children[0];
+    const titel = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("ul")[0].children[0].children[0].children[0];
     assert.equal(titel.className, "mobielTitel");
     const badges = titel.zoek("span").filter(s => s.className === "badge");
     assert.equal(badges.length, 1);
@@ -237,7 +237,7 @@ test("mobiele titel met mobielTekst blijft platte tekst, meerdere titelkolommen 
         { label: "Naam", mobielRol: "titel", mobielTekst: r => `${r.naam}!`, renderTd: r => { const td = maakCel(r.naam); td.appendChild(document.createElement("span")); return td; } },
         { label: "Code", mobielRol: "titel", mobielTekst: r => `c-${r.naam}`, renderTd: r => maakCel(r.naam) },
     ];
-    const titel = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("button")[0].children[0];
+    const titel = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("ul")[0].children[0].children[0].children[0];
     assert.deepEqual(titel.children, ["A!", " ", "c-A"]);
 });
 
@@ -271,4 +271,25 @@ test("alleenTabel niet in de mobiele rij; detail zonder inhoud valt weg; uitleg 
     assert.deepEqual(element.zoek("th").map(th => [th.textContent, th.title]), [["Naam", undefined], ["Label", "Uitleg"], ["Aantal", undefined]]);
     const details = element.zoek("ul")[0].children[0].children[1];
     assert.deepEqual(details.children.map(tekst), ["Aantal", "3"]);
+});
+
+test("rij zonder detailinhoud klapt niet uit; per rij bepaald", () => {
+    const kolommen = [
+        { label: "Naam", mobielRol: "titel", renderTd: r => maakCel(r.naam) },
+        { label: "Toelichting", alleenMobiel: true, renderTd: r => maakCel(r.naam === "B" ? "telt niet mee" : "") },
+    ];
+    const [vast, uitklap] = maakSorteerbareTabel(kolommen, RIJEN, { compactOpMobiel: true }).zoek("ul")[0].children.slice(0, 2);
+
+    assert.equal(vast.children.length, 1);
+    const vasteRij = vast.children[0];
+    assert.equal(vasteRij.tagName, "DIV");
+    assert.ok(vasteRij.classList.contains("mobielRijVast"));
+    assert.equal(vasteRij.getAttribute("aria-expanded"), null);
+    assert.equal(vasteRij.listeners.click, undefined);
+
+    const [knop, details] = uitklap.children;
+    assert.equal(knop.tagName, "BUTTON");
+    assert.ok(!knop.classList.contains("mobielRijVast"));
+    assert.equal(knop.getAttribute("aria-expanded"), "false");
+    assert.deepEqual(details.children.map(tekst), ["Toelichting", "telt niet mee"]);
 });

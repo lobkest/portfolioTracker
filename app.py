@@ -48,6 +48,7 @@ from portfolio_orchestratie import (
     laad_split_gecorrigeerde_transacties, pas_effectieve_datums_toe, continue_koersreeks,
     ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
+    meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
@@ -159,6 +160,8 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
     result = analyze_transacties(transacties_df, code=None, naam=naam or None, kassaldo=kassaldo, box3=True,
                                  box3_dividenden=dividend_records or None)
     meld_valuta_consistentie(df, ticker_by_isin_beurs)
+    if rekening_df is not None:
+        meld_order_ids_rekening_uit_bestanden(df, rekening_df)
     result["ticker_zekerheid"] = ticker_zekerheid
     result["ticker_posities_ruw"] = ticker_posities_ruw
     result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
@@ -193,6 +196,7 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         _meld_valuta_na_opslaan(df, code)
+        meld_order_ids_rekening(code)
     return result
 
 
@@ -286,6 +290,7 @@ def _bijwerken_impl(code):
         result = _kern_na_opslaan(code)
         if df is not None:
             _meld_valuta_na_opslaan(df, code)
+        meld_order_ids_rekening(code)
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
     result["bijwerken"] = {
         "nieuwe_transacties": len(rows_to_insert),

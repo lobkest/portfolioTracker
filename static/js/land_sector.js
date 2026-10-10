@@ -39,7 +39,14 @@
         return Object.entries(verdelingObj || {}).filter(([, waarde]) => waarde / noemer * 100 >= ZICHTBAAR_MIN_PCT);
     }
 
-    const exportsObj = { landProxyBijschrift, landDekkingRegels, zichtbareVerdeling };
+    // Alleen voor weergave: Yahoo's "Unknown" toont als "onbekend", net als een lege waarde; de data blijft "Unknown".
+    function bekendeWaarde(waarde) {
+        if (waarde === null || waarde === undefined) return null;
+        const tekst = String(waarde).trim();
+        return tekst === "" || tekst.toLowerCase() === "unknown" ? null : waarde;
+    }
+
+    const exportsObj = { landProxyBijschrift, landDekkingRegels, zichtbareVerdeling, bekendeWaarde };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

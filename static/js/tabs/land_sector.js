@@ -25,6 +25,7 @@ function toonPlatteVerdeling(verdelingObj) {
 
     let kleurIdx = 0;
     const kleuren = entries.map(([naam]) => (naam === "Unknown" || naam === "Overig") ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++));
+    const labelMinPct = taartLabelMinPct();
 
     chart = new Chart(document.getElementById("rendementChart"), {
         type: "pie",
@@ -55,7 +56,7 @@ function toonPlatteVerdeling(verdelingObj) {
                     font: { weight: "bold", size: 11 },
                     formatter: (value, ctx) => {
                         const pct = totaal ? (value / totaal * 100) : 0;
-                        if (pct < TAART_LABEL_MIN_PCT) return null;
+                        if (pct < labelMinPct) return null;
                         return [kortNaam(entries[ctx.dataIndex][0]), formatPct(pct, 1)];
                     }
                 }

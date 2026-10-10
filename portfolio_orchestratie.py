@@ -14,17 +14,20 @@ from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
     db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
     db_get_cached_openfigi_voor_isins, db_get_kassaldo, db_get_dividenden, db_get_isin_ticker_product,
+    db_get_order_id_periodes,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
     check_corporate_action_rijen, check_isin_wissels, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
     check_dagsprong, tickers_met_koersafwijking, check_koers_stilstand, _naam_per_ticker, ticker_bevindingen,
     check_valuta_consistentie, check_negatief_aantal, check_verversing, check_xirr, check_dividend_zonder_positie,
+    check_order_ids_rekening, check_prijscheck_zonder_fx,
 )
 from debug_utils import meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
-    ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP,
+    ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND,
+    CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP,
 )
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 from prijzen import get_prices
@@ -47,6 +50,8 @@ from ticker_classificatie import (
     get_etf_holdings_uit_cache,
 )
 from naam_verkorting import kies_korte_namen
+from etf_holdings_provider import aanbieder_naam
+from dividend import ORDER_ID_KOLOM_REKENING
 from etf_proxy import land_proxies_voor_etfs
 
 
@@ -193,13 +198,43 @@ def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
         met_ticker = transacties_df.dropna(subset=["ticker"])
         tickers = met_ticker["ticker"].unique().tolist()
         isins = met_ticker["isin"].dropna().unique().tolist()
+        details = db_get_ticker_details(tickers)
         bevindingen = ticker_bevindingen(
-            transacties_df, db_get_ticker_details(tickers), db_get_cached_openfigi_voor_isins(isins), ticker_waarschuwingen,
-            prijs_checks)
+            transacties_df, details, db_get_cached_openfigi_voor_isins(isins), ticker_waarschuwingen, prijs_checks)
         for b in bevindingen:
             meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"], actie=ACTIE_TICKER_ZEKERHEID)
+        valuta = {t: d.get("valuta") for t, d in details.items()}
+        for b in check_prijscheck_zonder_fx(prijs_checks or {}, valuta, _naam_per_ticker(transacties_df)):
+            meld(CATEGORIE_WISSELKOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
         _meld_check_mislukt(CATEGORIE_TICKERS, "Tickers", e)
+
+
+def _meld_order_ids_rekening(transacties_rijen, rekening_rijen):
+    for b in check_order_ids_rekening(transacties_rijen, rekening_rijen):
+        meld(CATEGORIE_ORDER_IDS, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"))
+
+
+def meld_order_ids_rekening(code):
+    """Na opslaan, binnen db_deel_verbinding(): de opgeslagen transacties tegen de opgeslagen rekeningregels."""
+    try:
+        per_bron = {"transacties": [], "rekening": []}
+        for bron, order_id, eerste, laatste, product in db_get_order_id_periodes(code):
+            # De laatste datum zonder Order ID: telt alleen mee voor de periode.
+            per_bron[bron] += [(order_id, eerste, product), (None, laatste, None)]
+        _meld_order_ids_rekening(per_bron["transacties"], per_bron["rekening"])
+    except Exception as e:
+        _meld_check_mislukt(CATEGORIE_ORDER_IDS, "Order ID's tegen het rekeningoverzicht", e)
+
+
+def meld_order_ids_rekening_uit_bestanden(excel_df, rekening_df):
+    """'Niet opslaan': beide bestanden uit het geheugen."""
+    try:
+        _meld_order_ids_rekening(
+            list(zip(excel_df["Order ID"], excel_df["Datum"], excel_df["Product"])),
+            list(zip(rekening_df[ORDER_ID_KOLOM_REKENING], rekening_df["Datum"], rekening_df["Product"])))
+    except Exception as e:
+        _meld_check_mislukt(CATEGORIE_ORDER_IDS, "Order ID's tegen het rekeningoverzicht", e)
 
 
 def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
@@ -367,7 +402,7 @@ def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None, land_proxies=No
         if set(land) <= {"Unknown"}:
             niveau, tekst = LET_OP, "geen holdings met landinformatie; land, top-bedrijven en ETF-overlap ontbreken voor deze ETF."
         elif info.get("land_bron") == ETF_BRON_PROVIDER:
-            niveau, tekst = GOED, "volledige holdings van de fondsaanbieder."
+            niveau, tekst = GOED, f"volledige holdings van de fondsaanbieder ({aanbieder_naam(ticker)})."
         else:
             niveau, tekst = INFO, ("alleen de top-10 holdings via Yahoo; top-bedrijven en ETF-overlap zijn voor "
                                    "deze ETF onvolledig.")

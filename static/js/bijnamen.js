@@ -14,7 +14,13 @@
         return naam !== "" && naam !== huidigeNaam;
     }
 
-    const exportsObj = { actieveNaamBron, bijnaamGewijzigd };
+    // Tekst van een naamoptie: de naam zelf, of waarom die er (nog) niet is.
+    function naamOptieTekst(naam, titel, wachtOpYahoo) {
+        if (naam) return naam;
+        return wachtOpYahoo ? "nog niet opgehaald" : `Geen ${titel.toLowerCase()}`;
+    }
+
+    const exportsObj = { actieveNaamBron, bijnaamGewijzigd, naamOptieTekst };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

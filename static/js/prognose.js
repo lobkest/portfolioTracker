@@ -250,11 +250,21 @@
     }
 
     function dividendMobielSubregel(p) {
-        const delen = [`${formatGetal(p.aantal, 4, 0)} st`];
-        if (p.per_aandeel_jaar !== null && p.per_aandeel_jaar !== undefined) {
-            delen.push(`${formatGetal(p.per_aandeel_jaar, 4, 0)} ${p.valuta || ""}`.trim());
+        const aantal = `${formatGetal(p.aantal, 4, 0)} st`;
+        if (p.per_aandeel_jaar === null || p.per_aandeel_jaar === undefined) return aantal;
+        const valuta = p.valuta ? ` ${p.valuta}` : "";
+        return `${aantal} × ${formatGetal(p.per_aandeel_jaar, 4, 0)}${valuta}/jaar`;
+    }
+
+    // De afwijking is per aandeel: wie eerder minder stukken had, ontving minder zonder dat Yahoo afwijkt.
+    function eigenDividendTekst(p) {
+        if (p.eigen_bruto_eur_jaar === null || p.eigen_bruto_eur_jaar === undefined) return "—";
+        let tekst = `${formatteerEuro(p.eigen_bruto_eur_jaar)} bruto (${p.eigen_aantal_uitkeringen} uitk.)`;
+        if (p.afwijking_fractie !== null && p.afwijking_fractie !== undefined) {
+            const teken = p.afwijking_fractie > 0 ? "+" : "";
+            tekst += `, per aandeel ${teken}${fractieAlsPct(p.afwijking_fractie)} afwijking t.o.v. Yahoo`;
         }
-        return delen.join(" · ");
+        return tekst;
     }
 
     function dividendMobielWaarde(p) {
@@ -297,6 +307,7 @@
         historieMobielWaarde,
         historieMobielSubwaarde,
         dividendMobielSubregel,
+        eigenDividendTekst,
         dividendMobielWaarde,
         dividendMobielSubwaarde,
         dividendTotaalTekst

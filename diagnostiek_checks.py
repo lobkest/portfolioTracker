@@ -3,15 +3,18 @@
 Een bevinding is {"niveau", "tekst", "sleutel"}.
 """
 import bisect
+import re
 
 import numpy as np
 import pandas as pd
 
 from diagnostiek import GOED, INFO, LET_OP
+from dividend import OMSCHRIJVING_VERREKENING_AANDELEN, REGELSOORT_VERREKENING_AANDELEN, regelsoort
 from naam_verkorting import uitkeringsvorm_strijdig
 from portfolio_calc import holdings_op_datums
 from split_correctie import isin_ketens, vind_wisselparen
 from ticker_matching import MANUAL_TICKER_OVERRIDES_ISIN, _openfigi_root_matches
+from ticker_prijscheck import PRIJSCHECK_REDEN_GEEN_FX
 from ticker_zekerheid import BEURS_OTC_NA_DELISTING, beurs_status, prijs_klopt
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, getal_nl
 
@@ -44,6 +47,11 @@ MAX_WERKDAGEN_ZONDER_KOERS = 3
 # Korter dan een jaar: de XIRR is geannualiseerd en vergroot het rendement van die korte periode sterk uit.
 MIN_JAREN_XIRR = 1.0
 ANDERE_BEURS_PRIJS_KLOPT = "andere_beurs"
+
+
+def aantal_tekst(aantal, enkelvoud, meervoud):
+    """1 -> '1 order', 3 -> '3 orders'."""
+    return f"{aantal} {enkelvoud if aantal == 1 else meervoud}"
 
 
 def _bevinding(niveau, tekst, sleutel):
@@ -472,13 +480,148 @@ def check_dividend_zonder_positie(transacties_df, dividenden):
         datums = [pd.Timestamp(d["datum"]) for d in lijst]
         bevindingen.append((len(lijst), _bevinding(
             LET_OP,
-            f"Dividend van {lijst[0].get('product') or isin} ({isin}, {len(lijst)} uitkering(en), "
+            f"Dividend van {lijst[0].get('product') or isin} ({isin}, {aantal_tekst(len(lijst), 'uitkering', 'uitkeringen')}, "
             f"{formatteer_datum_nl(min(datums))} t/m {formatteer_datum_nl(max(datums))}) hoort bij geen enkele "
             f"transactie: begint het transactiebestand later dan het rekeningoverzicht?",
             f"dividend:zonder_positie:{isin}",
         )))
     bevindingen.sort(key=lambda b: -b[0])
     return _beperk([b for _, b in bevindingen], LET_OP, "dividend:zonder_positie:meer")
+
+
+_DEELORDER_ID = re.compile(r"^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})-\d+$")
+
+
+def kale_order_id(order_id):
+    """Zonder deelorder-achtervoegsel (-1, -2: alleen achter een DeGiro-UUID), kleine letters; None voor leeg en SYN-."""
+    if order_id is None or pd.isna(order_id):
+        return None
+    tekst = str(order_id).strip().lower()
+    if not tekst or tekst.upper().startswith(SYNTHETISCH_ORDER_ID_PREFIX):
+        return None
+    deelorder = _DEELORDER_ID.match(tekst)
+    return deelorder.group(1) if deelorder else tekst
+
+
+def _order_overzicht(rijen):
+    """rijen: (order_id of None, datum, product). (periode (begin, eind) of None, {kale id: (eerste datum, product)})."""
+    datums, orders = [], {}
+    for order_id, datum, product in rijen:
+        if datum is None or pd.isna(datum):
+            continue
+        datum = pd.Timestamp(datum).normalize()
+        datums.append(datum)
+        kaal = kale_order_id(order_id)
+        if kaal and (kaal not in orders or datum < orders[kaal][0]):
+            orders[kaal] = (datum, product if pd.notna(product) else None)
+    return ((min(datums), max(datums)) if datums else None), orders
+
+
+def _periode_tekst(periode):
+    return f"{formatteer_datum_nl(periode[0])} t/m {formatteer_datum_nl(periode[1])}"
+
+
+def _ontbrekende_orders(orders, andere, begin, eind):
+    return sorted((datum, product or "", order_id) for order_id, (datum, product) in orders.items()
+                  if begin <= datum <= eind and order_id not in andere)
+
+
+def check_order_ids_rekening(transacties_rijen, rekening_rijen):
+    """Beide richtingen, alleen binnen de overlappende periode: een kortere export is geen fout.
+    *_rijen: (order_id of None, datum, product); rijen zonder Order ID tellen mee voor de periode."""
+    periode_t, orders_t = _order_overzicht(transacties_rijen)
+    periode_r, orders_r = _order_overzicht(rekening_rijen)
+    if periode_t is None or periode_r is None:
+        return []
+    begin, eind = max(periode_t[0], periode_r[0]), min(periode_t[1], periode_r[1])
+    tekst = f"Transacties: {_periode_tekst(periode_t)}; rekeningoverzicht: {_periode_tekst(periode_r)}. "
+    if begin > eind:
+        return [_bevinding(INFO, tekst + "De periodes overlappen niet; Order ID's niet vergeleken.",
+                           "order_ids:rekening:periode")]
+    vergeleken = sum(1 for datum, _ in orders_t.values() if begin <= datum <= eind)
+    bevindingen = [_bevinding(INFO, tekst + f"{aantal_tekst(vergeleken, 'order', 'orders')} uit de transacties "
+                                            f"vergeleken binnen "
+                                            f"{_periode_tekst((begin, eind))}.", "order_ids:rekening:periode")]
+    for orders, andere, waar, niet_waar, soort in (
+            (orders_t, orders_r, "de transacties", "het rekeningoverzicht", "alleen_transacties"),
+            (orders_r, orders_t, "het rekeningoverzicht", "de transacties", "alleen_rekening")):
+        ontbrekend = _ontbrekende_orders(orders, andere, begin, eind)
+        if not ontbrekend:
+            continue
+        datum, product, _ = ontbrekend[0]
+        voorbeeld = f"{product} op {formatteer_datum_nl(datum)}" if product else formatteer_datum_nl(datum)
+        bevinding = _bevinding(
+            LET_OP,
+            f"{aantal_tekst(len(ontbrekend), 'order staat', 'orders staan')} in {waar} maar niet in {niet_waar} (binnen "
+            f"{_periode_tekst((begin, eind))}), bv. {voorbeeld}.",
+            f"order_ids:rekening:{soort}",
+        )
+        bevinding["tabel"] = {"kolommen": ["Datum", "Product", "Order ID"],
+                              "rijen": [[formatteer_datum_nl(d), p, o] for d, p, o in ontbrekend]}
+        bevindingen.append(bevinding)
+    return bevindingen
+
+
+def check_prijscheck_zonder_fx(prijs_checks, valuta_per_ticker, namen):
+    """prijs_checks: {ticker: [prijscheck]} uit de lichte check; één melding per ticker."""
+    return [
+        _bevinding(
+            INFO,
+            f"{namen.get(ticker, ticker)} ({ticker}): geen wisselkoers {valuta_per_ticker.get(ticker) or '?'} → EUR; "
+            f"de prijscheck tegen Yahoo is overgeslagen.",
+            f"prijscheck_geen_fx:{ticker}",
+        )
+        for ticker, checks in sorted(prijs_checks.items())
+        if any(c.get("reden") == PRIJSCHECK_REDEN_GEEN_FX for c in checks or [])
+    ]
+
+
+def _bedrag(valuta, bedrag):
+    return _eur(bedrag) if valuta == "EUR" else f"{valuta} {getal_nl(bedrag)}"
+
+
+def check_rekening_regelsoorten(rekening_df):
+    """rekening_df zoals lees_rekeningoverzicht(). Alleen onbekende soorten (getallen in de tekst tellen als één soort)
+    en 'Verrekening van Aandelen': dat geld staat niet in het transactiebestand."""
+    if rekening_df is None or rekening_df.empty:
+        return []
+    soorten = rekening_df["Omschrijving"].map(regelsoort)
+    bevindingen = []
+
+    verrekening = rekening_df[soorten == REGELSOORT_VERREKENING_AANDELEN]
+    if not verrekening.empty:
+        totalen = verrekening.groupby(verrekening["valuta_mutatie"].fillna("EUR"))["mutatie"].sum()
+        bevindingen.append(_bevinding(
+            LET_OP,
+            f"Rekeningoverzicht: {len(verrekening)}x '{OMSCHRIJVING_VERREKENING_AANDELEN}' "
+            f"({_periode_tekst((verrekening['Datum'].min(), verrekening['Datum'].max()))}, totaal "
+            f"{', '.join(_bedrag(v, b) for v, b in totalen.items())}): geld uit een corporate action. Het staat niet "
+            f"in het transactiebestand en telt dus niet mee in het rendement.",
+            "rekening:verrekening_aandelen",
+        ))
+
+    onbekend = rekening_df[soorten.isna()]
+    if not onbekend.empty:
+        sjabloon = (onbekend["Omschrijving"].fillna("(leeg)").astype(str).str.strip()
+                    .str.replace(r"\d+(?:[.,]\d+)*", "#", regex=True))
+        per_soort = sorted(
+            ((len(groep), tekst, groep["Datum"].min(), groep["Datum"].max())
+             for tekst, groep in onbekend.groupby(sjabloon)),
+            key=lambda x: (-x[0], x[1]))
+        genoemd = ", ".join(f"'{tekst}' ({aantal}x)" for aantal, tekst, _, _ in per_soort[:MAX_BEVINDINGEN_PER_CHECK])
+        rest = len(per_soort) - MAX_BEVINDINGEN_PER_CHECK
+        bevinding = _bevinding(
+            INFO,
+            f"Rekeningoverzicht: {aantal_tekst(len(per_soort), 'regelsoort', 'regelsoorten')} die de app niet herkent: "
+            f"{genoemd}"
+            + (f" en {rest} meer" if rest > 0 else "") + ".",
+            "rekening:onbekende_soorten",
+        )
+        bevinding["tabel"] = {"kolommen": ["Omschrijving", "Aantal", "Eerste", "Laatste"],
+                              "rijen": [[t, a, formatteer_datum_nl(b), formatteer_datum_nl(e)]
+                                        for a, t, b, e in per_soort]}
+        bevindingen.append(bevinding)
+    return bevindingen
 
 
 def dis_acc_strijdigheden(echte_namen, yahoo_namen):

@@ -103,6 +103,7 @@
                 <div id="{{ prefix }}DividendSectie" class="margeBoven20" hidden>
                     <h3>Verwacht dividend</h3>
                     <div id="{{ prefix }}DividendTabel"></div>
+                    <p class="kleineMelding">Netto per jaar = aantal × dividend per aandeel per jaar × (1 − bronbelasting), omgerekend naar euro.</p>
                     <p id="{{ prefix }}DividendTotaal" class="dividendTotaalRegel"></p>
                     <p id="{{ prefix }}DividendTotaalNoot" class="kleineMelding" hidden></p>
                     <p id="{{ prefix }}DividendNietMeegeteld" class="waarschuwingTekst prognoseMelding" hidden></p>
@@ -240,6 +241,10 @@
             <div id="tab-verdeling" data-views="verdeling" style="display: none;">
                 <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
                 <div data-grafiek-plek></div>
+                <div id="verdelingUitleg" class="verdelingUitleg" data-verberg-buiten="verdeling" style="display: none;">
+                    <span><span class="verdelingSwatch verdelingSwatchEtf"></span>ETF</span>
+                    <span><span class="verdelingSwatch"></span>Aandeel</span>
+                </div>
             </div>
 
             <div id="tab-land" data-views="land" style="display: none;">

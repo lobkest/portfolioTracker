@@ -44,14 +44,18 @@ class Test_Upload_verwerking(unittest.TestCase):
     def test_kolom_of_naamloze_buurkolom_pakt_gevulde_naamloze_buur_rechts(self):
         df = pd.DataFrame({"Product": ["A", "B"], "Order ID": [None, None], "Unnamed: 2": ["id-1", "id-2"]})
 
-        self.assertEqual(_kolom_of_naamloze_buurkolom(df, "Order ID").tolist(), ["id-1", "id-2"])
+        kolom, bron = _kolom_of_naamloze_buurkolom(df, "Order ID")
+        self.assertEqual((kolom.tolist(), bron), (["id-1", "id-2"], "rechts"))
 
     def test_kolom_of_naamloze_buurkolom_houdt_gevulde_kolom_en_negeert_benoemde_buur(self):
         gevuld = pd.DataFrame({"Order ID": ["id-1", "id-2"], "Unnamed: 1": ["x", "y"]})
         benoemde_buur = pd.DataFrame({"Order ID": [None, None], "Product": ["A", "B"]})
 
-        self.assertEqual(_kolom_of_naamloze_buurkolom(gevuld, "Order ID").tolist(), ["id-1", "id-2"])
-        self.assertTrue(_kolom_of_naamloze_buurkolom(benoemde_buur, "Order ID").isna().all())
+        kolom, bron = _kolom_of_naamloze_buurkolom(gevuld, "Order ID")
+        self.assertEqual((kolom.tolist(), bron), (["id-1", "id-2"], "eigen_kop"))
+        kolom, bron = _kolom_of_naamloze_buurkolom(benoemde_buur, "Order ID")
+        self.assertTrue(kolom.isna().all())
+        self.assertIsNone(bron)
 
     def test_leest_order_ids_mee_in_df(self):
         with open(BESTAND_Transactions, "rb") as f:

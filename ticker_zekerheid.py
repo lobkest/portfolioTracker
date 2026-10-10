@@ -493,10 +493,7 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, 
     """Extra Yahoo-calls, dus alleen als de ticker niet "zeker" is."""
     # __TIJDELIJK, diagnostisch__: samen met maakOpenfigiKandidatenDebugBlok (tabs/ticker_zekerheid.js) verwijderen.
     if resultaat["zekerheid"] == "zeker":
-        return {**resultaat, "openfigi_kandidaten_debug": {
-            "aangeroepen": False,
-            "reden": "ticker al 'zeker' -- alternatieven worden niet doorgerekend",
-        }}
+        return resultaat
 
     kandidaten = list(basis["alternatieven"])
     # De restlijst van de zoekopdracht kan leeg zijn (BYD); alleen dan extra zoeken.

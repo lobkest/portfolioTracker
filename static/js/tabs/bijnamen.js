@@ -158,26 +158,39 @@ async function slaBijnaamOp(ticker, naam) {
     renderBijnamen();
 }
 
-function maakNaamChips(t) {
-    const chips = document.createElement("div");
-    chips.className = "bijnaamChips";
+function maakNaamOpties(t) {
+    const opties = document.createElement("div");
+    opties.className = "bijnaamOpties";
+    opties.setAttribute("role", "radiogroup");
+    opties.setAttribute("aria-label", `Naambron voor ${t.ticker}`);
     const yahooWacht = yahooNamenStatus !== "klaar";
     const bronNamen = NAAM_BRONNEN.map(bron => (bron.vereistYahoo && yahooWacht ? null : bron.naamVan(t)));
     const actief = actieveNaamBron(bronNamen, t.naam);
 
     NAAM_BRONNEN.forEach((bron, i) => {
         const naam = bronNamen[i];
-        const uitleg = naam ? `${bron.titel}: ${naam}` : (bron.vereistYahoo && yahooWacht ? `${bron.titel}: nog niet opgehaald` : `Geen ${bron.titel.toLowerCase()}`);
-        const chip = maakBronKnop(bron.label, uitleg);
-        chip.disabled = !naam;
-        if (i === actief) chip.classList.add("actief");
-        chip.setAttribute("aria-pressed", i === actief ? "true" : "false");
-        chip.onclick = () => {
+        const optie = document.createElement("button");
+        optie.type = "button";
+        optie.className = "bijnaamOptie";
+        optie.setAttribute("role", "radio");
+        optie.setAttribute("aria-checked", i === actief ? "true" : "false");
+        optie.disabled = !naam;
+        if (i === actief) optie.classList.add("actief");
+
+        const label = document.createElement("span");
+        label.className = "bijnaamOptieLabel";
+        label.textContent = bron.label;
+        const tekst = document.createElement("span");
+        tekst.className = "bijnaamOptieNaam";
+        tekst.textContent = naamOptieTekst(naam, bron.titel, bron.vereistYahoo && yahooWacht);
+        optie.append(label, tekst);
+
+        optie.onclick = () => {
             if (naam !== t.naam) slaBijnaamOp(t.ticker, naam);
         };
-        chips.appendChild(chip);
+        opties.appendChild(optie);
     });
-    return chips;
+    return opties;
 }
 
 function maakBijnaamInvoer(t) {
@@ -235,7 +248,7 @@ function renderBijnamen() {
         ticker.textContent = t.ticker;
         kop.append(naam, ticker);
 
-        rij.append(kop, maakNaamChips(t), maakBijnaamInvoer(t));
+        rij.append(kop, maakNaamOpties(t), maakBijnaamInvoer(t));
         lijst.appendChild(rij);
     });
     sectie.appendChild(lijst);

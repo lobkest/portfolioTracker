@@ -140,6 +140,7 @@ class TestUploadOpslaan(unittest.TestCase):
         self._start(patch.object(db, "db_connect", return_value=self.conn))
         self._start(patch.object(app_module, "meld_valuta_consistentie"))
         self._start(patch.object(app_module, "ticker_per_isin_beurs_uit_basis", return_value={}))
+        self._start(patch.object(app_module, "meld_order_ids_rekening"))
         self.mock_vind = self._start(patch.object(app_module, "vind_of_maak_portfolio"))
         self.mock_voeg_toe = self._start(patch.object(app_module, "voeg_nieuwe_transacties_toe"))
         self._start(patch.object(app_module, "vul_bronkolommen_aan"))

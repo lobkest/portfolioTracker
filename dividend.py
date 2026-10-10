@@ -1,5 +1,6 @@
 """DeGiro-rekeningoverzicht verwerken en de dividend-samenvatting. Zie CLAUDE.md: DeGiro-bestanden."""
 import hashlib
+import re
 
 import pandas as pd
 
@@ -263,6 +264,47 @@ def bouw_rekening_regels(df):
 
 
 STORTING_TREFWOORDEN = ("ideal", "storting", "deposit", "withdrawal", "opname")
+
+REGELSOORT_KOOP_VERKOOP = "koop_verkoop"
+REGELSOORT_KOSTEN = "kosten"
+REGELSOORT_DIVIDEND = "dividend"
+REGELSOORT_VALUTA = "valuta"
+REGELSOORT_STORTING_OPNAME = "storting_opname"
+REGELSOORT_SWEEP = "sweep"
+REGELSOORT_RENTE = "rente"
+REGELSOORT_CORPORATE_ACTION = "corporate_action"
+REGELSOORT_VERREKENING_AANDELEN = "verrekening_aandelen"
+OMSCHRIJVING_VERREKENING_AANDELEN = "Verrekening van Aandelen"
+_KOOP_VERKOOP = re.compile(r"^(Koop|Verkoop) [\d.,]+ @ ")
+# "CLAIMEMISSIE: Koop ..." en "PRODUCTWIJZIGING : Verkoop ...".
+_CORPORATE_ACTION = re.compile(r"^[A-Z][A-Z ]*[A-Z] ?: ?(Koop|Verkoop) [\d.,]+ @ ")
+
+
+def regelsoort(omschrijving):
+    """Soort van een rekeningoverzicht-regel (REGELSOORT_*), of None als onbekend. Alleen teksten die in echte exports of
+    de bestaande parsers voorkomen; Engels alleen Deposit/Withdrawal, Cash Sweep en Flatex Interest Income."""
+    tekst = str(omschrijving).strip() if pd.notna(omschrijving) else ""
+    kleine_letters = tekst.lower()
+    if tekst in ("Dividend", "Dividendbelasting", "Dividend Herinvestering"):
+        return REGELSOORT_DIVIDEND
+    if tekst in ("Valuta Debitering", "Valuta Creditering"):
+        return REGELSOORT_VALUTA
+    if tekst == OMSCHRIJVING_VERREKENING_AANDELEN:
+        return REGELSOORT_VERREKENING_AANDELEN
+    if _CORPORATE_ACTION.match(tekst):
+        return REGELSOORT_CORPORATE_ACTION
+    if _KOOP_VERKOOP.match(tekst):
+        return REGELSOORT_KOOP_VERKOOP
+    if tekst == "Flatex Interest Income":
+        return REGELSOORT_RENTE
+    if tekst.startswith("DEGIRO") and "kosten" in kleine_letters:
+        return REGELSOORT_KOSTEN
+    # zie CLAUDE.md: DeGiro-bestanden (flatex-sweeps)
+    if "cash sweep" in kleine_letters or ("overboeking" in kleine_letters and "flatexdegiro bank" in kleine_letters):
+        return REGELSOORT_SWEEP
+    if any(woord in kleine_letters for woord in STORTING_TREFWOORDEN):
+        return REGELSOORT_STORTING_OPNAME
+    return None
 
 
 def bereken_kassaldo(df):

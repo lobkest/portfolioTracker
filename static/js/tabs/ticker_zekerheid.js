@@ -21,6 +21,7 @@ function afstandTekst(pct) {
 }
 
 function voegInfoRegelToe(container, label, waarde) {
+    waarde = bekendeWaarde(waarde);
     const regel = document.createElement("div");
     regel.className = waarde ? "kleinLabel" : "kleinLabel gedempt";
     const labelSpan = document.createElement("span");
@@ -117,7 +118,7 @@ function maakPrijscontroleTabel(prijsChecks) {
 // isEtf bepaalt de kolommen: land/sector alleen voor aandelen.
 function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
     const isAanbevolen = alt => aanbevolenAlternatief === alt.ticker;
-    const tekstKolom = (label, veld) => ({ label, alleenTabel: true, renderTd: alt => maakCel(alt[veld] || "onbekend") });
+    const tekstKolom = (label, veld) => ({ label, alleenTabel: true, renderTd: alt => maakCel(bekendeWaarde(alt[veld]) || "onbekend") });
     const kolommen = [
         {
             label: "Ticker",

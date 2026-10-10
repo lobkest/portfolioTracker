@@ -251,9 +251,8 @@ class TestZekerGeenExtraZoekopdracht(unittest.TestCase):
         mock_search.assert_not_called()
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertEqual(resultaat["alternatieven"], [])
-        # debug-info moet expliciet tonen dat _verrijk_met_openfigi_kandidaten()
-        # hier NIET draaide (zekere match).
-        self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+        # Zekere match: geen debugblok op de kaart.
+        self.assertNotIn("openfigi_kandidaten_debug", resultaat)
 
 
 class TestVerrijkMetOpenfigiKandidaten(unittest.TestCase):

@@ -7,8 +7,9 @@ import psycopg2
 from debug_utils import meet_tijd
 from diagnostiek import (
     meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
-    GOED, INFO, LET_OP, FOUT,
+    CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT,
 )
+from diagnostiek_checks import check_rekening_regelsoorten
 from split_correctie import isin_ketens, vind_wisselparen
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, OngeldigExcelBestand
 from ticker_zekerheid import (
@@ -51,6 +52,15 @@ DIAGNOSTIEK_SLEUTEL_REKENING_REGELS = "rekening_regels"
 # Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
 
+KOLOM_EIGEN_KOP = "eigen_kop"
+KOLOM_RECHTS = "rechts"
+KOLOM_LINKS = "links"
+ORDER_ID_INDELING_TEKST = {
+    KOLOM_EIGEN_KOP: " Order ID onder de eigen kop (nieuwe indeling).",
+    KOLOM_RECHTS: " Order ID uit de naamloze kolom rechts van de kop (oude indeling).",
+    KOLOM_LINKS: " Order ID uit de naamloze kolom links van de kop.",
+}
+
 
 def _normaliseer_tijd(waarde):
     """Excel levert een tijd als string, time of datetime; Postgres wil een TIME-string."""
@@ -71,24 +81,25 @@ def lees_transacties_excel(bestand1):
             f"Upload het transactiebestand zoals DeGiro het exporteert."
         )
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
-    df["Order ID"] = _kolom_of_naamloze_buurkolom(df, "Order ID")
+    df["Order ID"], order_id_bron = _kolom_of_naamloze_buurkolom(df, "Order ID")
     df["_koers_valuta"] = naamloze_kolom_rechts(df, "Koers")
     df["_lokale_waarde_valuta"] = naamloze_kolom_rechts(df, "Lokale waarde")
     df = df.loc[:, ~df.columns.str.startswith("Unnamed")]
 
-    _meld_order_ids(df["Order ID"]) # voor diagnostiek
+    _meld_order_ids(df["Order ID"], order_id_bron) # voor diagnostiek
     return df
 
 
 def _kolom_of_naamloze_buurkolom(df, kolomnaam):
-    """Geeft de kolom zelf, of bij een lege kolom de eerste niet-lege naamloze buurkolom (rechts, dan links)."""
+    """(kolom, bron): de kolom zelf, of bij een lege kolom de eerste niet-lege naamloze buurkolom (rechts, dan links).
+    bron: KOLOM_EIGEN_KOP, KOLOM_RECHTS, KOLOM_LINKS, of None als nergens waarden staan."""
     positie = df.columns.get_loc(kolomnaam)
     if df.iloc[:, positie].notna().any(): # kolom zelf heeft waarden
-        return df.iloc[:, positie]
-    for buur in (positie + 1, positie - 1): # check rechts, dan links
+        return df.iloc[:, positie], KOLOM_EIGEN_KOP
+    for buur, bron in ((positie + 1, KOLOM_RECHTS), (positie - 1, KOLOM_LINKS)):
         if 0 <= buur < len(df.columns) and str(df.columns[buur]).startswith("Unnamed") and df.iloc[:, buur].notna().any():
-            return df.iloc[:, buur]
-    return df.iloc[:, positie]
+            return df.iloc[:, buur], bron
+    return df.iloc[:, positie], None
 
 
 def naamloze_kolom_rechts(df, kolomnaam):
@@ -284,18 +295,20 @@ def _maak_deelorder_ids_uniek(df):
     return df
 
 
-def _meld_order_ids(order_ids):
+def _meld_order_ids(order_ids, bron=None):
+    """bron: uit _kolom_of_naamloze_buurkolom(); de export-indeling komt als extra zin achter de tekst."""
     aantal_rijen = len(order_ids)
     aantal_echt = int(order_ids.notna().sum())
+    indeling = ORDER_ID_INDELING_TEKST.get(bron, "")
     if aantal_echt == aantal_rijen:
         meld(CATEGORIE_ORDER_IDS, GOED,
-             f"Alle {aantal_rijen} transacties hebben een echte Order ID.",
+             f"Alle {aantal_rijen} transacties hebben een echte Order ID.{indeling}",
              sleutel=DIAGNOSTIEK_SLEUTEL_ORDER_IDS)
     else:
         meld(CATEGORIE_ORDER_IDS, INFO,
              f"{aantal_rijen - aantal_echt} van {aantal_rijen} transacties zonder Order ID; die krijgen "
              f"een synthetische ID en worden bij een volgende upload herkend aan datum, tijd, ISIN, "
-             f"aantal en bedrag.",
+             f"aantal en bedrag.{indeling}",
              sleutel=DIAGNOSTIEK_SLEUTEL_ORDER_IDS)
 
 
@@ -516,7 +529,18 @@ def sla_rekening_regels_op(cur, code, rekening_df):
     meld(CATEGORIE_OPSLAAN, INFO,
          f"Rekeningoverzicht: {nieuw} regels opgeslagen, {len(regels) - nieuw} stonden al in de database.",
          sleutel=DIAGNOSTIEK_SLEUTEL_REKENING_REGELS)
+    _meld_rekening_regelsoorten(rekening_df)
     return nieuw
+
+
+def _meld_rekening_regelsoorten(rekening_df):
+    """Diagnostiek mag de upload nooit breken."""
+    try:
+        for b in check_rekening_regelsoorten(rekening_df):
+            meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"))
+    except Exception as e:
+        meld(CATEGORIE_REKENINGOVERZICHT, LET_OP, f"Regelsoorten niet gecontroleerd door een fout ({type(e).__name__}).",
+             sleutel="check_mislukt:regelsoorten")
 
 
 def sla_kassaldo_op(cur, code, rekening_df):
@@ -529,6 +553,7 @@ def verwerk_dividend_zonder_opslaan(rekening_df):
     with meet_tijd("dividend_bestand_verwerken"):
         dividend_records = verwerk_rekeningoverzicht_df(rekening_df)
     _meld_dividend_records(dividend_records)
+    _meld_rekening_regelsoorten(rekening_df)
     return dividend_records
 
 

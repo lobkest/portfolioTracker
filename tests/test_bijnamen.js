@@ -4,7 +4,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { actieveNaamBron, bijnaamGewijzigd } = require("../static/js/bijnamen.js");
+const { actieveNaamBron, bijnaamGewijzigd, naamOptieTekst } = require("../static/js/bijnamen.js");
 
 test("de bron met dezelfde naam als de bijnaam is actief", () => {
     assert.equal(actieveNaamBron(["ASML HOLDING", "ASML Holding N.V.", "ASML"], "ASML"), 2);
@@ -36,4 +36,11 @@ test("lege invoer slaat niets op", () => {
     assert.equal(bijnaamGewijzigd("", "ASML"), false);
     assert.equal(bijnaamGewijzigd("   ", "ASML"), false);
     assert.equal(bijnaamGewijzigd(undefined, "ASML"), false);
+});
+
+test("naamOptieTekst: de naam zelf, anders waarom die ontbreekt", () => {
+    assert.equal(naamOptieTekst("ASML Holding N.V.", "Yahoo-naam", false), "ASML Holding N.V.");
+    assert.equal(naamOptieTekst(null, "Yahoo-naam", true), "nog niet opgehaald");
+    assert.equal(naamOptieTekst(undefined, "Korte naam", false), "Geen korte naam");
+    assert.equal(naamOptieTekst("", "Excel-naam", false), "Geen excel-naam");
 });

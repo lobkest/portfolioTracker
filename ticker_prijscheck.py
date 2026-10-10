@@ -19,6 +19,10 @@ DAGRANGE_TOLERANTIE = 0.02
 # Bij goedkope aandelen is 2% maar een paar cent: dan valt afronding/intraday-ruis er al buiten.
 DAGRANGE_TOLERANTIE_EUR = 0.50
 
+PRIJSCHECK_REDEN_GEEN_YAHOO_KOERS = "geen_yahoo_koers"
+PRIJSCHECK_REDEN_GEEN_EIGEN_KOERS = "geen_eigen_koers"
+PRIJSCHECK_REDEN_GEEN_FX = "geen_fx"
+
 
 def dagrange_grenzen(low_eur, high_eur):
     """(ondergrens, bovengrens): per grens de ruimste van DAGRANGE_TOLERANTIE en DAGRANGE_TOLERANTIE_EUR."""
@@ -155,11 +159,13 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
 
 
 def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor):
+    """reden: waarom er niet vergeleken is (PRIJSCHECK_REDEN_*), None als dat wel gelukt is."""
     if yahoo_koers is None or not bekende_koers:
         return {
             "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
             "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
             "high": high, "low": low, "binnen_dagrange": None, "afstand_dagrange_pct": None,
+            "reden": PRIJSCHECK_REDEN_GEEN_YAHOO_KOERS if yahoo_koers is None else PRIJSCHECK_REDEN_GEEN_EIGEN_KOERS,
         }
 
     valuta_conversie_toegepast = False
@@ -180,6 +186,7 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
                 "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
                 "bekende_koers": bekende_koers, "afwijking_pct": None, "niveau": None, "match": None,
                 "high": high, "low": low, "binnen_dagrange": None, "afstand_dagrange_pct": None,
+                "reden": PRIJSCHECK_REDEN_GEEN_FX,
             }
         divisor = 100 if valuta == "GBp" else 1
         yahoo_koers_eur = yahoo_koers / divisor * fx_koers
@@ -222,6 +229,7 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
         "low": low_eur if toon_gecorrigeerd else low,
         "binnen_dagrange": binnen_dagrange,
         "afstand_dagrange_pct": afstand_dagrange_pct,
+        "reden": None,
     }
 
 

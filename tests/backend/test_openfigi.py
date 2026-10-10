@@ -445,14 +445,14 @@ class TestOpenfigiVoorAlternatievenVolledigeCheck(unittest.TestCase):
         resultaat = self._verifieer({"resultaten": [], "fout": None})
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertIsNone(resultaat["openfigi_root_bekend"])
-        self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+        self.assertNotIn("openfigi_kandidaten_debug", resultaat)
         self.assertEqual(resultaat["alternatieven"], [])
 
     def test_root_gevonden_ongewijzigd(self):
         resultaat = self._verifieer(_openfigi("VWCE"))
         self.assertEqual(resultaat["zekerheid"], "zeker")
         self.assertIs(resultaat["openfigi_root_bekend"], True)
-        self.assertFalse(resultaat["openfigi_kandidaten_debug"]["aangeroepen"])
+        self.assertNotIn("openfigi_kandidaten_debug", resultaat)
         self.assertEqual(resultaat["alternatieven"], [])
 
 

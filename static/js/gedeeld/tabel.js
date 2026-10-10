@@ -55,25 +55,8 @@ function celAlsSpan(kol, rij, klasse) {
     return span;
 }
 
+// Een rij zonder detailinhoud klapt niet uit: een div i.p.v. een knop.
 function maakMobieleRij(indeling, rij, klasse) {
-    const knop = document.createElement("button");
-    knop.type = "button";
-    knop.className = indeling.waarde.length ? "mobielRij" : "mobielRij mobielRijZonderWaarde";
-    knop.setAttribute("aria-expanded", "false");
-
-    const titel = document.createElement("span");
-    titel.className = "mobielTitel";
-    indeling.titel.forEach((kol, i) => {
-        if (i) titel.append(" ");
-        titel.append(kol.mobielTekst ? kol.mobielTekst(rij) : celAlsSpan(kol, rij, ""));
-    });
-    const subregel = document.createElement("span");
-    subregel.className = "mobielSubregel";
-    subregel.textContent = voegSubregelSamen(indeling.subregel.map(kol => mobielTekst(kol, rij)));
-    knop.append(titel, subregel);
-    indeling.waarde.forEach(kol => knop.appendChild(celAlsSpan(kol, rij, "mobielWaarde")));
-    indeling.subwaarde.forEach(kol => knop.appendChild(celAlsSpan(kol, rij, "mobielSubwaarde")));
-
     const details = document.createElement("div");
     details.className = "mobielDetails";
     details.hidden = true;
@@ -85,16 +68,42 @@ function maakMobieleRij(indeling, rij, klasse) {
         label.textContent = kol.label;
         details.append(label, waarde);
     });
+    const uitklapbaar = details.childNodes.length > 0;
 
-    knop.addEventListener("click", () => {
-        const open = knop.getAttribute("aria-expanded") !== "true";
-        knop.setAttribute("aria-expanded", String(open));
-        details.hidden = !open;
+    const rijEl = document.createElement(uitklapbaar ? "button" : "div");
+    rijEl.className = indeling.waarde.length ? "mobielRij" : "mobielRij mobielRijZonderWaarde";
+    if (uitklapbaar) {
+        rijEl.type = "button";
+        rijEl.setAttribute("aria-expanded", "false");
+    } else {
+        rijEl.classList.add("mobielRijVast");
+    }
+
+    const titel = document.createElement("span");
+    titel.className = "mobielTitel";
+    indeling.titel.forEach((kol, i) => {
+        if (i) titel.append(" ");
+        titel.append(kol.mobielTekst ? kol.mobielTekst(rij) : celAlsSpan(kol, rij, ""));
     });
+    const subregel = document.createElement("span");
+    subregel.className = "mobielSubregel";
+    subregel.textContent = voegSubregelSamen(indeling.subregel.map(kol => mobielTekst(kol, rij)));
+    rijEl.append(titel, subregel);
+    indeling.waarde.forEach(kol => rijEl.appendChild(celAlsSpan(kol, rij, "mobielWaarde")));
+    indeling.subwaarde.forEach(kol => rijEl.appendChild(celAlsSpan(kol, rij, "mobielSubwaarde")));
 
     const li = document.createElement("li");
     if (klasse) li.className = klasse;
-    li.append(knop, details);
+    if (!uitklapbaar) {
+        li.append(rijEl);
+        return li;
+    }
+    rijEl.addEventListener("click", () => {
+        const open = rijEl.getAttribute("aria-expanded") !== "true";
+        rijEl.setAttribute("aria-expanded", String(open));
+        details.hidden = !open;
+    });
+    li.append(rijEl, details);
     return li;
 }
 

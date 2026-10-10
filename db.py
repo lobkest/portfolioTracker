@@ -987,6 +987,25 @@ def db_get_order_id_rijen(code):
     return rijen
 
 
+def db_get_order_id_periodes(code):
+    """[(bron 'transacties'/'rekening', order_id, eerste datum, laatste datum, product)] per Order ID, in één query;
+    order_id NULL = de rijen zonder Order ID (alleen voor de periode van het bestand)."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 'transacties', order_id, MIN(datum), MAX(datum), MIN(product) FROM transacties "
+        "WHERE code = %s GROUP BY order_id "
+        "UNION ALL "
+        "SELECT 'rekening', order_id, MIN(datum), MAX(datum), MIN(product) FROM rekening_regels "
+        "WHERE code = %s GROUP BY order_id",
+        (code, code),
+    )
+    rijen = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rijen
+
+
 def db_portfolio_bestaat_met_cursor(cur, code):
     cur.execute("SELECT 1 FROM portfolios WHERE code = %s", (code,))
     return cur.fetchone() is not None

@@ -1,12 +1,4 @@
-// Tabblad Verdeling: taart van de posities, ETF's met een streeppatroon.
-
-function legendaMetEtfUitleg(chart) {
-    const items = Chart.overrides.pie.plugins.legend.labels.generateLabels(chart);
-    const uitleg = (tekst, vlak) => ({
-        text: tekst, fillStyle: vlak, strokeStyle: "#fcfcfb", lineWidth: 1, hidden: false, uitleg: true
-    });
-    return [...items, uitleg("ETF", maakStrepenPatroon(ONBEKEND_GRIJS)), uitleg("Aandeel", ONBEKEND_GRIJS)];
-}
+// Tabblad Verdeling: taart van de posities, ETF's met een streeppatroon; de uitleg ETF/Aandeel staat in HTML onder de grafiek.
 
 function toonVerdeling() {
     if (chart) chart.destroy();
@@ -17,6 +9,7 @@ function toonVerdeling() {
     if (!items || items.length === 0) {
         document.getElementById("geenData").style.display = "block";
         document.getElementById("verdelingTekst").style.display = "none";
+        document.getElementById("verdelingUitleg").style.display = "none";
         return;
     }
     document.getElementById("geenData").style.display = "none";
@@ -27,7 +20,9 @@ function toonVerdeling() {
 
     const tekst = document.getElementById("verdelingTekst");
     tekst.style.display = "block";
-    tekst.textContent = `ETF's (streeppatroon): ${formatPct(samenvatting.etf_pct, 1)} — Aandelen: ${formatPct(samenvatting.aandeel_pct, 1)}`;
+    tekst.textContent = `ETF's: ${formatPct(samenvatting.etf_pct, 1)} — Aandelen: ${formatPct(samenvatting.aandeel_pct, 1)}`;
+    document.getElementById("verdelingUitleg").style.display = "flex";
+    const labelMinPct = taartLabelMinPct();
 
     const kleuren = items.map((_, i) => kleurVoorIndex(i));
     const vlakken = items.map((item, i) => item.is_etf ? maakStrepenPatroon(kleuren[i]) : kleuren[i]);
@@ -47,15 +42,7 @@ function toonVerdeling() {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: {
-                    position: legendaPositie(),
-                    labels: { generateLabels: legendaMetEtfUitleg },
-                    // De uitleg-items horen bij geen taartpunt, dus klikken doet daar niets.
-                    onClick: (e, item, legend) => {
-                        if (item.uitleg) return;
-                        Chart.overrides.pie.plugins.legend.onClick(e, item, legend);
-                    }
-                },
+                legend: { position: legendaPositie() },
                 tooltip: {
                     callbacks: {
                         label: (ctx) => {
@@ -69,7 +56,7 @@ function toonVerdeling() {
                     font: { weight: "bold", size: 11 },
                     formatter: (value, ctx) => {
                         const pct = totaal ? (value / totaal * 100) : 0;
-                        if (pct < TAART_LABEL_MIN_PCT) return null;
+                        if (pct < labelMinPct) return null;
                         return [kortNaam(items[ctx.dataIndex].naam), formatPct(pct, 1)];
                     }
                 }

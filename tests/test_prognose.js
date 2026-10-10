@@ -26,6 +26,7 @@ const {
     historieMobielWaarde,
     historieMobielSubwaarde,
     dividendMobielSubregel,
+    eigenDividendTekst,
     dividendMobielWaarde,
     dividendMobielSubwaarde,
     dividendTotaalTekst
@@ -369,7 +370,7 @@ test("historie mobiel: zonder koershistorie, gewicht of jaren", () => {
 
 test("dividend mobiel: meegetelde positie", () => {
     const p = { aantal: 12.5, per_aandeel_jaar: 0.85, valuta: "USD", meegeteld: true, netto_eur_jaar: 8.4, belasting_fractie: 0.15 };
-    assert.equal(dividendMobielSubregel(p), "12,5 st · 0,85 USD");
+    assert.equal(dividendMobielSubregel(p), "12,5 st × 0,85 USD/jaar");
     assert.equal(dividendMobielWaarde(p), "€8,40");
     assert.equal(dividendMobielSubwaarde(p), "bronbelasting 15%");
 });
@@ -379,6 +380,20 @@ test("dividend mobiel: niet meegeteld en zonder dividend per aandeel", () => {
     assert.equal(dividendMobielSubregel(p), "3 st");
     assert.equal(dividendMobielWaarde(p), "niet meegeteld");
     assert.equal(dividendMobielSubwaarde(p), "bronbelasting 0%");
+});
+
+test("dividend mobiel: 60 st × dividend per aandeel per jaar", () => {
+    assert.equal(dividendMobielSubregel({ aantal: 60, per_aandeel_jaar: 1.4852, valuta: "EUR" }), "60 st × 1,4852 EUR/jaar");
+    assert.equal(dividendMobielSubregel({ aantal: 60, per_aandeel_jaar: 1.4852, valuta: null }), "60 st × 1,4852/jaar");
+});
+
+test("eigenDividendTekst: bruto, aantal uitkeringen en afwijking per aandeel t.o.v. Yahoo", () => {
+    const p = { eigen_bruto_eur_jaar: 18.05, eigen_aantal_uitkeringen: 2, afwijking_fractie: 0 };
+    assert.equal(eigenDividendTekst(p), "€18,05 bruto (2 uitk.), per aandeel 0% afwijking t.o.v. Yahoo");
+    assert.equal(eigenDividendTekst({ ...p, afwijking_fractie: 0.052 }), "€18,05 bruto (2 uitk.), per aandeel +5,2% afwijking t.o.v. Yahoo");
+    assert.equal(eigenDividendTekst({ ...p, afwijking_fractie: -0.1 }), "€18,05 bruto (2 uitk.), per aandeel -10% afwijking t.o.v. Yahoo");
+    assert.equal(eigenDividendTekst({ ...p, afwijking_fractie: null }), "€18,05 bruto (2 uitk.)");
+    assert.equal(eigenDividendTekst({ eigen_bruto_eur_jaar: null }), "—");
 });
 
 test("dividendTotaalTekst: totaal, yield en noot zonder rekeningoverzicht", () => {

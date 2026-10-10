@@ -4,7 +4,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { landProxyBijschrift, landDekkingRegels, zichtbareVerdeling } = require("../static/js/land_sector.js");
+const { landProxyBijschrift, landDekkingRegels, zichtbareVerdeling, bekendeWaarde } = require("../static/js/land_sector.js");
 
 const MET_PROXY = {
     land_bron: "proxy",
@@ -52,4 +52,14 @@ test("zichtbareVerdeling met fracties (noemer 1): Unknown blijft als hij > 0,0% 
 test("zichtbareVerdeling zonder data of noemer geeft een lege lijst", () => {
     assert.deepEqual(zichtbareVerdeling(undefined, 1), []);
     assert.deepEqual(zichtbareVerdeling({ A: 1 }, 0), []);
+});
+
+test("bekendeWaarde: 'Unknown' en leeg worden null (weergave 'onbekend'), andere waarden blijven", () => {
+    assert.equal(bekendeWaarde("Unknown"), null);
+    assert.equal(bekendeWaarde(" unknown "), null);
+    assert.equal(bekendeWaarde(""), null);
+    assert.equal(bekendeWaarde(null), null);
+    assert.equal(bekendeWaarde(undefined), null);
+    assert.equal(bekendeWaarde("Netherlands"), "Netherlands");
+    assert.equal(bekendeWaarde("Technology"), "Technology");
 });

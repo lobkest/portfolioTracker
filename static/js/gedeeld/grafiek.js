@@ -131,6 +131,8 @@ function updateStaafChart(labels, datasets, waardeFormatter = formatteerEuro) {
 
 // Kleinere taartpunten krijgen geen label (de legenda blijft volledig).
 const TAART_LABEL_MIN_PCT = 5;
+// Op een smal scherm overlappen de labels van kleine punten eerder.
+const TAART_LABEL_MIN_PCT_MOBIEL = 8;
 
 // Alleen voor een leesbare legenda; de data verandert niet.
 const BRON_OVERIG_DREMPEL = 0.005;
@@ -277,4 +279,8 @@ function isSmalScherm() {
 // Op een smal scherm onder de grafiek, anders ernaast.
 function legendaPositie() {
     return isSmalScherm() ? "bottom" : "right";
+}
+
+function taartLabelMinPct() {
+    return isSmalScherm() ? TAART_LABEL_MIN_PCT_MOBIEL : TAART_LABEL_MIN_PCT;
 }

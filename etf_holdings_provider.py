@@ -249,6 +249,14 @@ _PROVIDER_PARSERS = {
     "vaneck": _parse_vaneck_holdings,
 }
 
+AANBIEDER_NAMEN = {"ishares": "iShares", "vaneck": "VanEck"}
+
+
+def aanbieder_naam(etf_ticker):
+    """Een provider-CSV van een ETF buiten ETF_HOLDINGS_BRON komt uit de iShares-screener (op ISIN)."""
+    provider = ETF_HOLDINGS_BRON.get(etf_ticker, {}).get("provider", "ishares")
+    return AANBIEDER_NAMEN.get(provider, provider)
+
 
 def _dedupliceer_holdings(holdings):
     """Telt gewichten van gelijke namen op; anders UniqueViolation op de PK van etf_holdings."""

@@ -212,7 +212,7 @@ class TestDividendZonderPositie(unittest.TestCase):
                       self._dividend("GB00B10RZP78", "2023-12-01")]
         [b] = check_dividend_zonder_positie(_df(_rij("2023-01-01", 10)), dividenden)
         self.assertEqual((b["niveau"], b["sleutel"]), (LET_OP, "dividend:zonder_positie:GB00B10RZP78"))
-        self.assertEqual(b["tekst"], "Dividend van UNILEVER (GB00B10RZP78, 3 uitkering(en), 01-06-2023 t/m 01-12-2023) "
+        self.assertEqual(b["tekst"], "Dividend van UNILEVER (GB00B10RZP78, 3 uitkeringen, 01-06-2023 t/m 01-12-2023) "
                                      "hoort bij geen enkele transactie: begint het transactiebestand later dan het "
                                      "rekeningoverzicht?")
 
