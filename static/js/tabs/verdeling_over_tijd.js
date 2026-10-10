@@ -1,7 +1,6 @@
-// "Over tijd" op Verdeling, Land, Sector, Valuta en Beurs (in ontwikkeling, alleen met code): gestapelde vlakgrafiek in % of €.
+// "Over tijd" op Verdeling, Land, Sector, Valuta en Beurs (alleen met code): gestapelde vlakgrafiek in € of %.
 // De keuzes Nu/Over tijd en %/€ zijn gedeeld tussen de tabbladen, zoals de taart/staaf-keuze.
 
-const VERDELING_OVER_TIJD_ID = "verdeling-over-tijd";
 const OVER_TIJD_UITLEG = {
     positie: "Aandeel van elke positie in de totale waarde, per week. Verschuivingen komen door aan- en verkopen én door koersverschillen tussen posities.",
     valuta: "Aandeel per noteringsvaluta, per week. Een ETF telt als één valuta (die van de notering, niet van de onderliggende aandelen).",
@@ -12,19 +11,19 @@ const OVER_TIJD_UITLEG = {
 // Land en sector halen ook voor gesloten ETF's holdings op; pas na de verrijking (dan zijn de huidige al gecachet).
 const OVER_TIJD_NA_VERRIJKING = ["land", "sector"];
 let overTijdModus = "nu";
-let overTijdWeergave = "pct";
+let overTijdWeergave = "euro";
 // Per "dimensie|samenvoegen" het antwoord van /verdeling-over-tijd.
 let overTijdDataPerSleutel = {};
 
 function resetVerdelingOverTijd() {
     overTijdModus = "nu";
-    overTijdWeergave = "pct";
+    overTijdWeergave = "euro";
     overTijdDataPerSleutel = {};
 }
 
 // Zet de knoppen en de uitleg voor dit tabblad; true als "Over tijd" gekozen is (de aanroeper tekent dan niets zelf).
 function toonOverTijdIndienGekozen(dimensie, samenvoegen = false) {
-    const mogelijk = Boolean(huidigeData.code) && ontwikkelAan(VERDELING_OVER_TIJD_ID, leesOntwikkelAan());
+    const mogelijk = Boolean(huidigeData.code);
     if (!mogelijk) overTijdModus = "nu";
     const overTijd = overTijdModus === "tijd";
     document.getElementById("overTijdKeuze").style.display = mogelijk ? "flex" : "none";

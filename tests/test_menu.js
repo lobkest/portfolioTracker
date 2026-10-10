@@ -150,6 +150,13 @@ test("ontwikkelAan: alleen aan als het id in de lijst staat", () => {
     assert.equal(ontwikkelAan("rendement-pct", ["rendement-pct"]), true);
 });
 
+test("een onbekend id in de opslag (oud onderdeel) wordt genegeerd", () => {
+    const aan = leesAanGezet(JSON.stringify(["verdeling-over-tijd", "rendement-pct"]));
+    assert.ok(!ontwikkelItems().some(i => i.id === "verdeling-over-tijd"));
+    assert.deepEqual(uitgeschakeldeViews(aan), uitgeschakeldeViews(["rendement-pct"]));
+    assert.equal(ontwikkelAan("rendement-pct", aan), true);
+});
+
 test("menuViews: een aangezet onderdeel verandert de chips niet", () => {
     const rendement = MENU_GROEPEN.find(g => g.id === "rendement");
     const toegestaan = ["rendement", "prognose", "prognose-huidig"];

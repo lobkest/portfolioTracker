@@ -502,9 +502,12 @@ def _land_sector_fracties_over_tijd(transacties_df, tickers):
     gesloten = [t for t in tickers if abs(float(huidige.get(t, 0.0))) <= 1e-6]
     dprint(f"[over-tijd] {len(gesloten)} gesloten positie(s) van {len(tickers)} ticker(s) mee opgewarmd")
     with meet_tijd(f"over_tijd_land_sector_opwarmen ({len(tickers)} ticker(s))"):
-        is_etf_map = classify_tickers(tickers)
-        _verwarm_land_sector_cache_parallel(tickers, is_etf_map, _isin_per_ticker(transacties_df))
-        land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map)
+        with meet_tijd("over_tijd_classify_tickers"):
+            is_etf_map = classify_tickers(tickers)
+        with meet_tijd("over_tijd_verwarm_land_sector_cache"):
+            _verwarm_land_sector_cache_parallel(tickers, is_etf_map, _isin_per_ticker(transacties_df))
+        with meet_tijd("over_tijd_land_proxies"):
+            land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map)
     with meet_tijd("over_tijd_land_sector_fracties"):
         fracties = {t: land_sector_fracties(t, is_etf_map.get(t, False), land_proxies.get(t)) for t in tickers}
     return is_etf_map, fracties
@@ -695,10 +698,14 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
     with meet_tijd("verrijking_totaal"):
         with meet_tijd("verrijking_classificatie_en_cache_warm"):
-            is_etf_map = classify_tickers(list(huidige_holdings.index))
+            with meet_tijd("verrijking_classify_tickers"):
+                is_etf_map = classify_tickers(list(huidige_holdings.index))
             # Na classify_tickers(): db_save_long_names() werkt alleen bestaande rijen bij.
-            vul_ontbrekende_long_names(list(huidige_holdings.index))
-            _verwarm_land_sector_cache_parallel(list(huidige_holdings.index), is_etf_map, _isin_per_ticker(transacties_df))
+            with meet_tijd("verrijking_long_names_aanvullen"):
+                vul_ontbrekende_long_names(list(huidige_holdings.index))
+            with meet_tijd("verrijking_verwarm_land_sector_cache"):
+                _verwarm_land_sector_cache_parallel(
+                    list(huidige_holdings.index), is_etf_map, _isin_per_ticker(transacties_df))
 
         with meet_tijd("verrijking_land_proxy"):
             land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map) if gebruik_proxy else {}

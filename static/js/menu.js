@@ -76,7 +76,6 @@
     // Onderdelen binnen een tabblad (geen view); het id mag geen view-naam zijn.
     const ONTWIKKEL_ONDERDELEN = [
         { id: "rendement-pct", label: "Rendement in %" },
-        { id: "verdeling-over-tijd", label: "Verdeling over tijd" },
     ];
 
     // Per browser (localStorage): JSON-lijst van de aangezette views en onderdeel-id's in ontwikkeling.
