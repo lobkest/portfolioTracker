@@ -102,6 +102,42 @@ function updateChart(labels, datasets, waardeFormatter = formatteerEuro) {
     });
 }
 
+// Gestapelde vlakken over datums; elke dataset draagt eigen pct/waarde-arrays voor de tooltip. procent: y-as 0-100.
+function updateGestapeldeVlakChart(labels, datasets, procent) {
+    if (chart) chart.destroy();
+    const yAs = procent
+        ? { stacked: true, min: 0, max: 100, ticks: { callback: v => `${formatGetal(v, 0)}%` } }
+        : { stacked: true, beginAtZero: true, ticks: { callback: v => formatteerEuro(v, 0) } };
+    chart = new Chart(document.getElementById("rendementChart"), {
+        type: "line",
+        data: {
+            labels: labels.map(formatDatum),
+            datasets: datasets.map(ds => ({ pointRadius: 0, pointHoverRadius: 3, borderWidth: 1, ...ds })),
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            locale: "nl-NL",
+            interaction: { mode: "index", intersect: false },
+            scales: { y: yAs },
+            plugins: {
+                legend: { position: legendaPositie() },
+                tooltip: {
+                    filter: (item) => Boolean(item.dataset.waarde[item.dataIndex]),
+                    callbacks: {
+                        label: (ctx) => {
+                            const pct = ctx.dataset.pct[ctx.dataIndex];
+                            return `${ctx.dataset.label}: ${pct === null ? "—" : formatPct(pct, 1)} (${formatteerEuro(ctx.dataset.waarde[ctx.dataIndex])})`;
+                        }
+                    }
+                },
+                zoom: zoomOpties(),
+                datalabels: { display: false }
+            }
+        }
+    });
+}
+
 // Staven naast elkaar per categorie (bv. jaren, dus geen datums); null in de data = geen staaf.
 // Een dataset mag een eigen tooltipLabel(ctx) meegeven.
 function updateStaafChart(labels, datasets, waardeFormatter = formatteerEuro) {

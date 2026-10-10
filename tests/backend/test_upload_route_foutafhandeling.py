@@ -80,7 +80,7 @@ class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
              patch.object(self.upload_verwerking, "basis_ticker_zekerheid_parallel",
                            side_effect=lambda posities, **kw: [dict(BASIS_RESULTAAT) for _ in posities]) as mock_basis, \
              patch.object(self.upload_verwerking, "haal_long_names", return_value={}), \
-             patch.object(self.app_module, "get_prices", return_value=pd.DataFrame()):
+             patch.object(self.app_module, "get_prices", return_value=pd.DataFrame()),              patch.object(self.upload_verwerking, "db_save_upload_meldingen") as mock_bewaar:
             excel = _maak_transacties_excel(n_posities=5)
             res = self.client.post(
                 "/upload",
@@ -89,6 +89,7 @@ class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
             )
 
         self.assertEqual(res.status_code, 200)
+        mock_bewaar.assert_not_called()
         mock_dure_check.assert_not_called()
         mock_basis.assert_called_once()
         self.assertEqual(len(mock_basis.call_args.args[0]), 5)
@@ -141,6 +142,8 @@ class TestUploadOpslaan(unittest.TestCase):
         self._start(patch.object(app_module, "meld_valuta_consistentie"))
         self._start(patch.object(app_module, "ticker_per_isin_beurs_uit_basis", return_value={}))
         self._start(patch.object(app_module, "meld_order_ids_rekening"))
+        import upload_verwerking
+        self.mock_bewaar = self._start(patch.object(upload_verwerking, "db_save_upload_meldingen"))
         self.mock_vind = self._start(patch.object(app_module, "vind_of_maak_portfolio"))
         self.mock_voeg_toe = self._start(patch.object(app_module, "voeg_nieuwe_transacties_toe"))
         self._start(patch.object(app_module, "vul_bronkolommen_aan"))
@@ -177,6 +180,18 @@ class TestUploadOpslaan(unittest.TestCase):
         self.conn.close.assert_called_once()
         self.mock_kern.assert_called_once_with("ABC")
 
+    def test_succes_bewaart_de_upload_meldingen(self):
+        self._post(bestaand=True)
+        self.mock_bewaar.assert_called_once()
+        code, soort, meldingen, maximum = self.mock_bewaar.call_args.args
+        self.assertEqual((code, soort, maximum), ("ABC", "upload", 5))
+        self.assertIn("Order ID's", {m["categorie"] for m in meldingen})
+
+    def test_mislukt_bewaren_breekt_de_upload_niet(self):
+        self.mock_bewaar.side_effect = RuntimeError("gesimuleerde fout")
+        res = self._post(bestaand=True)
+        self.assertEqual(res.status_code, 200)
+
     def test_fout_bij_invoegen_rollback_en_sluit(self):
         self.mock_voeg_toe.side_effect = RuntimeError("gesimuleerde fout")
         res = self._post(bestaand=True)
@@ -185,6 +200,7 @@ class TestUploadOpslaan(unittest.TestCase):
         self.conn.rollback.assert_called_once()
         self.conn.close.assert_called_once()
         self.mock_kern.assert_not_called()
+        self.mock_bewaar.assert_not_called()
 
     def test_opnieuw_bepalen_bij_bestaande_portfolio(self):
         self._post(bestaand=True, herbepaal=True)

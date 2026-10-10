@@ -27,6 +27,8 @@
     const TECHNISCHE_GROEP_YAHOO = "Koersen (Yahoo-calls)";
 
     const SAMENVATTING_MAX_TEKENS = 120;
+    // De backend bewaart er 5 (MAX_BEWAARDE_UPLOADS): de laatste plus 4 oudere.
+    const MAX_OUDERE_UPLOADS = 4;
 
     function ernstIndex(niveau) {
         const i = DIAGNOSTIEK_NIVEAUS.indexOf(niveau);
@@ -188,12 +190,53 @@
         return { kolommen, rijen };
     }
 
+    // ISO-tijdstip -> "dd-mm-jjjj hh:mm" in lokale tijd; "" als het geen geldige datum is.
+    function formatUploadMoment(iso) {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return "";
+        const tweeCijfers = n => String(n).padStart(2, "0");
+        return `${tweeCijfers(d.getDate())}-${tweeCijfers(d.getMonth() + 1)}-${d.getFullYear()} `
+            + `${tweeCijfers(d.getHours())}:${tweeCijfers(d.getMinutes())}`;
+    }
+
+    function uploadTitel(upload, voorvoegsel) {
+        const bijwerken = upload.soort === "bijwerken" ? ", bestanden bijgewerkt" : "";
+        return `${voorvoegsel} (${formatUploadMoment(upload.geupload_op)}${bijwerken})`;
+    }
+
+    // uploads nieuwste eerst, zoals /upload-meldingen. {laatste: {titel, meldingen, aantalOokLive} of null,
+    // ouder: [{titel, meldingen}]}; uit de laatste upload valt weg wat ook live bestaat (de live versie wint).
+    function uploadBlokken(uploads, live) {
+        const lijst = uploads || [];
+        if (lijst.length === 0) return { laatste: null, ouder: [] };
+        const liveSleutels = new Set((live || []).map(meldingSleutel));
+        const [laatste, ...ouder] = lijst;
+        const alle = laatste.meldingen || [];
+        const eigen = alle.filter(m => !liveSleutels.has(meldingSleutel(m)));
+        return {
+            laatste: { titel: uploadTitel(laatste, "Laatste upload"), meldingen: eigen, aantalOokLive: alle.length - eigen.length },
+            ouder: ouder.slice(0, MAX_OUDERE_UPLOADS).map(u => ({ titel: uploadTitel(u, "Eerdere upload"), meldingen: u.meldingen || [] })),
+        };
+    }
+
+    // Voor de conclusiezin en de chips: live plus de laatste upload; bij dezelfde categorie + sleutel wint live.
+    function meldingenVoorTelling(live, uploads) {
+        const laatste = (uploads && uploads[0] && uploads[0].meldingen) || [];
+        return voegMeldingenSamen(laatste, live);
+    }
+
+    function uploadOokLiveTekst(aantal) {
+        return `${meervoud(aantal, "melding", "meldingen")} van deze upload ${aantal === 1 ? "staat" : "staan"} `
+            + "hierboven, met de stand van nu.";
+    }
+
     const exportsObj = {
         DIAGNOSTIEK_NIVEAUS, DIAGNOSTIEK_NIVEAU_LABEL, DIAGNOSTIEK_NIVEAU_ICOON,
         normaalNiveau, deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie,
         categorieSamenvatting, meldingActie,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
         hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
+        formatUploadMoment, uploadBlokken, meldingenVoorTelling, uploadOokLiveTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

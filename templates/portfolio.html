@@ -239,8 +239,20 @@
             </div>
 
             <div id="tab-verdeling" data-views="verdeling" style="display: none;">
+                <div id="verdelingModusWrapper" class="verdelingModus margeOnder15" data-verberg-buiten="verdeling" style="display: none;">
+                    <div class="segmentKeuze" role="group" aria-label="Verdeling">
+                        <button type="button" class="segmentKnop actief" data-modus="nu">Nu</button>
+                        <button type="button" class="segmentKnop" data-modus="tijd">Over tijd</button>
+                    </div>
+                    <div id="verdelingTijdWeergave" class="segmentKeuze" role="group" aria-label="Weergave" style="display: none;">
+                        <button type="button" class="segmentKnop actief" data-weergave="pct">%</button>
+                        <button type="button" class="segmentKnop" data-weergave="euro">&euro;</button>
+                    </div>
+                </div>
                 <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
+                <p id="verdelingOverTijdMsg" data-verberg-buiten="verdeling" style="display: none;"></p>
                 <div data-grafiek-plek></div>
+                <p id="verdelingOverTijdUitleg" class="kleineMelding" data-verberg-buiten="verdeling" style="display: none;">Aandeel van elke positie in de totale waarde, per week. Verschuivingen komen door aan- en verkopen én door koersverschillen tussen posities.</p>
                 <div id="verdelingUitleg" class="verdelingUitleg" data-verberg-buiten="verdeling" style="display: none;">
                     <span><span class="verdelingSwatch verdelingSwatchEtf"></span>ETF</span>
                     <span><span class="verdelingSwatch"></span>Aandeel</span>
@@ -541,10 +553,11 @@
             <div id="tab-instellingen-diagnostiek" data-views="instellingen-diagnostiek" style="display: none;">
                 <div class="labelRij diagnostiekKop">
                     <p id="diagnostiekTeller" class="diagnostiekTeller"></p>
-                    <span class="infoTip" data-label="Diagnostiek">Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. Excel-meldingen verschijnen alleen direct na een upload. Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
+                    <span class="infoTip" data-label="Diagnostiek">Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. De meldingen van een upload (Excel, opslaan, rekeningoverzicht) worden bewaard en staan onder Laatste upload, met de vier uploads daarvoor. Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
                 </div>
                 <div id="diagnostiekChips" class="diagnostiekChips"></div>
                 <div id="diagnostiekLijst" class="diagnostiekKolommen"></div>
+                <div id="diagnostiekUploads" class="diagnostiekUploads"></div>
             </div>
 
             <!-- Gedeelde meldingen van de verrijking-tabbladen, daarom onder de tabblad-blokken. -->
@@ -572,6 +585,7 @@
     <script src="{{ url_for('static', filename='js/koersen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/per_aandeel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/land_sector.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/verdeling_over_tijd.js') }}"></script>
     <script src="{{ url_for('static', filename='js/box3.js') }}"></script>
     <script src="{{ url_for('static', filename='js/etf_overlap.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>

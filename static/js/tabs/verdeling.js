@@ -1,8 +1,42 @@
 // Tabblad Verdeling: taart van de posities, ETF's met een streeppatroon; de uitleg ETF/Aandeel staat in HTML onder de grafiek.
+// In ontwikkeling: "Over tijd" (alleen met code), een gestapelde vlakgrafiek in % of €.
+
+const VERDELING_OVER_TIJD_ID = "verdeling-over-tijd";
+let verdelingModus = "nu";
+let verdelingTijdWeergave = "pct";
+let verdelingOverTijdData = null;
+
+function resetVerdeling() {
+    verdelingModus = "nu";
+    verdelingTijdWeergave = "pct";
+    verdelingOverTijdData = null;
+}
 
 function toonVerdeling() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
+    const overTijdMogelijk = Boolean(huidigeData.code) && ontwikkelAan(VERDELING_OVER_TIJD_ID, leesOntwikkelAan());
+    if (!overTijdMogelijk) verdelingModus = "nu";
+    const overTijd = verdelingModus === "tijd";
+    document.getElementById("verdelingModusWrapper").style.display = overTijdMogelijk ? "flex" : "none";
+    document.getElementById("verdelingTijdWeergave").style.display = overTijd ? "" : "none";
+    document.querySelectorAll("#verdelingModusWrapper .segmentKnop[data-modus]").forEach(knop => {
+        knop.classList.toggle("actief", knop.dataset.modus === verdelingModus);
+    });
+    document.querySelectorAll("#verdelingTijdWeergave .segmentKnop").forEach(knop => {
+        knop.classList.toggle("actief", knop.dataset.weergave === verdelingTijdWeergave);
+    });
+    document.getElementById("verdelingOverTijdUitleg").style.display = overTijd ? "block" : "none";
+    document.getElementById("verdelingOverTijdMsg").style.display = "none";
+    // Alleen de vlakgrafiek is zoombaar; plaatsGrafiek() zet de knop bij Verdeling uit.
+    document.getElementById("resetZoomBtn").style.display = overTijd ? "block" : "none";
+    if (overTijd) {
+        ["verdelingTekst", "verdelingUitleg", "verrijkingLaadt", "verrijkingFout"].forEach(id => {
+            document.getElementById(id).style.display = "none";
+        });
+        toonVerdelingOverTijd();
+        return;
+    }
     if (toonVerrijkingWachtstatusIndienNodig()) return;
 
     const items = huidigeData.verdeling;
@@ -64,3 +98,56 @@ function toonVerdeling() {
         }
     });
 }
+
+function toonVerdelingOverTijdMelding(tekst, fout) {
+    const msg = document.getElementById("verdelingOverTijdMsg");
+    msg.classList.toggle("foutTekst", fout);
+    msg.textContent = tekst;
+    msg.style.display = "block";
+}
+
+// Eén keer per portfolio ophalen; een fout wordt niet bewaard, zodat opnieuw kiezen opnieuw probeert.
+async function toonVerdelingOverTijd() {
+    if (!verdelingOverTijdData) {
+        const code = huidigeData.code;
+        toonLaadOverlay("Verdeling over tijd berekenen...");
+        let res, data;
+        try {
+            res = await fetch(`/api/portfolio/${code}/verdeling-over-tijd?dimensie=positie`);
+            data = await res.json();
+        } catch (e) {
+            toonVerdelingOverTijdMelding("Kon de verdeling over tijd niet ophalen (netwerkfout).", true);
+            return;
+        } finally {
+            verbergLaadOverlay();
+        }
+        if (huidigeData.code !== code) return;
+        if (!res.ok) {
+            toonVerdelingOverTijdMelding(data.error || "De verdeling over tijd kon niet berekend worden.", true);
+            return;
+        }
+        verdelingOverTijdData = data;
+    }
+    if (verdelingModus !== "tijd" || actieveView !== "verdeling") return;
+    if (verdelingOverTijdData.labels.length === 0) {
+        toonVerdelingOverTijdMelding("Nog geen data om te tonen.", false);
+        return;
+    }
+    const datasets = verdelingOverTijdDatasets(
+        verdelingOverTijdData, verdelingTijdWeergave, kleurVoorTicker, ONBEKEND_GRIJS);
+    updateGestapeldeVlakChart(verdelingOverTijdData.labels, datasets, verdelingTijdWeergave === "pct");
+}
+
+document.querySelectorAll("#verdelingModusWrapper .segmentKnop[data-modus]").forEach(knop => {
+    knop.addEventListener("click", () => {
+        verdelingModus = knop.dataset.modus;
+        toonVerdeling();
+    });
+});
+
+document.querySelectorAll("#verdelingTijdWeergave .segmentKnop").forEach(knop => {
+    knop.addEventListener("click", () => {
+        verdelingTijdWeergave = knop.dataset.weergave;
+        toonVerdeling();
+    });
+});

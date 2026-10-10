@@ -968,6 +968,11 @@ input.schakelaar:focus-visible {
 }
 
 /* Verdeling: uitleg ETF/Aandeel onder de taart, los van de legenda van de posities. Grijs en strepen als in grafiek.js. */
+.verdelingModus {
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
 .verdelingUitleg {
     gap: 16px;
     margin-top: 12px;
@@ -1602,6 +1607,18 @@ button.diagnostiekChip:disabled:hover {
 
 .diagnostiekBlok {
     border-bottom: 1px solid #e3e3e3;
+}
+
+/* Bewaarde meldingen van eerdere uploads, onder de live meldingen. */
+.diagnostiekUploads {
+    margin-top: 12px;
+}
+
+.diagnostiekOudereUploads > summary {
+    margin-top: 18px;
+    cursor: pointer;
+    font-size: 0.85em;
+    color: #666;
 }
 
 /* Icoon over twee regels; naam + aantal bovenaan, de samenvatting eronder (alleen als het blok dicht is). */

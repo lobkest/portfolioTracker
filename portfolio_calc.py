@@ -338,6 +338,22 @@ def compute_per_ticker(transacties_df, price_data):
     return result
 
 
+def waarde_per_ticker_per_dag(transacties_df, price_data):
+    """€ per ticker (kolommen) per dag van price_data, niet bijgesneden; de rijsom is compute_value_over_time()["waarde"]."""
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    tickers = [t for t in transacties_df["ticker"].unique() if t in price_data.columns]
+    dagen = price_data.index
+
+    kolommen = {}
+    for ticker in tickers:
+        trades = transacties_df[transacties_df["ticker"] == ticker]
+        stukken = _sorteer_chronologisch(trades, datum_kolom=_effectieve_datum_kolom(trades)).reset_index(drop=True)
+        holdings, _ = _holdings_per_dag(stukken, _effectieve_datum_kolom(stukken), dagen)
+        prijzen = price_data[ticker].to_numpy(dtype=float)
+        with np.errstate(invalid="ignore"):
+            kolommen[ticker] = np.where(np.isnan(prijzen), 0.0, holdings * prijzen)
+    return pd.DataFrame(kolommen, index=dagen, columns=tickers, dtype=float)
+
 
 def compute_per_ticker_koers_en_aankopen(transacties_df, price_data):
     """Kale koers, aantal aangehouden en aparte aankoop-/verkoopdatums per ticker; zelfde crop als compute_per_ticker()."""

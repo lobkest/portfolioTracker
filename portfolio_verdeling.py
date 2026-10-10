@@ -50,6 +50,11 @@ BEURS_NAMEN = {
 EURONEXT_BEURZEN = frozenset(code for code, naam in BEURS_NAMEN.items() if naam.startswith("Euronext"))
 
 # De frontend knipt zelf in; BEDRIJVEN_TOP_N_KNOPPEN (bedrijven.js) moet <= het maximum blijven.
+VERDELING_OVER_TIJD_TOP_N = 10
+# Pandas-periode: per week de laatste echte koersdag als meetpunt.
+VERDELING_OVER_TIJD_FREQUENTIE = "W"
+VERDELING_OVERIG_SLEUTEL = "__overig__"
+
 BEDRIJVEN_TOP_N_STANDAARD = 10
 BEDRIJVEN_TOP_N_MAX = 50
 
@@ -449,6 +454,57 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
         "land_per_bron_top": _beperk_tot_top_n_per_bron(land_per_bron),
         "land_per_bron_europa_top": _beperk_tot_top_n_per_bron(land_per_bron_europa),
         "sector_per_bron": sector_per_bron,
+    }
+
+
+def gewichten_per_positie(tickers):
+    return {t: {t: 1.0} for t in tickers}
+
+
+def _meetpunten(dagen):
+    """Per week de laatste dag uit `dagen`; de laatste dag van de reeks zit er dus altijd in."""
+    laatste_per_week = pd.Series(dagen, index=dagen).groupby(dagen.to_period(VERDELING_OVER_TIJD_FREQUENTIE)).max()
+    return pd.DatetimeIndex(laatste_per_week.to_numpy())
+
+
+def bereken_verdeling_over_tijd(waarde_df, gewichten, namen, top_n=VERDELING_OVER_TIJD_TOP_N):
+    """waarde_df: € per ticker (kolommen) per dag. gewichten: {ticker: {categorie: fractie}}, zonder → "Unknown".
+    Sleutels: labels (YYYY-MM-DD), totaal (€), reeksen [{sleutel, naam, waarde (€), pct (None bij totaal ≤ 0)}]."""
+    leeg = {"labels": [], "totaal": [], "reeksen": []}
+    if waarde_df.empty:
+        return leeg
+    waarde_df = waarde_df.fillna(0.0)
+    positief = waarde_df.sum(axis=1) > 0
+    if not positief.any():
+        return leeg
+    waarde_df = waarde_df.loc[positief.idxmax():]
+    meting = waarde_df.loc[_meetpunten(waarde_df.index)]
+
+    per_categorie = {}
+    for ticker in meting.columns:
+        for categorie, fractie in (gewichten.get(ticker) or {"Unknown": 1.0}).items():
+            per_categorie[categorie] = per_categorie.get(categorie, 0.0) + meting[ticker] * fractie
+    per_categorie = {c: reeks for c, reeks in per_categorie.items() if (reeks != 0).any()}
+
+    # Op €-som over alle meetpunten, niet op max %: de eerste aankoop is anders altijd een keer 100%.
+    volgorde = sorted(per_categorie, key=lambda c: (-float(per_categorie[c].sum()), str(c)))
+    reeksen = [(c, namen.get(c, c), per_categorie[c]) for c in volgorde[:top_n]]
+    if len(volgorde) > top_n:
+        overig = sum((per_categorie[c] for c in volgorde[top_n:]), pd.Series(0.0, index=meting.index))
+        reeksen.append((VERDELING_OVERIG_SLEUTEL, "Overig", overig))
+
+    totaal = meting.sum(axis=1)
+
+    def pct(reeks):
+        return [round(float(w) / float(t) * 100, 2) if t > 0 else None for w, t in zip(reeks, totaal)]
+
+    return {
+        "labels": meting.index.strftime("%Y-%m-%d").tolist(),
+        "totaal": [round(float(t), 2) for t in totaal],
+        "reeksen": [
+            {"sleutel": sleutel, "naam": naam, "waarde": [round(float(w), 2) for w in reeks], "pct": pct(reeks)}
+            for sleutel, naam, reeks in reeksen
+        ],
     }
 
 

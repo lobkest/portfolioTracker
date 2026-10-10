@@ -6,11 +6,35 @@ let diagnostiekMeldingen = [];
 // standaard uit categorieStandaardOpen tot een nieuwe upload/code).
 let diagnostiekOpenKeuze = new Map();
 let diagnostiekNiveauFilter = null;
+// Bewaarde meldingen van de laatste uploads (nieuwste eerst), lui opgehaald bij het openen van dit tabblad.
+let diagnostiekUploads = null;
+let diagnostiekUploadsCode = null;
 
 function resetDiagnostiek() {
     diagnostiekMeldingen = [];
     diagnostiekOpenKeuze = new Map();
     diagnostiekNiveauFilter = null;
+    diagnostiekUploads = null;
+    diagnostiekUploadsCode = null;
+}
+
+// Eén keer per code; bij "niet opslaan" (geen code) is er niets bewaard.
+async function laadUploadMeldingen() {
+    const code = huidigeData && huidigeData.code;
+    if (!code || diagnostiekUploadsCode === code) return;
+    diagnostiekUploadsCode = code;
+    try {
+        const res = await fetchMetTimeout(`/api/portfolio/${code}/upload-meldingen`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!huidigeData || huidigeData.code !== code) return;
+        diagnostiekUploads = data.uploads || [];
+        if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
+    } catch (e) {
+        // Volgende keer opnieuw proberen; de live meldingen staan er wel.
+        diagnostiekUploadsCode = null;
+        console.warn("[diagnostiek] upload-meldingen niet geladen", e);
+    }
 }
 
 function voegDiagnostiekToe(data) {
@@ -102,17 +126,19 @@ function maakDiagnostiekMelding(melding, categorieNiveau) {
     return li;
 }
 
-function maakDiagnostiekCategorie(groep, standaardOpen) {
+// keuzePrefix: de bewaarde uploads hebben dezelfde categorienamen als de live meldingen, maar een eigen open/dicht-keuze.
+function maakDiagnostiekCategorie(groep, standaardOpen, keuzePrefix = "") {
     const blok = document.createElement("details");
     blok.className = "diagnostiekBlok";
-    blok.open = diagnostiekOpenKeuze.has(groep.categorie) ? diagnostiekOpenKeuze.get(groep.categorie) : standaardOpen;
+    const keuzeSleutel = keuzePrefix + groep.categorie;
+    blok.open = diagnostiekOpenKeuze.has(keuzeSleutel) ? diagnostiekOpenKeuze.get(keuzeSleutel) : standaardOpen;
 
     const hoogste = hoogsteNiveau(groep.meldingen);
     const kop = document.createElement("summary");
     kop.className = "diagnostiekCategorie";
     // Via de klik (ook Enter/Spatie) i.p.v. het toggle-event: dat gaat
     // ook af op het programmatisch zetten van blok.open hierboven.
-    kop.addEventListener("click", () => diagnostiekOpenKeuze.set(groep.categorie, !blok.open));
+    kop.addEventListener("click", () => diagnostiekOpenKeuze.set(keuzeSleutel, !blok.open));
     kop.appendChild(maakNiveauIcoon(hoogste));
     const naam = document.createElement("span");
     naam.className = "diagnostiekNaam";
@@ -133,15 +159,48 @@ function maakDiagnostiekCategorie(groep, standaardOpen) {
     return blok;
 }
 
-function maakDiagnostiekSectie(titel, groepen, standaardOpen) {
+// standaardOpen null: per categorie open als er een fout of let op in staat.
+function maakDiagnostiekSectie(titel, groepen, standaardOpen, keuzePrefix = "") {
     const sectie = document.createElement("section");
     sectie.className = "diagnostiekSectie";
     const kop = document.createElement("h3");
     kop.className = "diagnostiekSectieKop";
     kop.textContent = titel;
     sectie.appendChild(kop);
-    groepen.forEach(groep => sectie.appendChild(maakDiagnostiekCategorie(groep, standaardOpen)));
+    groepen.forEach(groep => sectie.appendChild(maakDiagnostiekCategorie(
+        groep, standaardOpen === null ? categorieStandaardOpen(groep.meldingen) : standaardOpen, keuzePrefix)));
     return sectie;
+}
+
+function maakUploadSectie(blok, standaardOpen, keuzePrefix, ookLive = 0) {
+    const groepen = groepeerPerCategorie(filterOpNiveau(blok.meldingen, diagnostiekNiveauFilter));
+    const sectie = maakDiagnostiekSectie(blok.titel, groepen, standaardOpen, keuzePrefix);
+    const notities = [];
+    if (ookLive > 0) notities.push(uploadOokLiveTekst(ookLive));
+    if (groepen.length === 0 && ookLive === 0) notities.push("Geen meldingen met dit niveau.");
+    notities.forEach(tekst => {
+        const p = document.createElement("p");
+        p.className = "gedempt";
+        p.textContent = tekst;
+        sectie.appendChild(p);
+    });
+    return sectie;
+}
+
+function toonUploadMeldingen() {
+    const plek = document.getElementById("diagnostiekUploads");
+    plek.replaceChildren();
+    const blokken = uploadBlokken(diagnostiekUploads, diagnostiekMeldingen);
+    if (!blokken.laatste) return;
+    plek.appendChild(maakUploadSectie(blokken.laatste, null, "upload0:", blokken.laatste.aantalOokLive));
+    if (blokken.ouder.length === 0) return;
+    const ouder = document.createElement("details");
+    ouder.className = "diagnostiekOudereUploads";
+    const kop = document.createElement("summary");
+    kop.textContent = `Eerdere uploads (${blokken.ouder.length})`;
+    ouder.appendChild(kop);
+    blokken.ouder.forEach((blok, i) => ouder.appendChild(maakUploadSectie(blok, false, `upload${i + 1}:`)));
+    plek.appendChild(ouder);
 }
 
 // Conclusie + filterchips bovenaan; op desktop links "Aandacht nodig", rechts "In orde" en "Technisch".
@@ -151,14 +210,18 @@ function toonDiagnostiek() {
     const lijst = document.getElementById("diagnostiekLijst");
     lijst.replaceChildren();
     lijst.classList.remove("eenKolom");
+    document.getElementById("diagnostiekUploads").replaceChildren();
+    laadUploadMeldingen();
 
-    if (diagnostiekMeldingen.length === 0) {
+    const voorTelling = meldingenVoorTelling(diagnostiekMeldingen, diagnostiekUploads);
+    if (voorTelling.length === 0) {
         teller.textContent = "Nog geen meldingen voor deze laadbeurt.";
         chips.replaceChildren();
         return;
     }
-    teller.textContent = diagnostiekConclusie(diagnostiekMeldingen);
-    toonDiagnostiekChips(telPerNiveau(diagnostiekMeldingen));
+    teller.textContent = diagnostiekConclusie(voorTelling);
+    toonDiagnostiekChips(telPerNiveau(voorTelling));
+    toonUploadMeldingen();
 
     const blokken = deelInBlokken(filterOpNiveau(diagnostiekMeldingen, diagnostiekNiveauFilter));
     // Met een filter staat alles open: je hebt dan zelf gekozen wat je wilt zien.
@@ -177,7 +240,7 @@ function toonDiagnostiek() {
         lijst.appendChild(links);
     }
     if (rechts.childElementCount > 0) lijst.appendChild(rechts);
-    if (lijst.childElementCount === 0) {
+    if (lijst.childElementCount === 0 && diagnostiekMeldingen.length > 0) {
         const leeg = document.createElement("p");
         leeg.className = "gedempt";
         leeg.textContent = "Geen meldingen met dit niveau.";

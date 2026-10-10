@@ -110,6 +110,8 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.mock_aanvullen = self._start(patch.object(app_module, "vul_bronkolommen_aan"))
         self.mock_dividend_opslaan = self._start(patch.object(upload_verwerking, "db_save_dividenden"))
         self.mock_regels_opslaan = self._start(patch.object(upload_verwerking, "db_save_rekening_regels", return_value=0))
+        self.mock_bewaar = self._start(patch.object(upload_verwerking, "db_save_upload_meldingen"))
+        self._start(patch.object(app_module, "meld_order_ids_rekening"))
 
     def _start(self, p):
         mock = p.start()
@@ -131,6 +133,7 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.mock_kern.assert_not_called()
         self.mock_insert.assert_not_called()
         self.mock_dividend_opslaan.assert_not_called()
+        self.mock_bewaar.assert_not_called()
 
     def test_onbekende_code_geeft_404(self):
         self.app_module.db_portfolio_bestaat.return_value = False
@@ -196,6 +199,8 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.assertEqual(self.mock_insert.call_args.kwargs, {"herbepaal_alle_tickers": False})
         self.assertEqual(set(rows_to_insert["Order ID"]), nieuw)
         self.mock_kern.assert_called_once_with(TEST_CODE.upper())
+        code, soort, _meldingen, maximum = self.mock_bewaar.call_args.args
+        self.assertEqual((code, soort, maximum), (TEST_CODE.upper(), "bijwerken", 5))
 
     def test_niets_nieuw_vult_alleen_bronkolommen_aan(self):
         self.mock_opgeslagen.return_value = self.transactie_ids

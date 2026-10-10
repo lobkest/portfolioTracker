@@ -28,6 +28,13 @@ CATEGORIE_REKENINGOVERZICHT = "Rekeningoverzicht"
 
 DIAGNOSTIEK_SLEUTEL = "diagnostiek"
 
+# Na een upload bewaard per portfolio: deze meldingen zijn er na verversen anders niet meer (de Excel is weg).
+BEWAARDE_UPLOAD_CATEGORIEEN = (
+    CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, CATEGORIE_TICKERS, CATEGORIE_DIVIDEND,
+    CATEGORIE_REKENINGOVERZICHT,
+)
+MAX_BEWAARDE_UPLOADS = 5
+
 # Link onder een melding naar het tabblad waar je het oplost; `tab` is een view-naam uit menu.js.
 ACTIE_TICKER_ZEKERHEID = {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"}
 
@@ -98,6 +105,10 @@ def haal_meldingen():
 def meldingen_sinds(eerder):
     """Nieuwe of gewijzigde meldingen t.o.v. een eerdere haal_meldingen()."""
     return [m for m in haal_meldingen() if m not in eerder]
+
+
+def upload_meldingen_om_te_bewaren(meldingen):
+    return [m for m in meldingen or [] if m.get("categorie") in BEWAARDE_UPLOAD_CATEGORIEEN]
 
 
 def meld_opnieuw(meldingen):

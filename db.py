@@ -330,6 +330,18 @@ def db_init():
             proxy_land JSONB
         );
     """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS upload_meldingen (
+            id SERIAL PRIMARY KEY,
+            code TEXT NOT NULL,
+            -- 'upload' of 'bijwerken'
+            soort TEXT NOT NULL,
+            geupload_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- [{categorie, niveau, tekst, sleutel[, tabel, actie]}] zoals diagnostiek.haal_meldingen()
+            meldingen JSONB NOT NULL
+        );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS upload_meldingen_code_idx ON upload_meldingen (code, geupload_op)")
     conn.commit()
     cur.close()
     conn.close()
@@ -686,6 +698,7 @@ def db_delete_portfolio(code):
     cur.execute("DELETE FROM dividenden WHERE code = %s", (code,))
     cur.execute("DELETE FROM kassaldo WHERE code = %s", (code,))
     cur.execute("DELETE FROM rekening_regels WHERE code = %s", (code,))
+    cur.execute("DELETE FROM upload_meldingen WHERE code = %s", (code,))
     cur.execute("DELETE FROM portfolios WHERE code = %s", (code,))
     conn.commit()
     cur.close()
@@ -716,6 +729,7 @@ def db_wijzig_portfolio_code(oude_code, nieuwe_code):
         cur.execute("UPDATE dividenden SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE kassaldo SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE rekening_regels SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
+        cur.execute("UPDATE upload_meldingen SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (oude_code,))
         conn.commit()
         return True, None
@@ -1154,6 +1168,32 @@ def db_save_rekening_regels(cur, code, regels):
         page_size=len(regels),
     )
     return cur.rowcount
+
+
+def db_save_upload_meldingen(code, soort, meldingen, maximum):
+    """In een eigen transactie; daarna alleen de nieuwste `maximum` uploads van deze code."""
+    with db_transactie() as cur:
+        cur.execute("INSERT INTO upload_meldingen (code, soort, meldingen) VALUES (%s, %s, %s)",
+                    (code, soort, Json(meldingen)))
+        cur.execute(
+            "DELETE FROM upload_meldingen WHERE code = %s AND id NOT IN ("
+            "SELECT id FROM upload_meldingen WHERE code = %s ORDER BY geupload_op DESC, id DESC LIMIT %s)",
+            (code, code, maximum),
+        )
+
+
+def db_get_upload_meldingen(code):
+    """[{soort, geupload_op, meldingen}], nieuwste eerst."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT soort, geupload_op, meldingen FROM upload_meldingen WHERE code = %s ORDER BY geupload_op DESC, id DESC",
+        (code,),
+    )
+    rijen = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"soort": soort, "geupload_op": geupload_op, "meldingen": meldingen} for soort, geupload_op, meldingen in rijen]
 
 
 def db_wijzig_ticker_voor_isins(cur, code, isins, beurs, ticker):

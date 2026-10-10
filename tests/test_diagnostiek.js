@@ -9,6 +9,7 @@ const {
     voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
     hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
     deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie, categorieSamenvatting, meldingActie,
+    formatUploadMoment, uploadBlokken, meldingenVoorTelling, uploadOokLiveTekst,
 } = require("../static/js/diagnostiek.js");
 
 const m = (categorie, niveau, tekst, sleutel = tekst) => ({ categorie, niveau, tekst, sleutel });
@@ -182,4 +183,56 @@ test("meldingActie: tekst met pijl; null zonder label of tab", () => {
         { label: "Ticker-zekerheid", tab: "instellingen-ticker", tekst: "→ Naar Ticker-zekerheid" });
     assert.equal(meldingActie(m("Tickers", "LET_OP", "x")), null);
     assert.equal(meldingActie(Object.assign(m("T", "INFO", "x"), { actie: { label: "L" } })), null);
+});
+
+// Zonder "Z" leest Date de tijd als lokaal: dan hangt de verwachte tekst niet af van de tijdzone van de testmachine.
+test("formatUploadMoment: dd-mm-jjjj hh:mm, leeg bij een ongeldige datum", () => {
+    assert.equal(formatUploadMoment("2026-10-10T09:05:00"), "10-10-2026 09:05");
+    assert.match(formatUploadMoment("2026-10-10T12:05:00Z"), /^\d{2}-\d{2}-\d{4} \d{2}:\d{2}$/);
+    assert.equal(formatUploadMoment("geen datum"), "");
+});
+
+const upload = (moment, meldingen, soort = "upload") => ({ soort, geupload_op: moment, meldingen });
+
+test("uploadBlokken: zonder uploads geen blok", () => {
+    assert.deepEqual(uploadBlokken(null, []), { laatste: null, ouder: [] });
+    assert.deepEqual(uploadBlokken([], []), { laatste: null, ouder: [] });
+});
+
+test("uploadBlokken: wat ook live bestaat valt weg uit de laatste upload, de rest blijft", () => {
+    const opgeslagen = m("Opslaan", "GOED", "3 opgeslagen", "insert");
+    const ookLive = m("Tickers", "LET_OP", "oud", "tickers:dis_acc:X");
+    const blokken = uploadBlokken([upload("2026-10-10T09:05:00", [opgeslagen, ookLive])],
+                                  [m("Tickers", "INFO", "nu", "tickers:dis_acc:X")]);
+    assert.equal(blokken.laatste.titel, "Laatste upload (10-10-2026 09:05)");
+    assert.deepEqual(blokken.laatste.meldingen, [opgeslagen]);
+    assert.equal(blokken.laatste.aantalOokLive, 1);
+});
+
+test("uploadBlokken: hooguit 4 eerdere uploads, bijwerken in de titel", () => {
+    const lijst = [upload("2026-10-10T09:05:00", [], "bijwerken")];
+    for (let dag = 9; dag >= 4; dag--) lijst.push(upload(`2026-10-0${dag}T08:00:00`, [m("Opslaan", "INFO", `d${dag}`)]));
+    const blokken = uploadBlokken(lijst, []);
+    assert.equal(blokken.laatste.titel, "Laatste upload (10-10-2026 09:05, bestanden bijgewerkt)");
+    assert.deepEqual(blokken.ouder.map(b => b.titel), [
+        "Eerdere upload (09-10-2026 08:00)", "Eerdere upload (08-10-2026 08:00)",
+        "Eerdere upload (07-10-2026 08:00)", "Eerdere upload (06-10-2026 08:00)",
+    ]);
+    // Eerdere uploads blijven compleet: daar wordt niets weggefilterd.
+    assert.equal(blokken.ouder[0].meldingen[0].tekst, "d9");
+});
+
+test("meldingenVoorTelling: live plus de laatste upload, live wint bij dezelfde sleutel", () => {
+    const live = [m("Tickers", "INFO", "nu", "x"), m("Data", "LET_OP", "data", "d")];
+    const uploads = [upload("2026-10-10T09:05:00", [m("Tickers", "FOUT", "oud", "x"), m("Opslaan", "LET_OP", "o", "o")]),
+                     upload("2026-10-01T09:05:00", [m("Opslaan", "FOUT", "ouder", "z")])];
+    const samen = meldingenVoorTelling(live, uploads);
+    assert.deepEqual(samen.map(x => x.tekst), ["nu", "o", "data"]);
+    assert.equal(diagnostiekConclusie(samen), "2 punten om naar te kijken");
+    assert.deepEqual(meldingenVoorTelling(live, null), live);
+});
+
+test("uploadOokLiveTekst: enkelvoud en meervoud", () => {
+    assert.equal(uploadOokLiveTekst(1), "1 melding van deze upload staat hierboven, met de stand van nu.");
+    assert.equal(uploadOokLiveTekst(3), "3 meldingen van deze upload staan hierboven, met de stand van nu.");
 });

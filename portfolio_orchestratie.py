@@ -34,7 +34,7 @@ from prijzen import get_prices
 from box3 import bouw_box3_basis
 from portfolio_calc import (
     compute_split_adjusted_shares, compute_value_over_time, compute_per_ticker,
-    compute_per_ticker_koers_en_aankopen, bepaal_split_boekingen, meld_split_koppeling,
+    compute_per_ticker_koers_en_aankopen, bepaal_split_boekingen, meld_split_koppeling, waarde_per_ticker_per_dag,
 )
 from split_correctie import bepaal_effectieve_datums, continue_reeks
 from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
@@ -44,6 +44,7 @@ from portfolio_verdeling import (
     compute_land_sector_verdeling, compute_valuta_verdeling, compute_beurs_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
     bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX, bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT,
+    bereken_verdeling_over_tijd, gewichten_per_positie,
 )
 from ticker_classificatie import (
     classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, bewaar_long_names, vul_ontbrekende_long_names,
@@ -378,6 +379,16 @@ def _meld_etf_land_proxy(ticker, proxy, naam):
              sleutel=f"etf_land_proxy:{ticker}")
 
 
+def _ticker_namen(transacties_df):
+    """{ticker: laatste product (bijnaam)}."""
+    return (
+        transacties_df.dropna(subset=["ticker"])
+        .drop_duplicates(subset=["ticker"], keep="last")
+        .set_index("ticker")["product"]
+        .to_dict()
+    )
+
+
 def _isin_per_ticker(transacties_df):
     """Laatste ISIN per ticker (bij een ISIN-keten de nieuwste)."""
     rijen = transacties_df.dropna(subset=["ticker", "isin"]).drop_duplicates(subset=["ticker"], keep="last")
@@ -480,6 +491,21 @@ def bepaal_korte_naam_voorstellen(code):
     return [{"ticker": t, "huidig": huidig[t], "long_name": long_names[t], "voorstel": voorstellen.get(t)} for t in tickers]
 
 
+VERDELING_OVER_TIJD_DIMENSIES = ("positie",)
+
+
+def bouw_verdeling_over_tijd(code, dimensie):
+    """None bij een onbekende code; alleen dimensie 'positie'."""
+    naam, transacties_df, price_data = haal_portfolio_basis(code)
+    if naam is None:
+        return None
+    if price_data.empty:
+        return {"labels": [], "totaal": [], "reeksen": []}
+    waarde_df = waarde_per_ticker_per_dag(transacties_df, price_data)
+    return bereken_verdeling_over_tijd(
+        waarde_df, gewichten_per_positie(waarde_df.columns), _ticker_namen(transacties_df))
+
+
 def build_portfolio_response(code, verversen=True):
     naam, transacties_df, price_data = haal_portfolio_basis(code, verversen=verversen)
     if naam is None:
@@ -506,12 +532,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         transacties_df = pas_effectieve_datums_toe(transacties_df)
         _meld_koersdekking(transacties_df, price_data)
 
-    ticker_namen = (
-        transacties_df.dropna(subset=["ticker"])
-        .drop_duplicates(subset=["ticker"], keep="last")
-        .set_index("ticker")["product"]
-        .to_dict()
-    )
+    ticker_namen = _ticker_namen(transacties_df)
     koersstatus = bepaal_koersstatus(
         tickers, set(price_data.columns), price_data.attrs.get("koersen_onvolledig", []), ticker_namen)
     if price_data.empty:
@@ -630,12 +651,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
             "bedrijven_verdeling": {}, "etf_overlap": {},
         }
 
-    ticker_namen = (
-        transacties_df.dropna(subset=["ticker"])
-        .drop_duplicates(subset=["ticker"], keep="last")
-        .set_index("ticker")["product"]
-        .to_dict()
-    )
+    ticker_namen = _ticker_namen(transacties_df)
 
     huidige_holdings = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]

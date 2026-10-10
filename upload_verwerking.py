@@ -7,7 +7,8 @@ import psycopg2
 from debug_utils import meet_tijd
 from diagnostiek import (
     meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
-    CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT,
+    CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT, MAX_BEWAARDE_UPLOADS, haal_meldingen,
+    upload_meldingen_om_te_bewaren,
 )
 from diagnostiek_checks import check_rekening_regelsoorten
 from split_correctie import isin_ketens, vind_wisselparen
@@ -19,7 +20,7 @@ from ticker_zekerheid import (
 from portfolio_admin import find_matching_code, generate_code
 from db import (
     db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
-    db_get_product_per_ticker, db_vul_bronkolommen_aan, db_save_rekening_regels,
+    db_get_product_per_ticker, db_vul_bronkolommen_aan, db_save_rekening_regels, db_save_upload_meldingen,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo, bouw_rekening_regels
@@ -48,6 +49,9 @@ DIAGNOSTIEK_SLEUTEL_CORPORATE_ACTIONS = "corporate_actions"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING = "dividend_samenvatting"
 DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG = "dividend_zonder_conversie_overig"
 DIAGNOSTIEK_SLEUTEL_REKENING_REGELS = "rekening_regels"
+
+UPLOAD_SOORT_UPLOAD = "upload"
+UPLOAD_SOORT_BIJWERKEN = "bijwerken"
 
 # Daarboven één samenvattende melding, tegen ruis.
 MAX_LOSSE_DIVIDEND_MELDINGEN = 5
@@ -582,3 +586,18 @@ def _meld_dividend_records(records):
     if rest > 0:
         meld(CATEGORIE_DIVIDEND, LET_OP, f"Nog {rest} uitkeringen zonder valutaconversie.",
              sleutel=DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG)
+
+
+def bewaar_upload_meldingen(code, soort):
+    """Na een geslaagde upload of bijwerken, buiten de schrijftransactie van de upload: mislukken breekt die nooit."""
+    try:
+        db_save_upload_meldingen(code, soort, upload_meldingen_om_te_bewaren(haal_meldingen()), MAX_BEWAARDE_UPLOADS)
+    except Exception as e:
+        print(f"[upload] WARN upload-meldingen niet opgeslagen ({type(e).__name__}: {e!a})")
+
+
+def upload_meldingen_voor_api(uploads):
+    """db_get_upload_meldingen() -> [{soort, geupload_op (ISO met 'Z'), meldingen}]."""
+    # 'Z': Neon draait in UTC (zie CLAUDE.md: Data en rekenen).
+    return [{"soort": u["soort"], "geupload_op": u["geupload_op"].isoformat() + "Z", "meldingen": u["meldingen"]}
+            for u in uploads]

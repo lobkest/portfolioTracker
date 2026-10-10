@@ -10,7 +10,7 @@ from db import (
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
-    db_get_dividenden,
+    db_get_dividenden, db_get_upload_meldingen,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
@@ -41,12 +41,14 @@ from upload_verwerking import (
     bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
     voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
     sla_kassaldo_op, vul_bronkolommen_aan, sla_rekening_regels_op,
-    meld_portfolio_opslaan,
+    meld_portfolio_opslaan, bewaar_upload_meldingen, upload_meldingen_voor_api, UPLOAD_SOORT_UPLOAD,
+    UPLOAD_SOORT_BIJWERKEN,
 )
 from portfolio_orchestratie import (
     haal_portfolio_basis, wis_portfolio_basis_cache, laad_transacties_en_resultaat,
     laad_split_gecorrigeerde_transacties, pas_effectieve_datums_toe, continue_koersreeks,
     ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
+    bouw_verdeling_over_tijd, VERDELING_OVER_TIJD_DIMENSIES,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
     meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden,
 )
@@ -197,6 +199,7 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
         result = _kern_na_opslaan(code)
         _meld_valuta_na_opslaan(df, code)
         meld_order_ids_rekening(code)
+    bewaar_upload_meldingen(code, UPLOAD_SOORT_UPLOAD)
     return result
 
 
@@ -291,6 +294,7 @@ def _bijwerken_impl(code):
         if df is not None:
             _meld_valuta_na_opslaan(df, code)
         meld_order_ids_rekening(code)
+    bewaar_upload_meldingen(code, UPLOAD_SOORT_BIJWERKEN)
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
     result["bijwerken"] = {
         "nieuwe_transacties": len(rows_to_insert),
@@ -344,6 +348,19 @@ def portfolio_verrijking(code):
             "error": "Verdeling/land/sector/bedrijven ophalen duurde te lang of is mislukt. Probeer het "
                      "opnieuw door de pagina te verversen."
         }), 500
+
+
+@app.route("/api/portfolio/<code>/verdeling-over-tijd")
+def verdeling_over_tijd(code):
+    code = code.strip().upper()
+    dimensie = request.args.get("dimensie", "")
+    if dimensie not in VERDELING_OVER_TIJD_DIMENSIES:
+        return jsonify({"error": f"Onbekende dimensie '{dimensie}'."}), 400
+    with db_deel_verbinding():
+        result = bouw_verdeling_over_tijd(code, dimensie)
+    if result is None:
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    return jsonify(result)
 
 
 @app.route("/api/etf-overlap-detail")
@@ -629,6 +646,14 @@ def dividend(code):
 
     samenvatting["beschikbaar"] = True
     return jsonify(samenvatting)
+
+
+@app.route("/api/portfolio/<code>/upload-meldingen")
+def upload_meldingen(code):
+    code = code.strip().upper()
+    if not db_portfolio_bestaat(code):
+        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+    return jsonify({"uploads": upload_meldingen_voor_api(db_get_upload_meldingen(code))})
 
 
 @app.route("/api/portfolio/<code>/dividend-verwachting")
