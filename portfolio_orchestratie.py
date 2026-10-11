@@ -14,7 +14,7 @@ from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
     db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
     db_get_cached_openfigi_voor_isins, db_get_kassaldo, db_get_dividenden, db_get_isin_ticker_product,
-    db_get_order_id_periodes,
+    db_get_order_id_periodes, db_get_rekening_bedragen,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
@@ -27,9 +27,12 @@ from debug_utils import dprint, meet_tijd
 from diagnostiek import (
     haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
     ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND,
-    CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP,
+    CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP,
 )
-from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, transacties_overzicht_uit_df
+from transactie_utils import (
+    _is_corporate_action_row, formatteer_datum_nl, transacties_overzicht_uit_df, verdeel_kostenkorting,
+    pas_kostenkorting_toe,
+)
 from transactie_resultaat import bereken_transactie_resultaten, laatste_koersen
 from prijzen import get_prices
 from box3 import bouw_box3_basis
@@ -54,7 +57,7 @@ from ticker_classificatie import (
 )
 from naam_verkorting import kies_korte_namen
 from etf_holdings_provider import aanbieder_naam
-from dividend import ORDER_ID_KOLOM_REKENING
+from dividend import ORDER_ID_KOLOM_REKENING, OMSCHRIJVINGEN_PROMOTIE
 from etf_proxy import land_proxies_voor_etfs
 
 
@@ -73,6 +76,34 @@ _basis_cache = {}
 _basis_cache_lock = threading.Lock()
 
 
+def _promotie_samenvatting(promoties, korting):
+    """None zonder promotieregels, anders {bedrag_eur (toegepast), datum (laatste regel), regels: [{datum, bedrag_eur}]}."""
+    if not promoties:
+        return None
+    return {
+        "bedrag_eur": round(float(korting.sum()), 2),
+        "datum": max(d for d, _ in promoties).strftime("%Y-%m-%d"),
+        "regels": [{"datum": d.strftime("%Y-%m-%d"), "bedrag_eur": round(b, 2)} for d, b in promoties],
+    }
+
+
+def _laad_transacties(code):
+    """(naam, transacties_df met promotiekorting, promotie-samenvatting), of (None, None, None) als de code niet bestaat.
+    De korting zit alleen in deze kopie; de database-rijen blijven zoals DeGiro ze leverde."""
+    naam, rows = db_get_portfolio_naam_en_transacties(code)
+    if naam is None:
+        return None, None, None
+    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
+    promoties = db_get_rekening_bedragen(code, OMSCHRIJVINGEN_PROMOTIE)
+    korting, restanten = verdeel_kostenkorting(transacties_df, promoties)
+    for datum, restant in restanten:
+        meld(CATEGORIE_REKENINGOVERZICHT, INFO,
+             f"Promotie van {formatteer_datum_nl(datum)}: EUR {restant:.2f} niet als kostenkorting verrekend "
+             f"(te weinig transactiekosten op of voor die datum); het bedrag telt alleen mee in het kassaldo.",
+             sleutel=f"promotie_restant:{datum}")
+    return naam, pas_kostenkorting_toe(transacties_df, korting), _promotie_samenvatting(promoties, korting)
+
+
 def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
     """(naam, split-gecorrigeerde transacties_df, price_data), of (None, None, None).
     Een cache-hit negeert `verversen`; aanroepers met verversen=False wissen de cache eerst."""
@@ -87,11 +118,10 @@ def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
 
     meldingen_voor = haal_meldingen()
     with meet_tijd(f"basis_ophalen_db (code={code})"):
-        naam, rows = db_get_portfolio_naam_en_transacties(code)
+        naam, transacties_df, _promotie = _laad_transacties(code)
         if naam is None:
             return None, None, None
 
-    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
     transacties_df["transactiekosten"] = transacties_df["transactiekosten"].astype(float)
     transacties_df["waarde_eur"] = transacties_df["waarde_eur"].astype(float)
     with meet_tijd("basis_datakwaliteit"):
@@ -436,11 +466,9 @@ def wis_portfolio_basis_cache(code):
 
 def laad_split_gecorrigeerde_transacties(code):
     """Zonder koersen. Split-correctie over alle transacties: corporate-action-rijen hangen aan de ISIN."""
-    naam, rows = db_get_portfolio_naam_en_transacties(code)
+    naam, transacties_df, _promotie = _laad_transacties(code)
     if naam is None:
         return None
-
-    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
     return compute_split_adjusted_shares(transacties_df)
 
 
@@ -451,17 +479,18 @@ def _transacties_lijst(transacties_df, split_df, price_data, dividenden):
 
 
 def bouw_transacties_lijst(code):
-    """None als de code niet bestaat. Koersen zonder verversing: alleen een ticker zonder cache wordt gedownload."""
-    naam, rows = db_get_portfolio_naam_en_transacties(code)
+    """{lijst, promotie} of None als de code niet bestaat. Koersen zonder verversing: alleen een ticker zonder cache
+    wordt gedownload."""
+    naam, transacties_df, promotie = _laad_transacties(code)
     if naam is None:
         return None
-    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
     split_df = compute_split_adjusted_shares(transacties_df)
     tickers = split_df["ticker"].dropna().unique().tolist()
     price_data = get_prices(tickers, split_df["datum"].min(), verversen=False,
                             gesloten_sinds=_gesloten_sinds(split_df)) if tickers else pd.DataFrame()
     # Lege lijst = nooit een rekeningoverzicht geüpload, zoals bij /dividend.
-    return _transacties_lijst(transacties_df, split_df, price_data, db_get_dividenden(code) or None)
+    lijst = _transacties_lijst(transacties_df, split_df, price_data, db_get_dividenden(code) or None)
+    return {"lijst": lijst, "promotie": promotie}
 
 
 def laad_transacties_en_resultaat(code):

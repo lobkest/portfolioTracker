@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from portfolio_calc import compute_per_ticker
 from statistieken import bereken_holdings_en_gesloten
+from transactie_utils import pas_kostenkorting_toe, verdeel_kostenkorting
 
 
 class TestGakGebruiktWaardeEurNietTotaalEur(unittest.TestCase):
@@ -93,6 +94,25 @@ class TestGakGebruiktWaardeEurNietTotaalEur(unittest.TestCase):
         result = compute_per_ticker(df, price_data)
         # eindstand geinvesteerd = GAK (48.161034) x 29 stuks = 1396.67
         self.assertAlmostEqual(result["TEST.AS"]["geinvesteerd"][-1], 1396.67, places=2)
+
+    def test_promotiekorting_verandert_gak_niet(self):
+        """Een promotiekorting verlaagt transactiekosten en totaal_eur, maar de GAK blijft op waarde_eur."""
+        rijen = [
+            self._transactie("2026-06-17", "13:39:00", 12, 48.923, -587.076, -588.076),
+            self._transactie("2026-06-17", "13:41:00", -12, 48.901, 586.812, 585.812),
+            self._transactie("2026-06-17", "13:42:00", 12, 48.885, -586.620, -589.620),
+            self._transactie("2026-08-31", "09:04:00", 17, 47.650, -810.050, -813.050),
+        ]
+        df = pd.DataFrame(rijen)
+        df["transactiekosten"] = [-1.0, -1.0, -3.0, -3.0]
+        korting, _ = verdeel_kostenkorting(df, [(pd.Timestamp("2026-09-01"), 8.0)])
+        met_korting = pas_kostenkorting_toe(df, korting)
+        self.assertAlmostEqual(met_korting["totaal_eur"].iloc[3], -810.050)
+        open_posities, _ = bereken_holdings_en_gesloten(met_korting)
+        self.assertAlmostEqual(open_posities["TEST.AS"]["gak"], 48.161034, places=5)
+        price_data = pd.DataFrame({"TEST.AS": [48.9, 47.65]},
+                                  index=[pd.Timestamp("2026-06-17"), pd.Timestamp("2026-08-31")])
+        self.assertAlmostEqual(compute_per_ticker(met_korting, price_data)["TEST.AS"]["geinvesteerd"][-1], 1396.67, places=2)
 
 
 if __name__ == "__main__":

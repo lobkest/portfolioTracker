@@ -40,9 +40,7 @@ function maakTransactieResultaatCel(r) {
 }
 
 function transactieDividendTekst(r) {
-    if (r.dividend_eur == null) return "—";
-    const euro = formatteerEuro(r.dividend_eur);
-    return r.dividend_pct === null ? euro : `${euro} (${formatPct(r.dividend_pct, 1)})`;
+    return r.dividend_eur == null ? "—" : formatteerEuro(r.dividend_eur);
 }
 
 // De sleutels zijn de kolomnamen van sorteerTransacties() (transacties.js).

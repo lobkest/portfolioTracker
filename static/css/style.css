@@ -966,6 +966,11 @@ input.schakelaar:focus-visible {
     min-width: 160px;
 }
 
+/* Uitleg onder een tegel mag de tegel niet breder maken. */
+.statTegel .kleineMelding {
+    max-width: 200px;
+}
+
 .statWaarde {
     font-size: 1.4em;
     font-weight: bold;

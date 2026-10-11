@@ -389,11 +389,12 @@ class TestCacheHitNieuweMeldingen(_MetRequest):
     def tearDown(self):
         po.wis_portfolio_basis_cache(TEST_CODE)
 
+    @patch("portfolio_orchestratie.db_get_rekening_bedragen", return_value=[])
     @patch("portfolio_orchestratie._meld_datakwaliteit")
     @patch("portfolio_orchestratie.get_prices")
     @patch("portfolio_orchestratie.db_get_koers_splits", return_value={})
     @patch("db.db_connect")
-    def test_hit_geeft_koersmeldingen_opnieuw_zonder_laadtijden(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit):
+    def test_hit_geeft_koersmeldingen_opnieuw_zonder_laadtijden(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit, _mock_promo):
         mock_conn.side_effect = lambda: _fake_conn()
         index = pd.date_range("2024-01-01", "2024-02-29", freq="D")
         mock_get_prices.return_value = pd.DataFrame(

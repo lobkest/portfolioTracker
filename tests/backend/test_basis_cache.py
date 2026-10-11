@@ -54,6 +54,10 @@ class TestBasisCache(unittest.TestCase):
         self.mock_get_conn = self._get_conn_patcher.start()
         self.addCleanup(self._get_conn_patcher.stop)
 
+        promo_patcher = patch("portfolio_orchestratie.db_get_rekening_bedragen", return_value=[])
+        promo_patcher.start()
+        self.addCleanup(promo_patcher.stop)
+
         datakwaliteit_patcher = patch("portfolio_orchestratie._meld_datakwaliteit")
         datakwaliteit_patcher.start()
         self.addCleanup(datakwaliteit_patcher.stop)

@@ -695,10 +695,10 @@ def historisch_rendement(code):
 @app.route("/api/portfolio/<code>/transacties")
 def transacties_overzicht(code):
     code = code.strip().upper()
-    lijst = bouw_transacties_lijst(code)
-    if lijst is None:
+    overzicht = bouw_transacties_lijst(code)
+    if overzicht is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
-    return jsonify({"lijst": lijst})
+    return jsonify(overzicht)
 
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])

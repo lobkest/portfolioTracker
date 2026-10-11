@@ -274,7 +274,10 @@ REGELSOORT_SWEEP = "sweep"
 REGELSOORT_RENTE = "rente"
 REGELSOORT_CORPORATE_ACTION = "corporate_action"
 REGELSOORT_VERREKENING_AANDELEN = "verrekening_aandelen"
+REGELSOORT_PROMOTIE = "promotie"
 OMSCHRIJVING_VERREKENING_AANDELEN = "Verrekening van Aandelen"
+# Korting op transactiekosten; geen storting (zie verdeel_kostenkorting()).
+OMSCHRIJVINGEN_PROMOTIE = ("DEGIRO Verrekening Promotie",)
 _KOOP_VERKOOP = re.compile(r"^(Koop|Verkoop) [\d.,]+ @ ")
 # "CLAIMEMISSIE: Koop ..." en "PRODUCTWIJZIGING : Verkoop ...".
 _CORPORATE_ACTION = re.compile(r"^[A-Z][A-Z ]*[A-Z] ?: ?(Koop|Verkoop) [\d.,]+ @ ")
@@ -291,6 +294,8 @@ def regelsoort(omschrijving):
         return REGELSOORT_VALUTA
     if tekst == OMSCHRIJVING_VERREKENING_AANDELEN:
         return REGELSOORT_VERREKENING_AANDELEN
+    if tekst in OMSCHRIJVINGEN_PROMOTIE:
+        return REGELSOORT_PROMOTIE
     if _CORPORATE_ACTION.match(tekst):
         return REGELSOORT_CORPORATE_ACTION
     if _KOOP_VERKOOP.match(tekst):

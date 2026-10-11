@@ -3,7 +3,7 @@ import pandas as pd
 from pyxirr import xirr
 
 from debug_utils import meet_tijd
-from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch
+from transactie_utils import KOSTENKORTING_KOLOM, _is_corporate_action_row, _sorteer_chronologisch
 
 # Accumulerende UCITS-ETF's in EUR: geen dividend-boekhouding nodig. IAEA.AS heeft pas koersen vanaf 2020-07-29.
 BENCHMARK_TICKERS = {
@@ -323,20 +323,26 @@ def bereken_rendement_over_tijd(transacties_df, resultaat):
 
 
 def bereken_totale_transactiekosten(transacties_df):
-    """Positief totaal; beschikbaar=False als de kolom ontbreekt of leeg is (nooit een verzonnen €0,00)."""
+    """Positieve totalen: totaal (na promotiekorting), totaal_betaald, korting. beschikbaar=False als de kolom ontbreekt
+    of leeg is (nooit een verzonnen €0,00)."""
+    leeg = {"totaal": None, "totaal_betaald": None, "korting": None, "beschikbaar": False}
     if "transactiekosten" not in transacties_df.columns:
-        return {"totaal": None, "beschikbaar": False}
+        return leeg
     kosten = pd.to_numeric(transacties_df["transactiekosten"], errors="coerce").dropna()
     if kosten.empty:
-        return {"totaal": None, "beschikbaar": False}
-    return {"totaal": round(abs(float(kosten.sum())), 2), "beschikbaar": True}
+        return leeg
+    netto = abs(float(kosten.sum()))
+    korting = float(transacties_df[KOSTENKORTING_KOLOM].sum()) if KOSTENKORTING_KOLOM in transacties_df.columns else 0.0
+    return {"totaal": round(netto, 2), "totaal_betaald": round(netto + korting, 2), "korting": round(korting, 2),
+            "beschikbaar": True}
 
 
-def bereken_totaal_degiro(rendement_eur, dividend_netto, kassaldo):
-    """Rendement + dividend + cash, zoals de DeGiro-app het totaal toont. None zonder rekeningoverzicht."""
+def bereken_totaal_degiro(waarde_eur, kassaldo):
+    """DeGiro's "Totaal W/V": waarde posities + saldo - netto gestort. None zonder rekeningoverzicht.
+    Dividend en promo zitten al in het saldo, dus niet apart optellen."""
     if not kassaldo:
         return None
-    return round(rendement_eur + (dividend_netto or 0.0) + kassaldo["saldo_eur"], 2)
+    return round(waarde_eur + kassaldo["saldo_eur"] - kassaldo["netto_gestort_eur"], 2)
 
 
 def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None,
@@ -458,12 +464,14 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "rendement_pct": round(totaal["rendement_pct"], 2) if totaal["rendement_pct"] is not None else None,
             "all_time_high": all_time_high,
             "totale_transactiekosten": kosten_info["totaal"],
+            "totale_transactiekosten_betaald": kosten_info["totaal_betaald"],
+            "transactiekosten_korting": kosten_info["korting"],
             "transactiekosten_beschikbaar": kosten_info["beschikbaar"],
             # None = geen rekeningoverzicht; los van rendement_eur, dat is exclusief dividend.
             "dividend_netto": dividend_totaal_netto,
             "kassaldo_eur": kassaldo["saldo_eur"] if kassaldo else None,
             "kassaldo_per_datum": kassaldo["per_datum"].isoformat() if kassaldo else None,
-            "totaal_degiro_eur": bereken_totaal_degiro(totaal["rendement_eur"], dividend_totaal_netto, kassaldo),
+            "totaal_degiro_eur": bereken_totaal_degiro(totaal_waarde, kassaldo),
         },
         "jaren": jaren,
         "geavanceerd": {

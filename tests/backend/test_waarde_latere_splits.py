@@ -56,6 +56,7 @@ class _Omgeving:
     def __enter__(self):
         self.patches = [
             patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", self.transacties)),
+            patch.object(portfolio_orchestratie, "db_get_rekening_bedragen", return_value=[]),
             patch.object(portfolio_orchestratie, "_meld_datakwaliteit"),
             patch.object(portfolio_orchestratie, "db_get_koers_splits", side_effect=self._lees_splits),
             patch.object(prijzen, "db_get_gecachte_koersen", return_value=({}, {}, [])),

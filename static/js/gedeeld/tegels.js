@@ -3,6 +3,10 @@
 // Tijdelijk uit: de DeGiro-totaaltegel moet nog nagekeken worden; op true zetten om hem terug te zien.
 const TOON_TOTAAL_DEGIRO_TEGEL = false;
 
+// Voorkomt verwarring bij vergelijken met DeGiro (gestort bedrag, totaal W/V).
+const UITLEG_GEINVESTEERD = "Netto aankopen incl. kosten (verkopen afgetrokken). Niet gelijk aan het gestorte bedrag.";
+const UITLEG_RENDEMENT = "Waarde van de posities min geïnvesteerd. Excl. dividend en cash; wijkt daarom af van het totaal W/V bij DeGiro.";
+
 function maakStatTegel(label, waardeTekst, klasse, subtekst) {
     const tegel = document.createElement("div");
     tegel.className = "statTegel";
@@ -31,10 +35,10 @@ function maakTotalenSectie(totalen) {
     const rij = document.createElement("div");
     rij.className = "tegelRij";
 
-    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatteerEuro(totalen.geinvesteerd)));
+    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatteerEuro(totalen.geinvesteerd), "", UITLEG_GEINVESTEERD));
     rij.appendChild(maakStatTegel("Totale huidige waarde", formatteerEuro(totalen.waarde)));
-    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), klasseVoorRendement(totalen.rendement_eur)));
-    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct)));
+    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), klasseVoorRendement(totalen.rendement_eur), UITLEG_RENDEMENT));
+    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct), UITLEG_RENDEMENT));
 
     if (totalen.dividend_netto !== null && totalen.dividend_netto !== undefined) {
         rij.appendChild(maakStatTegel("Ontvangen dividend (netto)", formatteerEuro(totalen.dividend_netto)));

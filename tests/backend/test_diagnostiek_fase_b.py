@@ -24,7 +24,7 @@ from diagnostiek_checks import (
 )
 from dividend import (
     REGELSOORT_CORPORATE_ACTION, REGELSOORT_DIVIDEND, REGELSOORT_KOOP_VERKOOP, REGELSOORT_KOSTEN, REGELSOORT_RENTE,
-    REGELSOORT_STORTING_OPNAME, REGELSOORT_SWEEP, REGELSOORT_VALUTA, REGELSOORT_VERREKENING_AANDELEN,
+    REGELSOORT_PROMOTIE, REGELSOORT_STORTING_OPNAME, REGELSOORT_SWEEP, REGELSOORT_VALUTA, REGELSOORT_VERREKENING_AANDELEN,
     lees_rekeningoverzicht, regelsoort,
 )
 from etf_holdings_provider import aanbieder_naam
@@ -198,6 +198,7 @@ class TestRegelsoort(unittest.TestCase):
             "CLAIMEMISSIE: Koop 2 @ 1,1 EUR": REGELSOORT_CORPORATE_ACTION,
             "PRODUCTWIJZIGING : Verkoop 5 @ 10 EUR": REGELSOORT_CORPORATE_ACTION,
             "Verrekening van Aandelen": REGELSOORT_VERREKENING_AANDELEN,
+            "DEGIRO Verrekening Promotie": REGELSOORT_PROMOTIE,
             "iDEAL storting": REGELSOORT_STORTING_OPNAME,
             "Overboeking van uw geldrekening bij flatexDEGIRO Bank 150 EUR": REGELSOORT_SWEEP,
             "Overboeking naar uw geldrekening bij flatexDEGIRO Bank 150 EUR": REGELSOORT_SWEEP,
