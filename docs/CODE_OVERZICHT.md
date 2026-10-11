@@ -203,9 +203,10 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `di
 
 | Module | Importeert van andere projectmodules |
 |---|---|
-| `app.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `portfolio_calc`, `portfolio_orchestratie`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `static_versie`, `transactie_utils`, `upload_verwerking`, `yahoo_client` |
+| `app.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `portfolio_calc`, `portfolio_orchestratie`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `static_versie`, `upload_verwerking`, `yahoo_client` |
 | `upload_verwerking.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `split_correctie`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_utils` |
-| `portfolio_orchestratie.py` | `db`, `debug_utils`, `diagnostiek`, `diagnostiek_checks`, `dividend`, `etf_proxy`, `naam_verkorting`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `split_correctie`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_utils` |
+| `portfolio_orchestratie.py` | `db`, `debug_utils`, `diagnostiek`, `diagnostiek_checks`, `dividend`, `etf_proxy`, `naam_verkorting`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `split_correctie`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_resultaat`, `transactie_utils` |
+| `transactie_resultaat.py` | `split_correctie`, `transactie_utils` |
 | `etf_proxy.py` | `db`, `debug_utils`, `etf_holdings_provider`, `portfolio_verdeling`, `ticker_classificatie` |
 | `portfolio_calc.py` | `debug_utils`, `diagnostiek`, `split_correctie`, `transactie_utils` |
 | `split_correctie.py` | `transactie_utils` |
@@ -222,8 +223,7 @@ Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `di
 | `diagnostiek_checks.py` | `diagnostiek`, `portfolio_calc`, `split_correctie`, `ticker_matching`, `ticker_zekerheid` (alleen `beurs_status()`), `transactie_utils` |
 | `debug_utils.py` | `diagnostiek` |
 | `yahoo_client.py` | `diagnostiek`, `transactie_utils` |
-| `db.py` | `transactie_utils` |
-| `diagnostiek.py`, `transactie_utils.py`, `naam_verkorting.py`, `static_versie.py` | *(geen)* — het zijn de "bladeren" van de boom |
+| `db.py`, `diagnostiek.py`, `transactie_utils.py`, `naam_verkorting.py`, `static_versie.py` | *(geen)* — het zijn de "bladeren" van de boom |
 
 Er zijn geen circulaire imports; dat is precies waarom `transactie_utils.py` en `yahoo_client.py` als losse modules bestaan, die
 zelf hooguit `diagnostiek` importeren: helpers die meerdere domeinmodules nodig hebben, zouden anders een import in een kring opleveren.
@@ -422,7 +422,7 @@ route geen portfolio op: de code staat vast, en elk bestand moet **eerst** bewij
 
 ## 3. Per Python-module
 
-23 Python-modules (zonder tests), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
+24 Python-modules (zonder tests), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
 De kolom **"Aangeroepen door"** is met een script uit de code afgeleid (een AST-doorloop van alle `.py`-bestanden); "—" betekent: geen
 aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, via een dict of via HTTP gebruikt — dat staat erbij).
 
@@ -450,6 +450,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | **ETF-overlap** | `portfolio_verdeling.py` | `bereken_etf_overlap()`, `bereken_etf_overlap_detail()` |
 | **Verdeling ETF/aandeel** | `portfolio_orchestratie.py` + `portfolio_verdeling.py` + `ticker_classificatie.py` | het `verdeling`-blok in `analyze_transacties_verrijking()`, `bereken_verdeling_samenvatting()`, `classify_tickers()` |
 | **Land / sector / top-bedrijven** | `portfolio_verdeling.py` | `compute_land_sector_verdeling()`, `bereken_bedrijven_verdeling()` |
+| **Resultaat en dividend per aankoop** (Transacties) | `transactie_resultaat.py` | `bereken_transactie_resultaten()` (FIFO per ISIN-keten), `laatste_koersen()`; in de UI `maakTransactieResultaatCel()` (`tabs/transacties.js`) |
 | **Statistieken** (tabblad) | `statistieken.py` | `bereken_statistieken()` |
 | **Dividend** | `dividend.py` (+ `db.py`) | `lees_rekeningoverzicht()`, `verwerk_rekeningoverzicht_df()`, `bereken_dividend_samenvatting()`; in de UI `maakDividendUitkeringenTabel()` (incl. het "herinvesteerd"-label) |
 | **Box 3** (drie belastingstelsels) | `box3.py` (rekenwerk), `box3_parameters.py` (wetsparameters) | `bouw_box3_basis()`, `bereken_box3()`; in de UI `toonBox3()` (`tabs/box3.js`) |
@@ -483,7 +484,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | `/api/portfolio/<code>/ticker-zekerheid/alle-prijzen` | GET | `ticker_zekerheid_alle_prijzen()` | elke transactie van 1 positie (`isin`, `beurs`) tegen de dagrange van de opgeslagen ticker (`controleer_alle_transactieprijzen()`) | `controleerAllePrijzen()` |
 | `/api/ticker-zekerheid-check` | POST | `ticker_zekerheid_check()` | volledige verificatie voor een "niet opslaan"-analyse, op meegestuurde transacties | `controleerTickerZekerheidUitgebreid()` |
 | `/api/portfolio/<code>/dividend` | GET | `dividend()` | `bereken_dividend_samenvatting()`; `{"beschikbaar": False}` als er geen dividenden zijn | `toonDividend()` |
-| `/api/portfolio/<code>/transacties` | GET | `transacties_overzicht()` | `{"lijst": db_get_transacties_overzicht(code)}` | `toonTransacties()` |
+| `/api/portfolio/<code>/transacties` | GET | `transacties_overzicht()` | `{"lijst": bouw_transacties_lijst(code)}`: elke rij met `resultaat_eur`, `resultaat_pct`, `status`, `dividend_eur`, `dividend_pct` | `toonTransacties()` |
 | `/api/portfolio/<code>/bijnamen` | POST | `set_bijnamen()` | body `{"namen": {ticker: naam}}`; lege namen vallen weg, de rest in één transactie via `db_wijzig_bijnamen()`; geeft de kern terug | `pasBijnamenToe()` (alle knoppen en het invoerveld op Bijnamen) |
 | `/api/portfolio/<code>/bijnaam` | POST | `set_bijnaam()` | `UPDATE transacties SET product = ...` voor alle rijen met die ticker | — (alleen tests; de frontend gebruikt `/bijnamen`) |
 | `/api/portfolio/<code>/reset-bijnaam` | POST | `reset_bijnaam()` | `product` = live `longName` (`haal_long_names()`, bewaard met `bewaar_long_names()`), anders `echte_naam` | — (alleen tests) |
@@ -567,13 +568,15 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
 | `haal_portfolio_basis()` | `db_get_portfolio_naam_en_transacties()` + split-correctie + `get_prices()` + `pas_effectieve_datums_toe()`, 20 s gecachet in `_basis_cache` | `code` → `(naam, transacties_df, price_data)` of `(None, None, None)` | `portfolio_verrijking()`, `ticker_per_isin_beurs_uit_basis()`, `build_portfolio_response()` |
-| `pas_effectieve_datums_toe()` | `bepaal_split_boekingen()` + `bepaal_effectieve_datums()` met de splits uit `koers_splits`, daarna `meld_split_koppeling()`. Pas ná `get_prices()`: dan staan de splits in de cache | `transacties_df` → `transacties_df` met `effectieve_datum` | `haal_portfolio_basis()`, `laad_transacties_en_resultaat()`, `analyze_transacties_kern()`, `ticker_koers_bereik()` |
+| `pas_effectieve_datums_toe()` | `bepaal_split_boekingen()` + `bepaal_effectieve_datums()` met de splits uit `koers_splits`, daarna `meld_split_koppeling()`. Pas ná `get_prices()`: dan staan de splits in de cache | `transacties_df` → `transacties_df` met `effectieve_datum` | `haal_portfolio_basis()`, `laad_transacties_en_resultaat()`, `_split_correctie_en_koersen()`, `ticker_koers_bereik()` |
 | `continue_koersreeks()` | ruwe koersreeks → reeks zonder sprongen op splitdagen (`continue_reeks()`), voor vergelijkingen die stukken "kopen" tegen de koers van toen | `ticker, ruwe_reeks` → Series | `benchmark_vergelijking()` |
 | `bepaal_koersstatus()` | `{koersen_compleet, koersen_onvolledig, koersen_ontbreken}`: onvolledig = nog niet opgehaald (tijdbudget), ontbreken = Yahoo gaf niets | tickers, tickers met koers, onvolledig, namen → dict | `analyze_transacties_kern()` |
 | `splits_voor_grafiek()` | `{iso_datum: ratio}` → `[{datum, ratio}]` op datum, voor de splitlijnen in Per aandeel aankoop | dict → lijst | `analyze_transacties_kern()` |
 | `wis_portfolio_basis_cache()` | verwijdert de cache-entry van een code | `code` → — | `_upload_impl()`, `api_portfolio()`, de bijnaam-routes, `pas_korte_namen_toe()`, `verwijder_portfolio()`, `wijzig_code()` |
 | `laad_split_gecorrigeerde_transacties()` | `db_get_portfolio_naam_en_transacties()` + `compute_split_adjusted_shares()`, **zonder** koersen en zonder cache | `code` → `transacties_df` of `None` als de code niet bestaat | `laad_transacties_en_resultaat()`, `ticker_koers_bereik()` |
 | `laad_transacties_en_resultaat()` | `laad_split_gecorrigeerde_transacties()` + `get_prices()` + `pas_effectieve_datums_toe()` + `compute_value_over_time()` | `code` → `(transacties_df, resultaat)`; `(None, None)` als de code niet bestaat; `(df, None)` zonder koersdata | `benchmark_vergelijking()`, `rendement_over_tijd()` |
+| `bouw_transacties_lijst()` | `db_get_portfolio_naam_en_transacties()` + `compute_split_adjusted_shares()` + `get_prices(verversen=False)` (alleen een ticker zonder cache wordt gedownload) + `db_get_dividenden()`, dan `_transacties_lijst()` | `code` → lijst of `None` als de code niet bestaat | `transacties_overzicht()` |
+| `_transacties_lijst()` | `bereken_transactie_resultaten()` op de split-gecorrigeerde rijen, `transacties_overzicht_uit_df()` op de rijen zoals opgeslagen (een ontbrekende koers blijft `None`) | `transacties_df, split_df, price_data, dividenden` → lijst | `bouw_transacties_lijst()`, `analyze_transacties()` |
 | `ticker_zekerheid_groepen()` | leest de opgeslagen transacties (`db_get_portfolio_naam_en_transacties()`, geen koersen, geen split-correctie) en groepeert ze met `groepeer_posities_per_keten()` (`ticker_zekerheid.py`) | `code` → lijst `((eind_isin, beurs), info)` of `None`; `info` = `{naam, echte_naam, beurs, isin, isins, ticker, transacties}` | `ticker_zekerheid_lijst()`, `ticker_zekerheid_positie()`, `ticker_zekerheid_wijzig()`, `ticker_zekerheid_alle_prijzen()` |
 | `ticker_per_isin_beurs_uit_basis()` | `{(isin, beurs): ticker}` uit de net gebouwde basis | `code` → dict | `_upload_impl()` (voor `meld_valuta_consistentie()`) |
 | `bepaal_korte_naam_voorstellen()` | live `longName` per ticker (`haal_long_names()`, bewaard met `bewaar_long_names()`); per ticker zonder live naam de opgeslagen `ticker_info.long_name` als fallback; dan `kies_korte_namen()`. Schrijft geen bijnamen; `YahooNamenOnbeschikbaar` als er nergens een naam is | `code` → `[{ticker, huidig, long_name, voorstel}]` | `get_korte_namen()`, `pas_korte_namen_toe()` |
@@ -581,7 +584,8 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | `analyze_transacties_kern()` | de snelle helft van het dashboard | `transacties_df, code, naam, ...` → dict | `build_portfolio_response()`, `analyze_transacties()` |
 | `analyze_transacties_verrijking()` | Verdeling (+ `verdeling_samenvatting`), Land/Sector, Valuta, Beurs, Bedrijven, ETF-overlap; direct na `classify_tickers()` vult `vul_ontbrekende_long_names()` lege `ticker_info.long_name`'s aan; met `gebruik_proxy=True` (standaard) eerst de land-proxy's via `_bepaal_land_proxies()` (fase `verrijking_land_proxy`), ná het opwarmen van de holdings-cache | `transacties_df, code, prijs_data_al_klaar, gebruik_proxy` → dict | `portfolio_verrijking()`, `analyze_transacties()` |
 | `_bepaal_land_proxies()` | ISIN per ETF-ticker (laatste rij), dan `land_proxies_voor_etfs()`; `{}` bij elke fout (de proxy mag de verrijking nooit breken) | `transacties_df, is_etf_map` → `{ticker: etf_proxy-rij}` | `analyze_transacties_verrijking()` |
-| `analyze_transacties()` | kern + verrijking in één keer (voor "niet opslaan"), verrijking met `gebruik_proxy=False` | `transacties_df, code, naam` → dict | `_upload_impl()` |
+| `_split_correctie_en_koersen()` | `compute_split_adjusted_shares()` + `get_prices()` + `pas_effectieve_datums_toe()` + `_meld_koersdekking()` | `transacties_df, verversen` → `(split_df, price_data)` | `analyze_transacties_kern()` (zonder `prijs_data_al_klaar`), `analyze_transacties()` |
+| `analyze_transacties()` | kern + verrijking in één keer (voor "niet opslaan"), verrijking met `gebruik_proxy=False`; plus `transacties_lijst` (resultaat per aankoop, dividend altijd `None`) | `transacties_df, code, naam` → dict | `_analyseer_zonder_opslaan()` |
 | `bouw_verdeling_over_tijd()` | basis → `waarde_per_ticker_per_dag()` → `bereken_verdeling_over_tijd()` met de gewichten van de dimensie (`gewichten_per_positie()` + `_ticker_namen()`, `gewichten_per_valuta()`, `gewichten_per_beurs()`, of voor land/sector `_land_sector_fracties_over_tijd()` + `gewichten_per_land()`/`gewichten_per_sector()`); dimensies in `VERDELING_OVER_TIJD_DIMENSIES` | `code, dimensie, samenvoegen` → dict of `None` | `verdeling_over_tijd()` |
 | `_land_sector_fracties_over_tijd()` | warmt de caches op voor alle tickers, ook gesloten posities (`classify_tickers()`, `_verwarm_land_sector_cache_parallel()` met de ISIN's, `_bepaal_land_proxies()`; fase `over_tijd_land_sector_opwarmen`), dan `land_sector_fracties()` per ticker (fase `over_tijd_land_sector_fracties`) | `transacties_df, tickers` → `(is_etf_map, {ticker: fracties})` | `bouw_verdeling_over_tijd()` |
 | `_beperkte_dekking()` | gesorteerde bijnamen van ETF's met `land_bron` `yfinance_top10` (geen proxy, geen provider-CSV) | `is_etf_map, fracties, ticker_namen` → lijst | `bouw_verdeling_over_tijd()` |
@@ -627,8 +631,8 @@ Ook de exception `OngeldigExcelBestand` staat hier (gegooid door `lees_transacti
 | Functie | Wat | Aangeroepen door |
 |---|---|---|
 | `getal_nl()` | getal in Nederlandse notatie (komma als decimaalteken) voor meldingen | `portfolio_calc.py` (split-meldingen), `yahoo_client.py` |
-| `formatteer_transacties_overzicht()` | rijen `(datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers)` → de lijst voor het tabblad Transacties | `db_get_transacties_overzicht()`, `transacties_overzicht_uit_df()` |
-| `transacties_overzicht_uit_df()` | dezelfde lijst uit een DataFrame, voor "niet opslaan" (sortering zoals Postgres: nieuwste eerst, ontbrekende tijd bovenaan) | `_upload_impl()` |
+| `formatteer_transacties_overzicht()` | rijen `(datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers)` → de lijst voor het tabblad Transacties | `transacties_overzicht_uit_df()` |
+| `transacties_overzicht_uit_df()` | de lijst uit een DataFrame (nieuwste eerst, ontbrekende tijd bovenaan), optioneel met de velden van `bereken_transactie_resultaten()` per rij | `_transacties_lijst()` |
 | `_is_corporate_action_row()` | `True` als `beurs == "DEG"` (hoofdletters, gestript) of `"NON TRADEABLE"` in de productnaam: de boekingsrijen die DeGiro voor splits e.d. maakt | `compute_split_adjusted_shares()`, `groepeer_posities_per_keten()`, `_meld_koersdekking()`, `_meld_nieuwe_rijen_kwaliteit()`, `_bouw_xirr_cashflows()`, `bereken_twr()`, `find_ticker_detailed()` |
 | `_sorteer_chronologisch()` | sorteert op datum **plus tijd** (stabiele mergesort); rijen zonder tijd tellen als 00:00:00 | `compute_value_over_time()`, `compute_per_ticker()`, `compute_per_ticker_koers_en_aankopen()`, `bereken_holdings_en_gesloten()` |
 | `formatteer_datum_nl()` | datum (date, Timestamp of ISO-string) als `dd-mm-jjjj` voor meldingen die de gebruiker ziet | `compute_split_adjusted_shares()`, `_meld_dividend_records()`, `prijswaarschuwing_voor_ticker()`, `verifieer_ticker_met_prijs()` |
@@ -1019,6 +1023,22 @@ verloren aan de vrijstelling); `belasting = max(0, rendement − verrekend − h
 i.p.v. de waardeverandering. Huidig: peildatum 1-1, `belasting = tarief × forfaitair rendement / grondslag × (grondslag − heffingsvrij)`;
 tegenbewijs = `tarief × max(0, koersresultaat + kosten + dividend + rendement ander vermogen)`, de laagste geldt. Een jaar na het laatste
 in `FORFAITAIR` krijgt de parameters van dat jaar met `geschat: True`; vóór 2023 `{"berekend": False}`.
+
+---
+
+### `transactie_resultaat.py` — resultaat en dividend per aankoop (Transacties)
+
+**Verantwoordelijkheid:** per aankooprij ("lot") het resultaat op de eigen aankoopkoers en het pro rata dividend. Pure functies.
+
+| Functie | Wat | Input → output | Aangeroepen door |
+|---|---|---|---|
+| `bereken_transactie_resultaten()` | per ISIN-keten chronologisch (datum + tijd): aankoop = lot (`adj_aantal` > 0, `totaal_eur` ≠ 0, aankoopkoers `waarde_eur` / `adj_aantal`, terugval `koers` × `aantal` / `adj_aantal`); verkoop sluit de oudste open loten (FIFO) tegen `totaal_eur` / stuks; een wisselpaar schaalt de open stukken met `nieuw_aantal` / `oud_aantal`; een dividend verdeelt `netto_eur` naar open stukken vóór de uitbetaaldag | `split_df, {ticker: koers}, dividenden of None` → `{rij-label: {resultaat_eur, resultaat_pct, status, dividend_eur, dividend_pct}}` | `_transacties_lijst()` |
+| `laatste_koersen()` | laatste niet-lege koers per ticker | `price_data` → dict | `_transacties_lijst()` |
+
+Resultaat = gerealiseerd (verkochte stukken × (verkoopkoers − aankoopkoers)) + open stukken × (laatste koers − aankoopkoers), met
+de laatste koers van de meest recente ticker van de keten; zonder die koers `None`, behalve bij een gesloten lot. `status`: `open`,
+`deels_verkocht` of `gesloten`; `None` voor verkopen, corporate-action- en wisselrijen en rijen zonder ISIN en ticker. Dividend
+telt nooit mee in het resultaat; `dividend_eur` is `None` zonder rekeningoverzicht (en altijd bij "niet opslaan").
 
 ---
 
@@ -1415,8 +1435,8 @@ Hoofdstuk 4 beschrijft de tabellen; hier alleen de functies.
 | ETF-caches | `db_get_cached_etf_sector_verdeling()`, `db_save_etf_sector_verdeling()`, `db_get_cached_etf_holdings()`, `db_save_etf_holdings()` | `get_etf_sector_verdeling()`, `get_etf_holdings()` |
 | Prijscheck/splits/OpenFIGI | `db_get_cached_prijscheck()`, `db_save_prijscheck()`, `db_get_cached_splits()`, `db_save_splits()`, `db_get_cached_openfigi()`, `db_get_cached_openfigi_voor_isins()`, `db_save_openfigi()` | `vergelijk_prijs_op_datum()`, `_haal_splits_op()`, `haal_openfigi_resultaten()`, `_meld_tickers()` (één query voor alle ISIN's) |
 | Koersen (`koersen`, `koers_splits`) | `db_get_gecachte_koersen()`, `db_save_koersen()` (koersen + splits in één transactie), `db_get_koers_splits()`, `db_get_laatste_koers_update()` | `get_prices()`, `pas_effectieve_datums_toe()`, `continue_koersreeks()`, `analyze_transacties_kern()` |
-| Portfolio beheren | `db_delete_portfolio()`, `db_wijzig_portfolio_code()`, `db_portfolio_bestaat()`, `db_portfolio_bestaat_met_cursor()` (cur), `db_maak_portfolio()` (cur), `db_zet_portfolio_naam()` (cur), `db_get_order_id_sets_met_overlap()` (cur), `db_get_order_ids()` (cur), `db_get_order_ids_bij_andere_portfolios()` (cur) | `verwijder_portfolio()`, `wijzig_code()`, `dividend()`, `transacties_overzicht()`, `generate_code()`, `find_matching_code()`, `vind_of_maak_portfolio()`, `_bijwerken_impl()` |
-| Transacties lezen | `TRANSACTIE_KOLOMMEN` en `ORDER_ID_KOLOMMEN` (constanten), `db_get_order_id_rijen()` (Order ID's met hun rijgegevens, voor `check_synthetische_order_ids()`), `db_get_portfolio_naam_en_transacties()`, `db_get_transacties_overzicht()`, `db_get_isin_ticker_product()`, `db_get_bekende_tickers()` (cur) | `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()`, `ticker_zekerheid_groepen()`, `backfill_verouderde_tickers()`, `transacties_overzicht()`, `bereken_dividend_samenvatting()`, `_ticker_resolutie_opslaan()` |
+| Portfolio beheren | `db_delete_portfolio()`, `db_wijzig_portfolio_code()`, `db_portfolio_bestaat()`, `db_portfolio_bestaat_met_cursor()` (cur), `db_maak_portfolio()` (cur), `db_zet_portfolio_naam()` (cur), `db_get_order_id_sets_met_overlap()` (cur), `db_get_order_ids()` (cur), `db_get_order_ids_bij_andere_portfolios()` (cur) | `verwijder_portfolio()`, `wijzig_code()`, `dividend()`, `generate_code()`, `find_matching_code()`, `vind_of_maak_portfolio()`, `_bijwerken_impl()` |
+| Transacties lezen | `TRANSACTIE_KOLOMMEN` en `ORDER_ID_KOLOMMEN` (constanten), `db_get_order_id_rijen()` (Order ID's met hun rijgegevens, voor `check_synthetische_order_ids()`), `db_get_portfolio_naam_en_transacties()`, `db_get_isin_ticker_product()`, `db_get_bekende_tickers()` (cur) | `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()`, `ticker_zekerheid_groepen()`, `backfill_verouderde_tickers()`, `bouw_transacties_lijst()`, `bereken_dividend_samenvatting()`, `_ticker_resolutie_opslaan()` |
 | Transacties schrijven | `db_insert_transactie()` (cur), `db_wijzig_ticker_voor_isins()` (cur; `isin = ANY(...)` en dezelfde beurs: alle ISIN's van een keten), `db_wijzig_bijnamen()`, `db_wijzig_bijnaam()`, `db_herstel_echte_naam()` | `_insert_nieuwe_transacties()`, `backfill_verouderde_tickers()`, `ticker_zekerheid_wijzig()`, `set_bijnamen()`, `pas_korte_namen_toe()`, `set_bijnaam()`, `reset_bijnaam()` |
 | Dividend | `db_save_dividenden()` (cur), `db_get_dividenden()` | `sla_dividend_bestand_op()`, `bereken_dividend_samenvatting()`, `analyze_transacties_kern()`, `box3_basis()` |
 | Kassaldo | `db_save_kassaldo()` (cur, upsert), `db_get_kassaldo()` (`None` als er geen rij is) | `sla_kassaldo_op()`, `analyze_transacties_kern()` |
@@ -1477,7 +1497,7 @@ Lezen: `generate_code()` (bestaat de code al? via `db_portfolio_bestaat_met_curs
 Schrijven: `_insert_nieuwe_transacties()` (INSERT via `db_insert_transactie()`); `backfill_verouderde_tickers()`
 en `ticker_zekerheid_wijzig()` (UPDATE `ticker` via `db_wijzig_ticker_voor_isins()`, voor alle ISIN's van een keten); `set_bijnamen()` en `pas_korte_namen_toe()` (UPDATE `product` via `db_wijzig_bijnamen()`), `set_bijnaam()`/`reset_bijnaam()` (via `db_wijzig_bijnaam()`/`db_herstel_echte_naam()`); `db_wijzig_portfolio_code()` (UPDATE `code`); `db_delete_portfolio()`.
 Lezen: `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()` (beide via `db_get_portfolio_naam_en_transacties()`), `find_matching_code()` en `_bijwerken_impl()` (Order ID's, alleen van overlappende portfolio's), `_ticker_resolutie_opslaan()` (via `db_get_bekende_tickers()`), `ticker_zekerheid_groepen()` en `backfill_verouderde_tickers()` (via `db_get_portfolio_naam_en_transacties()`),
-`bereken_dividend_samenvatting()` en `analyze_transacties_kern()` (via `db_get_isin_ticker_product()`), `db_get_transacties_overzicht()`.
+`bereken_dividend_samenvatting()` en `analyze_transacties_kern()` (via `db_get_isin_ticker_product()`), `bouw_transacties_lijst()` (via `db_get_portfolio_naam_en_transacties()`).
 
 #### `dividenden`
 | Kolom | Type | Betekenis |
@@ -2093,7 +2113,7 @@ Voorbeeld uit de code: `waarde_eur`. Hetzelfde pad volgden `transactiekosten`, `
    - geef hem door aan `db_insert_transactie()` in `_insert_nieuwe_transacties()` (nieuwe parameter in de aanroep);
    - neem hem op in `bouw_transacties_df_niet_opslaan()` zodat "niet opslaan" dezelfde kolommen heeft.
 3. **`db.py`:** neem de kolom op in de `INSERT` van `db_insert_transactie()` (kolomlijst **en** `VALUES`-plaatsaanduiding **en** parameters) en in `TRANSACTIE_KOLOMMEN` (de lijst voor de `SELECT` in `db_get_portfolio_naam_en_transacties()`; die ene lijst dekt zowel `haal_portfolio_basis()` als `laad_split_gecorrigeerde_transacties()`). Cast `NUMERIC` in `portfolio_orchestratie.py` naar `float` waar nodig.
-4. **Tonen?** Dan ook `db_get_transacties_overzicht()` in `db.py`, `TRANSACTIES_KOLOMMEN` in `static/js/tabs/transacties.js` (kop en cel in één regel) en `VERGELIJKERS` in `static/js/transacties.js` (de sortering, onder dezelfde sleutel).
+4. **Tonen?** Dan ook `transacties_overzicht_uit_df()` en `formatteer_transacties_overzicht()` in `transactie_utils.py`, `TRANSACTIES_KOLOMMEN` in `static/js/tabs/transacties.js` (kop en cel in één regel) en `VERGELIJKERS` in `static/js/transacties.js` (de sortering, onder dezelfde sleutel).
 5. **Tests + bestaande data:** test de nieuwe kolom met een eigen test-code. Al opgeslagen rijen krijgen de kolom niet vanzelf gevuld (er is geen data-backfill, zie 4.4): portfolio verwijderen en opnieuw uploaden.
 
 ### 8.4 Een ticker-probleem oplossen

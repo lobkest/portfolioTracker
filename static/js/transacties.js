@@ -20,15 +20,21 @@
         totaal_eur: (a, b) => a.totaal_eur - b.totaal_eur,
         wisselkoers: (a, b) => (a.wisselkoers ?? -Infinity) - (b.wisselkoers ?? -Infinity),
         transactiekosten: (a, b) => (a.transactiekosten ?? -Infinity) - (b.transactiekosten ?? -Infinity),
+        resultaat_eur: (a, b) => a.resultaat_eur - b.resultaat_eur,
+        dividend_eur: (a, b) => a.dividend_eur - b.dividend_eur,
     };
+    // Alleen aankooprijen hebben een waarde: verkopen en onbekende koersen staan in beide richtingen onderaan.
+    const LEEG_ONDERAAN = new Set(["resultaat_eur", "dividend_eur"]);
 
     // Sorteert een kopie; de invoer blijft ongewijzigd.
     function sorteerTransacties(rijen, kolomKey, richting) {
         const vergelijk = VERGELIJKERS[kolomKey];
         if (!vergelijk) return rijen.slice();
-        const gesorteerd = rijen.slice().sort(vergelijk);
+        const leegOnderaan = LEEG_ONDERAAN.has(kolomKey);
+        const metWaarde = leegOnderaan ? rijen.filter(r => r[kolomKey] != null) : rijen.slice();
+        const gesorteerd = metWaarde.sort(vergelijk);
         if (richting === "desc") gesorteerd.reverse();
-        return gesorteerd;
+        return leegOnderaan ? gesorteerd.concat(rijen.filter(r => r[kolomKey] == null)) : gesorteerd;
     }
 
     // Minimaal 1, ook zonder rijen.

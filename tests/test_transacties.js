@@ -34,6 +34,27 @@ test("sorteerTransacties: numerieke kolommen (aantal/koers/totaal_eur)", () => {
     assert.deepEqual(sorteerTransacties(RIJEN, "totaal_eur", "asc").map(r => r.totaal_eur), [100, 100, 300]);
 });
 
+const MET_RESULTAAT = [
+    { product: "verkoop", resultaat_eur: null, dividend_eur: null },
+    { product: "winst", resultaat_eur: 50, dividend_eur: 2 },
+    { product: "oud", dividend_eur: 0 },
+    { product: "verlies", resultaat_eur: -20, dividend_eur: 7.5 },
+];
+
+test("sorteerTransacties: resultaat_eur, zonder waarde onderaan in beide richtingen", () => {
+    assert.deepEqual(sorteerTransacties(MET_RESULTAAT, "resultaat_eur", "asc").map(r => r.product),
+        ["verlies", "winst", "verkoop", "oud"]);
+    assert.deepEqual(sorteerTransacties(MET_RESULTAAT, "resultaat_eur", "desc").map(r => r.product),
+        ["winst", "verlies", "verkoop", "oud"]);
+});
+
+test("sorteerTransacties: dividend_eur, 0 is een waarde en null onderaan", () => {
+    assert.deepEqual(sorteerTransacties(MET_RESULTAAT, "dividend_eur", "asc").map(r => r.product),
+        ["oud", "winst", "verlies", "verkoop"]);
+    assert.deepEqual(sorteerTransacties(MET_RESULTAAT, "dividend_eur", "desc").map(r => r.product),
+        ["verlies", "winst", "oud", "verkoop"]);
+});
+
 test("sorteerTransacties: muteert de meegegeven array niet", () => {
     const kopie = RIJEN.map(r => ({ ...r }));
     sorteerTransacties(RIJEN, "datum_tijd", "asc");

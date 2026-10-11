@@ -91,7 +91,6 @@ class TestBox3Routes(unittest.TestCase):
              patch.object(am, "verwerk_dividend_zonder_opslaan", return_value=dividenden) as mock_div, \
              patch.object(am, "analyze_transacties", return_value={"box3_basis": {"jaren": []}}) as mock_analyse, \
              patch.object(am, "meld_valuta_consistentie"), \
-             patch.object(am, "transacties_overzicht_uit_df", return_value=[]), \
              patch.object(am, "bouw_dividend_samenvatting", return_value=None):
             result = am._analyseer_zonder_opslaan(pd.DataFrame(), pd.DataFrame({"x": [1]}), "")
         mock_div.assert_called_once()  # één keer voor dividend én box 3

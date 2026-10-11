@@ -29,7 +29,8 @@ from diagnostiek import (
     ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND,
     CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP,
 )
-from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
+from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, transacties_overzicht_uit_df
+from transactie_resultaat import bereken_transactie_resultaten, laatste_koersen
 from prijzen import get_prices
 from box3 import bouw_box3_basis
 from portfolio_calc import (
@@ -443,6 +444,26 @@ def laad_split_gecorrigeerde_transacties(code):
     return compute_split_adjusted_shares(transacties_df)
 
 
+def _transacties_lijst(transacties_df, split_df, price_data, dividenden):
+    """transacties_df zoals opgeslagen (koers mag ontbreken), split_df dezelfde rijen na compute_split_adjusted_shares()."""
+    resultaten = bereken_transactie_resultaten(split_df, laatste_koersen(price_data), dividenden)
+    return transacties_overzicht_uit_df(transacties_df, resultaten)
+
+
+def bouw_transacties_lijst(code):
+    """None als de code niet bestaat. Koersen zonder verversing: alleen een ticker zonder cache wordt gedownload."""
+    naam, rows = db_get_portfolio_naam_en_transacties(code)
+    if naam is None:
+        return None
+    transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
+    split_df = compute_split_adjusted_shares(transacties_df)
+    tickers = split_df["ticker"].dropna().unique().tolist()
+    price_data = get_prices(tickers, split_df["datum"].min(), verversen=False,
+                            gesloten_sinds=_gesloten_sinds(split_df)) if tickers else pd.DataFrame()
+    # Lege lijst = nooit een rekeningoverzicht geüpload, zoals bij /dividend.
+    return _transacties_lijst(transacties_df, split_df, price_data, db_get_dividenden(code) or None)
+
+
 def laad_transacties_en_resultaat(code):
     """(transacties_df, resultaat); resultaat None zonder koersdata, (None, None) als de code niet bestaat."""
     transacties_df = laad_split_gecorrigeerde_transacties(code)
@@ -553,6 +574,18 @@ def build_portfolio_response(code, verversen=True):
     return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
 
 
+def _split_correctie_en_koersen(transacties_df, verversen=True):
+    tickers = transacties_df["ticker"].dropna().unique().tolist()
+    with meet_tijd("split_correctie_kern"):
+        transacties_df = compute_split_adjusted_shares(transacties_df)
+    start_date = transacties_df["datum"].min()
+    with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
+        price_data = get_prices(tickers, start_date, verversen=verversen, gesloten_sinds=_gesloten_sinds(transacties_df))
+    transacties_df = pas_effectieve_datums_toe(transacties_df)
+    _meld_koersdekking(transacties_df, price_data)
+    return transacties_df, price_data
+
+
 def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None, kassaldo=None,
                              box3=False, box3_dividenden=None):
     """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. `kassaldo` alleen bij 'niet opslaan';
@@ -564,13 +597,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     if prijs_data_al_klaar is not None:
         price_data = prijs_data_al_klaar
     else:
-        with meet_tijd("split_correctie_kern"):
-            transacties_df = compute_split_adjusted_shares(transacties_df)
-        start_date = transacties_df["datum"].min()
-        with meet_tijd(f"koersen_ophalen_kern ({len(tickers)} ticker(s))"):
-            price_data = get_prices(tickers, start_date, verversen=verversen, gesloten_sinds=_gesloten_sinds(transacties_df))
-        transacties_df = pas_effectieve_datums_toe(transacties_df)
-        _meld_koersdekking(transacties_df, price_data)
+        transacties_df, price_data = _split_correctie_en_koersen(transacties_df, verversen)
 
     ticker_namen = _ticker_namen(transacties_df)
     koersstatus = bepaal_koersstatus(
@@ -760,12 +787,15 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, box3_dividenden=None):
     """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking).
     Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout).
-    box3_dividenden: de dividendrecords uit het rekeningoverzicht, of None."""
+    box3_dividenden: de dividendrecords uit het rekeningoverzicht, of None.
+    Bevat ook transacties_lijst (Transacties-tabblad), zonder dividend per aankoop."""
     with meet_tijd("basis_datakwaliteit"):
         _meld_datakwaliteit(None, transacties_df)
     _meld_dividend_zonder_positie(transacties_df, box3_dividenden)
-    resultaat = analyze_transacties_kern(transacties_df, code, naam, kassaldo=kassaldo, box3=box3,
-                                         box3_dividenden=box3_dividenden)
+    split_df, price_data = _split_correctie_en_koersen(transacties_df)
+    resultaat = analyze_transacties_kern(split_df, code, naam, prijs_data_al_klaar=price_data, kassaldo=kassaldo,
+                                         box3=box3, box3_dividenden=box3_dividenden)
+    resultaat["transacties_lijst"] = _transacties_lijst(transacties_df, split_df, price_data, None)
     if resultaat.get("chart_data") is None:
         return resultaat
     resultaat.update(analyze_transacties_verrijking(transacties_df, code, gebruik_proxy=False))

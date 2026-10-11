@@ -44,6 +44,7 @@ def _transacties_df():
         "echte_naam": ["ETF_A", "AAPL"],
         "transactiekosten": [float("nan"), float("nan")],
         "tijd": [None, None],
+        "wisselkoers": [float("nan"), float("nan")],
     })
 
 
@@ -115,6 +116,8 @@ class TestGefaseerdLaden(unittest.TestCase):
 
         wrapper_resultaat = self.portfolio_orchestratie.analyze_transacties(_transacties_df(), code=None, naam="Test")
 
+        # transacties_lijst hoort alleen bij 'niet opslaan' (met code: eigen endpoint).
+        self.assertEqual(len(wrapper_resultaat.pop("transacties_lijst")), 2)
         self.assertEqual(wrapper_resultaat, verwacht)
 
 

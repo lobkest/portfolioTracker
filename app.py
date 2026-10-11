@@ -6,7 +6,7 @@ import traceback
 from flask import Flask, render_template, request, jsonify, redirect, url_for
 import pandas as pd
 from db import (
-    db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code, db_get_transacties_overzicht,
+    db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
@@ -31,7 +31,6 @@ from dividend import (
 )
 from dividend_verwachting import bereken_dividend_verwachting
 from historisch_rendement import bereken_historisch_rendement
-from transactie_utils import transacties_overzicht_uit_df
 from portfolio_admin import (
     is_geldige_code, CODE_LENGTH, controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
@@ -47,7 +46,7 @@ from upload_verwerking import (
 from portfolio_orchestratie import (
     haal_portfolio_basis, wis_portfolio_basis_cache, laad_transacties_en_resultaat,
     laad_split_gecorrigeerde_transacties, pas_effectieve_datums_toe, continue_koersreeks,
-    ticker_zekerheid_groepen, build_portfolio_response, analyze_transacties_verrijking, analyze_transacties,
+    ticker_zekerheid_groepen, build_portfolio_response, bouw_transacties_lijst, analyze_transacties_verrijking, analyze_transacties,
     bouw_verdeling_over_tijd, VERDELING_OVER_TIJD_DIMENSIES,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
     meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden,
@@ -166,7 +165,6 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
         meld_order_ids_rekening_uit_bestanden(df, rekening_df)
     result["ticker_zekerheid"] = ticker_zekerheid
     result["ticker_posities_ruw"] = ticker_posities_ruw
-    result["transacties_lijst"] = transacties_overzicht_uit_df(transacties_df)
     result["dividend"] = _dividend_niet_opslaan(transacties_df, dividend_records)
     return result
 
@@ -697,10 +695,10 @@ def historisch_rendement(code):
 @app.route("/api/portfolio/<code>/transacties")
 def transacties_overzicht(code):
     code = code.strip().upper()
-    if not db_portfolio_bestaat(code):
+    lijst = bouw_transacties_lijst(code)
+    if lijst is None:
         return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
-
-    return jsonify({"lijst": db_get_transacties_overzicht(code)})
+    return jsonify({"lijst": lijst})
 
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])

@@ -13,6 +13,38 @@ function resetTransacties() {
 
 const TRANSACTIES_TOESTANDEN = ["transactiesLaden", "transactiesFout", "transactiesLeeg", "transactiesInhoud"];
 
+const TRANSACTIE_STATUS_BADGES = {
+    deels_verkocht: { tekst: "Deels verkocht", klasse: "badge badgeDeelsVerkocht" },
+    gesloten: { tekst: "Gesloten", klasse: "badge badgeGesloten" },
+};
+const TRANSACTIE_RESULTAAT_UITLEG = "Verschil tussen de aankoopkoers van deze aankoop en de laatste koers; verkochte "
+    + "stukken gaan FIFO (oudste aankoop eerst). Kan afwijken van het rendement per positie op Statistieken (GAK).";
+const TRANSACTIE_DIVIDEND_UITLEG = "Netto dividend, pro rata verdeeld naar het aantal stukken van deze aankoop op de "
+    + "uitbetaaldatum. Niet meegeteld in het resultaat.";
+
+// Status zonder resultaat: een aankoop waarvan de koers ontbreekt.
+function maakTransactieResultaatCel(r) {
+    if (r.status == null) return maakCel("—");
+    if (r.resultaat_eur === null) return maakCel("koers onbekend");
+    const euro = `${r.resultaat_eur > 0 ? "+" : ""}${formatteerEuro(r.resultaat_eur)}`;
+    const td = maakCel(r.resultaat_pct === null ? euro : `${euro} (${formatPct(r.resultaat_pct, 1, true)})`);
+    td.className = r.status === "gesloten" ? "gedempt" : klasseVoorRendement(r.resultaat_eur);
+    const badge = TRANSACTIE_STATUS_BADGES[r.status];
+    if (badge) {
+        const span = document.createElement("span");
+        span.textContent = badge.tekst;
+        span.className = badge.klasse;
+        td.appendChild(span);
+    }
+    return td;
+}
+
+function transactieDividendTekst(r) {
+    if (r.dividend_eur == null) return "—";
+    const euro = formatteerEuro(r.dividend_eur);
+    return r.dividend_pct === null ? euro : `${euro} (${formatPct(r.dividend_pct, 1)})`;
+}
+
 // De sleutels zijn de kolomnamen van sorteerTransacties() (transacties.js).
 const TRANSACTIES_KOLOMMEN = [
     {
@@ -39,6 +71,13 @@ const TRANSACTIES_KOLOMMEN = [
         label: "Transactiekosten (EUR)",
         sleutel: "transactiekosten",
         renderTd: r => maakCel(r.transactiekosten === null ? "—" : formatteerEuro(r.transactiekosten)),
+    },
+    { label: "Resultaat", sleutel: "resultaat_eur", uitleg: TRANSACTIE_RESULTAAT_UITLEG, renderTd: maakTransactieResultaatCel },
+    {
+        label: "Dividend",
+        sleutel: "dividend_eur",
+        uitleg: TRANSACTIE_DIVIDEND_UITLEG,
+        renderTd: r => maakCel(transactieDividendTekst(r)),
     },
 ];
 

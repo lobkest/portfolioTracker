@@ -9,7 +9,6 @@ from psycopg2.extensions import TRANSACTION_STATUS_IDLE
 from psycopg2.extras import execute_values, Json
 from dotenv import load_dotenv
 from flask import g, has_app_context
-from transactie_utils import formatteer_transacties_overzicht
 
 load_dotenv()
 
@@ -814,21 +813,6 @@ def db_get_dividenden(code):
         for datum, product, isin, valuta, bruto_eur, belasting_eur, netto_eur, herinvesteerd in rows
     ]
     return resultaat
-
-
-def db_get_transacties_overzicht(code):
-    """tijd en transactiekosten kunnen None zijn; nooit een verzonnen waarde invullen."""
-    conn = db_connect()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT datum, tijd, COALESCE(echte_naam, product), aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers "
-        "FROM transacties WHERE code = %s ORDER BY datum DESC, tijd DESC",
-        (code,),
-    )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return formatteer_transacties_overzicht(rows)
 
 
 def db_save_koersen(rijen, splits_per_ticker):

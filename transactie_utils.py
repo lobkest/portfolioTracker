@@ -83,15 +83,20 @@ def _getal_of_none(waarde):
     return None if pd.isna(waarde) else float(waarde)
 
 
-def transacties_overzicht_uit_df(transacties_df):
-    """Zelfde lijst als db_get_transacties_overzicht(), voor 'Niet opslaan' (geen database)."""
+def transacties_overzicht_uit_df(transacties_df, resultaten=None):
+    """Lijst voor het Transacties-tabblad, meest recent eerst. resultaten: {rij-label: velden} uit
+    bereken_transactie_resultaten(), per rij toegevoegd."""
     rows = [
-        (rij.datum, _naar_tijd_of_none(rij.tijd), rij.echte_naam if pd.notna(rij.echte_naam) else rij.product, rij.aantal,
-         _getal_of_none(rij.koers), rij.totaal_eur, _getal_of_none(rij.transactiekosten),
-         rij.isin if pd.notna(rij.isin) else None, rij.beurs if pd.notna(rij.beurs) else None,
-         _getal_of_none(rij.wisselkoers))
-        for rij in transacties_df.itertuples(index=False)
+        (label, (rij.datum, _naar_tijd_of_none(rij.tijd), rij.echte_naam if pd.notna(rij.echte_naam) else rij.product,
+                 rij.aantal, _getal_of_none(rij.koers), rij.totaal_eur, _getal_of_none(rij.transactiekosten),
+                 rij.isin if pd.notna(rij.isin) else None, rij.beurs if pd.notna(rij.beurs) else None,
+                 _getal_of_none(rij.wisselkoers)))
+        for label, rij in zip(transacties_df.index, transacties_df.itertuples(index=False))
     ]
     # Zoals Postgres bij ORDER BY ... DESC: een ontbrekende tijd komt bovenaan.
-    rows.sort(key=lambda r: (r[0], r[1] if r[1] is not None else datetime.time.max), reverse=True)
-    return formatteer_transacties_overzicht(rows)
+    rows.sort(key=lambda lr: (lr[1][0], lr[1][1] if lr[1][1] is not None else datetime.time.max), reverse=True)
+    lijst = formatteer_transacties_overzicht([r for _, r in rows])
+    if resultaten is not None:
+        for (label, _), item in zip(rows, lijst):
+            item.update(resultaten[label])
+    return lijst
