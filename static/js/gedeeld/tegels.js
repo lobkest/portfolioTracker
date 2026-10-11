@@ -57,7 +57,7 @@ function maakTotalenSectie(totalen, aansluitingskosten) {
     rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatteerEuro(totalen.geinvesteerd), "", null, UITLEG_GEINVESTEERD));
     rij.appendChild(maakStatTegel("Totale huidige waarde", formatteerEuro(totalen.waarde)));
     rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), klasseVoorRendement(totalen.rendement_eur), null, UITLEG_RENDEMENT));
-    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct), null, UITLEG_RENDEMENT));
+    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct)));
 
     if (totalen.dividend_netto !== null && totalen.dividend_netto !== undefined) {
         rij.appendChild(maakStatTegel("Ontvangen dividend (netto)", formatteerEuro(totalen.dividend_netto)));

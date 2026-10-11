@@ -279,14 +279,18 @@
 
             <div id="tab-beurs" data-views="beurs" style="display: none;">
                 <p id="beursTekst" data-verberg-buiten="beurs" style="display: none;"></p>
-                <div data-grafiek-plek></div>
-                <label id="euronextCheckboxWrapper" data-verberg-buiten="beurs" class="checkboxLabel margeBoven10" style="display: none;">
-                    <input type="checkbox" id="euronextCheckbox"> Euronext-beurzen samenvoegen
-                </label>
-                <div id="aansluitingskostenSectie" class="margeBoven20" data-verberg-buiten="beurs" style="display: none;">
-                    <div class="sectieTitel">Aansluitingskosten per beurs</div>
-                    <p class="kleineMelding">Jaarlijkse kosten van DEGIRO per beurs. Niet meegeteld in transactiekosten of rendement.</p>
-                    <div id="aansluitingskostenTabel"></div>
+                <div class="beursSplit">
+                    <div class="beursGrafiek">
+                        <div data-grafiek-plek></div>
+                        <label id="euronextCheckboxWrapper" data-verberg-buiten="beurs" class="checkboxLabel margeBoven10" style="display: none;">
+                            <input type="checkbox" id="euronextCheckbox"> Euronext-beurzen samenvoegen
+                        </label>
+                    </div>
+                    <div id="aansluitingskostenSectie" class="margeBoven20" data-verberg-buiten="beurs" style="display: none;">
+                        <div class="sectieTitel">Aansluitingskosten per beurs</div>
+                        <p class="kleineMelding">Jaarlijkse kosten van DEGIRO per beurs. Niet meegeteld in transactiekosten of rendement.</p>
+                        <div id="aansluitingskostenTabel"></div>
+                    </div>
                 </div>
             </div>
 

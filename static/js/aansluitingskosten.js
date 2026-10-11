@@ -33,7 +33,7 @@
 
     function perJaarTekst(perJaar) {
         return (perJaar || [])
-            .map(j => `${j.jaar === null || j.jaar === undefined ? "jaar onbekend" : j.jaar}: ${formatteerEuro(j.bedrag_eur)}`)
+            .map(j => `${j.jaar === null || j.jaar === undefined ? "jaar onbekend" : j.jaar} ${formatteerEuro(j.bedrag_eur)}`)
             .join(" · ");
     }
 
@@ -59,8 +59,14 @@
             || b.totaal_eur - a.totaal_eur || a.beurs.localeCompare(b.beurs, "nl"));
     }
 
+    // Totaalrij alleen bij meer dan één beurs; het bedrag komt uit de API.
+    function aansluitingskostenTotaalTekst(samenvatting, aantalRijen) {
+        return heeftAansluitingskosten(samenvatting) && aantalRijen > 1 ? formatteerEuro(samenvatting.totaal_eur) : null;
+    }
+
     const exportsObj = {
         UITLEG_AANSLUITINGSKOSTEN, heeftAansluitingskosten, aansluitingskostenTegel, aansluitingskostenRijen,
+        aansluitingskostenTotaalTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

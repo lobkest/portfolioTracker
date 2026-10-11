@@ -6,7 +6,8 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     UITLEG_AANSLUITINGSKOSTEN, heeftAansluitingskosten, aansluitingskostenTegel, aansluitingskostenRijen,
-} = require("../static/js/aansluitingskosten.js");
+    aansluitingskostenTotaalTekst,
+} =require("../static/js/aansluitingskosten.js");
 
 function beurs(code, naam, verdelingNaam, verdelingNaamEuronext, perJaar) {
     const totaal = perJaar.reduce((s, [, b]) => s + b, 0);
@@ -56,7 +57,7 @@ test("aansluitingskostenRijen: meerdere beurzen en jaren, hoogste totaal eerst",
     assert.deepEqual(rijen.map(r => r.beurs), ["Voorbeeldbeurs AG (ZZZ)", "Xetra (XET)", "Euronext Amsterdam (EAM)"]);
     const xet = rijen.find(r => r.code === "XET");
     assert.equal(xet.totaalTekst, "€5,00");
-    assert.equal(xet.perJaar, "2024: €2,50 · 2025: €2,50");
+    assert.equal(xet.perJaar, "2024 €2,50 · 2025 €2,50");
 });
 
 test("aansluitingskostenRijen: beurs zonder huidige positie, ook met Euronext samengevoegd", () => {
@@ -79,7 +80,7 @@ test("aansluitingskostenRijen: onbekende beurs onderaan, zonder positie-oordeel"
     const rijen = aansluitingskostenRijen(s, BEURS_VERDELING, false);
     const laatste = rijen.at(-1);
     assert.equal(laatste.beurs, "Onbekende beurs");
-    assert.equal(laatste.perJaar, "jaar onbekend: €9,00");
+    assert.equal(laatste.perJaar, "jaar onbekend €9,00");
     assert.equal(laatste.inBezit, null);
 });
 
@@ -88,6 +89,12 @@ test("aansluitingskostenRijen: afronding op 2 decimalen, geen eigen berekening",
     const [rij] = aansluitingskostenRijen(s, BEURS_VERDELING, false);
     assert.equal(rij.totaalTekst, "€1,00");
     assert.equal(rij.totaal_eur, 1.004);
+});
+
+test("aansluitingskostenTotaalTekst: alleen bij meer dan één beurs, bedrag uit de API", () => {
+    assert.equal(aansluitingskostenTotaalTekst(SAMENVATTING, 3), "€12,50");
+    assert.equal(aansluitingskostenTotaalTekst(SAMENVATTING, 1), null);
+    assert.equal(aansluitingskostenTotaalTekst(undefined, 3), null);
 });
 
 test("aansluitingskostenRijen: zonder kosten een lege lijst", () => {

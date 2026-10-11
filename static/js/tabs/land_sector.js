@@ -138,26 +138,55 @@ function toonValuta() {
     }
 }
 
-function maakAansluitingskostenTabel(rijen) {
+function maakBeursNaamCel(r) {
+    const td = maakCel(r.beurs);
+    if (r.inBezit === false) {
+        const badge = document.createElement("span");
+        badge.className = "badge badgeGesloten";
+        badge.textContent = "geen positie";
+        td.appendChild(badge);
+    }
+    return td;
+}
+
+function maakAansluitingskostenTabel(rijen, totaalTekst) {
     const kolommen = [
         {
             label: "Beurs",
-            mobielRol: "titel",
+            alleenTabel: true,
             renderTd: r => {
-                const td = maakCel(r.beurs);
-                if (r.inBezit === false) {
-                    const badge = document.createElement("span");
-                    badge.className = "badge badgeGesloten";
-                    badge.textContent = "geen positie";
-                    td.appendChild(badge);
-                }
+                const td = maakBeursNaamCel(r);
+                const perJaar = document.createElement("div");
+                perJaar.className = "kleineMelding";
+                perJaar.textContent = r.perJaar;
+                td.appendChild(perJaar);
                 return td;
             },
         },
-        { label: "Totaal betaald", mobielRol: "waarde", waarde: r => r.totaal_eur, renderTd: r => maakCel(r.totaalTekst) },
-        { label: "Per jaar", renderTd: r => maakCel(r.perJaar) },
+        { label: "Beurs", alleenMobiel: true, mobielRol: "titel", renderTd: maakBeursNaamCel },
+        {
+            label: "Totaal betaald",
+            mobielRol: "waarde",
+            waarde: r => r.totaal_eur,
+            renderTd: r => {
+                const td = maakCel(r.totaalTekst);
+                td.className = "getalRechts";
+                return td;
+            },
+        },
+        { label: "Per jaar", alleenMobiel: true, renderTd: r => maakCel(r.perJaar) },
     ];
-    return maakSorteerbareTabel(kolommen, rijen, { klasse: "compacteTabel", compactOpMobiel: true });
+    const resultaat = maakSorteerbareTabel(kolommen, rijen, { klasse: "compacteTabel aansluitingTabel", compactOpMobiel: true });
+    if (totaalTekst) {
+        const tfoot = document.createElement("tfoot");
+        const tr = document.createElement("tr");
+        const totaalCel = maakCel(totaalTekst);
+        totaalCel.className = "getalRechts";
+        tr.append(maakCel("Totaal"), totaalCel);
+        tfoot.appendChild(tr);
+        resultaat.querySelector("table").appendChild(tfoot);
+    }
+    return resultaat;
 }
 
 // Kerndata: staat er ook als de verrijking (beurs_verdeling) nog laadt, dan zonder "geen positie".
@@ -166,7 +195,8 @@ function toonAansluitingskosten(samenvoegen) {
     const rijen = aansluitingskostenRijen(huidigeData.aansluitingskosten, huidigeData.beurs_verdeling, samenvoegen);
     sectie.style.display = rijen.length > 0 ? "block" : "none";
     if (rijen.length > 0) {
-        document.getElementById("aansluitingskostenTabel").replaceChildren(maakAansluitingskostenTabel(rijen));
+        document.getElementById("aansluitingskostenTabel").replaceChildren(
+            maakAansluitingskostenTabel(rijen, aansluitingskostenTotaalTekst(huidigeData.aansluitingskosten, rijen.length)));
     }
 }
 

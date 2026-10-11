@@ -74,7 +74,7 @@ test("maakTotalenSectie: uitleg van geïnvesteerd en rendement staat achter een 
     const sub = tegelSubtekst(container);
     assert.match(tips["Totaal geïnvesteerd"], /Niet gelijk aan het gestorte bedrag/);
     assert.match(tips["Totaal rendement (€)"], /Excl\. dividend en cash/);
-    assert.equal(tips["Totaal rendement (%)"], tips["Totaal rendement (€)"]);
+    assert.equal(tips["Totaal rendement (%)"], null);
     for (const label of ["Totaal geïnvesteerd", "Totaal rendement (€)", "Totaal rendement (%)"]) {
         assert.equal(sub[label], null, label);
     }

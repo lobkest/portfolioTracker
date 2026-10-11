@@ -938,6 +938,21 @@ input.schakelaar:focus-visible {
     border-bottom: 1px solid #ddd;
 }
 
+.compacteTabel .getalRechts,
+.aansluitingTabel th:nth-child(2) {
+    text-align: right;
+    padding-right: 0;
+}
+
+.aansluitingTabel {
+    width: 100%;
+}
+
+.aansluitingTabel tfoot td {
+    border-top: 1px solid #ddd;
+    font-weight: bold;
+}
+
 /* Klein label in een tabelcel, zelfde vorm als de "Deels verkocht"/
    "Gesloten"-badge op Statistieken. Gebruikt voor "herinvesteerd" in de
    dividend-uitkeringenlijst. */
@@ -1939,6 +1954,23 @@ button.diagnostiekChip:disabled:hover {
     .tabInfo,
     .tabGrafiek {
         min-width: 0;
+    }
+
+    /* Verdeling → Beurs: taart links, aansluitingskosten rechts, bovenaan uitgelijnd. */
+    .beursSplit {
+        display: flex;
+        align-items: flex-start;
+        gap: 32px;
+    }
+
+    .beursGrafiek {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    #aansluitingskostenSectie {
+        flex: 0 0 340px;
+        margin-top: 0;
     }
 
     .tabInfo select {
