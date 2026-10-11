@@ -5,7 +5,9 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { sorteerTransacties, totaalPaginas, pagineer } = require("../static/js/transacties.js");
+const {
+    sorteerTransacties, totaalPaginas, pagineer, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
+} = require("../static/js/transacties.js");
 
 const RIJEN = [
     { datum: "2024-03-01", product: "B BV", aantal: 5, koers: 20, totaal_eur: 100 },
@@ -123,4 +125,55 @@ test("pagineer: klemt een te hoog paginanummer op de laatste pagina", () => {
 test("pagineer: klemt een paginanummer < 1 op pagina 1", () => {
     const rijen = Array.from({ length: 30 }, (_, i) => ({ id: i + 1 }));
     assert.deepEqual(pagineer(rijen, 25, 0)[0].id, 1);
+});
+
+const PROMOTIE = { bedrag_eur: 7, datum: "2025-04-10", regels: [{ datum: "2025-04-10", bedrag_eur: 7 }] };
+const TOTALEN_KOSTEN = { totale_transactiekosten: 35, totale_transactiekosten_betaald: 42 };
+
+test("promotieLabelTekst en promotieUitlegTekst: bedrag op 2 decimalen, woord 'toegerekend'", () => {
+    assert.equal(promotieLabelTekst(1), "promotie −€1,00");
+    assert.equal(promotieLabelTekst(1.5), "promotie −€1,50");
+    assert.equal(promotieUitlegTekst(3), "DEGIRO-promotie: €3,00 kostenkorting, toegerekend aan deze transactie.");
+});
+
+test("promotieSamenvattingTekst: één promoregel, volledig verrekend, datum dd-mm-jjjj", () => {
+    assert.equal(
+        promotieSamenvattingTekst(PROMOTIE, TOTALEN_KOSTEN),
+        "Promotie DEGIRO 10-04-2025: €7,00 kostenkorting, toegerekend aan de eerste transacties. "
+        + "Netto kosten: €35,00 (betaald €42,00).",
+    );
+});
+
+test("promotieSamenvattingTekst: gedeeltelijk verrekend noemt het restant", () => {
+    const promotie = { bedrag_eur: 4.5, datum: "2025-04-10", regels: [{ datum: "2025-04-10", bedrag_eur: 7 }] };
+    assert.match(promotieSamenvattingTekst(promotie, null), /€4,50 kostenkorting.*€2,50 niet verrekend/);
+});
+
+test("promotieSamenvattingTekst: meerdere promoregels", () => {
+    const promotie = {
+        bedrag_eur: 12, datum: "2025-09-01",
+        regels: [{ datum: "2025-04-10", bedrag_eur: 7 }, { datum: "2025-06-01", bedrag_eur: 3 }, { datum: "2025-09-01", bedrag_eur: 2 }],
+    };
+    assert.match(promotieSamenvattingTekst(promotie, TOTALEN_KOSTEN),
+        /^Promoties DEGIRO 10-04-2025, 01-06-2025 en 01-09-2025: €12,00 kostenkorting/);
+});
+
+test("promotieSamenvattingTekst: zonder promotie of zonder toegepaste korting null", () => {
+    assert.equal(promotieSamenvattingTekst(null, TOTALEN_KOSTEN), null);
+    assert.equal(promotieSamenvattingTekst(undefined, undefined), null);
+    assert.equal(promotieSamenvattingTekst({ bedrag_eur: 0, datum: "2025-04-10", regels: [] }, TOTALEN_KOSTEN), null);
+});
+
+test("promotieSamenvattingTekst: zonder statistieken-totalen geen netto-zin", () => {
+    assert.equal(
+        promotieSamenvattingTekst(PROMOTIE, undefined),
+        "Promotie DEGIRO 10-04-2025: €7,00 kostenkorting, toegerekend aan de eerste transacties.",
+    );
+});
+
+test("leesTransactiesAntwoord: nieuwe vorm met en zonder promotie", () => {
+    const lijst = [{ datum: "2025-01-01", kostenkorting_eur: 0 }];
+    assert.deepEqual(leesTransactiesAntwoord({ lijst, promotie: PROMOTIE }), { lijst, promotie: PROMOTIE });
+    assert.deepEqual(leesTransactiesAntwoord({ lijst, promotie: null }), { lijst, promotie: null });
+    assert.deepEqual(leesTransactiesAntwoord({ lijst }), { lijst, promotie: null });
 });

@@ -22,6 +22,7 @@ function laadTegels() {
     const context = {
         document: { createElement: maakElement },
         formatteerEuro: x => `EUR ${x}`,
+        formatGetal: (x, d) => x.toFixed(d).replace(".", ","),
         formatPct: x => `${x}%`,
         formatDatum: x => x,
         klasseVoorRendement: () => "positief",
@@ -84,4 +85,20 @@ test("maakTotalenSectie: uitleg staat in de subtekst-klasse", () => {
     const ctx = laadTegels();
     const tegel = ctx.maakTotalenSectie(TOTALEN).children[0].children[0];
     assert.equal(tegel.children[2].className, "kleineMelding");
+});
+
+test("maakTotalenSectie: transactiekosten met promotiekorting tonen netto met betaald en promotie", () => {
+    const ctx = laadTegels();
+    const totalen = { ...TOTALEN, totale_transactiekosten: 35, totale_transactiekosten_betaald: 42, transactiekosten_korting: 7 };
+    const rij = ctx.maakTotalenSectie(totalen).children[0];
+    const tegel = rij.children.find(t => t.children[0].textContent === "Totale transactiekosten");
+    assert.equal(tegel.children[1].textContent, "EUR 35");
+    assert.equal(tegel.children[2].textContent, "betaald 42,00 − promotie 7,00");
+});
+
+test("maakTotalenSectie: transactiekosten zonder korting (0 of veld ontbreekt) zonder subtekst", () => {
+    const ctx = laadTegels();
+    for (const totalen of [TOTALEN, { ...TOTALEN, totale_transactiekosten_betaald: 7, transactiekosten_korting: 0 }]) {
+        assert.equal(tegelUitleg(ctx.maakTotalenSectie(totalen))["Totale transactiekosten"], null);
+    }
 });

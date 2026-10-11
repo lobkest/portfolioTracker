@@ -4,6 +4,8 @@
 (function (root) {
     "use strict";
 
+    const { formatteerEuro } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
+
     // "YYYY-MM-DDTHH:MM" sorteert als string chronologisch; een ontbrekende tijd telt als 00:00.
     const timestampSleutel = r => `${r.datum}T${r.tijd ?? "00:00"}`;
     const VERGELIJKERS = {
@@ -50,7 +52,45 @@
         return rijen.slice(start, start + paginaGrootte);
     }
 
-    const exportsObj = { sorteerTransacties, totaalPaginas, pagineer };
+    // /transacties: {lijst, promotie}; promotie ontbreekt of is null zonder promotieregels.
+    function leesTransactiesAntwoord(data) {
+        return { lijst: data.lijst ?? [], promotie: data.promotie ?? null };
+    }
+
+    const datumNl = iso => iso.slice(0, 10).split("-").reverse().join("-");
+
+    // "Toegerekend": het rekeningoverzicht zegt niet welke orders de korting kregen.
+    function promotieLabelTekst(kortingEur) {
+        return `promotie −${formatteerEuro(kortingEur)}`;
+    }
+
+    function promotieUitlegTekst(kortingEur) {
+        return `DEGIRO-promotie: ${formatteerEuro(kortingEur)} kostenkorting, toegerekend aan deze transactie.`;
+    }
+
+    // promotie uit /transacties, totalen uit de statistieken (mogen ontbreken); null zonder toegepaste korting.
+    function promotieSamenvattingTekst(promotie, totalen) {
+        if (!promotie || !(promotie.bedrag_eur > 0)) return null;
+        const regels = promotie.regels || [];
+        const datums = regels.map(r => datumNl(r.datum));
+        const wanneer = datums.length > 1
+            ? `Promoties DEGIRO ${datums.slice(0, -1).join(", ")} en ${datums[datums.length - 1]}`
+            : `Promotie DEGIRO ${datums[0] ?? datumNl(promotie.datum)}`;
+        let tekst = `${wanneer}: ${formatteerEuro(promotie.bedrag_eur)} kostenkorting, toegerekend aan de eerste transacties.`;
+        const somRegels = Math.round(regels.reduce((som, r) => som + r.bedrag_eur, 0) * 100) / 100;
+        if (somRegels > promotie.bedrag_eur) {
+            tekst += ` ${formatteerEuro(somRegels - promotie.bedrag_eur)} niet verrekend (te weinig kosten).`;
+        }
+        if (totalen && totalen.totale_transactiekosten != null && totalen.totale_transactiekosten_betaald != null) {
+            tekst += ` Netto kosten: ${formatteerEuro(totalen.totale_transactiekosten)} `
+                + `(betaald ${formatteerEuro(totalen.totale_transactiekosten_betaald)}).`;
+        }
+        return tekst;
+    }
+
+    const exportsObj = {
+        sorteerTransacties, totaalPaginas, pagineer, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
+    };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

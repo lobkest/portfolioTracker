@@ -2,12 +2,15 @@
 
 // null tot het eerste bezoek aan het Transacties-tabblad.
 let transactiesRuweLijst = null;
+// promotie uit /transacties; null zonder promotie of bij "niet opslaan".
+let transactiesPromotie = null;
 // Bewaard tussen tabwissels; maakSorteerbareTabel() werkt dit object bij.
 const transactiesStaat = { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1, paginaGrootte: 25 };
 
 // Rijen per pagina blijft staan: dat is een voorkeur, geen toestand van de portfolio.
 function resetTransacties() {
     transactiesRuweLijst = null;
+    transactiesPromotie = null;
     Object.assign(transactiesStaat, { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1 });
 }
 
@@ -35,6 +38,24 @@ function maakTransactieResultaatCel(r) {
         span.textContent = badge.tekst;
         span.className = badge.klasse;
         td.appendChild(span);
+    }
+    return td;
+}
+
+// Bedrag zoals betaald; de toegerekende promotiekorting als label eronder.
+function maakTransactieKostenCel(r) {
+    const td = maakCel(r.transactiekosten === null ? "—" : formatteerEuro(r.transactiekosten));
+    if (r.kostenkorting_eur > 0) {
+        const label = document.createElement("span");
+        label.className = "promotieLabel";
+        label.textContent = promotieLabelTekst(r.kostenkorting_eur);
+        const tip = document.createElement("span");
+        tip.className = "infoTip";
+        tip.dataset.label = "promotie";
+        tip.textContent = promotieUitlegTekst(r.kostenkorting_eur);
+        label.appendChild(tip);
+        td.appendChild(label);
+        activeerInfoTip(tip);
     }
     return td;
 }
@@ -68,7 +89,7 @@ const TRANSACTIES_KOLOMMEN = [
     {
         label: "Transactiekosten (EUR)",
         sleutel: "transactiekosten",
-        renderTd: r => maakCel(r.transactiekosten === null ? "—" : formatteerEuro(r.transactiekosten)),
+        renderTd: maakTransactieKostenCel,
     },
     { label: "Resultaat", sleutel: "resultaat_eur", uitleg: TRANSACTIE_RESULTAAT_UITLEG, renderTd: maakTransactieResultaatCel },
     {
@@ -97,7 +118,7 @@ async function toonTransacties() {
             toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesFout");
             return;
         }
-        transactiesRuweLijst = data.lijst;
+        ({ lijst: transactiesRuweLijst, promotie: transactiesPromotie } = leesTransactiesAntwoord(data));
     }
 
     renderTransactiesTabel();
@@ -115,6 +136,10 @@ function renderTransactiesTabel() {
     document.getElementById("transactiesTabel").replaceChildren(
         maakSorteerbareTabel(TRANSACTIES_KOLOMMEN, transactiesRuweLijst, { staat: transactiesStaat, sorteer: sorteerTransacties })
     );
+    const samenvatting = promotieSamenvattingTekst(transactiesPromotie, huidigeData.statistieken?.totalen);
+    const promotieRegel = document.getElementById("transactiesPromotie");
+    promotieRegel.textContent = samenvatting ?? "";
+    promotieRegel.hidden = samenvatting === null;
 }
 
 document.getElementById("transactiesPaginaGrootte").addEventListener("change", (e) => {

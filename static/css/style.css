@@ -1190,6 +1190,30 @@ input.schakelaar:focus-visible {
     color: #383d41;
 }
 
+/* Transacties: toegerekende promotiekorting onder het betaalde bedrag. Mag afbreken, zodat de kolom niet breder wordt. */
+.promotieLabel {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 2px;
+    font-size: 0.85em;
+    color: #2c7a4b;
+}
+
+/* Naar boven: promotierijen zijn de oudste en staan meestal onderaan, waar .tabelWrapper een tooltip eronder afknipt. */
+.promotieLabel .infoTipTekst {
+    top: auto;
+    bottom: 100%;
+    left: 0;
+    right: auto;
+    width: min(220px, 60vw);
+    margin: 0 0 4px;
+    text-align: left;
+}
+
 .prognoseUitleg {
     color: #666;
     font-size: 0.9em;

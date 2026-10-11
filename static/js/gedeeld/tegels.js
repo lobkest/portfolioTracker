@@ -7,6 +7,12 @@ const TOON_TOTAAL_DEGIRO_TEGEL = false;
 const UITLEG_GEINVESTEERD = "Netto aankopen incl. kosten (verkopen afgetrokken). Niet gelijk aan het gestorte bedrag.";
 const UITLEG_RENDEMENT = "Waarde van de posities min geïnvesteerd. Excl. dividend en cash; wijkt daarom af van het totaal W/V bij DeGiro.";
 
+// null zonder promotiekorting; anders hoe het netto bedrag op de tegel tot stand komt.
+function transactiekostenSubtekst(totalen) {
+    if (!(totalen.transactiekosten_korting > 0)) return null;
+    return `betaald ${formatGetal(totalen.totale_transactiekosten_betaald, 2)} − promotie ${formatGetal(totalen.transactiekosten_korting, 2)}`;
+}
+
 function maakStatTegel(label, waardeTekst, klasse, subtekst) {
     const tegel = document.createElement("div");
     tegel.className = "statTegel";
@@ -69,7 +75,9 @@ function maakTotalenSectie(totalen) {
     }
 
     if (totalen.transactiekosten_beschikbaar) {
-        rij.appendChild(maakStatTegel("Totale transactiekosten", formatteerEuro(totalen.totale_transactiekosten)));
+        rij.appendChild(maakStatTegel(
+            "Totale transactiekosten", formatteerEuro(totalen.totale_transactiekosten), "", transactiekostenSubtekst(totalen)
+        ));
     }
 
     const container = document.createElement("div");
