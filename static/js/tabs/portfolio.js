@@ -11,7 +11,7 @@ function toonPortfolio() {
     const homeSectie = document.getElementById("homeTotalenSectie");
     homeSectie.innerHTML = "";
     if (huidigeData.statistieken) {
-        homeSectie.appendChild(maakTotalenSectie(huidigeData.statistieken.totalen));
+        homeSectie.appendChild(maakTotalenSectie(huidigeData.statistieken.totalen, huidigeData.aansluitingskosten));
     }
 
     // Zonder koersdata de regel weglaten (anders "Invalid Date").

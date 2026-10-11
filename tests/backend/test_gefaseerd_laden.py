@@ -118,6 +118,7 @@ class TestGefaseerdLaden(unittest.TestCase):
 
         # transacties_lijst hoort alleen bij 'niet opslaan' (met code: eigen endpoint).
         self.assertEqual(len(wrapper_resultaat.pop("transacties_lijst")), 2)
+        self.assertIsNone(wrapper_resultaat.pop("transacties_promotie"))
         self.assertEqual(wrapper_resultaat, verwacht)
 
 

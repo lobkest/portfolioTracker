@@ -1,26 +1,35 @@
 """DeGiro-rekeningoverzicht verwerken en de dividend-samenvatting. Zie CLAUDE.md: DeGiro-bestanden."""
 import hashlib
-import re
 
 import pandas as pd
 
 from db import db_get_dividenden, db_get_isin_ticker_product
+from rekening_regelsoorten import (
+    GEBRUIK_KOSTENKORTING, REGELSOORT_DIVIDEND, REGELSOORT_DIVIDEND_HERINVESTERING, REGELSOORT_DIVIDENDBELASTING,
+    REGELSOORT_VALUTA_CREDITERING, REGELSOORT_VALUTA_DEBITERING, behandeling, regelsoort,
+)
 from transactie_utils import OngeldigExcelBestand
 
 ORDER_ID_KOLOM_REKENING = "Order Id"
 VERWACHTE_KOLOMMEN_REKENING = ["Datum", "Omschrijving", "Mutatie", ORDER_ID_KOLOM_REKENING]
 MELDING_GEEN_REKENINGOVERZICHT = ("Dit lijkt geen DeGiro-rekeningoverzicht. Kies bij DeGiro "
                                   "Inbox > Rekeningoverzicht > Excel.")
+_SOORT = "regelsoort"
+
+
+def _met_soort(df):
+    return df.assign(**{_SOORT: df["Omschrijving"].map(regelsoort)})
 
 
 def _koppel_valutaconversie_paren(df):
     """Paren op exact gelijke (Datum, Tijd), niet op Valutadatum.
     Geeft [{datum, tijd, valuta, vreemd_bedrag, eur_bedrag (met teken), gebruikt}]."""
-    fx_rows = df[df["Omschrijving"].isin(["Valuta Debitering", "Valuta Creditering"])]
+    df = _met_soort(df)
+    fx_rows = df[df[_SOORT].isin([REGELSOORT_VALUTA_DEBITERING, REGELSOORT_VALUTA_CREDITERING])]
     paren = []
     for (datum, tijd), groep in fx_rows.groupby(["Datum", "Tijd"]):
-        debitering = groep[groep["Omschrijving"] == "Valuta Debitering"]
-        creditering = groep[groep["Omschrijving"] == "Valuta Creditering"]
+        debitering = groep[groep[_SOORT] == REGELSOORT_VALUTA_DEBITERING]
+        creditering = groep[groep[_SOORT] == REGELSOORT_VALUTA_CREDITERING]
         if debitering.empty or creditering.empty:
             continue
         deb = debitering.iloc[0]
@@ -75,25 +84,27 @@ def _clusters_binnen_venster(items, max_dagen):
     return clusters
 
 
+_BRUTO_SOORTEN = (REGELSOORT_DIVIDEND, REGELSOORT_DIVIDEND_HERINVESTERING)
+
+
 def verwerk_rekeningoverzicht_df(df):
     """Rekenwerk op een al ingelezen, hernoemde DataFrame (los van Excel, zodat het testbaar is).
     Per uitkering (Datum + ISIN) netten, dan 1-op-1 koppelen aan een conversie, daarna gepoold."""
+    df = _met_soort(df)
     conversie_paren = _koppel_valutaconversie_paren(df)
 
-    dividend_rows = df[df["Omschrijving"].isin(
-        ["Dividend", "Dividend Herinvestering", "Dividendbelasting"]
-    )]
+    dividend_rows = df[df[_SOORT].isin(_BRUTO_SOORTEN + (REGELSOORT_DIVIDENDBELASTING,))]
 
     herinvesteerd_keys = {
         (datum, isin) for datum, isin in
-        df.loc[df["Omschrijving"] == "Dividend Herinvestering", ["Datum", "ISIN"]]
+        df.loc[df[_SOORT] == REGELSOORT_DIVIDEND_HERINVESTERING, ["Datum", "ISIN"]]
         .itertuples(index=False, name=None)
     }
 
     tussenresultaten = []
     for (datum, isin), groep in dividend_rows.groupby(["Datum", "ISIN"]):
-        bruto_rijen = groep[groep["Omschrijving"].isin(["Dividend", "Dividend Herinvestering"])]
-        belasting_rijen = groep[groep["Omschrijving"] == "Dividendbelasting"]
+        bruto_rijen = groep[groep[_SOORT].isin(_BRUTO_SOORTEN)]
+        belasting_rijen = groep[groep[_SOORT] == REGELSOORT_DIVIDENDBELASTING]
 
         product = groep["Product"].iloc[0]
         valuta = groep["valuta_mutatie"].dropna().iloc[0] if groep["valuta_mutatie"].notna().any() else "EUR"
@@ -263,70 +274,33 @@ def bouw_rekening_regels(df):
     return regels
 
 
-STORTING_TREFWOORDEN = ("ideal", "storting", "deposit", "withdrawal", "opname")
-
-REGELSOORT_KOOP_VERKOOP = "koop_verkoop"
-REGELSOORT_KOSTEN = "kosten"
-REGELSOORT_DIVIDEND = "dividend"
-REGELSOORT_VALUTA = "valuta"
-REGELSOORT_STORTING_OPNAME = "storting_opname"
-REGELSOORT_SWEEP = "sweep"
-REGELSOORT_RENTE = "rente"
-REGELSOORT_CORPORATE_ACTION = "corporate_action"
-REGELSOORT_VERREKENING_AANDELEN = "verrekening_aandelen"
-REGELSOORT_PROMOTIE = "promotie"
-OMSCHRIJVING_VERREKENING_AANDELEN = "Verrekening van Aandelen"
-# Korting op transactiekosten; geen storting (zie verdeel_kostenkorting()).
-OMSCHRIJVINGEN_PROMOTIE = ("DEGIRO Verrekening Promotie",)
-_KOOP_VERKOOP = re.compile(r"^(Koop|Verkoop) [\d.,]+ @ ")
-# "CLAIMEMISSIE: Koop ..." en "PRODUCTWIJZIGING : Verkoop ...".
-_CORPORATE_ACTION = re.compile(r"^[A-Z][A-Z ]*[A-Z] ?: ?(Koop|Verkoop) [\d.,]+ @ ")
-
-
-def regelsoort(omschrijving):
-    """Soort van een rekeningoverzicht-regel (REGELSOORT_*), of None als onbekend. Alleen teksten die in echte exports of
-    de bestaande parsers voorkomen; Engels alleen Deposit/Withdrawal, Cash Sweep en Flatex Interest Income."""
-    tekst = str(omschrijving).strip() if pd.notna(omschrijving) else ""
-    kleine_letters = tekst.lower()
-    if tekst in ("Dividend", "Dividendbelasting", "Dividend Herinvestering"):
-        return REGELSOORT_DIVIDEND
-    if tekst in ("Valuta Debitering", "Valuta Creditering"):
-        return REGELSOORT_VALUTA
-    if tekst == OMSCHRIJVING_VERREKENING_AANDELEN:
-        return REGELSOORT_VERREKENING_AANDELEN
-    if tekst in OMSCHRIJVINGEN_PROMOTIE:
-        return REGELSOORT_PROMOTIE
-    if _CORPORATE_ACTION.match(tekst):
-        return REGELSOORT_CORPORATE_ACTION
-    if _KOOP_VERKOOP.match(tekst):
-        return REGELSOORT_KOOP_VERKOOP
-    if tekst == "Flatex Interest Income":
-        return REGELSOORT_RENTE
-    if tekst.startswith("DEGIRO") and "kosten" in kleine_letters:
-        return REGELSOORT_KOSTEN
-    # zie CLAUDE.md: DeGiro-bestanden (flatex-sweeps)
-    if "cash sweep" in kleine_letters or ("overboeking" in kleine_letters and "flatexdegiro bank" in kleine_letters):
-        return REGELSOORT_SWEEP
-    if any(woord in kleine_letters for woord in STORTING_TREFWOORDEN):
-        return REGELSOORT_STORTING_OPNAME
-    return None
+def promotie_bedragen(regels):
+    """[(datum, bedrag in EUR)] van de kostenkorting-regels, oudste eerst. regels: dicts zoals bouw_rekening_regels()
+    of db_get_rekening_regels_eur()."""
+    gekozen = [r for r in regels
+               if behandeling(r["omschrijving"]).gebruik == GEBRUIK_KOSTENKORTING
+               and r["mutatie_valuta"] == "EUR" and r["mutatie"] is not None]
+    # Lege tijd achteraan, zoals NULL in de ORDER BY van Postgres.
+    gekozen.sort(key=lambda r: (r["datum"], r["tijd"] is None, r["tijd"] or ""))
+    return [(r["datum"], float(r["mutatie"])) for r in gekozen]
 
 
 def bereken_kassaldo(df):
     """EUR-cash uit een ingelezen rekeningoverzicht; None zonder EUR-rijen.
     {saldo_eur, netto_gestort_eur, eerste_datum, per_datum, vanaf_opening}"""
+    behandelingen = [behandeling(tekst) for tekst in df["Omschrijving"]]
+    telt = (df["valuta_mutatie"] == "EUR") & pd.Series([b.kassaldo for b in behandelingen], index=df.index, dtype=bool)
     # zie CLAUDE.md: DeGiro-bestanden (flatex-sweeps)
-    eur = df[(df["valuta_mutatie"] == "EUR")
-             & ~df["Omschrijving"].str.contains("Cash Sweep", case=False, na=False)].iloc[::-1]
+    eur = df[telt].iloc[::-1]
     if eur.empty:
         return None
+    is_storting = pd.Series([b.storting for b in behandelingen], index=df.index, dtype=bool)[telt].iloc[::-1]
     mutaties = eur["mutatie"].fillna(0.0)
     beginsaldi = (pd.to_numeric(eur["saldo"], errors="coerce") - mutaties.cumsum()).round(2).dropna()
     beginsaldo = float(beginsaldi.mode().iloc[0]) if not beginsaldi.empty else 0.0
-    is_storting = eur["Omschrijving"].str.lower().str.contains("|".join(STORTING_TREFWOORDEN), na=False)
     return {
         "saldo_eur": round(beginsaldo + float(mutaties.sum()), 2),
-        "netto_gestort_eur": round(float(mutaties[is_storting].sum()), 2),
+        "netto_gestort_eur": round(float(mutaties[is_storting.to_numpy()].sum()), 2),
         "eerste_datum": eur["Datum"].min().date(),
         "per_datum": eur["Datum"].max().date(),
         "vanaf_opening": abs(beginsaldo) < 0.01,

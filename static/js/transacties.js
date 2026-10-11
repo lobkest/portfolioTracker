@@ -4,7 +4,7 @@
 (function (root) {
     "use strict";
 
-    const { formatteerEuro } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
+    const { formatGetal, formatteerEuro } = typeof module !== "undefined" && module.exports ? require("./getallen.js") : root;
 
     // "YYYY-MM-DDTHH:MM" sorteert als string chronologisch; een ontbrekende tijd telt als 00:00.
     const timestampSleutel = r => `${r.datum}T${r.tijd ?? "00:00"}`;
@@ -52,12 +52,36 @@
         return rijen.slice(start, start + paginaGrootte);
     }
 
-    // /transacties: {lijst, promotie}; promotie ontbreekt of is null zonder promotieregels.
+    // /transacties: {lijst, promotie}; upload-antwoord bij "niet opslaan": {transacties_lijst, transacties_promotie}.
+    // De promotie ontbreekt of is null zonder promotieregels.
     function leesTransactiesAntwoord(data) {
-        return { lijst: data.lijst ?? [], promotie: data.promotie ?? null };
+        return {
+            lijst: data.lijst ?? data.transacties_lijst ?? [],
+            promotie: data.promotie ?? data.transacties_promotie ?? null,
+        };
     }
 
     const datumNl = iso => iso.slice(0, 10).split("-").reverse().join("-");
+
+    // Op mobiel: product, datum · aantal en totaal in de compacte rij; elke andere kolom in de uitklapdetails.
+    const TRANSACTIES_MOBIEL_ROLLEN = { product: "titel", datum_tijd: "subregel", aantal: "subregel", totaal_eur: "waarde" };
+
+    function transactieMobielRol(sleutel) {
+        return TRANSACTIES_MOBIEL_ROLLEN[sleutel] ?? "detail";
+    }
+
+    function datumTijdTekst(r) {
+        return r.tijd == null ? datumNl(r.datum) : `${datumNl(r.datum)} ${r.tijd}`;
+    }
+
+    function aantalStuksTekst(aantal) {
+        return `${formatGetal(aantal, 4, 0)} ${Math.abs(aantal) === 1 ? "stuk" : "stuks"}`;
+    }
+
+    // Teken in de compacte rij; het bedrag en de uitleg staan in de details bij de kosten.
+    function promotieTekenTekst(r) {
+        return r.kostenkorting_eur > 0 ? "promotie" : "";
+    }
 
     // "Toegerekend": het rekeningoverzicht zegt niet welke orders de korting kregen.
     function promotieLabelTekst(kortingEur) {
@@ -90,6 +114,7 @@
 
     const exportsObj = {
         sorteerTransacties, totaalPaginas, pagineer, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
+        transactieMobielRol, datumTijdTekst, aantalStuksTekst, promotieTekenTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

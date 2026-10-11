@@ -7,6 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     sorteerTransacties, totaalPaginas, pagineer, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
+    transactieMobielRol, datumTijdTekst, aantalStuksTekst, promotieTekenTekst,
 } = require("../static/js/transacties.js");
 
 const RIJEN = [
@@ -176,4 +177,54 @@ test("leesTransactiesAntwoord: nieuwe vorm met en zonder promotie", () => {
     assert.deepEqual(leesTransactiesAntwoord({ lijst, promotie: PROMOTIE }), { lijst, promotie: PROMOTIE });
     assert.deepEqual(leesTransactiesAntwoord({ lijst, promotie: null }), { lijst, promotie: null });
     assert.deepEqual(leesTransactiesAntwoord({ lijst }), { lijst, promotie: null });
+});
+
+test("leesTransactiesAntwoord: upload-antwoord bij niet opslaan", () => {
+    const lijst = [{ datum: "2025-01-01", kostenkorting_eur: 7 }];
+    assert.deepEqual(leesTransactiesAntwoord({ transacties_lijst: lijst, transacties_promotie: PROMOTIE }), { lijst, promotie: PROMOTIE });
+    assert.deepEqual(leesTransactiesAntwoord({ transacties_lijst: lijst, transacties_promotie: null }), { lijst, promotie: null });
+    assert.deepEqual(leesTransactiesAntwoord({ transacties_lijst: [] }), { lijst: [], promotie: null });
+    assert.deepEqual(leesTransactiesAntwoord({}), { lijst: [], promotie: null });
+});
+
+test("promotieSamenvattingTekst: zelfde tekst uit /transacties en uit het upload-antwoord", () => {
+    const promotie = {
+        bedrag_eur: 10, datum: "2025-06-01",
+        regels: [{ datum: "2025-04-10", bedrag_eur: 7 }, { datum: "2025-06-01", bedrag_eur: 3 }],
+    };
+    const uitRoute = leesTransactiesAntwoord({ lijst: [], promotie }).promotie;
+    const uitUpload = leesTransactiesAntwoord({ transacties_lijst: [], transacties_promotie: promotie }).promotie;
+    const verwacht = "Promoties DEGIRO 10-04-2025 en 01-06-2025: €10,00 kostenkorting, toegerekend aan de eerste transacties.";
+    assert.equal(promotieSamenvattingTekst(uitRoute, undefined), verwacht);
+    assert.equal(promotieSamenvattingTekst(uitUpload, undefined), verwacht);
+});
+
+test("transactieMobielRol: product, datum, aantal en totaal compact; de rest in de details", () => {
+    assert.equal(transactieMobielRol("product"), "titel");
+    assert.equal(transactieMobielRol("datum_tijd"), "subregel");
+    assert.equal(transactieMobielRol("aantal"), "subregel");
+    assert.equal(transactieMobielRol("totaal_eur"), "waarde");
+    for (const sleutel of ["isin", "beurs", "koers", "wisselkoers", "transactiekosten", "resultaat_eur", "dividend_eur"]) {
+        assert.equal(transactieMobielRol(sleutel), "detail", sleutel);
+    }
+});
+
+test("datumTijdTekst: dd-mm-jjjj, met tijd als die er is", () => {
+    assert.equal(datumTijdTekst({ datum: "2025-04-10", tijd: "09:30" }), "10-04-2025 09:30");
+    assert.equal(datumTijdTekst({ datum: "2025-04-10", tijd: null }), "10-04-2025");
+    assert.equal(datumTijdTekst({ datum: "2025-04-10" }), "10-04-2025");
+});
+
+test("aantalStuksTekst: enkelvoud bij 1 stuk, verkoop negatief", () => {
+    assert.equal(aantalStuksTekst(1), "1 stuk");
+    assert.equal(aantalStuksTekst(-1), "-1 stuk");
+    assert.equal(aantalStuksTekst(12), "12 stuks");
+    assert.equal(aantalStuksTekst(-2.5), "-2,5 stuks");
+    assert.equal(aantalStuksTekst(1234), "1.234 stuks");
+});
+
+test("promotieTekenTekst: alleen bij een toegerekende korting", () => {
+    assert.equal(promotieTekenTekst({ kostenkorting_eur: 3 }), "promotie");
+    assert.equal(promotieTekenTekst({ kostenkorting_eur: 0 }), "");
+    assert.equal(promotieTekenTekst({}), "");
 });

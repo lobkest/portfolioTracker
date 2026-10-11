@@ -788,20 +788,21 @@ def db_get_kassaldo(code):
     }
 
 
-def db_get_rekening_bedragen(code, omschrijvingen):
-    """[(datum, bedrag in EUR)] van de rekening_regels met een van deze omschrijvingen, oudste eerst."""
+def db_get_rekening_regels_eur(code):
+    """[{datum, tijd, omschrijving, mutatie_valuta, mutatie}] van de EUR-regels met een bedrag, oudste eerst."""
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "SELECT datum, mutatie FROM rekening_regels "
-        "WHERE code = %s AND omschrijving = ANY(%s) AND mutatie_valuta = 'EUR' AND mutatie IS NOT NULL "
+        "SELECT datum, tijd, omschrijving, mutatie_valuta, mutatie FROM rekening_regels "
+        "WHERE code = %s AND mutatie_valuta = 'EUR' AND mutatie IS NOT NULL "
         "ORDER BY datum, tijd",
-        (code, list(omschrijvingen)),
+        (code,),
     )
     rows = cur.fetchall()
     cur.close()
     conn.close()
-    return [(datum, float(bedrag)) for datum, bedrag in rows]
+    return [{"datum": datum, "tijd": tijd, "omschrijving": omschrijving, "mutatie_valuta": valuta,
+             "mutatie": float(mutatie)} for datum, tijd, omschrijving, valuta, mutatie in rows]
 
 
 def db_get_dividenden(code):

@@ -9,7 +9,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from dividend import REGELSOORT_PROMOTIE, OMSCHRIJVINGEN_PROMOTIE, bereken_kassaldo, regelsoort
+from dividend import bereken_kassaldo
+from rekening_regelsoorten import REGELSOORT_PROMOTIE, OMSCHRIJVINGEN_PROMOTIE, regelsoort
 from portfolio_calc import compute_value_over_time
 from statistieken import bereken_holdings_en_gesloten, bereken_totale_transactiekosten, bereken_totaal_rendement
 from transactie_utils import (

@@ -511,7 +511,7 @@ def _beurs_codes(transacties_df):
     return transacties_df["beurs"].fillna("Onbekend")
 
 
-def _beurs_naam(code, euronext_samenvoegen):
+def beurs_naam(code, euronext_samenvoegen):
     if euronext_samenvoegen and code in EURONEXT_BEURZEN:
         return "Euronext"
     return BEURS_NAMEN.get(code, code)
@@ -520,7 +520,7 @@ def _beurs_naam(code, euronext_samenvoegen):
 def gewichten_per_beurs(transacties_df, euronext_samenvoegen=False):
     """Een ticker op meerdere beursnamen naar verhouding van de gekochte stuks (zie CLAUDE.md: Data en rekenen)."""
     df = transacties_df.dropna(subset=["ticker"]).reset_index(drop=True)
-    namen = _beurs_codes(df).map(lambda code: _beurs_naam(code, euronext_samenvoegen))
+    namen = _beurs_codes(df).map(lambda code: beurs_naam(code, euronext_samenvoegen))
     gekocht = df["aantal"].astype(float).clip(lower=0)
     # Splitboekingen (DEG) zijn geen aankoop; alleen als er niets anders is tellen ze mee.
     corporate_action = df.apply(_is_corporate_action_row, axis=1).astype(bool)
@@ -633,8 +633,8 @@ def compute_beurs_verdeling(transacties_df, price_data):
         waarde = float(aantal) * float(laatste_prijzen[ticker])
         if waarde <= 0:
             continue
-        naam = _beurs_naam(code, False)
-        naam_euronext = _beurs_naam(code, True)
+        naam = beurs_naam(code, False)
+        naam_euronext = beurs_naam(code, True)
         for totalen, per_bron, n in ((beurs, beurs_per_bron, naam), (euronext, euronext_per_bron, naam_euronext)):
             totalen[n] = totalen.get(n, 0.0) + waarde
             rij = per_bron.setdefault(n, {})

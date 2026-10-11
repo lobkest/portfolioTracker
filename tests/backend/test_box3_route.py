@@ -88,7 +88,7 @@ class TestBox3Routes(unittest.TestCase):
              patch.object(am, "bepaal_product_per_ticker", return_value={}), \
              patch.object(am, "bouw_transacties_df_niet_opslaan", return_value=_transacties_df()), \
              patch.object(am, "bereken_kassaldo", return_value=None), \
-             patch.object(am, "verwerk_dividend_zonder_opslaan", return_value=dividenden) as mock_div, \
+             patch.object(am, "verwerk_dividend_zonder_opslaan", return_value=dividenden) as mock_div,              patch.object(am, "bouw_rekening_regels", return_value=[]), \
              patch.object(am, "analyze_transacties", return_value={"box3_basis": {"jaren": []}}) as mock_analyse, \
              patch.object(am, "meld_valuta_consistentie"), \
              patch.object(am, "bouw_dividend_samenvatting", return_value=None):

@@ -27,7 +27,7 @@ from yahoo_client import (
 from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
 from dividend import (
     bereken_dividend_samenvatting, bouw_dividend_samenvatting, lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df,
-    bereken_kassaldo,
+    bereken_kassaldo, bouw_rekening_regels, promotie_bedragen,
 )
 from dividend_verwachting import bereken_dividend_verwachting
 from historisch_rendement import bereken_historisch_rendement
@@ -49,7 +49,7 @@ from portfolio_orchestratie import (
     ticker_zekerheid_groepen, build_portfolio_response, bouw_transacties_lijst, analyze_transacties_verrijking, analyze_transacties,
     bouw_verdeling_over_tijd, VERDELING_OVER_TIJD_DIMENSIES,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
-    meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden,
+    meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden, isin_ticker_product_rijen,
 )
 from portfolio_verdeling import bereken_etf_overlap_detail
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
@@ -158,8 +158,11 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
     transacties_df = bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
     kassaldo = bereken_kassaldo(rekening_df) if rekening_df is not None else None
     dividend_records = verwerk_dividend_zonder_opslaan(rekening_df) if rekening_df is not None else None
+    rekening_regels = bouw_rekening_regels(rekening_df) if rekening_df is not None else None
+    promoties = promotie_bedragen(rekening_regels) if rekening_regels is not None else None
     result = analyze_transacties(transacties_df, code=None, naam=naam or None, kassaldo=kassaldo, box3=True,
-                                 box3_dividenden=dividend_records or None)
+                                 box3_dividenden=dividend_records or None, promoties=promoties,
+                                 rekening_regels=rekening_regels)
     meld_valuta_consistentie(df, ticker_by_isin_beurs)
     if rekening_df is not None:
         meld_order_ids_rekening_uit_bestanden(df, rekening_df)
@@ -170,11 +173,7 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
 
 
 def _dividend_niet_opslaan(transacties_df, dividend_records):
-    transactie_rows = [
-        (r.isin, r.ticker, r.product)
-        for r in transacties_df.itertuples(index=False) if r.ticker is not None
-    ]
-    samenvatting = bouw_dividend_samenvatting(dividend_records, transactie_rows)
+    samenvatting = bouw_dividend_samenvatting(dividend_records, isin_ticker_product_rijen(transacties_df))
     if samenvatting is None:
         return {"beschikbaar": False}
     return {**samenvatting, "beschikbaar": True}

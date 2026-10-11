@@ -963,7 +963,14 @@ input.schakelaar:focus-visible {
 }
 
 .statTegel {
+    position: relative; /* de uitleg achter een (i) krijgt de breedte van de tegel: past ook op ~375px */
     min-width: 160px;
+}
+
+.statTegelLabel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 /* Uitleg onder een tegel mag de tegel niet breder maken. */
@@ -1212,6 +1219,11 @@ input.schakelaar:focus-visible {
     width: min(220px, 60vw);
     margin: 0 0 4px;
     text-align: left;
+}
+
+/* Transacties op mobiel: teken in de compacte rij dat de details een promotiekorting bevatten. */
+.promotieTeken {
+    color: #2c7a4b;
 }
 
 .prognoseUitleg {
@@ -2086,6 +2098,16 @@ button.diagnostiekChip:disabled:hover {
         text-align: right;
         font-variant-numeric: tabular-nums;
         overflow-wrap: anywhere;
+    }
+
+    /* Rechts uitgelijnd, zodat de tooltip vanaf de rechterrand naar links opent en in beeld blijft. */
+    .mobielDetailWaarde .promotieLabel {
+        justify-content: flex-end;
+    }
+
+    .mobielDetailWaarde .promotieLabel .infoTipTekst {
+        left: auto;
+        right: 0;
     }
 
     .sorteerKeuze {

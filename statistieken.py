@@ -470,6 +470,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             # None = geen rekeningoverzicht; los van rendement_eur, dat is exclusief dividend.
             "dividend_netto": dividend_totaal_netto,
             "kassaldo_eur": kassaldo["saldo_eur"] if kassaldo else None,
+            "netto_gestort_eur": kassaldo["netto_gestort_eur"] if kassaldo else None,
             "kassaldo_per_datum": kassaldo["per_datum"].isoformat() if kassaldo else None,
             "totaal_degiro_eur": bereken_totaal_degiro(totaal_waarde, kassaldo),
         },

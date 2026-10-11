@@ -58,7 +58,7 @@ class TestProxyAlleenInOpgeslagenFlow(unittest.TestCase):
         ]:
             stack.enter_context(patch.object(doel, naam, return_value=waarde))
         stack.enter_context(patch.object(po, "compute_split_adjusted_shares", side_effect=lambda df: df))
-        stack.enter_context(patch.object(po, "_split_correctie_en_koersen", side_effect=lambda df: (df, _price_data())))
+        stack.enter_context(patch.object(po, "_split_correctie_en_koersen", side_effect=lambda df, *_: (df, _price_data())))
         stack.enter_context(patch.object(po, "_transacties_lijst", return_value=[]))
         self.mock_proxy = stack.enter_context(patch.object(po, "land_proxies_voor_etfs", return_value=PROXY))
 

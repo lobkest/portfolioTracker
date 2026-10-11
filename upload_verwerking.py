@@ -23,7 +23,9 @@ from db import (
     db_get_product_per_ticker, db_vul_bronkolommen_aan, db_save_rekening_regels, db_save_upload_meldingen,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
-from dividend import verwerk_rekeningoverzicht_df, bereken_kassaldo, bouw_rekening_regels
+from dividend import (
+    verwerk_rekeningoverzicht_df, bereken_kassaldo, bouw_rekening_regels,
+)
 
 VERWACHTE_KOLOMMEN = [
     "Datum", "Tijd", "Product", "ISIN", "Beurs", "Uitvoeringsplaats", "Aantal", "Koers",

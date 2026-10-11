@@ -138,12 +138,45 @@ function toonValuta() {
     }
 }
 
+function maakAansluitingskostenTabel(rijen) {
+    const kolommen = [
+        {
+            label: "Beurs",
+            mobielRol: "titel",
+            renderTd: r => {
+                const td = maakCel(r.beurs);
+                if (r.inBezit === false) {
+                    const badge = document.createElement("span");
+                    badge.className = "badge badgeGesloten";
+                    badge.textContent = "geen positie";
+                    td.appendChild(badge);
+                }
+                return td;
+            },
+        },
+        { label: "Totaal betaald", mobielRol: "waarde", waarde: r => r.totaal_eur, renderTd: r => maakCel(r.totaalTekst) },
+        { label: "Per jaar", renderTd: r => maakCel(r.perJaar) },
+    ];
+    return maakSorteerbareTabel(kolommen, rijen, { klasse: "compacteTabel", compactOpMobiel: true });
+}
+
+// Kerndata: staat er ook als de verrijking (beurs_verdeling) nog laadt, dan zonder "geen positie".
+function toonAansluitingskosten(samenvoegen) {
+    const sectie = document.getElementById("aansluitingskostenSectie");
+    const rijen = aansluitingskostenRijen(huidigeData.aansluitingskosten, huidigeData.beurs_verdeling, samenvoegen);
+    sectie.style.display = rijen.length > 0 ? "block" : "none";
+    if (rijen.length > 0) {
+        document.getElementById("aansluitingskostenTabel").replaceChildren(maakAansluitingskostenTabel(rijen));
+    }
+}
+
 function toonBeurs() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
     const tekst = document.getElementById("beursTekst");
     tekst.style.display = "none";
     const samenvoegen = document.getElementById("euronextCheckbox").checked;
+    toonAansluitingskosten(samenvoegen);
     if (toonOverTijdIndienGekozen("beurs", samenvoegen)) {
         document.getElementById("euronextCheckboxWrapper").style.display = "flex";
         return;

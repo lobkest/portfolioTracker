@@ -2,7 +2,7 @@
 
 // null tot het eerste bezoek aan het Transacties-tabblad.
 let transactiesRuweLijst = null;
-// promotie uit /transacties; null zonder promotie of bij "niet opslaan".
+// promotie uit /transacties of het upload-antwoord; null zonder promotie.
 let transactiesPromotie = null;
 // Bewaard tussen tabwissels; maakSorteerbareTabel() werkt dit object bij.
 const transactiesStaat = { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1, paginaGrootte: 25 };
@@ -64,19 +64,22 @@ function transactieDividendTekst(r) {
     return r.dividend_eur == null ? "—" : formatteerEuro(r.dividend_eur);
 }
 
+function maakPromotieTekenCel(r) {
+    const td = maakCel(promotieTekenTekst(r));
+    td.className = "promotieTeken";
+    return td;
+}
+
 // De sleutels zijn de kolomnamen van sorteerTransacties() (transacties.js).
 const TRANSACTIES_KOLOMMEN = [
-    {
-        label: "Datum & tijd",
-        sleutel: "datum_tijd",
-        renderTd: r => maakCel(r.tijd === null ? formatDatum(r.datum) : `${formatDatum(r.datum)} ${r.tijd}`),
-    },
-    { label: "Product", sleutel: "product", renderTd: r => maakCel(r.product) },
+    { label: "Datum & tijd", sleutel: "datum_tijd", renderTd: r => maakCel(datumTijdTekst(r)) },
+    { label: "Product", sleutel: "product", mobielTekst: r => r.product, renderTd: r => maakCel(r.product) },
     { label: "ISIN", sleutel: "isin", renderTd: r => maakCel(r.isin ?? "—") },
     { label: "Beurs", sleutel: "beurs", renderTd: r => maakCel(r.beurs ?? "—") },
     {
         label: "Aantal",
         sleutel: "aantal",
+        mobielTekst: r => aantalStuksTekst(r.aantal),
         renderTd: r => maakCel(formatGetal(r.aantal, 4, 0)),
     },
     { label: "Koers", sleutel: "koers", renderTd: r => maakCel(r.koers === null ? "onbekend" : formatteerEuro(r.koers)) },
@@ -98,12 +101,13 @@ const TRANSACTIES_KOLOMMEN = [
         uitleg: TRANSACTIE_DIVIDEND_UITLEG,
         renderTd: r => maakCel(transactieDividendTekst(r)),
     },
-];
+    { label: "Promotie", alleenMobiel: true, mobielRol: "subwaarde", renderTd: maakPromotieTekenCel },
+].map(kol => (kol.mobielRol ? kol : { ...kol, mobielRol: transactieMobielRol(kol.sleutel) }));
 
 async function toonTransacties() {
     // Zonder code (niet opslaan) staat de lijst al in het upload-antwoord.
     if (!huidigeData.code) {
-        transactiesRuweLijst = huidigeData.transacties_lijst || [];
+        ({ lijst: transactiesRuweLijst, promotie: transactiesPromotie } = leesTransactiesAntwoord(huidigeData));
     } else if (transactiesRuweLijst === null) {
         toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesLaden");
         let res, data;
@@ -134,7 +138,9 @@ function renderTransactiesTabel() {
     document.getElementById("transactiesPaginaGrootte").value = String(transactiesStaat.paginaGrootte);
     // sorteerTransacties i.p.v. de standaardsortering: ook tekst en datum+tijd, over alle pagina's heen.
     document.getElementById("transactiesTabel").replaceChildren(
-        maakSorteerbareTabel(TRANSACTIES_KOLOMMEN, transactiesRuweLijst, { staat: transactiesStaat, sorteer: sorteerTransacties })
+        maakSorteerbareTabel(TRANSACTIES_KOLOMMEN, transactiesRuweLijst, {
+            staat: transactiesStaat, sorteer: sorteerTransacties, compactOpMobiel: true,
+        })
     );
     const samenvatting = promotieSamenvattingTekst(transactiesPromotie, huidigeData.statistieken?.totalen);
     const promotieRegel = document.getElementById("transactiesPromotie");

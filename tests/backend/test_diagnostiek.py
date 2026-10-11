@@ -269,7 +269,7 @@ class TestBasisCacheMeldingen(unittest.TestCase):
     def tearDown(self):
         self.po.wis_portfolio_basis_cache(TEST_CODE)
 
-    @patch("portfolio_orchestratie.db_get_rekening_bedragen", return_value=[])
+    @patch("portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
     @patch("portfolio_orchestratie._meld_datakwaliteit")
     @patch("portfolio_orchestratie.get_prices")
     @patch("portfolio_orchestratie.db_get_koers_splits", return_value={})

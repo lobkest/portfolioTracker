@@ -283,6 +283,11 @@
                 <label id="euronextCheckboxWrapper" data-verberg-buiten="beurs" class="checkboxLabel margeBoven10" style="display: none;">
                     <input type="checkbox" id="euronextCheckbox"> Euronext-beurzen samenvoegen
                 </label>
+                <div id="aansluitingskostenSectie" class="margeBoven20" data-verberg-buiten="beurs" style="display: none;">
+                    <div class="sectieTitel">Aansluitingskosten per beurs</div>
+                    <p class="kleineMelding">Jaarlijkse kosten van DEGIRO per beurs. Niet meegeteld in transactiekosten of rendement.</p>
+                    <div id="aansluitingskostenTabel"></div>
+                </div>
             </div>
 
             <div id="tab-bedrijven" data-views="bedrijven" style="display: none;">
@@ -592,6 +597,7 @@
     <script src="{{ url_for('static', filename='js/box3.js') }}"></script>
     <script src="{{ url_for('static', filename='js/etf_overlap.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>

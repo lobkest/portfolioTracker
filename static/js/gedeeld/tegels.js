@@ -3,9 +3,10 @@
 // Tijdelijk uit: de DeGiro-totaaltegel moet nog nagekeken worden; op true zetten om hem terug te zien.
 const TOON_TOTAAL_DEGIRO_TEGEL = false;
 
-// Voorkomt verwarring bij vergelijken met DeGiro (gestort bedrag, totaal W/V).
+// Voorkomt verwarring bij vergelijken met DEGIRO (gestort bedrag, totaal W/V).
 const UITLEG_GEINVESTEERD = "Netto aankopen incl. kosten (verkopen afgetrokken). Niet gelijk aan het gestorte bedrag.";
-const UITLEG_RENDEMENT = "Waarde van de posities min geïnvesteerd. Excl. dividend en cash; wijkt daarom af van het totaal W/V bij DeGiro.";
+const UITLEG_RENDEMENT = "Waarde van de posities min geïnvesteerd. Excl. dividend en cash; wijkt daarom af van het totaal W/V bij DEGIRO.";
+const UITLEG_NETTO_GESTORT = "Wat je netto naar DEGIRO hebt overgemaakt (stortingen min opnames). Promotie, dividend en rente zitten hier niet in. DEGIRO's totaal W/V = totale waarde (posities + cash) min dit bedrag.";
 
 // null zonder promotiekorting; anders hoe het netto bedrag op de tegel tot stand komt.
 function transactiekostenSubtekst(totalen) {
@@ -13,7 +14,8 @@ function transactiekostenSubtekst(totalen) {
     return `betaald ${formatGetal(totalen.totale_transactiekosten_betaald, 2)} − promotie ${formatGetal(totalen.transactiekosten_korting, 2)}`;
 }
 
-function maakStatTegel(label, waardeTekst, klasse, subtekst) {
+// `uitleg` komt achter een (i) naast het label; `subtekst` staat zichtbaar onder de waarde.
+function maakStatTegel(label, waardeTekst, klasse, subtekst, uitleg) {
     const tegel = document.createElement("div");
     tegel.className = "statTegel";
 
@@ -21,6 +23,16 @@ function maakStatTegel(label, waardeTekst, klasse, subtekst) {
     labelDiv.textContent = label;
     labelDiv.className = "kleinLabel";
     tegel.appendChild(labelDiv);
+
+    if (uitleg) {
+        labelDiv.className = "kleinLabel statTegelLabel";
+        const tip = document.createElement("span");
+        tip.className = "infoTip";
+        tip.dataset.label = label;
+        tip.textContent = uitleg;
+        labelDiv.appendChild(tip);
+        activeerInfoTip(tip);
+    }
 
     const waardeDiv = document.createElement("div");
     waardeDiv.textContent = waardeTekst;
@@ -37,14 +49,15 @@ function maakStatTegel(label, waardeTekst, klasse, subtekst) {
     return tegel;
 }
 
-function maakTotalenSectie(totalen) {
+// aansluitingskosten: alleen op Home meegegeven (veld uit de API, kan ontbreken).
+function maakTotalenSectie(totalen, aansluitingskosten) {
     const rij = document.createElement("div");
     rij.className = "tegelRij";
 
-    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatteerEuro(totalen.geinvesteerd), "", UITLEG_GEINVESTEERD));
+    rij.appendChild(maakStatTegel("Totaal geïnvesteerd", formatteerEuro(totalen.geinvesteerd), "", null, UITLEG_GEINVESTEERD));
     rij.appendChild(maakStatTegel("Totale huidige waarde", formatteerEuro(totalen.waarde)));
-    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), klasseVoorRendement(totalen.rendement_eur), UITLEG_RENDEMENT));
-    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct), UITLEG_RENDEMENT));
+    rij.appendChild(maakStatTegel("Totaal rendement (€)", formatteerEuro(totalen.rendement_eur), klasseVoorRendement(totalen.rendement_eur), null, UITLEG_RENDEMENT));
+    rij.appendChild(maakStatTegel("Totaal rendement (%)", formatPct(totalen.rendement_pct), klasseVoorRendement(totalen.rendement_pct), null, UITLEG_RENDEMENT));
 
     if (totalen.dividend_netto !== null && totalen.dividend_netto !== undefined) {
         rij.appendChild(maakStatTegel("Ontvangen dividend (netto)", formatteerEuro(totalen.dividend_netto)));
@@ -54,6 +67,12 @@ function maakTotalenSectie(totalen) {
         rij.appendChild(maakStatTegel(
             "Vrije ruimte (cash)",
             formatteerEuro(totalen.kassaldo_eur)
+        ));
+    }
+
+    if (totalen.netto_gestort_eur !== null && totalen.netto_gestort_eur !== undefined) {
+        rij.appendChild(maakStatTegel(
+            "Netto gestort", formatteerEuro(totalen.netto_gestort_eur), "", null, UITLEG_NETTO_GESTORT
         ));
     }
 
@@ -78,6 +97,11 @@ function maakTotalenSectie(totalen) {
         rij.appendChild(maakStatTegel(
             "Totale transactiekosten", formatteerEuro(totalen.totale_transactiekosten), "", transactiekostenSubtekst(totalen)
         ));
+    }
+
+    const aansluiting = aansluitingskostenTegel(aansluitingskosten);
+    if (aansluiting) {
+        rij.appendChild(maakStatTegel(aansluiting.label, aansluiting.waardeTekst, "", null, aansluiting.uitleg));
     }
 
     const container = document.createElement("div");

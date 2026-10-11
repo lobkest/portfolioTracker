@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from diagnostiek import GOED, INFO, LET_OP
-from dividend import OMSCHRIJVING_VERREKENING_AANDELEN, REGELSOORT_VERREKENING_AANDELEN, regelsoort
+from rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, REGELSOORT_VERREKENING_AANDELEN, regelsoort
 from naam_verkorting import uitkeringsvorm_strijdig
 from portfolio_calc import holdings_op_datums
 from split_correctie import isin_ketens, vind_wisselparen

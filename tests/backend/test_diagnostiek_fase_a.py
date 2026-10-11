@@ -244,7 +244,7 @@ class TestNietOpslaan(unittest.TestCase):
         dividenden = [{"isin": "GB00B10RZP78", "product": "UNILEVER", "datum": datetime.date(2023, 6, 1)}]
         with Flask(__name__).test_request_context(), redirect_stdout(io.StringIO()), \
                 patch.object(po, "db_get_order_id_rijen", side_effect=AssertionError("geen database")), \
-                patch.object(po, "_split_correctie_en_koersen", side_effect=lambda d: (d, pd.DataFrame())),                 patch.object(po, "_transacties_lijst", return_value=[]),                 patch.object(po, "analyze_transacties_kern", return_value={"chart_data": None}):
+                patch.object(po, "_split_correctie_en_koersen", side_effect=lambda d, *_: (d, pd.DataFrame())),                 patch.object(po, "_transacties_lijst", return_value=[]),                 patch.object(po, "analyze_transacties_kern", return_value={"chart_data": None}):
             po.analyze_transacties(df, code=None, naam="Test", box3_dividenden=dividenden)
             meldingen = haal_meldingen()
         sleutels = {(m["categorie"], m["sleutel"]) for m in meldingen}

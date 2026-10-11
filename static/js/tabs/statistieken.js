@@ -10,11 +10,24 @@ function maakNaamTickerCel(naam, ticker) {
     return td;
 }
 
+function maakDividendCel(bedrag) {
+    const td = maakCel(dividendTekst(bedrag));
+    if (bedrag == null) {
+        const tip = document.createElement("span");
+        tip.className = "infoTip";
+        tip.dataset.label = "dividend onbekend";
+        tip.textContent = "Onbekend: geen rekeningoverzicht gebruikt, dus het dividend is niet bekend.";
+        td.append(" ", tip);
+        activeerInfoTip(tip);
+    }
+    return td;
+}
+
 function maakTickerKolom() {
     return { label: "Ticker", alleenMobiel: true, renderTd: p => maakCel(p.ticker) };
 }
 
-function maakPositieTabel(posities, tickerNamen, sorteerPlek) {
+function maakPositieTabel(posities, tickerNamen, dividendBekend, sorteerPlek) {
     const naam = p => (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
     const kolommen = [
         {
@@ -58,14 +71,14 @@ function maakPositieTabel(posities, tickerNamen, sorteerPlek) {
         maakTickerKolom(),
         {
             label: "Dividend ontvangen",
-            waarde: p => p.dividend_ontvangen || 0,
-            renderTd: p => maakCel(formatteerEuro(p.dividend_ontvangen || 0)),
+            waarde: p => positieDividend(p, dividendBekend),
+            renderTd: p => maakDividendCel(positieDividend(p, dividendBekend)),
         },
     ];
     return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities.", compactOpMobiel: true, sorteerPlek });
 }
 
-function maakGeslotenPositiesTabel(geslotenPosities, sorteerPlek) {
+function maakGeslotenPositiesTabel(geslotenPosities, dividendBekend, sorteerPlek) {
     const kolommen = [
         {
             label: "Status",
@@ -125,9 +138,9 @@ function maakGeslotenPositiesTabel(geslotenPosities, sorteerPlek) {
         {
             label: "Dividend ontvangen",
             // Deels verkocht: het dividend is per ticker en staat al bij de open positie.
-            waarde: p => p.nog_in_bezit ? null : (p.dividend_ontvangen || 0),
+            waarde: p => p.nog_in_bezit ? null : positieDividend(p, dividendBekend),
             renderTd: p => {
-                if (!p.nog_in_bezit) return maakCel(formatteerEuro(p.dividend_ontvangen || 0));
+                if (!p.nog_in_bezit) return maakDividendCel(positieDividend(p, dividendBekend));
                 const td = maakCel("zie hierboven");
                 td.className = "grijsTekst";
                 return td;
@@ -223,14 +236,15 @@ function toonStatistieken() {
     document.getElementById("statistiekenInhoud").hidden = !stats;
     if (!stats) return;
 
+    const dividendBekend = dividendIsBekend(stats.totalen);
     const tickerNamen = {};
     (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
 
     document.getElementById("statistiekenTotalen").replaceChildren(maakTotalenSectie(stats.totalen));
     document.getElementById("statistiekenPosities").replaceChildren(
-        maakPositieTabel(stats.posities, tickerNamen, document.getElementById("statistiekenPositiesSorteer")));
+        maakPositieTabel(stats.posities, tickerNamen, dividendBekend, document.getElementById("statistiekenPositiesSorteer")));
     document.getElementById("statistiekenGesloten").replaceChildren(
-        maakGeslotenPositiesTabel(stats.gesloten_posities, document.getElementById("statistiekenGeslotenSorteer")));
+        maakGeslotenPositiesTabel(stats.gesloten_posities, dividendBekend, document.getElementById("statistiekenGeslotenSorteer")));
     document.getElementById("statistiekenJaren").replaceChildren(maakJarenTabel(stats.jaren));
     document.getElementById("statistiekenGeavanceerd").replaceChildren(maakGeavanceerdSectie(stats.geavanceerd));
 }

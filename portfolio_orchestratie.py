@@ -14,7 +14,7 @@ from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
     db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
     db_get_cached_openfigi_voor_isins, db_get_kassaldo, db_get_dividenden, db_get_isin_ticker_product,
-    db_get_order_id_periodes, db_get_rekening_bedragen,
+    db_get_order_id_periodes, db_get_rekening_regels_eur,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
@@ -42,7 +42,8 @@ from portfolio_calc import (
 )
 from split_correctie import bepaal_effectieve_datums, continue_reeks
 from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
-from dividend import bouw_dividend_samenvatting
+from dividend import bouw_dividend_samenvatting, promotie_bedragen
+from aansluitingskosten import bouw_aansluitingskosten_samenvatting
 from statistieken import bereken_statistieken
 from portfolio_verdeling import (
     compute_land_sector_verdeling, compute_valuta_verdeling, compute_beurs_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
@@ -57,7 +58,7 @@ from ticker_classificatie import (
 )
 from naam_verkorting import kies_korte_namen
 from etf_holdings_provider import aanbieder_naam
-from dividend import ORDER_ID_KOLOM_REKENING, OMSCHRIJVINGEN_PROMOTIE
+from dividend import ORDER_ID_KOLOM_REKENING
 from etf_proxy import land_proxies_voor_etfs
 
 
@@ -94,14 +95,25 @@ def _laad_transacties(code):
     if naam is None:
         return None, None, None
     transacties_df = pd.DataFrame(rows, columns=TRANSACTIE_KOLOMMEN)
-    promoties = db_get_rekening_bedragen(code, OMSCHRIJVINGEN_PROMOTIE)
+    transacties_df, promotie = pas_promotie_toe(transacties_df, promotie_bedragen(db_get_rekening_regels_eur(code)))
+    return naam, transacties_df, promotie
+
+
+def pas_promotie_toe(transacties_df, promoties):
+    """(kopie met promotiekorting, promotie-samenvatting). promoties: [(datum, bedrag_eur)].
+    Uit promotie_bedragen(), op opgeslagen rekening_regels of op het bestand ('niet opslaan'): dezelfde cijfers."""
     korting, restanten = verdeel_kostenkorting(transacties_df, promoties)
     for datum, restant in restanten:
         meld(CATEGORIE_REKENINGOVERZICHT, INFO,
              f"Promotie van {formatteer_datum_nl(datum)}: EUR {restant:.2f} niet als kostenkorting verrekend "
              f"(te weinig transactiekosten op of voor die datum); het bedrag telt alleen mee in het kassaldo.",
              sleutel=f"promotie_restant:{datum}")
-    return naam, pas_kostenkorting_toe(transacties_df, korting), _promotie_samenvatting(promoties, korting)
+    return pas_kostenkorting_toe(transacties_df, korting), _promotie_samenvatting(promoties, korting)
+
+
+def isin_ticker_product_rijen(transacties_df):
+    """Zoals db_get_isin_ticker_product(), uit een DataFrame ('niet opslaan')."""
+    return [(r.isin, r.ticker, r.product) for r in transacties_df.itertuples(index=False) if pd.notna(r.ticker)]
 
 
 def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
@@ -616,9 +628,11 @@ def _split_correctie_en_koersen(transacties_df, verversen=True):
 
 
 def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None, kassaldo=None,
-                             box3=False, box3_dividenden=None):
-    """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. `kassaldo` alleen bij 'niet opslaan';
-    met een code komt hij uit de database. `box3`: ook de box 3-basis, voor 'niet opslaan' (anders apart endpoint)."""
+                             box3=False, box3_dividenden=None, dividenden=None, rekening_regels=None):
+    """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. `kassaldo`, `dividenden` (records uit
+    het rekeningoverzicht) en `rekening_regels` (bouw_rekening_regels()) alleen bij 'niet opslaan'; met een code komen
+    ze uit de database.
+    `box3`: ook de box 3-basis, voor 'niet opslaan' (anders apart endpoint)."""
     mem_start = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss if resource else None
 
     tickers = transacties_df["ticker"].dropna().unique().tolist()
@@ -675,12 +689,15 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             f"{len(price_data.index) if not price_data.empty else 0} handelsdagen"
         )
 
-    # Bij 'niet opslaan' is code None: geen dividendhistorie.
     with meet_tijd("dividend_samenvatting"):
-        dividenden = db_get_dividenden(code) if code else None
-        dividend_data = bouw_dividend_samenvatting(dividenden, db_get_isin_ticker_product(code)) if dividenden else None
-    if dividenden:
-        _meld_dividend_zonder_positie(transacties_df, dividenden)
+        if code:
+            dividenden = db_get_dividenden(code)
+            dividend_data = bouw_dividend_samenvatting(dividenden, db_get_isin_ticker_product(code)) if dividenden else None
+            if dividenden:
+                _meld_dividend_zonder_positie(transacties_df, dividenden)
+        else:
+            dividend_data = (bouw_dividend_samenvatting(dividenden, isin_ticker_product_rijen(transacties_df))
+                             if dividenden else None)
     if code:
         kassaldo = db_get_kassaldo(code)
     dividend_per_ticker = (
@@ -721,9 +738,25 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         "laatst_opgehaald_op": laatst_opgehaald_op.isoformat() + "Z" if laatst_opgehaald_op else None,
         **koersstatus,
     }
+    if code:
+        rekening_regels = db_get_rekening_regels_eur(code)
+    # Zonder rekeningoverzicht geen veld: 0 zou "geen kosten" suggereren.
+    if rekening_regels:
+        antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels)
     if box3:
         antwoord["box3_basis"] = bouw_box3_basis(transacties_df, resultaat, box3_dividenden)
     return antwoord
+
+
+def _aansluitingskosten(rekening_regels):
+    samenvatting = bouw_aansluitingskosten_samenvatting(rekening_regels)
+    onbekend = samenvatting.pop("onbekend_formaat")
+    if onbekend:
+        meld(CATEGORIE_REKENINGOVERZICHT, LET_OP,
+             f"{len(onbekend)} aansluitingskostenregel(s) in een onbekend formaat, geteld onder beurs "
+             f"'onbekend': {', '.join(sorted(set(onbekend)))}.",
+             sleutel="aansluitingskosten_onbekend_formaat")
+    return samenvatting
 
 
 def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None, gebruik_proxy=True):
@@ -813,18 +846,23 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
     }
 
 
-def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, box3_dividenden=None):
+def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, box3_dividenden=None, promoties=None,
+                        verversen=True, rekening_regels=None):
     """Kern + verrijking in één keer, voor 'niet opslaan' (geen code voor een latere /verrijking).
     Zonder land-proxy: die zoektocht kost bij een koude cache ~9 s binnen /upload (gunicorn-timeout).
-    box3_dividenden: de dividendrecords uit het rekeningoverzicht, of None.
-    Bevat ook transacties_lijst (Transacties-tabblad), zonder dividend per aankoop."""
+    box3_dividenden: de dividendrecords uit het rekeningoverzicht, of None (ook voor het dividend in Statistieken).
+    promoties: [(datum, bedrag_eur)] uit het rekeningoverzicht, of None. rekening_regels: bouw_rekening_regels(), of None.
+    Bevat ook transacties_lijst + transacties_promotie (Transacties-tabblad), zonder dividend per aankoop."""
+    transacties_df, promotie = pas_promotie_toe(transacties_df, promoties or [])
     with meet_tijd("basis_datakwaliteit"):
         _meld_datakwaliteit(None, transacties_df)
     _meld_dividend_zonder_positie(transacties_df, box3_dividenden)
-    split_df, price_data = _split_correctie_en_koersen(transacties_df)
-    resultaat = analyze_transacties_kern(split_df, code, naam, prijs_data_al_klaar=price_data, kassaldo=kassaldo,
-                                         box3=box3, box3_dividenden=box3_dividenden)
+    split_df, price_data = _split_correctie_en_koersen(transacties_df, verversen)
+    resultaat = analyze_transacties_kern(split_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data,
+                                         kassaldo=kassaldo, box3=box3, box3_dividenden=box3_dividenden,
+                                         dividenden=box3_dividenden, rekening_regels=rekening_regels)
     resultaat["transacties_lijst"] = _transacties_lijst(transacties_df, split_df, price_data, None)
+    resultaat["transacties_promotie"] = promotie
     if resultaat.get("chart_data") is None:
         return resultaat
     resultaat.update(analyze_transacties_verrijking(transacties_df, code, gebruik_proxy=False))

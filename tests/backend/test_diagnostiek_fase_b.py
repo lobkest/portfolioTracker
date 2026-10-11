@@ -22,10 +22,12 @@ from diagnostiek import (
 from diagnostiek_checks import (
     aantal_tekst, check_order_ids_rekening, check_prijscheck_zonder_fx, check_rekening_regelsoorten, kale_order_id,
 )
-from dividend import (
-    REGELSOORT_CORPORATE_ACTION, REGELSOORT_DIVIDEND, REGELSOORT_KOOP_VERKOOP, REGELSOORT_KOSTEN, REGELSOORT_RENTE,
-    REGELSOORT_PROMOTIE, REGELSOORT_STORTING_OPNAME, REGELSOORT_SWEEP, REGELSOORT_VALUTA, REGELSOORT_VERREKENING_AANDELEN,
-    lees_rekeningoverzicht, regelsoort,
+from dividend import lees_rekeningoverzicht
+from rekening_regelsoorten import (
+    REGELSOORT_CORPORATE_ACTION, REGELSOORT_DIVIDEND, REGELSOORT_DIVIDEND_HERINVESTERING, REGELSOORT_DIVIDENDBELASTING,
+    REGELSOORT_KOOP_VERKOOP, REGELSOORT_KOSTEN, REGELSOORT_RENTE, REGELSOORT_PROMOTIE, REGELSOORT_STORTING_OPNAME,
+    REGELSOORT_SWEEP, REGELSOORT_VALUTA_CREDITERING, REGELSOORT_VALUTA_DEBITERING, REGELSOORT_VERREKENING_AANDELEN,
+    regelsoort,
 )
 from etf_holdings_provider import aanbieder_naam
 from upload_verwerking import lees_transacties_excel, _meld_rekening_regelsoorten
@@ -191,10 +193,10 @@ class TestRegelsoort(unittest.TestCase):
             "Verkoop 1.250 @ 3,5 USD": REGELSOORT_KOOP_VERKOOP,
             "DEGIRO Transactiekosten en/of kosten van derden": REGELSOORT_KOSTEN,
             "Dividend": REGELSOORT_DIVIDEND,
-            "Dividendbelasting": REGELSOORT_DIVIDEND,
-            "Dividend Herinvestering": REGELSOORT_DIVIDEND,
-            "Valuta Creditering": REGELSOORT_VALUTA,
-            "Valuta Debitering": REGELSOORT_VALUTA,
+            "Dividendbelasting": REGELSOORT_DIVIDENDBELASTING,
+            "Dividend Herinvestering": REGELSOORT_DIVIDEND_HERINVESTERING,
+            "Valuta Creditering": REGELSOORT_VALUTA_CREDITERING,
+            "Valuta Debitering": REGELSOORT_VALUTA_DEBITERING,
             "CLAIMEMISSIE: Koop 2 @ 1,1 EUR": REGELSOORT_CORPORATE_ACTION,
             "PRODUCTWIJZIGING : Verkoop 5 @ 10 EUR": REGELSOORT_CORPORATE_ACTION,
             "Verrekening van Aandelen": REGELSOORT_VERREKENING_AANDELEN,
