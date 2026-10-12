@@ -700,6 +700,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
                              if dividenden else None)
     if code:
         kassaldo = db_get_kassaldo(code)
+        rekening_regels = db_get_rekening_regels_eur(code)
     dividend_per_ticker = (
         {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
         if dividend_data else {}
@@ -709,7 +710,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             transacties_df, price_data, resultaat,
             dividend_per_ticker=dividend_per_ticker, ticker_namen=ticker_namen,
             dividend_totaal_netto=dividend_data["totaal_netto"] if dividend_data else None,
-            kassaldo=kassaldo,
+            kassaldo=kassaldo, rekening_regels=rekening_regels,
         )
     _meld_xirr(transacties_df, statistieken)
 
@@ -738,8 +739,6 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         "laatst_opgehaald_op": laatst_opgehaald_op.isoformat() + "Z" if laatst_opgehaald_op else None,
         **koersstatus,
     }
-    if code:
-        rekening_regels = db_get_rekening_regels_eur(code)
     # Zonder rekeningoverzicht geen veld: 0 zou "geen kosten" suggereren.
     if rekening_regels:
         antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels)

@@ -100,8 +100,10 @@ class _Basis(unittest.TestCase):
                          "db_get_order_id_periodes"):
                 stack.enter_context(patch.object(po, naam, side_effect=_faalt(naam)))
             stack.enter_context(patch.object(db, "db_connect", side_effect=_faalt("db_connect")))
+            regels = [{"datum": d, "tijd": None, "omschrijving": PROMOTIE, "mutatie_valuta": "EUR", "mutatie": b}
+                      for d, b in promoties or []] if promoties is not None else None
             return po.analyze_transacties(_transacties_df(), code=None, naam="Test", kassaldo=kassaldo,
-                                          box3_dividenden=dividenden, promoties=promoties)
+                                          box3_dividenden=dividenden, promoties=promoties, rekening_regels=regels)
 
 
 class TestNietOpslaanGelijkAanOpgeslagen(_Basis):

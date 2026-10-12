@@ -1,6 +1,48 @@
 // Tabblad Portfolio-home: waarde en geinvesteerd over tijd, met de totalen erboven.
 
+// Alleen in het geheugen: na opnieuw laden staat de melding er weer, want het overzicht blijft onvolledig.
+let rekeningoverzichtMeldingGesloten = false;
+
+function resetRekeningoverzichtMelding() {
+    rekeningoverzichtMeldingGesloten = false;
+}
+
+function toonRekeningoverzichtMelding() {
+    const banner = document.getElementById("rekeningoverzichtBanner");
+    const status = huidigeData.statistieken && huidigeData.statistieken.totalen.rekeningoverzicht_status;
+    const melding = rekeningoverzichtMeldingGesloten ? null : rekeningoverzichtMelding(status, Boolean(huidigeData.code));
+    if (!melding) {
+        banner.style.display = "none";
+        return;
+    }
+    document.getElementById("rekeningoverzichtKop").textContent = melding.kop;
+    const lijst = document.getElementById("rekeningoverzichtRedenen");
+    lijst.innerHTML = "";
+    melding.redenen.forEach(tekst => {
+        const li = document.createElement("li");
+        li.textContent = tekst;
+        lijst.appendChild(li);
+    });
+    const periode = document.getElementById("rekeningoverzichtPeriode");
+    periode.textContent = melding.periode || "";
+    periode.style.display = melding.periode ? "block" : "none";
+    const link = document.getElementById("rekeningoverzichtLink");
+    link.textContent = melding.linkTekst;
+    link.style.display = melding.linkNaarInstellingen ? "inline-block" : "none";
+    const tip = document.getElementById("rekeningoverzichtTip");
+    tip.textContent = melding.linkNaarInstellingen ? "" : melding.linkTekst;
+    tip.style.display = melding.linkNaarInstellingen ? "none" : "block";
+    banner.style.display = "flex";
+}
+
+document.getElementById("rekeningoverzichtLink").addEventListener("click", () => gaNaarView("instellingen-bestanden"));
+document.getElementById("rekeningoverzichtSluit").addEventListener("click", () => {
+    rekeningoverzichtMeldingGesloten = true;
+    document.getElementById("rekeningoverzichtBanner").style.display = "none";
+});
+
 function toonPortfolio() {
+    toonRekeningoverzichtMelding();
     const d = huidigeData.chart_data;
     updateChart(d.labels, [
         { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },
@@ -11,7 +53,7 @@ function toonPortfolio() {
     const homeSectie = document.getElementById("homeTotalenSectie");
     homeSectie.innerHTML = "";
     if (huidigeData.statistieken) {
-        homeSectie.appendChild(maakTotalenSectie(huidigeData.statistieken.totalen, huidigeData.aansluitingskosten));
+        homeSectie.appendChild(maakHomeSectie(huidigeData.statistieken.totalen, huidigeData.aansluitingskosten));
     }
 
     // Zonder koersdata de regel weglaten (anders "Invalid Date").

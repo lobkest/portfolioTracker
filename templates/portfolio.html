@@ -180,6 +180,16 @@
             </div>
 
             <div id="tab-portfolio" data-views="portfolio" style="display: none;">
+                <div id="rekeningoverzichtBanner" class="waarschuwingBanner bannerMetSluitknop" style="display: none;">
+                    <div class="bannerInhoud">
+                        <p id="rekeningoverzichtKop" class="bannerKop"></p>
+                        <ul id="rekeningoverzichtRedenen" class="bannerLijst"></ul>
+                        <p id="rekeningoverzichtPeriode" class="kleineMelding"></p>
+                        <button id="rekeningoverzichtLink" type="button" class="linkKnop"></button>
+                        <p id="rekeningoverzichtTip" class="kleineMelding"></p>
+                    </div>
+                    <button id="rekeningoverzichtSluit" type="button" class="bannerSluitKnop" aria-label="Melding sluiten">&times;</button>
+                </div>
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <div id="homeTotalenSectie"></div>
@@ -602,10 +612,12 @@
     <script src="{{ url_for('static', filename='js/etf_overlap.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/rekeningoverzicht.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tegels.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/gedeeld/home_indeling.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/portfolio.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/rendement.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/per_aandeel.js') }}"></script>

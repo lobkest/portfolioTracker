@@ -349,6 +349,46 @@ body:has(.startPagina) {
     margin-bottom: 15px;
 }
 
+/* Melding met sluitknop (rekeningoverzicht op Home); knoppen zijn globaal groen, hier een tekstlink resp. kruisje. */
+.bannerMetSluitknop {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+}
+
+.bannerInhoud {
+    flex: 1;
+    min-width: 0;
+}
+
+.bannerInhoud p {
+    margin: 0 0 6px;
+}
+
+.bannerLijst {
+    margin: 0 0 6px;
+    padding-left: 20px;
+}
+
+.bannerMetSluitknop .linkKnop,
+.bannerMetSluitknop .bannerSluitKnop {
+    background: transparent;
+    color: inherit;
+    border: none;
+    margin: 0;
+    padding: 0;
+}
+
+.bannerMetSluitknop .linkKnop {
+    text-decoration: underline;
+}
+
+.bannerMetSluitknop .bannerSluitKnop {
+    font-size: 22px;
+    line-height: 1;
+    padding: 0 4px;
+}
+
 .segmentKeuze {
     display: inline-flex;
     border: 1px solid #2c7a4b;
@@ -997,6 +1037,123 @@ input.schakelaar:focus-visible {
     font-size: 1.4em;
     font-weight: bold;
     color: #333;
+}
+
+/* Home: op een breed scherm een rekenblok, op mobiel een hoofdcijfer met groepen; beide staan in de DOM. */
+.homeMobiel {
+    display: none;
+}
+
+.homeKopcijfers {
+    position: relative; /* de uitleg achter een (i) krijgt de breedte van beide cijfers */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 24px;
+    margin-bottom: 20px;
+}
+
+.homeKopcijfer {
+    flex: 1 1 120px;
+    min-width: 0;
+}
+
+.homeKopWaarde {
+    font-size: 1.7em;
+    font-weight: bold;
+    color: #333;
+    overflow-wrap: anywhere;
+}
+
+.homeKopPct {
+    font-size: 1.1em;
+    font-weight: bold;
+}
+
+.rekenSectie {
+    margin-bottom: 16px;
+}
+
+.rekenTitel {
+    margin-bottom: 4px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid #ddd;
+    font-size: 0.8em;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #666;
+}
+
+.rekenRegel {
+    position: relative; /* de uitleg achter een (i) komt onder de regel */
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0 8px;
+    padding: 3px 0;
+}
+
+/* De uitleg dekt de regels eronder af; de muis moet er doorheen naar de volgende (i). */
+.rekenRegel .infoTipTekst {
+    pointer-events: none;
+}
+
+.rekenTeken {
+    text-align: center;
+    color: #777;
+}
+
+.rekenLabel {
+    font-size: 0.95em;
+}
+
+.rekenBedrag {
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.rekenTotaal {
+    margin-top: 2px;
+    padding-top: 5px;
+    border-top: 1px solid #333;
+    font-weight: bold;
+}
+
+.groepTitel {
+    margin: 16px 0 6px 0;
+    font-size: 0.8em;
+    font-weight: bold;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: #666;
+}
+
+.heroTegel {
+    position: relative; /* de uitleg achter een (i) krijgt de breedte van de tegel */
+    padding: 16px;
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+.heroWaarde {
+    margin-bottom: 8px;
+    font-size: 2em;
+    font-weight: bold;
+    color: #333;
+    overflow-wrap: anywhere;
+}
+
+.heroRendement {
+    font-size: 1.25em;
+    font-weight: bold;
+}
+
+.heroDegiro {
+    margin-top: 8px;
+    font-size: 0.85em;
+    color: #777;
 }
 
 /* --- 4. Per tabblad (menuvolgorde) --- */
@@ -2298,6 +2455,14 @@ button.diagnostiekChip:disabled:hover {
 
     .statWaarde {
         font-size: 1.15em;
+    }
+
+    .homeLaptop {
+        display: none;
+    }
+
+    .homeMobiel {
+        display: block;
     }
 
     /* De knoppen 10/20/50 volstaan op een telefoon. */

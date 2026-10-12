@@ -3,6 +3,8 @@ import pandas as pd
 from pyxirr import xirr
 
 from debug_utils import meet_tijd
+from rekening_regelsoorten import OVERIGE_KASSA_SOORTEN, regelsoort
+from rekeningoverzicht_status import beoordeel_rekeningoverzicht
 from transactie_utils import KOSTENKORTING_KOLOM, _is_corporate_action_row, _sorteer_chronologisch
 
 # Accumulerende UCITS-ETF's in EUR: geen dividend-boekhouding nodig. IAEA.AS heeft pas koersen vanaf 2020-07-29.
@@ -345,8 +347,22 @@ def bereken_totaal_degiro(waarde_eur, kassaldo):
     return round(waarde_eur + kassaldo["saldo_eur"] - kassaldo["netto_gestort_eur"], 2)
 
 
+def bereken_overige_kassabewegingen(rekening_regels, kassaldo, geinvesteerd, waarde):
+    """Som van de EUR-kassabewegingen buiten aankopen, stortingen en dividend (negatief = kosten), zodat
+    geïnvesteerd = netto gestort + dividend + overig − cash. None zonder rekeningoverzicht, bij een onbetrouwbaar
+    kassaldo of als het overzicht niet vanaf de opening van de rekening loopt (dan sluit de opbouw niet)."""
+    if not rekening_regels or not kassaldo or not kassaldo.get("vanaf_opening"):
+        return None
+    if kassaldo["saldo_eur"] < 0 or ((geinvesteerd or waarde) and not kassaldo["netto_gestort_eur"]):
+        return None
+    totaal = sum(float(r["mutatie"]) for r in rekening_regels
+                 if r["mutatie_valuta"] == "EUR" and r["mutatie"] is not None
+                 and regelsoort(r["omschrijving"]) in OVERIGE_KASSA_SOORTEN)
+    return round(totaal, 2)
+
+
 def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_ticker=None, ticker_namen=None,
-                         dividend_totaal_netto=None, kassaldo=None):
+                         dividend_totaal_netto=None, kassaldo=None, rekening_regels=None):
     """Alles voor het Statistieken-tabblad, zonder extra Yahoo-calls.
     Huidige aantallen uit de ruwe 'aantal'-kolom (zie CLAUDE.md: Data en rekenen)."""
     dividend_per_ticker = dividend_per_ticker or {}
@@ -453,6 +469,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
         aantal_jaren = round((resultaat.index.max() - pd.Timestamp(eerste_datum)).days / 365.25, 2)
 
     kosten_info = bereken_totale_transactiekosten(transacties_df)
+    overige_kassa = bereken_overige_kassabewegingen(rekening_regels, kassaldo, totaal_geinvesteerd, totaal_waarde)
 
     return {
         "posities": posities,
@@ -473,6 +490,11 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "netto_gestort_eur": kassaldo["netto_gestort_eur"] if kassaldo else None,
             "kassaldo_per_datum": kassaldo["per_datum"].isoformat() if kassaldo else None,
             "totaal_degiro_eur": bereken_totaal_degiro(totaal_waarde, kassaldo),
+            "overige_kassabewegingen_eur": overige_kassa,
+            # Ontbreekt zonder rekeningoverzicht (None).
+            "rekeningoverzicht_status": beoordeel_rekeningoverzicht(
+                transacties_df, rekening_regels, kassaldo, totaal_geinvesteerd, totaal_waarde,
+                dividend_totaal_netto, overige_kassa),
         },
         "jaren": jaren,
         "geavanceerd": {

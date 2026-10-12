@@ -134,5 +134,11 @@ BEHANDELING = {
 }
 
 
+# Soorten in het kassaldo die geen aankoop, storting of dividend zijn: het deel dat de Home-opbouw "overig" noemt.
+OVERIGE_KASSA_SOORTEN = frozenset({
+    REGELSOORT_AANSLUITINGSKOSTEN, REGELSOORT_RENTE, REGELSOORT_VERREKENING_AANDELEN, REGELSOORT_ONBEKEND,
+})
+
+
 def behandeling(omschrijving):
     return BEHANDELING[regelsoort(omschrijving)]

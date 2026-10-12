@@ -91,7 +91,7 @@ test("maakTotalenSectie: (i) wordt geactiveerd en heeft het label als naam", () 
 
 test("maakTotalenSectie: Netto gestort met (i), direct na Vrije ruimte (cash); andere tegels ongewijzigd", () => {
     const ctx = laadTegels();
-    const container = ctx.maakTotalenSectie(TOTALEN);
+    const container = ctx.maakTotalenSectie(MET_TOTAAL);
     const sub = tegelSubtekst(container);
     const tips = tegelInfoTip(container);
     assert.deepEqual(Object.keys(sub), [
@@ -99,6 +99,7 @@ test("maakTotalenSectie: Netto gestort met (i), direct na Vrije ruimte (cash); a
         "Totale huidige waarde",
         "Totaal rendement (€)",
         "Totaal rendement (%)",
+        "Totaal W/V (DEGIRO-definitie)",
         "Ontvangen dividend (netto)",
         "Vrije ruimte (cash)",
         "Netto gestort",
@@ -108,10 +109,12 @@ test("maakTotalenSectie: Netto gestort met (i), direct na Vrije ruimte (cash); a
     const tegel = container.children[0].children.find(t => t.children[0].textContent === "Netto gestort");
     assert.equal(tegel.children[1].textContent, "EUR 13440");
     assert.match(tips["Netto gestort"], /stortingen min opnames/);
-    for (const label of ["Totale huidige waarde", "Ontvangen dividend (netto)", "Vrije ruimte (cash)",
+    for (const label of ["Ontvangen dividend (netto)", "Vrije ruimte (cash)",
                          "Hoogste rendement", "Totale transactiekosten"]) {
         assert.equal(tips[label], null, label);
     }
+    assert.match(tips["Totale huidige waarde"], /zonder cash.*Tradegate/);
+    assert.match(tips["Totaal W/V (DEGIRO-definitie)"], /Totaal Account/);
     assert.equal(sub["Totale huidige waarde"], null);
     assert.equal(sub["Ontvangen dividend (netto)"], null);
     assert.equal(sub["Vrije ruimte (cash)"], null);
@@ -130,10 +133,51 @@ test("maakTotalenSectie: zonder kassaldo geen Netto gestort (ook niet als €0,0
     }
 });
 
-test("maakTotalenSectie: Netto gestort van 0 wordt wel getoond (kassaldo bekend)", () => {
+const TOTAAL_LABEL = "Totaal W/V (DEGIRO-definitie)";
+const MET_TOTAAL = { ...TOTALEN, totaal_degiro_eur: 2691.36 };
+
+function waardeVan(container, label) {
+    return container.children[0].children.find(t => t.children[0].textContent === label).children[1].textContent;
+}
+
+test("Totaal W/V (DEGIRO): getoond met betrouwbaar kassaldo, direct na Totaal rendement (%)", () => {
     const ctx = laadTegels();
-    const labels = Object.keys(tegelSubtekst(ctx.maakTotalenSectie({ ...TOTALEN, netto_gestort_eur: 0 })));
-    assert.ok(labels.includes("Netto gestort"));
+    const container = ctx.maakTotalenSectie(MET_TOTAAL);
+    const labels = Object.keys(tegelSubtekst(container));
+    assert.equal(labels[labels.indexOf("Totaal rendement (%)") + 1], TOTAAL_LABEL);
+    assert.equal(waardeVan(container, TOTAAL_LABEL), "EUR 2691.36");
+});
+
+test("Totaal W/V (DEGIRO): verborgen zonder rekeningoverzicht, bij netto gestort 0 met transacties en bij negatief saldo", () => {
+    const ctx = laadTegels();
+    const onbetrouwbaar = [
+        { ...MET_TOTAAL, kassaldo_eur: null, netto_gestort_eur: null, totaal_degiro_eur: null },
+        { ...MET_TOTAAL, netto_gestort_eur: 0 },
+        { ...MET_TOTAAL, netto_gestort_eur: null },
+        { ...MET_TOTAAL, kassaldo_eur: -3389.75 },
+    ];
+    for (const totalen of onbetrouwbaar) {
+        assert.ok(!Object.keys(tegelSubtekst(ctx.maakTotalenSectie(totalen))).includes(TOTAAL_LABEL));
+    }
+});
+
+test("Onbetrouwbaar kassaldo: cash en netto gestort tonen 'onbekend' met (i), geen bedrag", () => {
+    const ctx = laadTegels();
+    const totalen = { ...MET_TOTAAL, netto_gestort_eur: 0, kassaldo_eur: -3389.75 };
+    const container = ctx.maakTotalenSectie(totalen);
+    const tips = tegelInfoTip(container);
+    for (const label of ["Vrije ruimte (cash)", "Netto gestort"]) {
+        assert.equal(waardeVan(container, label), "onbekend");
+        assert.match(tips[label], /Stortingen ontbreken/);
+    }
+});
+
+test("Netto gestort van 0 zonder transacties blijft een betrouwbaar kassaldo", () => {
+    const ctx = laadTegels();
+    const totalen = { ...MET_TOTAAL, geinvesteerd: 0, waarde: 0, netto_gestort_eur: 0 };
+    const container = ctx.maakTotalenSectie(totalen);
+    assert.equal(waardeVan(container, "Netto gestort"), "EUR 0");
+    assert.ok(Object.keys(tegelSubtekst(container)).includes(TOTAAL_LABEL));
 });
 
 test("maakTotalenSectie: transactiekosten met promotiekorting tonen netto met betaald en promotie", () => {
@@ -183,4 +227,29 @@ test("maakTotalenSectie: geen Aansluitingskosten zonder veld of zonder kosten (o
         const labels = Object.keys(tegelSubtekst(ctx.maakTotalenSectie(TOTALEN, samenvatting)));
         assert.ok(!labels.includes("Aansluitingskosten"));
     }
+});
+
+test("kassaldoIsBetrouwbaar: rekeningoverzicht_status.volledig wint van de heuristiek", () => {
+    const ctx = laadTegels();
+    assert.equal(ctx.kassaldoIsBetrouwbaar({ ...TOTALEN, rekeningoverzicht_status: { volledig: false } }), false);
+    // Heuristiek zou onbetrouwbaar zeggen (netto gestort 0 met transacties); de backend zegt volledig.
+    assert.equal(ctx.kassaldoIsBetrouwbaar({ ...TOTALEN, netto_gestort_eur: 0, rekeningoverzicht_status: { volledig: true } }), true);
+});
+
+test("kassaldoIsBetrouwbaar: zonder status-veld blijft de heuristiek als vangnet", () => {
+    const ctx = laadTegels();
+    assert.equal(ctx.kassaldoIsBetrouwbaar(TOTALEN), true);
+    assert.equal(ctx.kassaldoIsBetrouwbaar({ ...TOTALEN, netto_gestort_eur: 0 }), false);
+    assert.equal(ctx.kassaldoIsBetrouwbaar({ ...TOTALEN, kassaldo_eur: -1 }), false);
+    assert.equal(ctx.kassaldoIsBetrouwbaar({ ...TOTALEN, rekeningoverzicht_status: null, netto_gestort_eur: 0 }), false);
+});
+
+test("onvolledig overzicht: cash en netto gestort tonen 'onbekend', geen Totaal W/V", () => {
+    const ctx = laadTegels();
+    const totalen = { ...TOTALEN, totaal_degiro_eur: 10, rekeningoverzicht_status: { volledig: false } };
+    const rij = ctx.maakTotalenSectie(totalen).children[0];
+    const waarden = Object.fromEntries(rij.children.map(t => [t.children[0].textContent, t.children[1].textContent]));
+    assert.equal(waarden["Vrije ruimte (cash)"], "onbekend");
+    assert.equal(waarden["Netto gestort"], "onbekend");
+    assert.ok(!("Totaal W/V (DEGIRO-definitie)" in waarden));
 });
