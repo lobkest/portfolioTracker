@@ -190,6 +190,16 @@
                     </div>
                     <button id="rekeningoverzichtSluit" type="button" class="bannerSluitKnop" aria-label="Melding sluiten">&times;</button>
                 </div>
+                <div id="transactiebestandBanner" class="waarschuwingBanner bannerMetSluitknop" style="display: none;">
+                    <div class="bannerInhoud">
+                        <p id="transactiebestandKop" class="bannerKop"></p>
+                        <ul id="transactiebestandRedenen" class="bannerLijst"></ul>
+                        <p id="transactiebestandPeriode" class="kleineMelding"></p>
+                        <button id="transactiebestandLink" type="button" class="linkKnop"></button>
+                        <p id="transactiebestandTip" class="kleineMelding"></p>
+                    </div>
+                    <button id="transactiebestandSluit" type="button" class="bannerSluitKnop" aria-label="Melding sluiten">&times;</button>
+                </div>
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <div id="homeTotalenSectie"></div>
@@ -613,6 +623,7 @@
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
     <script src="{{ url_for('static', filename='js/rekeningoverzicht.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/transactiebestand.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>

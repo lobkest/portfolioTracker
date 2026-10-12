@@ -11,7 +11,7 @@ import pandas as pd
 from diagnostiek import GOED, INFO, LET_OP
 from rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, REGELSOORT_VERREKENING_AANDELEN, regelsoort
 from naam_verkorting import uitkeringsvorm_strijdig
-from portfolio_calc import holdings_op_datums
+from portfolio_calc import MIN_AANTAL_TEKORT, holdings_op_datums, stand_per_dag_per_keten
 from split_correctie import isin_ketens, vind_wisselparen
 from ticker_matching import MANUAL_TICKER_OVERRIDES_ISIN, _openfigi_root_matches
 from ticker_prijscheck import PRIJSCHECK_REDEN_GEEN_FX
@@ -40,8 +40,6 @@ MAX_DAGSPRONG_FRACTIE = 0.4
 MAX_FORWARD_FILL_DAGEN = 10
 # Kleinere bedragen zijn afrondingsresten (bv. na een bijna volledige verkoop): een verhouding zegt dan niets.
 MIN_BEDRAG_EUR = 1.0
-# Float-ruis bij fractionele aantallen; een echt tekort is groter.
-MIN_AANTAL_TEKORT = 1e-6
 # Ruimte voor een lang weekend met beursfeestdagen (Pasen: vrijdag en maandag dicht).
 MAX_WERKDAGEN_ZONDER_KOERS = 3
 # Korter dan een jaar: de XIRR is geannualiseerd en vergroot het rendement van die korte periode sterk uit.
@@ -182,11 +180,8 @@ def check_negatief_aantal(df):
         return []
     rijen = df.dropna(subset=["isin"])
     keten = _keten_isin(rijen)
-    dag = pd.to_datetime(rijen["datum"]).dt.normalize()
-    aantal = pd.to_numeric(rijen["aantal"], errors="coerce").fillna(0.0)
     bevindingen = []
-    for eind, per_dag in aantal.groupby([keten, dag]).sum().groupby(level=0):
-        stand = per_dag.droplevel(0).cumsum()
+    for eind, stand in stand_per_dag_per_keten(df).items():
         tekort = stand[stand < -MIN_AANTAL_TEKORT]
         if tekort.empty:
             continue

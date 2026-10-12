@@ -14,7 +14,7 @@ from db import (
     db_get_portfolio_naam_en_transacties, db_get_laatste_koers_update, db_get_koers_splits, TRANSACTIE_KOLOMMEN,
     db_laad_product_per_ticker, db_get_ticker_details, db_get_order_id_rijen, ORDER_ID_KOLOMMEN,
     db_get_cached_openfigi_voor_isins, db_get_kassaldo, db_get_dividenden, db_get_isin_ticker_product,
-    db_get_order_id_periodes, db_get_rekening_regels_eur,
+    db_get_order_id_periodes, db_get_rekening_regels_eur, db_get_rekening_koop_verkoop,
 )
 from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
@@ -45,6 +45,7 @@ from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_
 from dividend import bouw_dividend_samenvatting, promotie_bedragen
 from aansluitingskosten import bouw_aansluitingskosten_samenvatting
 from statistieken import bereken_statistieken
+from transactiebestand_status import beoordeel_transactiebestand
 from portfolio_verdeling import (
     compute_land_sector_verdeling, compute_valuta_verdeling, compute_beurs_verdeling, bereken_bedrijven_verdeling, bereken_etf_overlap,
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
@@ -701,6 +702,9 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     if code:
         kassaldo = db_get_kassaldo(code)
         rekening_regels = db_get_rekening_regels_eur(code)
+        rekening_koop_verkoop = db_get_rekening_koop_verkoop(code)
+    else:
+        rekening_koop_verkoop = rekening_regels
     dividend_per_ticker = (
         {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
         if dividend_data else {}
@@ -713,6 +717,9 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
             kassaldo=kassaldo, rekening_regels=rekening_regels,
         )
     _meld_xirr(transacties_df, statistieken)
+    totalen = statistieken["totalen"]
+    totalen["transactiebestand_status"] = beoordeel_transactiebestand(
+        transacties_df, rekening_koop_verkoop, dividenden, totalen["rekeningoverzicht_status"])
 
     antwoord = {
         "code": code,

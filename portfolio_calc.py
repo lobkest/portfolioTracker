@@ -9,6 +9,25 @@ from split_correctie import (
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl, getal_nl
 
 
+# Float-ruis bij fractionele aantallen; een echt tekort is groter.
+MIN_AANTAL_TEKORT = 1e-6
+
+
+def stand_per_dag_per_keten(df):
+    """{eind-ISIN: Series met de stand aan het eind van elke dag met een boeking (index Timestamp)}. Ruwe aantallen
+    mét corporate-action- en wisselrijen (die verschuiven stukken binnen een ISIN-keten); per dag, zodat de volgorde
+    van deelorders, aan- en verkopen en splitboekingen binnen een dag niet telt."""
+    rijen = df.dropna(subset=["isin"])
+    if rijen.empty:
+        return {}
+    eind_van = isin_ketens(vind_wisselparen(rijen)[0])
+    keten = rijen["isin"].map(lambda i: eind_van.get(i, i))
+    dag = pd.to_datetime(rijen["datum"]).dt.normalize()
+    aantal = pd.to_numeric(rijen["aantal"], errors="coerce").fillna(0.0)
+    return {eind: per_dag.droplevel(0).cumsum()
+            for eind, per_dag in aantal.groupby([keten, dag]).sum().groupby(level=0)}
+
+
 def _vind_conversies(df):
     """Per ISIN met corporate-action-rijen de conversies (conversierij koers 0) met hun ratio en bijbehorende rijen."""
     resultaat = []

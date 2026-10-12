@@ -85,6 +85,7 @@ class _Basis(unittest.TestCase):
                 ("db_get_portfolio_naam_en_transacties", ("Test", rijen)),
                 ("db_get_rekening_regels_eur", [{"datum": d, "tijd": None, "omschrijving": PROMOTIE,
                                                  "mutatie_valuta": "EUR", "mutatie": b} for d, b in promoties]),
+                ("db_get_rekening_koop_verkoop", []),
                 ("db_get_dividenden", dividenden),
                 ("db_get_isin_ticker_product", po.isin_ticker_product_rijen(df)),
                 ("db_get_kassaldo", kassaldo),
@@ -95,7 +96,7 @@ class _Basis(unittest.TestCase):
 
     def niet_opslaan(self, promoties=PROMOTIES, dividenden=DIVIDENDEN, kassaldo=KASSALDO):
         with ExitStack() as stack:
-            for naam in ("db_get_portfolio_naam_en_transacties", "db_get_rekening_regels_eur", "db_get_dividenden",
+            for naam in ("db_get_portfolio_naam_en_transacties", "db_get_rekening_regels_eur", "db_get_rekening_koop_verkoop", "db_get_dividenden",
                          "db_get_isin_ticker_product", "db_get_kassaldo", "db_get_order_id_rijen",
                          "db_get_order_id_periodes"):
                 stack.enter_context(patch.object(po, naam, side_effect=_faalt(naam)))

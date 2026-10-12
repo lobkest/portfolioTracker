@@ -152,6 +152,7 @@ class TestRoutes(unittest.TestCase):
             for naam, waarde in [
                 ("db_get_portfolio_naam_en_transacties", ("Test", list(df.itertuples(index=False, name=None)))),
                 ("db_get_rekening_regels_eur", eur),
+                ("db_get_rekening_koop_verkoop", []),
                 ("db_get_dividenden", []),
                 ("db_get_isin_ticker_product", po.isin_ticker_product_rijen(df)),
                 ("db_get_kassaldo", None),

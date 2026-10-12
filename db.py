@@ -805,6 +805,22 @@ def db_get_rekening_regels_eur(code):
              "mutatie": float(mutatie)} for datum, tijd, omschrijving, valuta, mutatie in rows]
 
 
+def db_get_rekening_koop_verkoop(code):
+    """[{datum, tijd, product, isin, omschrijving, order_id}] van de Koop- en Verkoop-regels, in elke valuta."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT datum, tijd, product, isin, omschrijving, order_id FROM rekening_regels "
+        "WHERE code = %s AND (omschrijving LIKE 'Koop %%' OR omschrijving LIKE 'Verkoop %%') ORDER BY datum, tijd",
+        (code,),
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [{"datum": datum, "tijd": tijd, "product": product, "isin": isin, "omschrijving": omschrijving,
+             "order_id": order_id} for datum, tijd, product, isin, omschrijving, order_id in rows]
+
+
 def db_get_dividenden(code):
     conn = db_connect()
     cur = conn.cursor()
