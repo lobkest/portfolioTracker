@@ -349,44 +349,92 @@ body:has(.startPagina) {
     margin-bottom: 15px;
 }
 
-/* Melding met sluitknop (rekeningoverzicht op Home); knoppen zijn globaal groen, hier een tekstlink resp. kruisje. */
-.bannerMetSluitknop {
+/* Melding over de bestanden: één banner buiten de tabpanelen, nooit weg te klikken. */
+.bestandsBannerBovenste {
     display: flex;
-    align-items: flex-start;
-    gap: 10px;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px 14px;
 }
 
-.bannerInhoud {
-    flex: 1;
-    min-width: 0;
-}
-
-.bannerInhoud p {
+.bestandsBanner p {
     margin: 0 0 6px;
 }
 
-.bannerLijst {
-    margin: 0 0 6px;
-    padding-left: 20px;
+.bestandsBanner .bannerKop {
+    font-weight: bold;
+    margin: 0;
 }
 
-.bannerMetSluitknop .linkKnop,
-.bannerMetSluitknop .bannerSluitKnop {
+.bestandsBanner .linkKnop {
     background: transparent;
     color: inherit;
     border: none;
     margin: 0;
     padding: 0;
-}
-
-.bannerMetSluitknop .linkKnop {
     text-decoration: underline;
 }
 
-.bannerMetSluitknop .bannerSluitKnop {
-    font-size: 22px;
-    line-height: 1;
-    padding: 0 4px;
+.bestandMarkering {
+    margin: 4px 0 8px;
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: 1px solid #ffe69c;
+    background: #fff3cd;
+    color: #664d03;
+}
+
+.bestandMarkering[hidden] {
+    display: none;
+}
+
+.bestandMarkeringOpnieuw {
+    border-color: #e0a800;
+    border-left-width: 5px;
+}
+
+.bestandMarkeringAanbevolen {
+    background: #fffaea;
+}
+
+.bestandMarkeringLabel {
+    margin-right: 6px;
+}
+
+.bestandMarkeringPeriode {
+    display: block;
+    font-weight: bold;
+    margin-top: 2px;
+}
+
+.bestandsBannerDetails {
+    margin-top: 6px;
+}
+
+.bestandsBannerDetails summary {
+    cursor: pointer;
+}
+
+.bestandsBannerBlokken {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 24px;
+}
+
+.bestandsBannerBlok h4 {
+    margin: 0 0 4px;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.bestandsBannerPeriode {
+    font-weight: bold;
+}
+
+.bannerLijst {
+    margin: 0 0 6px;
+    padding-left: 20px;
 }
 
 .segmentKeuze {
@@ -1039,34 +1087,30 @@ input.schakelaar:focus-visible {
     color: #333;
 }
 
-/* Home: op een breed scherm een rekenblok, op mobiel een hoofdcijfer met groepen; beide staan in de DOM. */
-.homeMobiel {
-    display: none;
+/* Home: hero en groepen voor elk scherm; op een breed scherm kan het rekenoverzicht eronder uitklappen. */
+.homeHoogste {
+    margin-top: 2px;
+    white-space: nowrap;
 }
 
-.homeKopcijfers {
-    position: relative; /* de uitleg achter een (i) krijgt de breedte van beide cijfers */
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 24px;
-    margin-bottom: 20px;
+.homeBerekening {
+    margin-bottom: 16px;
 }
 
-.homeKopcijfer {
-    flex: 1 1 120px;
-    min-width: 0;
+.berekeningKnop {
+    margin-bottom: 12px;
+    padding: 6px 12px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: white;
+    color: #444;
+    font-size: 0.9em;
+    cursor: pointer;
 }
 
-.homeKopWaarde {
-    font-size: 1.7em;
-    font-weight: bold;
-    color: #333;
-    overflow-wrap: anywhere;
-}
-
-.homeKopPct {
-    font-size: 1.1em;
-    font-weight: bold;
+.berekeningKnop:hover,
+.berekeningKnop:focus-visible {
+    background: #f3f3f3;
 }
 
 .rekenSectie {
@@ -2166,6 +2210,10 @@ button.diagnostiekChip:disabled:hover {
    hoogte (bv. iPhone 14 landscape = 844px), dus zonder deze tak zou de
    mobiele layout hieronder überhaupt niet aanslaan in landscape. */
 @media (max-width: 768px), (max-width: 900px) and (orientation: landscape) {
+    .bestandsBannerBlokken {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     /* App-gevoel: geen pinch-zoom, geen horizontaal schuiven, geen rubber-banding. */
     html {
         overflow-x: hidden;
@@ -2457,12 +2505,8 @@ button.diagnostiekChip:disabled:hover {
         font-size: 1.15em;
     }
 
-    .homeLaptop {
+    .homeBerekening {
         display: none;
-    }
-
-    .homeMobiel {
-        display: block;
     }
 
     /* De knoppen 10/20/50 volstaan op een telefoon. */

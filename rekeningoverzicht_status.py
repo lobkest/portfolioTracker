@@ -3,6 +3,7 @@ import datetime
 
 import pandas as pd
 
+from rekening_regelsoorten import behandeling
 from transactie_utils import _is_corporate_action_row, formatteer_datum_nl
 
 MARGE_BEGIN_DAGEN = 3
@@ -25,6 +26,13 @@ def _eerste_transactie_datum(transacties_df):
     return pd.Timestamp(echte["datum"].min()).date()
 
 
+def _beginsaldo(kassaldo, rekening_regels):
+    """Saldo minus de mutaties die in het kassaldo meetellen (geen kolom in de database nodig)."""
+    mutaties = sum(float(r["mutatie"]) for r in rekening_regels or []
+                   if r.get("mutatie") is not None and behandeling(r.get("omschrijving")).kassaldo)
+    return round(float(kassaldo["saldo_eur"]) - mutaties, 2) + 0.0
+
+
 def _reden_teksten(redenen, eerste_regel, eerste_transactie):
     teksten = {
         REDEN_BEGINT_TE_LAAT: (
@@ -42,7 +50,8 @@ def _reden_teksten(redenen, eerste_regel, eerste_transactie):
 def beoordeel_rekeningoverzicht(transacties_df, rekening_regels, kassaldo, geinvesteerd, waarde,
                                 dividend_netto, overige_kassabewegingen):
     """None zonder rekeningoverzicht. Anders {volledig, redenen (codes), redenen_tekst, eerste_regel_datum,
-    laatste_regel_datum, eerste_transactie_datum} (datums ISO of None). Gebruikt de cijfers van bereken_kassaldo."""
+    laatste_regel_datum, eerste_transactie_datum} (datums ISO of None) plus de bedragen uit de redenen
+    {beginsaldo_eur, netto_gestort_eur, geinvesteerd_eur, saldo_eur}. Gebruikt de cijfers van bereken_kassaldo."""
     if not kassaldo:
         return None
     datums = [r["datum"] for r in rekening_regels or [] if r.get("datum")]
@@ -73,4 +82,8 @@ def beoordeel_rekeningoverzicht(transacties_df, rekening_regels, kassaldo, geinv
         "eerste_regel_datum": iso(eerste_regel),
         "laatste_regel_datum": iso(kassaldo.get("per_datum")),
         "eerste_transactie_datum": iso(eerste_transactie),
+        "beginsaldo_eur": _beginsaldo(kassaldo, rekening_regels),
+        "netto_gestort_eur": round(float(kassaldo["netto_gestort_eur"]), 2),
+        "geinvesteerd_eur": round(float(geinvesteerd or 0.0), 2),
+        "saldo_eur": round(float(kassaldo["saldo_eur"]), 2),
     }

@@ -167,60 +167,61 @@ function maakHomeRekenRegel(regel, id) {
     return rij;
 }
 
-function maakHomeLaptop(indeling) {
-    const laptop = document.createElement("div");
-    laptop.className = "homeLaptop";
+function maakHoogsteRegel(tekst) {
+    const regel = document.createElement("div");
+    regel.className = "kleineMelding homeHoogste";
+    regel.textContent = tekst;
+    return regel;
+}
 
-    const kop = document.createElement("div");
-    kop.className = "homeKopcijfers";
-    for (const regel of indeling.kopcijfers) {
-        const cijfer = document.createElement("div");
-        cijfer.id = `home-laptop-kop-${regel.id}`;
-        cijfer.className = "homeKopcijfer";
-        cijfer.appendChild(maakLabel(regel.label, regel.uitleg, "kleinLabel"));
-        const waarde = document.createElement("div");
-        waarde.className = `homeKopWaarde ${regel.klasse}`;
-        waarde.textContent = formatteerEuro(regel.bedrag);
-        cijfer.appendChild(waarde);
-        if (regel.pct !== null) {
-            const pct = document.createElement("div");
-            pct.className = `homeKopPct ${regel.klasse}`;
-            pct.textContent = formatPct(regel.pct);
-            cijfer.appendChild(pct);
-        }
-        kop.appendChild(cijfer);
-    }
-    laptop.appendChild(kop);
+function maakHomeBerekening(indeling) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "homeBerekening";
+    wrapper.id = "home-berekening";
 
-    for (const sectie of indeling.rekenblok) {
+    const overzicht = document.createElement("div");
+    overzicht.id = "home-berekening-overzicht";
+    overzicht.hidden = true;
+    for (const sectie of indeling.rekenoverzicht) {
         const blok = document.createElement("div");
         blok.className = "rekenSectie";
-        blok.id = `home-laptop-${sectie.id}`;
+        blok.id = `home-berekening-${sectie.id}`;
         const titel = document.createElement("div");
         titel.className = "rekenTitel";
         titel.textContent = sectie.titel;
         blok.appendChild(titel);
         for (const regel of sectie.regels) {
-            blok.appendChild(maakHomeRekenRegel(regel, `home-laptop-${sectie.id}-${regel.id}`));
+            blok.appendChild(maakHomeRekenRegel(regel, `home-berekening-${sectie.id}-${regel.id}`));
         }
-        laptop.appendChild(blok);
+        overzicht.appendChild(blok);
     }
 
-    const overige = document.createElement("div");
-    overige.className = "tegelRij";
-    for (const regel of indeling.overige) overige.appendChild(maakHomeTegel(regel, `home-laptop-overige-${regel.id}`));
-    laptop.appendChild(overige);
-    return laptop;
+    const knop = document.createElement("button");
+    knop.type = "button";
+    knop.id = "home-berekening-knop";
+    knop.className = "berekeningKnop";
+    knop.setAttribute("aria-controls", overzicht.id);
+    const zet = (open) => {
+        overzicht.hidden = !open;
+        knop.setAttribute("aria-expanded", String(open));
+        knop.textContent = berekeningKnopTekst(open);
+    };
+    zet(false);
+    knop.addEventListener("click", () => zet(overzicht.hidden));
+
+    wrapper.appendChild(knop);
+    wrapper.appendChild(overzicht);
+    return wrapper;
 }
 
-function maakHomeMobiel(indeling) {
-    const mobiel = document.createElement("div");
-    mobiel.className = "homeMobiel";
+function maakHomeIndeling(indeling) {
+    const home = document.createElement("div");
+    home.className = "homeIndeling";
     const { waarde, rendement, totaalDegiro } = indeling.hero;
 
     const hero = document.createElement("div");
     hero.className = "heroTegel";
-    hero.id = "home-mobiel-hero";
+    hero.id = "home-hero";
     hero.appendChild(maakLabel(waarde.label, waarde.uitleg, "kleinLabel"));
     const grootCijfer = document.createElement("div");
     grootCijfer.className = "heroWaarde";
@@ -232,35 +233,36 @@ function maakHomeMobiel(indeling) {
     rendementTekst.className = `heroRendement ${rendement.klasse}`;
     rendementTekst.textContent = homeRegelTekst(rendement);
     hero.appendChild(rendementTekst);
+    if (rendement.subtekst) hero.appendChild(maakHoogsteRegel(rendement.subtekst));
 
     if (totaalDegiro) {
         const degiro = maakLabel(`${totaalDegiro.label}: ${formatteerEuro(totaalDegiro.bedrag)}`, totaalDegiro.uitleg, "heroDegiro");
         hero.appendChild(degiro);
     }
-    mobiel.appendChild(hero);
+    home.appendChild(hero);
 
     for (const groep of indeling.groepen) {
         const blok = document.createElement("div");
-        blok.id = `home-mobiel-${groep.id}`;
+        blok.id = `home-${groep.id}`;
         const titel = document.createElement("div");
         titel.className = "groepTitel";
         titel.textContent = groep.titel;
         blok.appendChild(titel);
         const rij = document.createElement("div");
         rij.className = "tegelRij";
-        for (const regel of groep.regels) rij.appendChild(maakHomeTegel(regel, `home-mobiel-${groep.id}-${regel.id}`));
+        for (const regel of groep.regels) rij.appendChild(maakHomeTegel(regel, `home-${groep.id}-${regel.id}`));
         blok.appendChild(rij);
-        mobiel.appendChild(blok);
+        home.appendChild(blok);
     }
-    return mobiel;
+    return home;
 }
 
-// Beide weergaven staan in de DOM; style.css toont er één (zelfde breakpoint als de rest van de site).
+// Hero en groepen voor elk scherm; het uitklapbare rekenoverzicht staat in de DOM en style.css verbergt het op mobiel.
 function maakHomeSectie(totalen, aansluitingskosten) {
     const indeling = bouwHomeIndeling(totalen, aansluitingskosten);
     const container = document.createElement("div");
-    container.appendChild(maakHomeLaptop(indeling));
-    container.appendChild(maakHomeMobiel(indeling));
+    container.appendChild(maakHomeIndeling(indeling));
+    if (indeling.rekenoverzicht.length > 0) container.appendChild(maakHomeBerekening(indeling));
     if (indeling.kostenNotitie) {
         const kostenNotitie = document.createElement("p");
         kostenNotitie.className = "kleineMelding";

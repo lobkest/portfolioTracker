@@ -98,6 +98,22 @@ class TestBeoordeelRekeningoverzicht(unittest.TestCase):
         self.assertTrue(status["volledig"])
 
 
+class TestBedragen(unittest.TestCase):
+    def test_bedragen_uit_de_redenen(self):
+        regels = [{"datum": D(2024, 1, 2), "omschrijving": "iDEAL storting", "mutatie": 100.0},
+                  {"datum": D(2024, 1, 3), "omschrijving": "Koop 1 @ 60,00 EUR", "mutatie": -60.0}]
+        status = _beoordeel(regels=regels, kassaldo=_kassaldo(saldo=90.0, gestort=100.0, vanaf_opening=False),
+                            geinvesteerd=60.0)
+        self.assertEqual(status["beginsaldo_eur"], 50.0)
+        self.assertEqual(status["netto_gestort_eur"], 100.0)
+        self.assertEqual(status["geinvesteerd_eur"], 60.0)
+        self.assertEqual(status["saldo_eur"], 90.0)
+
+    def test_beginsaldo_nul_vanaf_opening(self):
+        regels = [{"datum": D(2024, 1, 2), "omschrijving": "iDEAL storting", "mutatie": 100.0}]
+        self.assertEqual(_beoordeel(regels=regels, kassaldo=_kassaldo(saldo=100.0))["beginsaldo_eur"], 0.0)
+
+
 class TestOpslaanGelijkAanNietOpslaan(unittest.TestCase):
     def test_zelfde_uitkomst_voor_dicts_uit_db_en_uit_het_bestand(self):
         regels = [("2024-01-02", "iDEAL storting", 13440.0), ("2024-01-03", "Koop 10 @ 1.343,871 EUR", -13438.71)]

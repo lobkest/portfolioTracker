@@ -152,6 +152,19 @@
                 <button id="koersenOpnieuwKnop" type="button" class="margeLinks10" style="display: none;">Opnieuw openen</button>
             </div>
 
+            <div id="bestandsBanner" class="waarschuwingBanner bestandsBanner" style="display: none;">
+                <div class="bestandsBannerBovenste">
+                    <p id="bestandsBannerKop" class="bannerKop"></p>
+                    <button id="bestandsBannerLink" type="button" class="linkKnop"></button>
+                    <p id="bestandsBannerTip" class="kleineMelding"></p>
+                </div>
+                <details id="bestandsBannerDetails" class="bestandsBannerDetails">
+                    <summary>Details</summary>
+                    <p id="bestandsBannerGevolg"></p>
+                    <div id="bestandsBannerBlokken" class="bestandsBannerBlokken"></div>
+                </details>
+            </div>
+
             <!-- Gedeeld door meerdere tabbladen, daarom boven de tabblad-blokken. -->
             <p id="instellingenMsg" class="melding positief" data-verberg-buiten="instellingen-bijnamen" style="display: none;"></p>
             <select id="aandeelSelect" class="margeOnder15" data-views="peraandeel peraandeelaankoop" style="display: none;"></select>
@@ -180,26 +193,6 @@
             </div>
 
             <div id="tab-portfolio" data-views="portfolio" style="display: none;">
-                <div id="rekeningoverzichtBanner" class="waarschuwingBanner bannerMetSluitknop" style="display: none;">
-                    <div class="bannerInhoud">
-                        <p id="rekeningoverzichtKop" class="bannerKop"></p>
-                        <ul id="rekeningoverzichtRedenen" class="bannerLijst"></ul>
-                        <p id="rekeningoverzichtPeriode" class="kleineMelding"></p>
-                        <button id="rekeningoverzichtLink" type="button" class="linkKnop"></button>
-                        <p id="rekeningoverzichtTip" class="kleineMelding"></p>
-                    </div>
-                    <button id="rekeningoverzichtSluit" type="button" class="bannerSluitKnop" aria-label="Melding sluiten">&times;</button>
-                </div>
-                <div id="transactiebestandBanner" class="waarschuwingBanner bannerMetSluitknop" style="display: none;">
-                    <div class="bannerInhoud">
-                        <p id="transactiebestandKop" class="bannerKop"></p>
-                        <ul id="transactiebestandRedenen" class="bannerLijst"></ul>
-                        <p id="transactiebestandPeriode" class="kleineMelding"></p>
-                        <button id="transactiebestandLink" type="button" class="linkKnop"></button>
-                        <p id="transactiebestandTip" class="kleineMelding"></p>
-                    </div>
-                    <button id="transactiebestandSluit" type="button" class="bannerSluitKnop" aria-label="Melding sluiten">&times;</button>
-                </div>
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <div id="homeTotalenSectie"></div>
@@ -550,6 +543,11 @@
                         <label for="bestand1">Transacties-export</label>
                         <span class="infoTip" data-label="Transacties-export">DeGiro: Inbox &rarr; Transacties, exporteer vanaf het begin van je beleggen (.xls)</span>
                     </div>
+                    <div id="bestand1Markering" class="bestandMarkering" hidden>
+                        <strong class="bestandMarkeringLabel"></strong>
+                        <span class="bestandMarkeringTekst"></span>
+                        <span class="bestandMarkeringPeriode"></span>
+                    </div>
                     <input type="file" id="bestand1" name="bestand1" accept=".xlsx,.xls">
                     <div class="bestandKeuze" id="bestand1Keuze" hidden>
                         <span class="bestandKeuzeNaam" id="bestand1Naam"></span>
@@ -559,6 +557,11 @@
                     <div class="labelRij">
                         <label for="bestand2">Rekeningoverzicht</label>
                         <span class="infoTip" data-label="Rekeningoverzicht">DeGiro: Inbox &rarr; Rekeningoverzicht (.xls). Er moet minstens één aan- of verkoop in staan.</span>
+                    </div>
+                    <div id="bestand2Markering" class="bestandMarkering" hidden>
+                        <strong class="bestandMarkeringLabel"></strong>
+                        <span class="bestandMarkeringTekst"></span>
+                        <span class="bestandMarkeringPeriode"></span>
                     </div>
                     <input type="file" id="bestand2" name="bestand2" accept=".xlsx,.xls">
                     <div class="bestandKeuze" id="bestand2Keuze" hidden>
@@ -622,8 +625,7 @@
     <script src="{{ url_for('static', filename='js/etf_overlap.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/rekeningoverzicht.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/transactiebestand.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/bestandsmelding.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>

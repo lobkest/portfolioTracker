@@ -2,6 +2,31 @@
 
 const bijwerkBestandKeuzes = ["bestand1", "bestand2"].map(koppelBestandWisKnop);
 
+// De link in de banner zet dit; de toon-functie scrolt dan naar het eerste gemarkeerde veld.
+let scrollNaarBijwerkMarkering = false;
+
+function resetBestandenBijwerken() {
+    scrollNaarBijwerkMarkering = false;
+}
+
+function toonBestandenBijwerken() {
+    const totalen = huidigeData.statistieken && huidigeData.statistieken.totalen;
+    const { velden, eerste } = bestandNiveaus(totalen && totalen.rekeningoverzicht_status, totalen && totalen.transactiebestand_status);
+    Object.entries(velden).forEach(([veld, info]) => {
+        const blok = document.getElementById(`${veld}Markering`);
+        blok.hidden = info.niveau === "geen";
+        if (blok.hidden) return;
+        blok.className = `bestandMarkering bestandMarkering${info.niveau === "opnieuw" ? "Opnieuw" : "Aanbevolen"}`;
+        blok.querySelector(".bestandMarkeringLabel").textContent = info.label;
+        blok.querySelector(".bestandMarkeringTekst").textContent = info.tekst;
+        blok.querySelector(".bestandMarkeringPeriode").textContent = info.periode ? `Huidig bestand: ${info.periode}` : "";
+    });
+    if (scrollNaarBijwerkMarkering && eerste) {
+        document.getElementById(`${eerste}Markering`).scrollIntoView({ block: "center" });
+    }
+    scrollNaarBijwerkMarkering = false;
+}
+
 function toonBijwerkenMelding(tekst, klasse) {
     const msg = document.getElementById("bestandenBijwerkenMsg");
     msg.className = `melding ${klasse}`;

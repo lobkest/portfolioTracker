@@ -18,6 +18,10 @@ REDEN_NEGATIEF_AANTAL = "negatief_aantal"
 REDEN_DIVIDEND_ZONDER_POSITIE = "dividend_zonder_positie"
 REDEN_REKENING_ZONDER_TRANSACTIE = "rekening_zonder_transactie"
 
+CONTROLE_AANWIJZINGEN = "aanwijzingen"
+CONTROLE_NIET_TE_CONTROLEREN = "niet_te_controleren"
+CONTROLE_GEEN_AANWIJZINGEN = "geen_aanwijzingen"
+
 _AANTAL_IN_OMSCHRIJVING = re.compile(r"^(Koop|Verkoop) ([\d.,]+)")
 
 
@@ -171,8 +175,17 @@ def _controle_rekening(transacties_df, rekening_regels, rekeningoverzicht_status
     return {"code": REDEN_REKENING_ZONDER_TRANSACTIE, "tekst": tekst, "items": items}
 
 
+def _controle_status(redenen, rekeningoverzicht_status):
+    if redenen:
+        return CONTROLE_AANWIJZINGEN
+    # Controle C draait alleen bij een volledig overzicht; A en B vonden niets, dus er valt niets te zeggen.
+    if rekeningoverzicht_status and rekeningoverzicht_status.get("volledig") is False:
+        return CONTROLE_NIET_TE_CONTROLEREN
+    return CONTROLE_GEEN_AANWIJZINGEN
+
+
 def beoordeel_transactiebestand(transacties_df, rekening_regels, dividenden, rekeningoverzicht_status):
-    """None zonder transacties. Anders {volledig, redenen [{code, tekst, items [{isin, product, datum}]}],
+    """None zonder transacties. Anders {volledig, controle (aanwijzingen / niet_te_controleren / geen_aanwijzingen), redenen [{code, tekst, items [{isin, product, datum}]}],
     eerste_transactie_datum, laatste_transactie_datum}. Controles: A negatief aantal, B dividend zonder positie in de
     60 dagen ervoor, C Koop/Verkoop in een volledig rekeningoverzicht zonder transactie (anders overgeslagen).
     Een bestand dat later begint en daarna alleen aankopen bevat, is zonder rekeningoverzicht niet te herkennen."""
@@ -193,6 +206,7 @@ def beoordeel_transactiebestand(transacties_df, rekening_regels, dividenden, rek
 
     return {
         "volledig": not redenen,
+        "controle": _controle_status(redenen, rekeningoverzicht_status),
         "redenen": redenen,
         "eerste_transactie_datum": iso(datums.min()) if not datums.empty else None,
         "laatste_transactie_datum": iso(datums.max()) if not datums.empty else None,

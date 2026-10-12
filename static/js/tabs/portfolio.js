@@ -1,57 +1,68 @@
 // Tabblad Portfolio-home: waarde en geinvesteerd over tijd, met de totalen erboven.
 
-// Alleen in het geheugen: na opnieuw laden staat de melding er weer, want het bestand blijft onvolledig.
-const bestandsmeldingGesloten = { rekeningoverzicht: false, transactiebestand: false };
-
-function resetBestandsmeldingen() {
-    bestandsmeldingGesloten.rekeningoverzicht = false;
-    bestandsmeldingGesloten.transactiebestand = false;
-}
-
-// prefix = begin van de element-id's in portfolio.html (rekeningoverzicht, transactiebestand).
-function toonBestandsmelding(prefix, melding) {
-    const banner = document.getElementById(`${prefix}Banner`);
-    if (!melding || bestandsmeldingGesloten[prefix]) {
+// Eén keer per portfolio-laad bepaald (toonDashboard); staat buiten de tabpanelen en is niet te verbergen.
+function toonBestandsmelding() {
+    const banner = document.getElementById("bestandsBanner");
+    const totalen = huidigeData.statistieken && huidigeData.statistieken.totalen;
+    const melding = bestandsmelding(totalen && totalen.rekeningoverzicht_status, totalen && totalen.transactiebestand_status, Boolean(huidigeData.code));
+    if (!melding) {
         banner.style.display = "none";
         return;
     }
-    document.getElementById(`${prefix}Kop`).textContent = melding.kop;
-    const lijst = document.getElementById(`${prefix}Redenen`);
-    lijst.innerHTML = "";
-    melding.redenen.forEach(tekst => {
-        const li = document.createElement("li");
-        li.textContent = tekst;
-        lijst.appendChild(li);
-    });
-    const periode = document.getElementById(`${prefix}Periode`);
-    periode.textContent = melding.periode || "";
-    periode.style.display = melding.periode ? "block" : "none";
-    const link = document.getElementById(`${prefix}Link`);
+    document.getElementById("bestandsBannerKop").textContent = melding.kop;
+    document.getElementById("bestandsBannerGevolg").textContent = melding.gevolg;
+    const link = document.getElementById("bestandsBannerLink");
     link.textContent = melding.linkTekst;
     link.style.display = melding.linkNaarInstellingen ? "inline-block" : "none";
-    const tip = document.getElementById(`${prefix}Tip`);
+    const tip = document.getElementById("bestandsBannerTip");
     tip.textContent = melding.linkNaarInstellingen ? "" : melding.linkTekst;
     tip.style.display = melding.linkNaarInstellingen ? "none" : "block";
-    banner.style.display = "flex";
-}
 
-function toonBestandsmeldingen() {
-    const totalen = huidigeData.statistieken && huidigeData.statistieken.totalen;
-    const metCode = Boolean(huidigeData.code);
-    toonBestandsmelding("rekeningoverzicht", rekeningoverzichtMelding(totalen && totalen.rekeningoverzicht_status, metCode));
-    toonBestandsmelding("transactiebestand", transactiebestandMelding(totalen && totalen.transactiebestand_status, metCode));
-}
-
-["rekeningoverzicht", "transactiebestand"].forEach(prefix => {
-    document.getElementById(`${prefix}Link`).addEventListener("click", () => gaNaarView("instellingen-bestanden"));
-    document.getElementById(`${prefix}Sluit`).addEventListener("click", () => {
-        bestandsmeldingGesloten[prefix] = true;
-        document.getElementById(`${prefix}Banner`).style.display = "none";
+    const blokken = document.getElementById("bestandsBannerBlokken");
+    blokken.innerHTML = "";
+    melding.blokken.forEach(blok => {
+        const el = document.createElement("section");
+        el.className = "bestandsBannerBlok";
+        const kop = document.createElement("h4");
+        kop.textContent = blok.titel;
+        el.appendChild(kop);
+        if (blok.periode) {
+            const periode = document.createElement("p");
+            periode.className = "bestandsBannerPeriode";
+            periode.textContent = `Periode: ${blok.periode}`;
+            el.appendChild(periode);
+        }
+        if (blok.tekst) {
+            const tekst = document.createElement("p");
+            tekst.textContent = blok.tekst;
+            el.appendChild(tekst);
+        }
+        if (blok.redenen.length) {
+            const lijst = document.createElement("ul");
+            lijst.className = "bannerLijst";
+            blok.redenen.forEach(reden => {
+                const li = document.createElement("li");
+                li.textContent = reden;
+                lijst.appendChild(li);
+            });
+            el.appendChild(lijst);
+        }
+        blokken.appendChild(el);
     });
+    banner.style.display = "block";
+}
+
+// Compact buiten Overzicht (kop en link op één regel); Details klapt de blokken uit, de banner blijft staan.
+function zetBestandsmeldingCompact(view) {
+    document.getElementById("bestandsBannerDetails").open = view === "portfolio";
+}
+
+document.getElementById("bestandsBannerLink").addEventListener("click", () => {
+    scrollNaarBijwerkMarkering = true;
+    gaNaarView("instellingen-bestanden");
 });
 
 function toonPortfolio() {
-    toonBestandsmeldingen();
     const d = huidigeData.chart_data;
     updateChart(d.labels, [
         { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },

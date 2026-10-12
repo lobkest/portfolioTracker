@@ -44,7 +44,7 @@ const TOON_PER_VIEW = {
     "dividend": toonDividend,
     "box3": toonBox3,
     "instellingen": () => {},  // leeg, want de instellingen zijn altijd hetzelfde voor elk portfolio
-    "instellingen-bestanden": () => {},
+    "instellingen-bestanden": toonBestandenBijwerken,
     "instellingen-bijnamen": toonInstellingen,
     "instellingen-ticker": toonInstellingenTicker,
     "instellingen-diagnostiek": toonDiagnostiek,
@@ -152,6 +152,7 @@ function pasViewToe(view) {
         if (!viewInLijst(el.dataset.verbergBuiten, view)) el.style.display = "none";
     });
 
+    zetBestandsmeldingCompact(view);
     plaatsGrafiek(view);
 
     TOON_PER_VIEW[view]?.();
@@ -160,7 +161,7 @@ function pasViewToe(view) {
 }
 
 // Wist per tab-bestand de toestand van de vorige portfolio (zie CLAUDE.md: Frontend).
-const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetKorteNamen, resetBox3, resetBestandsmeldingen];
+const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetKorteNamen, resetBox3, resetBestandenBijwerken];
 
 function toonDashboard(data) {
     huidigeData = data;
@@ -171,6 +172,7 @@ function toonDashboard(data) {
 
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
     toonKoersenBanner(data);
+    toonBestandsmelding();
 
     if (!data.chart_data) {
         document.getElementById("geenData").style.display = "block";

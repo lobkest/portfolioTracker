@@ -185,6 +185,26 @@ class TestRekeningTegenTransacties(unittest.TestCase):
         self.assertTrue(beoordeel_transactiebestand(self._df(), regels, None, VOLLEDIG)["volledig"])
 
 
+class TestControleStatus(unittest.TestCase):
+    def test_aanwijzingen_bij_elke_bevinding(self):
+        status = beoordeel_transactiebestand(_df(_rij("2025-03-12", -5)), None, None, None)
+        self.assertEqual(status["controle"], "aanwijzingen")
+
+    def test_aanwijzing_gaat_voor_onvolledig_overzicht(self):
+        status = beoordeel_transactiebestand(_df(_rij("2025-03-12", -5)), None, None, ONVOLLEDIG)
+        self.assertEqual(status["controle"], "aanwijzingen")
+
+    def test_niet_te_controleren_bij_onvolledig_overzicht_zonder_bevinding(self):
+        status = beoordeel_transactiebestand(_df(_rij("2024-01-02", 10)), None, None, ONVOLLEDIG)
+        self.assertTrue(status["volledig"])
+        self.assertEqual(status["controle"], "niet_te_controleren")
+
+    def test_geen_aanwijzingen(self):
+        for rekening in (VOLLEDIG, None):
+            status = beoordeel_transactiebestand(_df(_rij("2024-01-02", 10)), None, None, rekening)
+            self.assertEqual(status["controle"], "geen_aanwijzingen")
+
+
 class TestOpslaanGelijkAanNietOpslaan(unittest.TestCase):
     def test_zelfde_uitkomst_voor_datum_en_tijd_als_timestamp_of_date(self):
         df = _df(_rij("2025-03-12", -5))

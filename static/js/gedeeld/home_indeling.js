@@ -1,4 +1,4 @@
-// Indeling van de Home-cijfers (laptop: rekenblok, mobiel: hoofdcijfer + groepen), zonder DOM.
+// Indeling van de Home-cijfers (hero + groepen voor alle schermen, plus een uitklapbaar rekenoverzicht), zonder DOM.
 // Alle bedragen komen uit de API (`statistieken.totalen`); hier wordt alleen gekozen en geordend.
 // Leunt op tegels.js (UITLEG_*, kassaldoIsBetrouwbaar) en opmaak.js (klasseVoorRendement); laadt na tegels.js.
 
@@ -82,21 +82,25 @@ function _kostenItems(totalen, aansluitingskosten) {
     return items;
 }
 
-function _hoogsteRendement(totalen) {
+// Kleine regel bij het totaalrendement ; null als waarde of datum ontbreekt.
+function hoogsteRendementTekst(totalen) {
     const ath = totalen.all_time_high;
-    if (!ath || ath.waarde === null || ath.waarde === undefined) return null;
-    return _regel("hoogste", "", "Hoogste rendement", ath.waarde, { subtekst: formatDatum(ath.datum) });
+    if (!ath || !_isGetal(ath.waarde) || !ath.datum) return null;
+    return `Hoogste: ${formatteerEuro(ath.waarde)} (${formatDatum(ath.datum)})`;
 }
 
-// Eén bron voor beide weergaven. rekenblok: [{id, titel, regels}]; overige: de rij onder het rekenblok;
-// hero + groepen: mobiel. Een regel heeft bedrag (getal) óf tekst (bv. "onbekend").
+function berekeningKnopTekst(open) {
+    return open ? "Verberg berekening" : "Bekijk berekening";
+}
+
+// hero + groepen: voor elk scherm; rekenoverzicht: [{id, titel, regels}], alleen op breed scherm en standaard dicht.
+// Een regel heeft bedrag (getal) óf tekst (bv. "onbekend").
 function bouwHomeIndeling(totalen, aansluitingskosten) {
     const heeftKassaldo = _isGetal(totalen.kassaldo_eur);
     const betrouwbaar = kassaldoIsBetrouwbaar(totalen);
-    // Het rekenblok sluit alleen met het backend-veld; zonder dat (bv. export niet vanaf de opening) geen opbouw.
+    // Het rekenoverzicht sluit alleen met het backend-veld; zonder dat (bv. export niet vanaf de opening) geen opbouw.
     const aansluitend = betrouwbaar && _isGetal(totalen.overige_kassabewegingen_eur);
     const kosten = _kostenItems(totalen, aansluitingskosten);
-    const hoogste = _hoogsteRendement(totalen);
     const dividendRegel = _isGetal(totalen.dividend_netto)
         ? _regel("dividend", "", "Ontvangen dividend (netto)", totalen.dividend_netto) : null;
     const kassa = heeftKassaldo ? _kassaRegels(totalen, betrouwbaar) : null;
@@ -106,6 +110,7 @@ function bouwHomeIndeling(totalen, aansluitingskosten) {
         waarde: _regel("waarde", "", "Totale huidige waarde", totalen.waarde, { uitleg: UITLEG_WAARDE }),
         rendement: _regel("rendement", "", "Totaal rendement", totalen.rendement_eur, {
             klasse: klasseVoorRendement(totalen.rendement_eur), pct: totalen.rendement_pct, uitleg: UITLEG_RENDEMENT,
+            subtekst: hoogsteRendementTekst(totalen),
         }),
         totaalDegiro: toonDegiro
             ? _regel("totaal_degiro", "", "Totaal W/V (DEGIRO-definitie)", totalen.totaal_degiro_eur,
@@ -118,17 +123,13 @@ function bouwHomeIndeling(totalen, aansluitingskosten) {
             _regel("geinvesteerd", "", "Totaal geïnvesteerd", totalen.geinvesteerd, { uitleg: UITLEG_GEINVESTEERD }),
             ...(kassa ? [kassa.gestort, kassa.cash] : []),
         ] },
-        { id: "opbrengst", titel: "Opbrengst", regels: [dividendRegel, hoogste].filter(Boolean) },
+        { id: "opbrengst", titel: "Opbrengst", regels: [dividendRegel].filter(Boolean) },
         { id: "kosten", titel: "Kosten", regels: kosten },
     ].filter(groep => groep.regels.length > 0);
 
-    // Wat het rekenblok niet zelf toont, blijft als losse cijfers staan.
-    const naast = aansluitend ? [] : [dividendRegel, ...(kassa ? [kassa.cash, kassa.gestort] : [])].filter(Boolean);
     return {
         kassaldoBetrouwbaar: betrouwbaar,
-        kopcijfers: [hero.waarde, hero.rendement],
-        rekenblok: _opbouwSecties(totalen, aansluitend),
-        overige: [...naast, ...kosten, ...(hoogste ? [hoogste] : [])],
+        rekenoverzicht: _opbouwSecties(totalen, aansluitend),
         kostenNotitie: !totalen.transactiekosten_beschikbaar,
         hero,
         groepen,
