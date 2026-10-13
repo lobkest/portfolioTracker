@@ -82,6 +82,15 @@ class TestBouwDividendSamenvatting(unittest.TestCase):
         self.assertEqual(s["cumulatief"]["per_ticker"]["AAPL"], [1.5, 3.5])
         self.assertEqual([r["datum"] for r in s["lijst"]], ["2024-04-10", "2024-01-10"])
 
+    def test_cumulatief_totaal_telt_tickers_op_met_gaten_in_de_datums(self):
+        rows = [("US1", "AAPL", "Apple"), ("US2", "MSFT", "Microsoft")]
+        recs = [self._rec(datetime.date(2024, 1, 10), 1.5, isin="US1"),
+                self._rec(datetime.date(2024, 2, 10), 4.0, isin="US2"),
+                self._rec(datetime.date(2024, 4, 10), 2.0, isin="US1")]
+        c = bouw_dividend_samenvatting(recs, rows)["cumulatief"]
+        self.assertEqual(c["datums"], ["2024-01-10", "2024-02-10", "2024-04-10"])
+        self.assertEqual(c["totaal"], [1.5, 5.5, 7.5])
+
     def test_decimals_geven_dezelfde_uitkomst_als_floats(self):
         floats = [self._rec(datetime.date(2024, 1, 10), 1.5, 2.0, 0.5)]
         decimals = [self._rec(datetime.date(2024, 1, 10), Decimal("1.5"), Decimal("2.0"), Decimal("0.5"))]

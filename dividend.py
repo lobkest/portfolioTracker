@@ -395,12 +395,16 @@ def bouw_dividend_samenvatting(dividenden, transactie_rows):
             reeks.append(round(cum, 2))
         cumulatief_per_ticker[ticker] = reeks
 
+    totaal_reeks = [round(sum(reeks[i] for reeks in cumulatief_per_ticker.values()), 2)
+                    for i in range(len(alle_datums))]
+
     return {
         "totaal_netto": round(totaal_netto, 2),
         "per_ticker": per_ticker,
         "cumulatief": {
             "datums": [d.strftime("%Y-%m-%d") for d in alle_datums],
             "per_ticker": cumulatief_per_ticker,
+            "totaal": totaal_reeks,
         },
         "lijst": lijst,
     }

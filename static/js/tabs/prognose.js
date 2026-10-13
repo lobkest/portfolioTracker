@@ -4,6 +4,7 @@
 // aan staat (kost Yahoo-calls). {data, verzoek}; resetPrognose() maakt ze leeg.
 let prognoseDividend = { data: null, verzoek: null };
 let prognoseHistorie = { data: null, verzoek: null };
+let prognoseOntvangen = { data: null, verzoek: null };
 
 const DIVIDEND_BRON_TEKST = {
     yahoo_reeks: "Yahoo, afgelopen 12 mnd",
@@ -62,6 +63,19 @@ function haalHistorischRendement() {
     return haalEenmaal(prognoseHistorie, "historisch-rendement", data => (data.onvolledig
         ? "Nog niet alle koershistorie geladen. Zet het vinkje opnieuw aan om verder te laden."
         : (data.melding || "Te weinig koershistorie.")));
+}
+
+// null zonder rekeningoverzicht of bij een fout: de grafiek toont dan alleen het verwachte dividend.
+async function haalOntvangenDividend() {
+    let data = null;
+    try {
+        if (huidigeData.code) data = await haalEenmaal(prognoseOntvangen, "dividend", () => "Geen rekeningoverzicht.");
+        else if (huidigeData.dividend && huidigeData.dividend.beschikbaar) data = huidigeData.dividend;
+    } catch (err) {
+        return null;
+    }
+    const cumulatief = data && data.cumulatief;
+    return cumulatief && cumulatief.datums.length ? { datums: cumulatief.datums, totaal: cumulatief.totaal } : null;
 }
 
 const HISTORIE_STATUS_TEKST = {
@@ -447,8 +461,14 @@ function maakPrognoseTab({ view, prefix, metInleg, metHistorie, standaardInvoer 
             if (data && data.yield_netto !== null) dividendYield = data.yield_netto;
         }
 
+        const alsRendement = !metInleg;
+        const ontvangenDividend = alsRendement ? await haalOntvangenDividend() : null;
+        if (huidigeData.chart_data !== chartData) return;
+
         const paden = historie ? historie.paden() : null;
-        resultaat = bouwPrognoseGrafiekData(chartData, { ...invoer, dividendYield, paden });
+        resultaat = bouwPrognoseGrafiekData(chartData, {
+            ...invoer, dividendYield, paden, ontvangenDividend, weergave: alsRendement ? "rendement" : "waarde"
+        });
         if (actieveViewNaam() === view) tekenPrognoseChart(resultaat.datasets);
     }
 
@@ -503,6 +523,7 @@ const prognoseHuidigTab = maakPrognoseTab({
 function resetPrognose() {
     prognoseDividend = { data: null, verzoek: null };
     prognoseHistorie = { data: null, verzoek: null };
+    prognoseOntvangen = { data: null, verzoek: null };
     prognoseTab.reset();
     prognoseHuidigTab.reset();
 }

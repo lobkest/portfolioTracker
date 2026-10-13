@@ -18,6 +18,7 @@ const {
     historieVeldwaarden,
     historiePrognosePaden,
     bouwPrognoseGrafiekData,
+    dividendOpDatums,
     RENDEMENT_MIN_PCT,
     RENDEMENT_MAX_PCT,
     HISTORIE_MAX_HORIZON_JAREN,
@@ -337,6 +338,64 @@ test("bouwPrognoseGrafiekData: met paden rekent de dividendlijn over p50", () =>
     const lijn = datasets.find(ds => ds.label === "Waarde + verwacht dividend, niet herbelegd (€)");
     // Maand 1: p50 = 8500 x 1,005 plus 1% dividend over de startwaarde 8500.
     assertClose(lijn.data[1].y, 8500 * 1.005 + 85);
+});
+
+const rendementData = {
+    labels: ["2025-06-01", "2025-07-01", "2025-08-01"],
+    waarde: [8000, 8500, 9000], geinvesteerd: [7000, 7200, 7500], rendement: [1000, 1300, 1500]
+};
+const rendementInvoer = { ...eenvoudigeInvoer, weergave: "rendement" };
+
+test("dividendOpDatums: stand van de laatste uitkering op of voor de dag, 0 ervoor, null bij NaN", () => {
+    const ontvangen = { datums: ["2025-07-01", "2025-08-15"], totaal: [10, 25] };
+    assert.deepEqual(dividendOpDatums(ontvangen, ["2025-06-30", "2025-07-01", "2025-08-14", "2025-08-15"]), [0, 10, 10, 25]);
+    assert.deepEqual(dividendOpDatums({ datums: ["2025-07-01"], totaal: [NaN] }, ["2025-07-02"]), [null]);
+});
+
+test("bouwPrognoseGrafiekData rendement: geen waarde- of geïnvesteerd-lijnen, wel rendement", () => {
+    const { datasets } = bouwPrognoseGrafiekData(rendementData, rendementInvoer);
+    const labels = datasets.map(ds => ds.label);
+    assert.ok(!labels.some(l => l.startsWith("Waarde") || l.startsWith("Geïnvesteerd")));
+    assert.deepEqual(datasets.find(ds => ds.label === "Rendement (€)").data.map(p => p.y), [1000, 1300, 1500]);
+    const prognose = datasets.find(ds => ds.label === "Rendement — prognose (€)").data;
+    assert.equal(prognose[0].x, "2025-08-01");
+    assert.equal(prognose[0].y, 1500);
+    // 0% rendement en geen inleg: waarde 9000 min geïnvesteerd 7500.
+    assert.equal(prognose[12].y, 1500);
+});
+
+test("bouwPrognoseGrafiekData rendement: negatief rendement blijft negatief", () => {
+    const data = { labels: ["2025-06-01"], waarde: [900], geinvesteerd: [1000], rendement: [-100] };
+    const { datasets } = bouwPrognoseGrafiekData(data, rendementInvoer);
+    assert.equal(datasets.find(ds => ds.label === "Rendement — prognose (€)").data[0].y, -100);
+});
+
+test("bouwPrognoseGrafiekData rendement: ontvangen dividend telt mee en loopt door in de prognose", () => {
+    const ontvangenDividend = { datums: ["2025-07-01"], totaal: [50] };
+    const { datasets } = bouwPrognoseGrafiekData(rendementData, { ...rendementInvoer, ontvangenDividend, dividendYield: 0.12 });
+    const hist = datasets.find(ds => ds.label === "Rendement + ontvangen dividend (€)");
+    assert.deepEqual(hist.data.map(p => p.y), [1000, 1350, 1550]);
+    const toekomst = datasets.find(ds => ds.label === "Rendement + dividend — prognose (€)");
+    assert.equal(toekomst.data[0].y, 1550);
+    // 12 x 1% van waarde 9000 verwacht dividend bovenop 1500 + 50 ontvangen.
+    assertClose(toekomst.data[12].y, 1500 + 50 + 12 * 90);
+});
+
+test("bouwPrognoseGrafiekData rendement: zonder ontvangen dividend alleen de toekomstige dividendlijn, zonder niets geen", () => {
+    const zonder = bouwPrognoseGrafiekData(rendementData, rendementInvoer);
+    assert.ok(!zonder.datasets.some(ds => ds.label.includes("dividend")));
+    const metYield = bouwPrognoseGrafiekData(rendementData, { ...rendementInvoer, dividendYield: 0.12 });
+    assert.ok(!metYield.datasets.some(ds => ds.label === "Rendement + ontvangen dividend (€)"));
+    assert.equal(metYield.datasets.find(ds => ds.label === "Rendement + dividend — prognose (€)").data[0].y, 1500);
+});
+
+test("bouwPrognoseGrafiekData rendement: een ontbrekend rendement (null) blijft null in de dividendlijn", () => {
+    const data = { ...rendementData, rendement: [null, 1300, 1500] };
+    const ontvangenDividend = { datums: ["2025-06-01"], totaal: [5] };
+    const hist = bouwPrognoseGrafiekData(data, { ...rendementInvoer, ontvangenDividend })
+        .datasets.find(ds => ds.label === "Rendement + ontvangen dividend (€)");
+    assert.equal(hist.data[0].y, null);
+    assert.equal(hist.data[1].y, 1305);
 });
 
 test("historieKwartielenTekst: korte p25–p75-regel", () => {
