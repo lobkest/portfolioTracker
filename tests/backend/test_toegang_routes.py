@@ -221,7 +221,7 @@ class TestUploadGrenzen(_MetApp):
                                 content_type="multipart/form-data", **ip(adres))
 
     def test_upload_is_beperkt_per_ip(self):
-        self.patch_app("_upload_impl", side_effect=lambda: self.m.jsonify({"ok": True}))
+        self.patch_app("_upload_impl", side_effect=lambda *_: self.m.jsonify({"ok": True}))
         for _ in range(REGELS_UPLOAD[0].maximum):
             self.assertEqual(self._upload().status_code, 200)
         res = self._upload()

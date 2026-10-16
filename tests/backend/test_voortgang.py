@@ -72,7 +72,7 @@ class TestUploadStroom(unittest.TestCase):
                                 content_type="multipart/form-data")
 
     def test_stroom_eindigt_met_een_klaar_regel(self):
-        def impl():
+        def impl(*_):
             meld_stap("bestand_inlezen")
             meld_stap("klaar_maken")
             return self.app_module.jsonify({"ok": 1})
@@ -89,13 +89,13 @@ class TestUploadStroom(unittest.TestCase):
 
     def test_foutstatus_van_het_werk_komt_in_de_klaar_regel(self):
         with patch.object(self.app_module, "_upload_impl",
-                          lambda: (self.app_module.jsonify({"error": "fout"}), 400)), \
+                          lambda *_: (self.app_module.jsonify({"error": "fout"}), 400)), \
                 patch.object(self.app_module, "ruim_verlopen_portfolios_op"):
             regels = _regels(self._post())
         self.assertEqual(regels, [{"type": "klaar", "status": 400, "data": {"error": "fout"}}])
 
     def test_exception_geeft_klaar_met_status_500(self):
-        def impl():
+        def impl(*_):
             raise RuntimeError("boem")
 
         with patch.object(self.app_module, "_upload_impl", impl):
@@ -106,7 +106,7 @@ class TestUploadStroom(unittest.TestCase):
         self.assertIn("error", regels[0]["data"])
 
     def test_foute_code_poging_wordt_geregistreerd(self):
-        def impl():
+        def impl(*_):
             self.app_module.g.foute_code_poging = True
             return self.app_module.jsonify({"error": "x"}), 400
 
@@ -117,7 +117,7 @@ class TestUploadStroom(unittest.TestCase):
         self.assertEqual(registreer.call_count, 2)
 
     def test_zonder_parameter_geen_stroom(self):
-        with patch.object(self.app_module, "_upload_impl", lambda: self.app_module.jsonify({"ok": 1})), \
+        with patch.object(self.app_module, "_upload_impl", lambda *_: self.app_module.jsonify({"ok": 1})), \
                 patch.object(self.app_module, "ruim_verlopen_portfolios_op"):
             response = self._post("")
         self.assertEqual(response.mimetype, "application/json")

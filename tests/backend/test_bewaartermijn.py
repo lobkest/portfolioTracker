@@ -161,7 +161,7 @@ class TestUploadMarkeertGebruikt(_MetApp):
 
 class TestUploadRuimtOp(_MetApp):
     def test_upload_start_het_opruimen(self):
-        self.patch_app("_upload_impl", side_effect=lambda: self.m.jsonify({"ok": True}))
+        self.patch_app("_upload_impl", side_effect=lambda *_: self.m.jsonify({"ok": True}))
         opruimen = self.patch_app("ruim_verlopen_portfolios_op")
         res = self.client.post("/upload", data={"bestand1": (io.BytesIO(b"x"), "a.xlsx")},
                                content_type="multipart/form-data")

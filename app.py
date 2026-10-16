@@ -10,6 +10,8 @@ from flask import (
 )
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
+from io import BytesIO
+from werkzeug.datastructures import FileStorage
 from xml.sax.saxutils import escape as xml_escape
 import pandas as pd
 from db import (
@@ -301,12 +303,12 @@ def analyse_pagina():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    # Hier, in de hoofdthread: een 413 hoort een gewoon antwoord te zijn en de bestanden moeten de request overleven.
+    bestanden = _lees_bestanden()
     if request.args.get("voortgang") != "1":
-        return _upload_uitvoeren()
-    # Eerst hier parseren: een 413 hoort een gewoon antwoord te zijn, geen stroom.
-    request.files
+        return _upload_uitvoeren(bestanden)
     stappen = STAPPEN_UPLOAD_NIET_OPSLAAN if request.form.get("niet_opslaan") == "on" else STAPPEN_UPLOAD_OPSLAAN
-    return _als_voortgangsstroom(_upload_uitvoeren, stappen, MELDING_UPLOAD_MISLUKT)
+    return _als_voortgangsstroom(lambda: _upload_uitvoeren(bestanden), stappen, MELDING_UPLOAD_MISLUKT)
 
 
 MELDING_UPLOAD_MISLUKT = (
@@ -315,12 +317,12 @@ MELDING_UPLOAD_MISLUKT = (
 )
 
 
-def _upload_uitvoeren():
+def _upload_uitvoeren(bestanden):
     """Zet elke onverwachte fout om in een JSON-foutrespons; anders blijft de frontend hangen."""
     db_reset_verbinding_teller()
     try:
         with meet_tijd("upload_totaal"):
-            response = _upload_impl()
+            response = _upload_impl(bestanden)
         ruim_verlopen_portfolios_op()
         return response
     except GeenVrijeCode:
@@ -335,10 +337,10 @@ def _upload_uitvoeren():
         db_log_verbinding_samenvatting()
 
 
-def _upload_impl():
+def _upload_impl(bestanden):
     reset_yahoo_call_teller()
     meld_stap("bestand_inlezen")
-    bestand1 = _gekozen_bestand("bestand1")
+    bestand1 = bestanden["bestand1"]
     if not bestand1:
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
 
@@ -346,12 +348,15 @@ def _upload_impl():
         with meet_tijd("excel_inlezen_pandas"):
             df = voeg_koers_eur_toe(lees_transacties_excel(bestand1))
         rekening_df = None
-        bestand2 = _gekozen_bestand("bestand2")
+        bestand2 = bestanden["bestand2"]
         if bestand2:
             with meet_tijd("rekeningoverzicht_inlezen"):
                 rekening_df = lees_rekeningoverzicht(bestand2)
     except OngeldigExcelBestand as e:
         return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        print(f"[upload] FOUT in stap bestand_inlezen: {maskeer_codes(e)}")
+        raise
 
     naam = request.form.get("naam", "").strip()
     if request.form.get("niet_opslaan") == "on":
@@ -443,28 +448,39 @@ def _meld_valuta_na_opslaan(excel_df, code):
         meld_valuta_consistentie(excel_df, ticker_per_isin_beurs_uit_basis(code))
 
 
-def _gekozen_bestand(veld):
-    bestand = request.files.get(veld)
-    return bestand if bestand and bestand.filename != "" else None
+def _lees_bestanden():
+    """{veld: FileStorage of None}, volledig in het geheugen: Flask sluit de geüploade bestanden na de request, ook
+    als het werk nog in de thread van een voortgangsstroom loopt. Een lege selectie (geen bestandsnaam) is None."""
+    bestanden = {}
+    for veld in ("bestand1", "bestand2"):
+        bestand = request.files.get(veld)
+        if bestand and bestand.filename != "":
+            bestand = FileStorage(stream=BytesIO(bestand.read()), filename=bestand.filename,
+                                  content_type=bestand.content_type)
+        else:
+            bestand = None
+        bestanden[veld] = bestand
+    return bestanden
 
 
 @app.route("/api/portfolio/<code>/bijwerken", methods=["POST"])
 def bijwerken(code):
+    bestanden = _lees_bestanden()
     if request.args.get("voortgang") != "1":
-        return _bijwerken_uitvoeren(code)
-    request.files
-    return _als_voortgangsstroom(lambda: _bijwerken_uitvoeren(code), STAPPEN_BIJWERKEN, MELDING_BIJWERKEN_MISLUKT)
+        return _bijwerken_uitvoeren(code, bestanden)
+    return _als_voortgangsstroom(
+        lambda: _bijwerken_uitvoeren(code, bestanden), STAPPEN_BIJWERKEN, MELDING_BIJWERKEN_MISLUKT)
 
 
 MELDING_BIJWERKEN_MISLUKT = "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."
 
 
-def _bijwerken_uitvoeren(code):
+def _bijwerken_uitvoeren(code, bestanden):
     """Zelfde vangnet als /upload."""
     db_reset_verbinding_teller()
     try:
         with meet_tijd("bijwerken_totaal"):
-            return _bijwerken_impl(code.strip().upper())
+            return _bijwerken_impl(code.strip().upper(), bestanden)
     except HTTPException:
         raise
     except Exception as e:
@@ -475,15 +491,15 @@ def _bijwerken_uitvoeren(code):
         db_log_verbinding_samenvatting()
 
 
-def _bijwerken_impl(code):
+def _bijwerken_impl(code, bestanden):
     """Alleen opslaan als élk meegestuurd bestand bij deze portfolio hoort."""
     reset_yahoo_call_teller()
     meld_stap("bestand_inlezen")
     if not db_portfolio_bestaat(code):
         return _geen_portfolio(code)
 
-    bestand1 = _gekozen_bestand("bestand1")
-    bestand2 = _gekozen_bestand("bestand2")
+    bestand1 = bestanden["bestand1"]
+    bestand2 = bestanden["bestand2"]
     if not bestand1 and not bestand2:
         return jsonify({"error": "Kies minstens één bestand."}), 400
 
@@ -493,6 +509,9 @@ def _bijwerken_impl(code):
             df = vul_synthetische_order_ids_aan(voeg_koers_eur_toe(lees_transacties_excel(bestand1)))
         except OngeldigExcelBestand as e:
             return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            print(f"[bijwerken] FOUT in stap bestand_inlezen: {maskeer_codes(e)}")
+            raise
     nieuw = set(df["Order ID"]) if df is not None else set()
 
     meld_stap("bestanden_controleren")
