@@ -5,6 +5,7 @@ Buiten een actieve voortgang is meld_stap() een stille no-op, zodat functies er 
 import contextvars
 from contextlib import contextmanager
 import queue
+import time
 
 # (stap_id, tekst, gewicht): het gewicht is het geschatte aandeel van de totale duur, zie bereken_procent().
 STAPPEN_UPLOAD_OPSLAAN = (
@@ -61,17 +62,47 @@ def bereken_procent(stappen, stap_id, gedaan=0, totaal=0):
     raise KeyError(stap_id)
 
 
+def stand_verschil(begin, eind):
+    """Verschil per teller tussen twee standen; niet negatief (een reset door een andere request geeft anders min)."""
+    return tuple(max(0, nu - toen) for nu, toen in zip(eind, begin))
+
+
+def stap_logregel(stap_id, seconden, begin, eind):
+    """Standen zijn (db-verbindingen, seconden verbinden, yahoo-calls)."""
+    db_aantal, db_seconden, yahoo_calls = stand_verschil(begin, eind)
+    return (f"[voortgang] stap {stap_id}: {seconden:.2f}s, {db_aantal} DB-verbinding(en) ({db_seconden:.2f}s), "
+            f"{yahoo_calls} Yahoo-call(s)")
+
+
 class Voortgang:
-    def __init__(self, stappen):
+    def __init__(self, stappen, stand=None, flow=""):
+        """`stand()` geeft (db-verbindingen, seconden verbinden, yahoo-calls); zonder stand wordt er niets gelogd."""
         self.stappen = stappen
         self.events = queue.Queue()
         self._teksten = {id_: tekst for id_, tekst, _ in stappen}
         self._stap = None
         self._procent = 0
+        self._stand = stand
+        self._flow = flow
+        self._stap_begin = None
+        self._flow_begin = None
+
+    def _sluit_stap_af(self):
+        if self._stand is None or self._stap is None:
+            return
+        nu, stand = time.time(), self._stand()
+        print(stap_logregel(self._stap, nu - self._stap_begin[0], self._stap_begin[1], stand))
+        self._stap_begin = None
 
     def start_stap(self, stap_id):
         if stap_id not in self._teksten:
             return
+        if self._stand is not None:
+            if self._stap_begin is not None:
+                self._sluit_stap_af()
+            if self._flow_begin is None:
+                self._flow_begin = (time.time(), self._stand())
+            self._stap_begin = (time.time(), self._stand())
         self._stap = stap_id
         self._procent = max(self._procent, bereken_procent(self.stappen, stap_id))
         self.events.put({
@@ -92,6 +123,11 @@ class Voortgang:
         })
 
     def klaar(self, status, data):
+        if self._stand is not None and self._flow_begin is not None:
+            if self._stap_begin is not None:
+                self._sluit_stap_af()
+            print(stap_logregel(f"totaal ({self._flow})", time.time() - self._flow_begin[0],
+                                self._flow_begin[1], self._stand()))
         self.events.put({"type": "klaar", "status": status, "data": data})
 
 

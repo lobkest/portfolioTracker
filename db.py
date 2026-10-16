@@ -15,13 +15,14 @@ load_dotenv()
 
 # Globaal per proces, net als de Yahoo-tellers: gelijktijdige requests tellen bij elkaar op.
 _verbinding_lock = threading.Lock()
-_verbinding_teller = {"aantal": 0, "seconden": 0.0}
+_verbinding_teller = {"aantal": 0, "seconden": 0.0, "worker": 0}
 
 
 def db_reset_verbinding_teller():
     with _verbinding_lock:
         _verbinding_teller["aantal"] = 0
         _verbinding_teller["seconden"] = 0.0
+        _verbinding_teller["worker"] = 0
 
 
 def db_verbinding_teller_stand():
@@ -32,16 +33,20 @@ def db_verbinding_teller_stand():
 
 def db_log_verbinding_samenvatting():
     with _verbinding_lock:
-        aantal, seconden = _verbinding_teller["aantal"], _verbinding_teller["seconden"]
-    print(f"[timing] DB-verbindingen sinds laatste reset: {aantal}, samen {seconden:.2f}s verbinden")
+        aantal, seconden, worker = (_verbinding_teller[k] for k in ("aantal", "seconden", "worker"))
+    print(f"[timing] DB-verbindingen sinds laatste reset: {aantal} (waarvan {worker} in worker-threads), "
+          f"samen {seconden:.2f}s verbinden")
 
 
 def _open_verbinding():
     start = time.time()
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    in_worker = not has_app_context()
     with _verbinding_lock:
         _verbinding_teller["aantal"] += 1
         _verbinding_teller["seconden"] += time.time() - start
+        if in_worker:
+            _verbinding_teller["worker"] += 1
     return conn
 
 

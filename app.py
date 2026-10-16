@@ -19,7 +19,7 @@ from db import (
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
-    db_get_dividenden, db_get_upload_meldingen, db_markeer_portfolio_gebruikt,
+    db_get_dividenden, db_get_upload_meldingen, db_markeer_portfolio_gebruikt, db_verbinding_teller_stand,
 )
 from bewaartermijn import ruim_verlopen_portfolios_op, BEWAARTERMIJN_MAANDEN
 from ticker_classificatie import haal_long_names, bewaar_long_names
@@ -192,9 +192,14 @@ def registreer_foute_code_poging():
         toegangslimiet.registreer(CATEGORIE_FOUTE_CODE_GLOBAAL, SLEUTEL_GLOBAAL)
 
 
-def _als_voortgangsstroom(werk, stappen, foutmelding):
+def _teller_stand():
+    aantal, seconden = db_verbinding_teller_stand()
+    return aantal, seconden, yahoo_teller_stand()[0]
+
+
+def _als_voortgangsstroom(werk, stappen, foutmelding, flow):
     """NDJSON-stroom: voortgangsregels en als laatste een `klaar`-regel met de status en JSON van `werk()`."""
-    voortgang = Voortgang(stappen)
+    voortgang = Voortgang(stappen, _teller_stand, flow)
 
     # De kopie heeft een eigen `g`: de foute-code-poging uit `werk` moet hier geregistreerd worden, na_request ziet hem niet.
     @copy_current_request_context
@@ -308,7 +313,8 @@ def upload():
     if request.args.get("voortgang") != "1":
         return _upload_uitvoeren(bestanden)
     stappen = STAPPEN_UPLOAD_NIET_OPSLAAN if request.form.get("niet_opslaan") == "on" else STAPPEN_UPLOAD_OPSLAAN
-    return _als_voortgangsstroom(lambda: _upload_uitvoeren(bestanden), stappen, MELDING_UPLOAD_MISLUKT)
+    flow = "upload niet opslaan" if stappen is STAPPEN_UPLOAD_NIET_OPSLAAN else "upload opslaan"
+    return _als_voortgangsstroom(lambda: _upload_uitvoeren(bestanden), stappen, MELDING_UPLOAD_MISLUKT, flow)
 
 
 MELDING_UPLOAD_MISLUKT = (
@@ -469,7 +475,7 @@ def bijwerken(code):
     if request.args.get("voortgang") != "1":
         return _bijwerken_uitvoeren(code, bestanden)
     return _als_voortgangsstroom(
-        lambda: _bijwerken_uitvoeren(code, bestanden), STAPPEN_BIJWERKEN, MELDING_BIJWERKEN_MISLUKT)
+        lambda: _bijwerken_uitvoeren(code, bestanden), STAPPEN_BIJWERKEN, MELDING_BIJWERKEN_MISLUKT, "bijwerken")
 
 
 MELDING_BIJWERKEN_MISLUKT = "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."
@@ -572,7 +578,7 @@ def api_portfolio(code):
         return _portfolio_ophalen(code)
     herbepalen = request.args.get("herbepaal_alle_tickers", "").lower() == "true"
     stappen = STAPPEN_OPHALEN if herbepalen else STAPPEN_OPHALEN_ZONDER_HERBEPALEN
-    return _als_voortgangsstroom(lambda: _portfolio_ophalen(code), stappen, MELDING_OPHALEN_MISLUKT)
+    return _als_voortgangsstroom(lambda: _portfolio_ophalen(code), stappen, MELDING_OPHALEN_MISLUKT, "ophalen")
 
 
 MELDING_OPHALEN_MISLUKT = "Ophalen mislukt. Probeer het opnieuw."
