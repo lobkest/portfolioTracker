@@ -3,7 +3,10 @@ import re
 import time
 import traceback
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, Response, g, render_template, request, jsonify, redirect, url_for
+from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
+from xml.sax.saxutils import escape as xml_escape
 import pandas as pd
 from db import (
     db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code,
@@ -18,7 +21,7 @@ from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
     controleer_alle_transactieprijzen, bijnaam_na_tickerwissel,
 )
-from debug_utils import meet_tijd
+from debug_utils import dprint, meet_tijd
 from diagnostiek import voeg_diagnostiek_toe
 from yahoo_client import (
     reset_yahoo_call_teller, log_yahoo_call_samenvatting, yahoo_teller_stand, meld_yahoo_samenvatting,
@@ -34,6 +37,11 @@ from historisch_rendement import bereken_historisch_rendement
 from portfolio_admin import (
     is_geldige_code, CODE_LENGTH, controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
+    GeenVrijeCode, UploadHoortBijBestaandePortfolio, valideer_bijnaam, MELDING_GEEN_VRIJE_CODE,
+)
+from toegangslimiet import (
+    Toegangslimiet, wachttijd_tekst, SLEUTEL_GLOBAAL, CATEGORIE_FOUTE_CODE, CATEGORIE_FOUTE_CODE_GLOBAAL,
+    CATEGORIE_GEVOELIGE_ACTIE, CATEGORIE_UPLOAD, CATEGORIE_EXTERNE_BRON, CATEGORIE_BEREKENING,
 )
 from upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
@@ -56,7 +64,15 @@ from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
 from static_versie import registreer_static_versies
 
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+# Render zet precies één proxy voor de app.
+PROXY_AANTAL_X_FOR = 1
+PROXY_AANTAL_X_PROTO = 1
+ONBEKEND_IP = "onbekend"
+
 app = Flask(__name__)
+app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=PROXY_AANTAL_X_FOR, x_proto=PROXY_AANTAL_X_PROTO)
 registreer_static_versies(app)
 
 # Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
@@ -65,6 +81,27 @@ if os.environ.get("DATABASE_URL"):
 
 
 MELDING_ONGELDIGE_CODE = "ongeldige-code"
+MELDING_BESTAND_TE_GROOT = f"Het bestand is te groot (maximaal {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)."
+
+GEVOELIGE_ENDPOINTS = frozenset({"verwijder_portfolio", "wijzig_code"})
+# Code-loze routes die zwaar zijn (Yahoo/externe bronnen of grote invoer).
+CATEGORIE_PER_ZWAAR_ENDPOINT = {
+    "upload": CATEGORIE_UPLOAD,
+    "ticker_zekerheid_check": CATEGORIE_EXTERNE_BRON,
+    "etf_overlap_detail": CATEGORIE_EXTERNE_BRON,
+    "box3_bereken": CATEGORIE_BEREKENING,
+}
+LIMIET_MELDING_PER_CATEGORIE = {
+    CATEGORIE_FOUTE_CODE: "Te veel foute pogingen met een code.",
+    CATEGORIE_FOUTE_CODE_GLOBAAL: "Ophalen met een code is tijdelijk niet mogelijk vanwege veel foute pogingen.",
+    CATEGORIE_GEVOELIGE_ACTIE: "Je hebt te veel keer een code gewijzigd of een portfolio verwijderd.",
+    CATEGORIE_UPLOAD: "Je hebt te veel bestanden geüpload.",
+    CATEGORIE_EXTERNE_BRON: "Je hebt te veel aanvragen gedaan.",
+    CATEGORIE_BEREKENING: "Je hebt te veel aanvragen gedaan.",
+}
+
+# De tellers staan in het geheugen: ze resetten bij een herstart en gelden per gunicorn-worker.
+toegangslimiet = Toegangslimiet()
 
 MELDING_NIET_VAN_DEZE_PORTFOLIO = "Dit bestand lijkt niet bij deze portfolio te horen."
 MELDING_TRANSACTIES_ONTBREKEN = ("Dit bestand bevat niet al je opgeslagen transacties. Exporteer bij DeGiro vanaf je "
@@ -82,6 +119,98 @@ MELDING_PER_EIGENDOMSFOUT = {
     FOUT_GEEN_ORDER_IDS: MELDING_REKENING_ZONDER_ORDER_IDS,
     FOUT_ONBEKENDE_TRANSACTIES: MELDING_REKENING_ONBEKENDE_TRANSACTIES,
 }
+
+
+def client_ip():
+    """Het IP waarop de limieten tellen; hier aanpassen als Render een andere header blijkt te gebruiken."""
+    return request.remote_addr or ONBEKEND_IP
+
+
+def _log_ip_ter_controle():
+    dprint(f"[ip] gebruikt={client_ip()} x_forwarded_for={request.headers.get('X-Forwarded-For')!a} "
+           f"true_client_ip={request.headers.get('True-Client-IP')!a}")
+
+
+def _geen_portfolio(code):
+    """404 voor een onbekende code; telt als foute poging (zie na_request)."""
+    g.foute_code_poging = True
+    return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+
+
+def _limiet_antwoord(categorie, wachttijd):
+    response = jsonify({
+        "error": f"{LIMIET_MELDING_PER_CATEGORIE[categorie]} Probeer het {wachttijd_tekst(wachttijd)} opnieuw."
+    })
+    response.status_code = 429
+    response.headers["Retry-After"] = str(wachttijd)
+    return response
+
+
+def _is_code_api_route():
+    return bool(request.view_args and "code" in request.view_args and request.path.startswith("/api/"))
+
+
+@app.before_request
+def voor_request():
+    ip = client_ip()
+    if request.endpoint in CATEGORIE_PER_ZWAAR_ENDPOINT:
+        categorie = CATEGORIE_PER_ZWAAR_ENDPOINT[request.endpoint]
+        wacht = toegangslimiet.verbruik(categorie, ip)
+        if wacht:
+            return _limiet_antwoord(categorie, wacht)
+    if not _is_code_api_route():
+        return None
+    for categorie, sleutel in ((CATEGORIE_FOUTE_CODE, ip), (CATEGORIE_FOUTE_CODE_GLOBAAL, SLEUTEL_GLOBAAL)):
+        wacht = toegangslimiet.wachttijd(categorie, sleutel)
+        if wacht:
+            return _limiet_antwoord(categorie, wacht)
+    if request.endpoint in GEVOELIGE_ENDPOINTS:
+        wacht = toegangslimiet.verbruik(CATEGORIE_GEVOELIGE_ACTIE, ip)
+        if wacht:
+            return _limiet_antwoord(CATEGORIE_GEVOELIGE_ACTIE, wacht)
+    return None
+
+
+@app.after_request
+def na_request(response):
+    if g.get("foute_code_poging"):
+        toegangslimiet.registreer(CATEGORIE_FOUTE_CODE, client_ip())
+        toegangslimiet.registreer(CATEGORIE_FOUTE_CODE_GLOBAAL, SLEUTEL_GLOBAAL)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "same-origin"
+    return response
+
+
+@app.errorhandler(413)
+def te_groot(_fout):
+    return jsonify({"error": MELDING_BESTAND_TE_GROOT}), 413
+
+
+@app.route("/robots.txt")
+def robots_txt():
+    regels = [
+        "User-agent: *",
+        "Allow: /",
+        "Disallow: /p/",
+        "Disallow: /api/",
+        "Disallow: /analyse",
+        "Disallow: /upload",
+        "",
+        f"Sitemap: {request.url_root}sitemap.xml",
+    ]
+    return Response("\n".join(regels) + "\n", mimetype="text/plain")
+
+
+@app.route("/sitemap.xml")
+def sitemap_xml():
+    regels = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+        f"  <url><loc>{xml_escape(request.url_root)}</loc></url>",
+        "</urlset>",
+    ]
+    return Response("\n".join(regels) + "\n", mimetype="application/xml")
 
 
 @app.route("/")
@@ -111,6 +240,10 @@ def upload():
     try:
         with meet_tijd("upload_totaal"):
             return _upload_impl()
+    except GeenVrijeCode:
+        return jsonify({"error": MELDING_GEEN_VRIJE_CODE}), 503
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[upload] ONVERWACHTE FOUT: {e}")
         traceback.print_exc()
@@ -144,7 +277,11 @@ def _upload_impl():
         result = _analyseer_zonder_opslaan(df, rekening_df, naam)
     else:
         herbepaal_alle_tickers = request.form.get("herbepaal_alle_tickers") == "on"
-        result = _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers)
+        try:
+            result = _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers)
+        except UploadHoortBijBestaandePortfolio as e:
+            g.foute_code_poging = True
+            return jsonify({"error": str(e)}), 400
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
     response = jsonify(voeg_diagnostiek_toe(result))
     log_yahoo_call_samenvatting()
@@ -230,6 +367,8 @@ def bijwerken(code):
     try:
         with meet_tijd("bijwerken_totaal"):
             return _bijwerken_impl(code.strip().upper())
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[bijwerken] ONVERWACHTE FOUT: {e}")
         traceback.print_exc()
@@ -242,7 +381,7 @@ def _bijwerken_impl(code):
     """Alleen opslaan als élk meegestuurd bestand bij deze portfolio hoort."""
     reset_yahoo_call_teller()
     if not db_portfolio_bestaat(code):
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     bestand1 = _gekozen_bestand("bestand1")
     bestand2 = _gekozen_bestand("bestand2")
@@ -305,16 +444,19 @@ def _bijwerken_impl(code):
 @app.route("/api/portfolio/<code>")
 def api_portfolio(code):
     code = code.strip().upper()
+    _log_ip_ter_controle()
     reset_yahoo_call_teller()
     db_reset_verbinding_teller()
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
+        if not db_portfolio_bestaat(code):
+            return _geen_portfolio(code)
         _herbepaal_tickers(code)
         # Anders levert de _basis_cache de oude tickers.
         wis_portfolio_basis_cache(code)
     with meet_tijd("ophalen_totaal"), db_deel_verbinding():
         result = build_portfolio_response(code)
     if result is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     log_yahoo_call_samenvatting()
     db_log_verbinding_samenvatting()
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "ophalen")
@@ -330,7 +472,7 @@ def portfolio_verrijking(code):
     with db_deel_verbinding():
         naam, transacties_df, price_data = haal_portfolio_basis(code)
     if naam is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     try:
         with db_deel_verbinding():
@@ -364,7 +506,7 @@ def verdeling_over_tijd(code):
                      "wat al is opgehaald blijft bewaard, dus een tweede poging gaat sneller."
         }), 500
     if result is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     return jsonify(result)
 
 
@@ -387,7 +529,7 @@ def benchmark_vergelijking(code):
 
     transacties_df, resultaat = laad_transacties_en_resultaat(code)
     if transacties_df is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     if resultaat is None:
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
@@ -421,7 +563,7 @@ def rendement_over_tijd(code):
     code = code.strip().upper()
     transacties_df, resultaat = laad_transacties_en_resultaat(code)
     if transacties_df is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     if resultaat is None:
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
@@ -433,7 +575,7 @@ def box3_basis(code):
     code = code.strip().upper()
     transacties_df, resultaat = laad_transacties_en_resultaat(code)
     if transacties_df is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     if resultaat is None:
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
@@ -462,7 +604,7 @@ def ticker_koers_bereik(code):
     # Niet haal_portfolio_basis(): die haalt koersen van alle tickers op.
     transacties_df = laad_split_gecorrigeerde_transacties(code)
     if transacties_df is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     ticker = request.args.get("ticker")
     vanaf = request.args.get("vanaf")
@@ -494,7 +636,7 @@ def ticker_zekerheid_lijst(code):
     code = code.strip().upper()
     groepen = ticker_zekerheid_groepen(code)
     if groepen is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     posities = [
         {"isin": isin, "isins": info["isins"], "beurs": beurs, "naam": info["naam"], "echte_naam": info["echte_naam"]}
@@ -513,7 +655,7 @@ def ticker_zekerheid_positie(code):
 
         groepen = ticker_zekerheid_groepen(code)
         if groepen is None:
-            return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+            return _geen_portfolio(code)
 
         info = dict(groepen).get((isin, beurs))
         if info is None:
@@ -551,7 +693,7 @@ def ticker_zekerheid_wijzig(code):
 
     groepen = ticker_zekerheid_groepen(code)
     if groepen is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     info = dict(groepen).get((isin, beurs))
     if info is None:
         return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
@@ -584,7 +726,7 @@ def ticker_zekerheid_alle_prijzen(code):
 
         groepen = ticker_zekerheid_groepen(code)
         if groepen is None:
-            return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+            return _geen_portfolio(code)
 
         info = dict(groepen).get((isin, beurs))
         if info is None:
@@ -643,7 +785,7 @@ def ticker_zekerheid_check():
 def dividend(code):
     code = code.strip().upper()
     if not db_portfolio_bestaat(code):
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     samenvatting = bereken_dividend_samenvatting(code)
     if samenvatting is None:
@@ -657,7 +799,7 @@ def dividend(code):
 def upload_meldingen(code):
     code = code.strip().upper()
     if not db_portfolio_bestaat(code):
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     return jsonify({"uploads": upload_meldingen_voor_api(db_get_upload_meldingen(code))})
 
 
@@ -665,7 +807,7 @@ def upload_meldingen(code):
 def dividend_verwachting(code):
     code = code.strip().upper()
     if not db_portfolio_bestaat(code):
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     try:
         with meet_tijd("dividend_verwachting"):
@@ -680,7 +822,7 @@ def dividend_verwachting(code):
 def historisch_rendement(code):
     code = code.strip().upper()
     if not db_portfolio_bestaat(code):
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
 
     try:
         with meet_tijd("historisch_rendement"):
@@ -696,18 +838,22 @@ def transacties_overzicht(code):
     code = code.strip().upper()
     overzicht = bouw_transacties_lijst(code)
     if overzicht is None:
-        return jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404
+        return _geen_portfolio(code)
     return jsonify(overzicht)
 
 
 @app.route("/api/portfolio/<code>/bijnaam", methods=["POST"])
 def set_bijnaam(code):
     code = code.strip().upper()
-    data = request.get_json()
+    if not db_portfolio_bestaat(code):
+        return _geen_portfolio(code)
+    data = request.get_json(silent=True) or {}
     ticker = data.get("ticker")
     bijnaam = (data.get("bijnaam") or "").strip()
     if not ticker or not bijnaam:
         return jsonify({"error": "Ticker en bijnaam zijn verplicht."}), 400
+    if fout := valideer_bijnaam(bijnaam):
+        return jsonify({"error": fout}), 400
 
     db_wijzig_bijnaam(code, ticker, bijnaam)
     wis_portfolio_basis_cache(code)
@@ -717,11 +863,15 @@ def set_bijnaam(code):
 @app.route("/api/portfolio/<code>/bijnamen", methods=["POST"])
 def set_bijnamen(code):
     code = code.strip().upper()
-    namen = (request.get_json() or {}).get("namen")
+    if not db_portfolio_bestaat(code):
+        return _geen_portfolio(code)
+    namen = (request.get_json(silent=True) or {}).get("namen")
     if not isinstance(namen, dict):
         return jsonify({"error": "Namen zijn verplicht."}), 400
 
     schoon = {t: n.strip() for t, n in namen.items() if isinstance(n, str) and n.strip()}
+    if fout := next(filter(None, map(valideer_bijnaam, schoon.values())), None):
+        return jsonify({"error": fout}), 400
     if schoon:
         db_wijzig_bijnamen(code, schoon)
     wis_portfolio_basis_cache(code)
@@ -731,7 +881,9 @@ def set_bijnamen(code):
 @app.route("/api/portfolio/<code>/reset-bijnaam", methods=["POST"])
 def reset_bijnaam(code):
     code = code.strip().upper()
-    data = request.get_json()
+    if not db_portfolio_bestaat(code):
+        return _geen_portfolio(code)
+    data = request.get_json(silent=True) or {}
     ticker = data.get("ticker")
     if not ticker:
         return jsonify({"error": "Ticker is verplicht."}), 400
@@ -750,7 +902,7 @@ def reset_bijnaam(code):
 def _korte_namen_voorstellen_of_fout(code):
     """(voorstellen, None) of (None, (JSON-fout, status))."""
     if not db_portfolio_bestaat(code):
-        return None, (jsonify({"error": f"Geen portfolio gevonden met code '{code}'."}), 404)
+        return None, _geen_portfolio(code)
     try:
         return bepaal_korte_naam_voorstellen(code), None
     except YahooNamenOnbeschikbaar:
@@ -783,6 +935,8 @@ def pas_korte_namen_toe(code):
 @app.route("/api/portfolio/<code>", methods=["DELETE"])
 def verwijder_portfolio(code):
     code = code.strip().upper()
+    if not db_portfolio_bestaat(code):
+        return _geen_portfolio(code)
     db_delete_portfolio(code)
     wis_portfolio_basis_cache(code)
     return jsonify({"success": True})
@@ -791,7 +945,9 @@ def verwijder_portfolio(code):
 @app.route("/api/portfolio/<code>/wijzig-code", methods=["POST"])
 def wijzig_code(code):
     code = code.strip().upper()
-    data = request.get_json()
+    if not db_portfolio_bestaat(code):
+        return _geen_portfolio(code)
+    data = request.get_json(silent=True) or {}
     nieuwe_code = (data.get("nieuwe_code") or "").strip().upper()
 
     if not is_geldige_code(nieuwe_code):

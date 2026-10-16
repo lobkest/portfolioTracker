@@ -1055,6 +1055,18 @@ def db_maak_portfolio(cur, code, naam):
     cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (code, naam))
 
 
+def db_probeer_portfolio_te_maken(cur, code, naam):
+    """False als de code net door een andere upload is ingenomen; het savepoint houdt de transactie bruikbaar."""
+    cur.execute("SAVEPOINT portfolio_code")
+    try:
+        db_maak_portfolio(cur, code, naam)
+    except pg_errors.UniqueViolation:
+        cur.execute("ROLLBACK TO SAVEPOINT portfolio_code")
+        return False
+    cur.execute("RELEASE SAVEPOINT portfolio_code")
+    return True
+
+
 def db_zet_portfolio_naam(cur, code, naam):
     cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
 

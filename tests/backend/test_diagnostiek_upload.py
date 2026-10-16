@@ -101,7 +101,7 @@ class TestPortfolioCodeMelding(_MetRequest):
     def _roep_aan(self, match, missing_ids):
         df = _rijen(3)
         with patch("upload_verwerking.find_matching_code", return_value=(match, missing_ids)), \
-             patch("upload_verwerking.generate_code", return_value="NEW"):
+             patch("upload_verwerking.maak_portfolio_met_nieuwe_code", return_value="NEW"):
             return self._in_request(uv.vind_of_maak_portfolio, MagicMock(), df, "")
 
     def test_nieuwe_portfolio(self):

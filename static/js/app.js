@@ -303,6 +303,8 @@ document.getElementById("tickerWaarschuwingKnop").addEventListener("click", () =
 
 // De code komt uit Flask (data-code); leeg op /analyse ('niet opslaan').
 const paginaCode = document.body.dataset.code || "";
+const LAADFOUT_STANDAARDTEKST = document.getElementById("laadFoutTekst").textContent;
+const HTTP_TE_VEEL_AANVRAGEN = 429;
 
 async function haalPortfolioOp() {
     document.getElementById("laadFout").hidden = true;
@@ -314,7 +316,13 @@ async function haalPortfolioOp() {
             return;
         }
         const data = await res.json();
+        if (res.status === HTTP_TE_VEEL_AANVRAGEN) {
+            document.getElementById("laadFoutTekst").textContent = data.error || LAADFOUT_STANDAARDTEKST;
+            document.getElementById("laadFout").hidden = false;
+            return;
+        }
         if (!res.ok) throw new Error(data.error || "Ophalen mislukt.");
+        document.getElementById("laadFoutTekst").textContent = LAADFOUT_STANDAARDTEKST;
         toonDashboard(data);
     } catch (err) {
         console.error("[portfolio] ophalen mislukt:", err.message);

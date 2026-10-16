@@ -3,7 +3,16 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-    <title>Portfolio Dashboard</title>
+    <title>{% block titel %}Portfolio Dashboard{% endblock %}</title>
+    {% block zoekmachine_meta %}
+    <meta name="description" content="{% block beschrijving %}Upload je DeGiro-export en zie je rendement (XIRR, TWR), de verdeling naar land en sector, ETF-overlap, dividend en een prognose.{% endblock %}">
+    <meta property="og:title" content="{{ self.titel() }}">
+    <meta property="og:description" content="{{ self.beschrijving() }}">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.url_root }}">
+    <meta property="og:image" content="{{ url_for('static', filename='favicon/web-app-manifest-512x512.png', _external=True) }}">
+    <link rel="canonical" href="{{ request.url_root }}">
+    {% endblock %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon/favicon.ico') }}">
     <link rel="apple-touch-icon" sizes="180x180" href="{{ url_for('static', filename='favicon/apple-touch-icon.png') }}">

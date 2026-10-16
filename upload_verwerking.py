@@ -4,6 +4,7 @@ import hashlib
 import pandas as pd
 import psycopg2
 
+from bestand_controle import controleer_excel_bestand, controleer_aantal_rijen
 from debug_utils import meet_tijd
 from diagnostiek import (
     meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
@@ -17,9 +18,9 @@ from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
     find_ticker_met_snelle_prijscheck,
 )
-from portfolio_admin import find_matching_code, generate_code
+from portfolio_admin import find_matching_code, maak_portfolio_met_nieuwe_code
 from db import (
-    db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_maak_portfolio, db_get_bekende_tickers, db_insert_transactie,
+    db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_get_bekende_tickers, db_insert_transactie,
     db_get_product_per_ticker, db_vul_bronkolommen_aan, db_save_rekening_regels, db_save_upload_meldingen,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
@@ -77,8 +78,9 @@ def _normaliseer_tijd(waarde):
     return str(waarde)
 
 def lees_transacties_excel(bestand1):
-    bestand1.seek(0)
-    df = pd.read_excel(bestand1)
+    controleer_excel_bestand(bestand1)
+    df = pd.read_excel(bestand1, engine="openpyxl")
+    controleer_aantal_rijen(df)
     df.columns = df.columns.str.strip()
     ontbreekt = [kolom for kolom in VERWACHTE_KOLOMMEN if kolom not in df.columns]
     if ontbreekt:
@@ -329,8 +331,7 @@ def vind_of_maak_portfolio(cur, df, naam):
             db_zet_portfolio_naam(cur, code, naam)
         rows_to_insert = df[df["Order ID"].isin(missing_ids)]
     else:
-        code = generate_code(cur)
-        db_maak_portfolio(cur, code, naam or None)
+        code = maak_portfolio_met_nieuwe_code(cur, naam or None)
         rows_to_insert = df
 
     meld_portfolio_opslaan(bestaand, rows_to_insert)

@@ -1,5 +1,7 @@
 {% extends "basis.html" %}
 
+{% block titel %}Portfolio Dashboard – inzicht in je DeGiro-portfolio{% endblock %}
+
 {% macro bestand_vak(id, titel, eis, uitleg, wis_label, verplicht=false) %}
             <div class="bestandVak" id="{{ id }}Vak">
                 <input type="file" class="visueelVerborgen" id="{{ id }}" name="{{ id }}" accept=".xlsx,.xls"{% if verplicht %} required{% endif %}>
@@ -26,6 +28,16 @@
             <h1>Portfolio Dashboard</h1>
             <p class="startSubregel">Inzicht in je DeGiro-portfolio</p>
         </header>
+        <section class="startUitleg" aria-label="Wat doet deze app?">
+            <p>Upload je DeGiro-export en zie in één dashboard hoe je portfolio ervoor staat:</p>
+            <ul>
+                <li>rendement, inclusief XIRR en TWR</li>
+                <li>verdeling naar ETF en aandeel, land, sector en valuta</li>
+                <li>ETF-overlap en de grootste onderliggende bedrijven</li>
+                <li>dividend en een prognose voor de toekomst</li>
+            </ul>
+            <p>Kies je voor "Niet opslaan", dan wordt er niets bewaard.</p>
+        </section>
         <p id="startMelding" role="status" style="font-weight: bold;"></p>
 
         <section class="startKaart" aria-labelledby="codeKaartTitel">

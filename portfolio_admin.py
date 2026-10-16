@@ -1,9 +1,9 @@
 """Portfolio-codes genereren/valideren en een upload koppelen aan een bestaande portfolio."""
-import random
 import re
+import secrets
 import string
 
-from db import db_get_order_id_sets_met_overlap, db_portfolio_bestaat_met_cursor
+from db import db_get_order_id_sets_met_overlap, db_portfolio_bestaat_met_cursor, db_probeer_portfolio_te_maken
 
 CODE_LENGTH = 3
 
@@ -12,23 +12,56 @@ def is_geldige_code(code):
     return bool(re.fullmatch(rf"[A-Z]{{{CODE_LENGTH}}}", code or ""))
 
 
-def generate_code(cur, length=CODE_LENGTH):
-    chars = string.ascii_uppercase
-    while True:
-        code = "".join(random.choices(chars, k=length))
-        if not db_portfolio_bestaat_met_cursor(cur, code):
+MAX_CODE_POGINGEN = 100
+MAX_BIJNAAM_LENGTE = 100
+
+MELDING_GEEN_VRIJE_CODE = "Er is nu geen vrije code beschikbaar. Probeer het later opnieuw."
+MELDING_UPLOAD_HOORT_BIJ_BESTAANDE = ("Dit bestand hoort bij een bestaande portfolio. Haal die op met je code, "
+                                      "of upload een volledige export.")
+MELDING_BIJNAAM_TE_LANG = f"Een bijnaam mag maximaal {MAX_BIJNAAM_LENGTE} tekens bevatten."
+
+
+class GeenVrijeCode(Exception):
+    pass
+
+
+class UploadHoortBijBestaandePortfolio(Exception):
+    """De upload is een deelverzameling van een bestaande portfolio; de code mag niet worden prijsgegeven."""
+
+
+def valideer_bijnaam(bijnaam):
+    """Foutmelding of None."""
+    return MELDING_BIJNAAM_TE_LANG if len(bijnaam) > MAX_BIJNAAM_LENGTE else None
+
+
+def generate_code(cur, length=CODE_LENGTH, uitgesloten=frozenset()):
+    for _ in range(MAX_CODE_POGINGEN):
+        code = "".join(secrets.choice(string.ascii_uppercase) for _ in range(length))
+        if code not in uitgesloten and not db_portfolio_bestaat_met_cursor(cur, code):
             return code
+    raise GeenVrijeCode(MELDING_GEEN_VRIJE_CODE)
+
+
+def maak_portfolio_met_nieuwe_code(cur, naam):
+    """Twee uploads tegelijk kunnen dezelfde vrije code kiezen: de verliezer probeert een andere."""
+    geprobeerd = set()
+    for _ in range(MAX_CODE_POGINGEN):
+        code = generate_code(cur, uitgesloten=geprobeerd)
+        if db_probeer_portfolio_te_maken(cur, code, naam):
+            return code
+        geprobeerd.add(code)
+    raise GeenVrijeCode(MELDING_GEEN_VRIJE_CODE)
 
 
 def find_matching_code(cur, new_order_ids):
-    """Match als de Order ID's van een portfolio en de upload een deelverzameling van elkaar zijn.
-    Geeft (code, ontbrekende_order_ids) of (None, None)."""
+    """Geeft (code, ontbrekende_order_ids) als een bestaande set ⊆ upload (nieuwere export), anders (None, None).
+    Is de upload een deelverzameling van een bestaande portfolio, dan UploadHoortBijBestaandePortfolio."""
     existing = db_get_order_id_sets_met_overlap(cur, new_order_ids)
     for code, ids in existing.items():
         if ids <= new_order_ids:
             return code, new_order_ids - ids
-        if new_order_ids <= ids:
-            return code, set()
+    if any(new_order_ids <= ids for ids in existing.values()):
+        raise UploadHoortBijBestaandePortfolio(MELDING_UPLOAD_HOORT_BIJ_BESTAANDE)
     return None, None
 
 

@@ -62,7 +62,8 @@ document.getElementById("verwijderPortfolioBtn").addEventListener("click", async
             // replace: de terug-knop mag niet op de verwijderde portfolio uitkomen.
             location.replace(startPadMetMelding(MELDING_VERWIJDERD));
         } else {
-            alert("Verwijderen is niet gelukt, probeer het later opnieuw.");
+            const data = await res.json().catch(() => ({}));
+            alert(data.error || "Verwijderen is niet gelukt, probeer het later opnieuw.");
         }
     } finally {
         verbergLaadOverlay();

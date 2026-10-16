@@ -1,5 +1,10 @@
 {% extends "basis.html" %}
 
+{% block zoekmachine_meta %}
+    <meta name="robots" content="noindex, nofollow">
+    <meta name="referrer" content="no-referrer">
+{% endblock %}
+
 {% block head_scripts %}
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
@@ -117,7 +122,7 @@
                 </div>
     {% endmacro %}
     <div class="container" id="laadFout" hidden>
-        <p class="foutTekst">Het ophalen van deze portfolio duurde te lang of is mislukt.</p>
+        <p class="foutTekst" id="laadFoutTekst">Het ophalen van deze portfolio duurde te lang of is mislukt.</p>
         <button id="laadOpnieuwBtn" type="button">Opnieuw proberen</button>
         <p><a href="/">Terug naar de startpagina</a></p>
     </div>

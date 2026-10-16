@@ -27,6 +27,9 @@ class TestHerbepaalAlleTickersBijOphalen(unittest.TestCase):
         import app as app_module
         self.app_module = app_module
         self.client = app_module.app.test_client()
+        patcher = patch.object(app_module, "db_portfolio_bestaat", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def test_zonder_parameter_roept_backfill_niet_aan(self):
         # Standaardgedrag (vóór en na deze wijziging): geen ongevraagde

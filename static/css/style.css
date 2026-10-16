@@ -99,6 +99,22 @@ body:has(.startPagina) {
     color: #888;
 }
 
+.startUitleg {
+    margin: 0 0 var(--startRuimte);
+    color: #555;
+    font-size: 0.95em;
+    line-height: 1.45;
+}
+
+.startUitleg p {
+    margin: 0 0 6px;
+}
+
+.startUitleg ul {
+    margin: 0 0 6px;
+    padding-left: 20px;
+}
+
 .startKaart {
     background: white;
     padding: var(--startRuimte) 20px;

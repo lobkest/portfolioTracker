@@ -3,6 +3,7 @@ import hashlib
 
 import pandas as pd
 
+from bestand_controle import controleer_excel_bestand, controleer_aantal_rijen
 from db import db_get_dividenden, db_get_isin_ticker_product
 from rekening_regelsoorten import (
     GEBRUIK_KOSTENKORTING, REGELSOORT_DIVIDEND, REGELSOORT_DIVIDEND_HERINVESTERING, REGELSOORT_DIVIDENDBELASTING,
@@ -191,8 +192,9 @@ def verwerk_rekeningoverzicht_df(df):
 
 
 def lees_rekeningoverzicht(file_object):
-    file_object.seek(0)
-    df = pd.read_excel(file_object)
+    controleer_excel_bestand(file_object)
+    df = pd.read_excel(file_object, engine="openpyxl")
+    controleer_aantal_rijen(df)
     df.columns = df.columns.str.strip()
     if any(kolom not in df.columns for kolom in VERWACHTE_KOLOMMEN_REKENING):
         raise OngeldigExcelBestand(MELDING_GEEN_REKENINGOVERZICHT)

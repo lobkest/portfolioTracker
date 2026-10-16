@@ -119,7 +119,7 @@ class TestResetBijnaam(unittest.TestCase):
         m = self.app_module
         with patch.object(m, "haal_long_names", return_value=long_names), \
              patch.object(m, "db_wijzig_bijnaam") as wijzig, \
-             patch.object(m, "db_herstel_echte_naam") as herstel, \
+             patch.object(m, "db_herstel_echte_naam") as herstel,              patch.object(m, "db_portfolio_bestaat", return_value=True), \
              patch.object(m, "wis_portfolio_basis_cache"), \
              patch.object(m, "build_portfolio_response", return_value={"code": "ABC"}):
             res = self.client.post("/api/portfolio/ABC/reset-bijnaam", json={"ticker": "ASML.AS"})
