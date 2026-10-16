@@ -6,6 +6,7 @@ from diagnostiek import meld, CATEGORIE_KOERSEN, CATEGORIE_SPLITS, INFO, LET_OP
 from split_correctie import (
     DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, isin_ketens, vind_wisselparen,
 )
+from verrekening import verrekeningen_van
 from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl, getal_nl
 
 
@@ -217,7 +218,9 @@ def _effectieve_datum_kolom(df):
 
 
 def compute_value_over_time(transacties_df, price_data):
-    """'geinvesteerd' is hier de netto cashflow (incl. kosten), niet de GAK-kostenbasis."""
+    """'geinvesteerd' is hier de netto cashflow (incl. kosten), niet de GAK-kostenbasis; een verrekening van aandelen
+    telt als opbrengst (verrekening.py)."""
+    verrekeningen = sorted(verrekeningen_van(transacties_df), key=lambda v: v["datum"])
     transacties_df = transacties_df.dropna(subset=["ticker"])
     # Aantallen tellen mee vanaf hun effectieve datum, geld vanaf de boekdatum.
     stukken = _sorteer_chronologisch(
@@ -249,11 +252,15 @@ def compute_value_over_time(transacties_df, price_data):
     stuk_datums = [pd.Timestamp(d) for d in stukken[stuk_kolom]]
     stuk_tickers = stukken["ticker"].tolist()
     stuk_aantallen = stukken["aantal"].tolist()
+    verrekening_i = 0
 
     for i, date in enumerate(price_data.index):
         while trade_i < len(trade_datums) and trade_datums[trade_i] <= date:
             invested += -float(trade_totalen[trade_i])
             trade_i += 1
+        while verrekening_i < len(verrekeningen) and verrekeningen[verrekening_i]["datum"] <= date:
+            invested -= verrekeningen[verrekening_i]["bedrag"]
+            verrekening_i += 1
         while stuk_i < len(stuk_datums) and stuk_datums[stuk_i] <= date:
             if stuk_tickers[stuk_i] in holdings:
                 holdings[stuk_tickers[stuk_i]] += float(stuk_aantallen[stuk_i])

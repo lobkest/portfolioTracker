@@ -31,6 +31,11 @@ def getal_nl(x, decimalen=2):
     return "0" if tekst == "-0" else tekst.replace(".", ",")
 
 
+def bedrag_nl(x):
+    """1597.2 -> '1.597,20': twee decimalen en een duizendtalpunt."""
+    return f"{float(x):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+
 def _sorteer_chronologisch(df, datum_kolom="datum", tijd_kolom="tijd"):
     """Ontbrekende tijd telt als 00:00; mergesort houdt de volgorde daarbinnen stabiel."""
     if tijd_kolom not in df.columns:

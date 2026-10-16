@@ -171,7 +171,7 @@ class TestRijenBijBevinding(unittest.TestCase):
         [b] = check_ontbrekende_kolommen(df)
         self.assertEqual(b["rijen"], {
             "kolommen": ["Datum", "Naam", "Aantal", "Totaal EUR", "Order ID"],
-            "rijen": [["04-11-2024", "NETFLIX", "-2,5", "-12,5", "abcdefghijkl…"]],
+            "rijen": [["04-11-2024", "NETFLIX", "-2,5", "-12,50", "abcdefghijkl…"]],
             "meer": 0,
         })
 
@@ -190,7 +190,12 @@ class TestRijenBijBevinding(unittest.TestCase):
             "ISIN": ["US1"], "Beurs": ["TDG"], "Product": ["NETFLIX"], "Wisselkoers": [None],
             "Datum": [pd.Timestamp("2024-01-02")], "Aantal": [1.0], "Totaal EUR": [-100.0], "Order ID": ["o1"]})
         [b] = check_valuta_consistentie(excel, {("US1", "TDG"): "NFLX"}, {"NFLX": "USD"})
-        self.assertEqual(b["rijen"]["rijen"], [["02-01-2024", "NETFLIX", "1", "-100", "o1"]])
+        self.assertEqual(b["rijen"]["rijen"], [["02-01-2024", "NETFLIX", "1", "-100,00", "o1"]])
+
+    def test_bedrag_met_duizendtalpunt_en_aantal_zonder_overbodige_nullen(self):
+        df = _df(_rij(aantal=-16.0, totaal_eur=1597.2), _rij(aantal=0.5, totaal_eur=-163.5))
+        blok = maak_rijen_blok(df)
+        self.assertEqual([r[2:4] for r in blok["rijen"]], [["-16", "1.597,20"], ["0,5", "-163,50"]])
 
     def test_grens_van_tien_rijen(self):
         df = _df(*[_rij(datum=datetime.date(2024, 1, 1 + i), order_id=f"o{i}") for i in range(MAX_RIJEN_PER_BEVINDING + 3)])

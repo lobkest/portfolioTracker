@@ -9,15 +9,14 @@ import numpy as np
 import pandas as pd
 
 from diagnostiek import GOED, INFO, LET_OP
-from dividend import ORDER_ID_KOLOM_REKENING
-from rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, REGELSOORT_VERREKENING_AANDELEN, regelsoort
+from rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, regelsoort
 from naam_verkorting import uitkeringsvorm_strijdig
 from portfolio_calc import MIN_AANTAL_TEKORT, holdings_op_datums, stand_per_dag_per_keten
 from split_correctie import isin_ketens, vind_wisselparen
 from ticker_matching import MANUAL_TICKER_OVERRIDES_ISIN, _openfigi_root_matches
 from ticker_prijscheck import PRIJSCHECK_REDEN_GEEN_FX
 from ticker_zekerheid import BEURS_OTC_NA_DELISTING, beurs_status, prijs_klopt
-from transactie_utils import SYNTHETISCH_ORDER_ID_PREFIX, _is_corporate_action_row, formatteer_datum_nl, getal_nl
+from transactie_utils import SYNTHETISCH_ORDER_ID_PREFIX, _is_corporate_action_row, bedrag_nl, formatteer_datum_nl, getal_nl
 
 MAX_BEVINDINGEN_PER_CHECK = 5
 MAX_RIJEN_PER_BEVINDING = 10
@@ -75,8 +74,8 @@ def _korte_order_id(order_id):
     return tekst if len(tekst) <= ORDER_ID_AFKORTING else tekst[:ORDER_ID_AFKORTING] + "…"
 
 
-def _getal_of_leeg(waarde, decimalen):
-    return "" if _leeg(waarde) else getal_nl(waarde, decimalen)
+def _aantal_of_leeg(waarde):
+    return "" if _leeg(waarde) else getal_nl(waarde, 4)
 
 
 def maak_rijen_blok(df, datum="datum", naam=("echte_naam", "product"), aantal="aantal", totaal="totaal_eur",
@@ -97,8 +96,8 @@ def maak_rijen_blok(df, datum="datum", naam=("echte_naam", "product"), aantal="a
         rijen.append([
             "" if _leeg(cel(rij, datum)) else formatteer_datum_nl(rij[datum]),
             "" if kolom_naam is None else str(rij[kolom_naam]),
-            _getal_of_leeg(cel(rij, aantal), 4),
-            _getal_of_leeg(cel(rij, totaal), 2),
+            _aantal_of_leeg(cel(rij, aantal)),
+            "" if _leeg(cel(rij, totaal)) else bedrag_nl(rij[totaal]),
             _korte_order_id(cel(rij, order_id)),
         ])
     return {"kolommen": list(RIJEN_KOLOMMEN), "rijen": rijen, "meer": max(0, len(df) - MAX_RIJEN_PER_BEVINDING)}
@@ -297,7 +296,7 @@ def _pct(fractie):
 
 
 def _eur(bedrag):
-    return "EUR " + f"{bedrag:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return "EUR " + bedrag_nl(bedrag)
 
 
 def _naam_per_ticker(df):
@@ -646,27 +645,42 @@ def _bedrag(valuta, bedrag):
     return _eur(bedrag) if valuta == "EUR" else f"{valuta} {getal_nl(bedrag)}"
 
 
+def check_verrekening_aandelen(toegekend, niet_toegekend):
+    """Uit bouw_verrekeningen(). Toegekend: INFO met het totaal en de posities; niet toegekend (zonder ISIN of positie):
+    LET_OP, want dat geld zit alleen in het kassaldo."""
+    bevindingen = []
+    if toegekend:
+        df = pd.DataFrame(toegekend)
+        producten = ", ".join(sorted({str(p) for p in df["product"].dropna()})) or "de positie"
+        bevindingen.append(_bevinding(
+            INFO,
+            f"Rekeningoverzicht: {len(df)}x '{OMSCHRIJVING_VERREKENING_AANDELEN}' "
+            f"({_periode_tekst((df['datum'].min(), df['datum'].max()))}, totaal {_eur(df['bedrag'].sum())}): contant "
+            f"geld bij een corporate action, waarschijnlijk een uitbetaling voor fracties. Het telt mee als opbrengst "
+            f"van {producten} in rendement, XIRR en TWR; aantallen en GAK blijven gelijk.",
+            "rekening:verrekening_aandelen",
+            maak_rijen_blok(df, datum="datum", naam="product", aantal=None, totaal="bedrag", order_id=None),
+        ))
+    if niet_toegekend:
+        df = pd.DataFrame(niet_toegekend)
+        df["mutatie"] = df["mutatie"].astype(float)
+        bevindingen.append(_bevinding(
+            LET_OP,
+            f"Rekeningoverzicht: {len(df)}x '{OMSCHRIJVING_VERREKENING_AANDELEN}' zonder ISIN of zonder bijbehorende "
+            f"positie (totaal {_eur(df['mutatie'].sum())}): het staat alleen in het kassaldo en telt niet mee in het "
+            f"rendement.",
+            "rekening:verrekening_aandelen_zonder_positie",
+            maak_rijen_blok(df, datum="datum", naam="product", aantal=None, totaal="mutatie", order_id=None),
+        ))
+    return bevindingen
+
+
 def check_rekening_regelsoorten(rekening_df):
-    """rekening_df zoals lees_rekeningoverzicht(). Alleen onbekende soorten (getallen in de tekst tellen als één soort)
-    en 'Verrekening van Aandelen': dat geld staat niet in het transactiebestand."""
+    """rekening_df zoals lees_rekeningoverzicht(). Alleen onbekende soorten (getallen in de tekst tellen als één soort)."""
     if rekening_df is None or rekening_df.empty:
         return []
     soorten = rekening_df["Omschrijving"].map(regelsoort)
     bevindingen = []
-
-    verrekening = rekening_df[soorten == REGELSOORT_VERREKENING_AANDELEN]
-    if not verrekening.empty:
-        totalen = verrekening.groupby(verrekening["valuta_mutatie"].fillna("EUR"))["mutatie"].sum()
-        bevindingen.append(_bevinding(
-            LET_OP,
-            f"Rekeningoverzicht: {len(verrekening)}x '{OMSCHRIJVING_VERREKENING_AANDELEN}' "
-            f"({_periode_tekst((verrekening['Datum'].min(), verrekening['Datum'].max()))}, totaal "
-            f"{', '.join(_bedrag(v, b) for v, b in totalen.items())}): geld uit een corporate action. Het staat niet "
-            f"in het transactiebestand en telt dus niet mee in het rendement.",
-            "rekening:verrekening_aandelen",
-            maak_rijen_blok(verrekening, datum="Datum", naam="Product", aantal=None, totaal="mutatie",
-                            order_id=ORDER_ID_KOLOM_REKENING),
-        ))
 
     onbekend = rekening_df[soorten.isna()]
     if not onbekend.empty:

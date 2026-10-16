@@ -125,7 +125,9 @@ BEHANDELING = {
         True, False, GEBRUIK_GEEN, "Alleen kassaldo; de stukken zelf staan in het transactiebestand."),
     REGELSOORT_VERREKENING_AANDELEN: Behandeling(
         True, False, GEBRUIK_DIAGNOSTIEK,
-        "Kassaldo; Diagnostiek waarschuwt, want dit geld staat niet in het transactiebestand."),
+        "Kassaldo, en met ISIN en een bijbehorende positie ook opbrengst van die positie in rendement, Totaal W/V, "
+        "XIRR en TWR (verrekening.py); aantallen, GAK en waarde blijven gelijk. Zonder ISIN of positie alleen kassaldo, "
+        "en Diagnostiek meldt het."),
     REGELSOORT_CONVERSIE_GELDMARKTFONDS: Behandeling(
         False, False, GEBRUIK_GEEN, "Omzetting van fondseenheden zonder bedrag of valuta: geen kassaldo-effect."),
     REGELSOORT_ONBEKEND: Behandeling(

@@ -225,14 +225,9 @@ class TestRekeningRegelsoorten(unittest.TestCase):
         df = _rekening(("2024-01-02", "Koop 1 @ 10 EUR", "EUR", -10.0), ("2024-01-02", "Dividend", "USD", 1.0))
         self.assertEqual(check_rekening_regelsoorten(df), [])
 
-    def test_verrekening_van_aandelen_let_op(self):
-        df = _rekening(("2023-02-01", "Verrekening van Aandelen", "EUR", 5.0),
-                       ("2023-03-05", "Verrekening van Aandelen", "EUR", 7.34))
-        [b] = check_rekening_regelsoorten(df)
-        self.assertEqual((b["niveau"], b["sleutel"]), (LET_OP, "rekening:verrekening_aandelen"))
-        self.assertEqual(b["tekst"], "Rekeningoverzicht: 2x 'Verrekening van Aandelen' (01-02-2023 t/m 05-03-2023, "
-                                     "totaal EUR 12,34): geld uit een corporate action. Het staat niet in het "
-                                     "transactiebestand en telt dus niet mee in het rendement.")
+    def test_verrekening_is_geen_onbekende_soort(self):
+        df = _rekening(("2023-02-01", "Verrekening van Aandelen", "EUR", 5.0))
+        self.assertEqual(check_rekening_regelsoorten(df), [])
 
     def test_onbekende_soorten_gegroepeerd_met_aantallen(self):
         df = _rekening(*[("2024-0%d-01" % m, "FX Credit", "EUR", 0.1) for m in (1, 2, 3)],
@@ -246,12 +241,11 @@ class TestRekeningRegelsoorten(unittest.TestCase):
                                      "'FX Credit' (3x), 'Buy # @ # EUR' (2x).")
         self.assertEqual(b["tabel"]["rijen"][1], ["Buy # @ # EUR", 2, "01-04-2024", "01-05-2024"])
 
-    def test_echt_rekeningoverzicht(self):
+    def test_echt_rekeningoverzicht_geeft_hier_geen_verrekening_melding(self):
         with open(os.path.join(TEST_FILES, "Account_test.xlsx"), "rb") as f:
             df = lees_rekeningoverzicht(f)
         meldingen = _in_request(_meld_rekening_regelsoorten, df)
-        self.assertEqual([(m["categorie"], m["niveau"], m["sleutel"]) for m in meldingen],
-                         [(CATEGORIE_REKENINGOVERZICHT, LET_OP, "rekening:verrekening_aandelen")])
+        self.assertEqual([m["sleutel"] for m in meldingen], [])
 
     def test_leeg_of_none(self):
         self.assertEqual(check_rekening_regelsoorten(None), [])

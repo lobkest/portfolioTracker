@@ -14,6 +14,12 @@ function toonStartMelding() {
 
 toonStartMelding();
 
+if (toonTickersOpnieuw(location.search)) {
+    ["herbepaalAlleTickersCode", "herbepaalAlleTickers"].forEach(id => {
+        document.getElementById(id).closest(".labelRij").hidden = false;
+    });
+}
+
 // false = op de startpagina gebleven. Bij opslaan is een mislukte overdracht geen probleem:
 // de portfolio-pagina haalt dan zelf op.
 function gaNaarPortfolioPagina(data) {

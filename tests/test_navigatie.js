@@ -7,7 +7,7 @@ const assert = require("node:assert/strict");
 const {
     STANDAARD_VIEW, MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
     VEREIST_CODE_JA, VEREIST_CODE_NEE,
-    portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, maakTabWisselaar, startMeldingTekst,
+    portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, maakTabWisselaar, startMeldingTekst, toonTickersOpnieuw,
 } = require("../static/js/navigatie.js");
 
 const VIEWS = ["portfolio", "rendement", "prognose", "instellingen-ticker"];
@@ -346,4 +346,12 @@ test("de sleutel voor een ongeldige code is dezelfde als in app.py (MELDING_ONGE
     const path = require("node:path");
     const appPy = fs.readFileSync(path.join(__dirname, "..", "app.py"), "utf8");
     assert.ok(appPy.includes(`MELDING_ONGELDIGE_CODE = "${MELDING_ONGELDIGE_CODE}"`));
+});
+
+test("toonTickersOpnieuw: alleen met ?tickers_opnieuw=1", () => {
+    assert.equal(toonTickersOpnieuw("?tickers_opnieuw=1"), true);
+    assert.equal(toonTickersOpnieuw("?melding=verwijderd&tickers_opnieuw=1"), true);
+    assert.equal(toonTickersOpnieuw(""), false);
+    assert.equal(toonTickersOpnieuw("?tickers_opnieuw=0"), false);
+    assert.equal(toonTickersOpnieuw("?tickers_opnieuw"), false);
 });

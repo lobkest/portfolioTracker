@@ -921,11 +921,11 @@ def db_get_kassaldo(code):
 
 
 def db_get_rekening_regels_eur(code):
-    """[{datum, tijd, omschrijving, mutatie_valuta, mutatie}] van de EUR-regels met een bedrag, oudste eerst."""
+    """[{datum, tijd, omschrijving, mutatie_valuta, mutatie, product, isin}] van de EUR-regels met een bedrag, oudste eerst."""
     conn = db_connect()
     cur = conn.cursor()
     cur.execute(
-        "SELECT datum, tijd, omschrijving, mutatie_valuta, mutatie FROM rekening_regels "
+        "SELECT datum, tijd, omschrijving, mutatie_valuta, mutatie, product, isin FROM rekening_regels "
         "WHERE code = %s AND mutatie_valuta = 'EUR' AND mutatie IS NOT NULL "
         "ORDER BY datum, tijd",
         (code,),
@@ -934,7 +934,8 @@ def db_get_rekening_regels_eur(code):
     cur.close()
     conn.close()
     return [{"datum": datum, "tijd": tijd, "omschrijving": omschrijving, "mutatie_valuta": valuta,
-             "mutatie": float(mutatie)} for datum, tijd, omschrijving, valuta, mutatie in rows]
+             "mutatie": float(mutatie), "product": product, "isin": isin}
+            for datum, tijd, omschrijving, valuta, mutatie, product, isin in rows]
 
 
 def db_get_rekening_koop_verkoop(code):

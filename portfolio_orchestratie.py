@@ -20,7 +20,7 @@ from diagnostiek_checks import (
     check_ontbrekende_kolommen, check_posities_zonder_ticker, check_synthetische_order_ids,
     check_corporate_action_rijen, check_isin_wissels, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
     check_dagsprong, tickers_met_koersafwijking, check_koers_stilstand, _naam_per_ticker, ticker_bevindingen,
-    check_valuta_consistentie, check_negatief_aantal, check_verversing, check_xirr, check_dividend_zonder_positie,
+    check_valuta_consistentie, check_verrekening_aandelen, check_negatief_aantal, check_verversing, check_xirr, check_dividend_zonder_positie,
     check_order_ids_rekening, check_prijscheck_zonder_fx,
 )
 from debug_utils import dprint, meet_tijd
@@ -36,6 +36,7 @@ from transactie_utils import (
 from transactie_resultaat import bereken_transactie_resultaten, laatste_koersen
 from prijzen import get_prices
 from box3 import bouw_box3_basis
+from verrekening import bouw_verrekeningen, zet_verrekeningen
 from portfolio_calc import (
     compute_split_adjusted_shares, compute_value_over_time, compute_per_ticker,
     compute_per_ticker_koers_en_aankopen, bepaal_split_boekingen, meld_split_koppeling, waarde_per_ticker_per_dag,
@@ -546,6 +547,7 @@ def laad_transacties_en_resultaat(code):
         return transacties_df, None
 
     transacties_df = pas_effectieve_datums_toe(transacties_df)
+    zet_verrekeningen(transacties_df, bouw_verrekeningen(db_get_rekening_regels_eur(code), transacties_df)[0])
     resultaat = compute_value_over_time(transacties_df, price_data)
     return transacties_df, resultaat
 
@@ -678,6 +680,14 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
 
     laatste_koersdatum, laatst_opgehaald_op = db_get_laatste_koers_update(tickers)
 
+    if code:
+        kassaldo = db_get_kassaldo(code)
+        rekening_regels = db_get_rekening_regels_eur(code)
+    verrekeningen, verrekening_zonder_positie = bouw_verrekeningen(rekening_regels, transacties_df)
+    zet_verrekeningen(transacties_df, verrekeningen)
+    for b in check_verrekening_aandelen(verrekeningen, verrekening_zonder_positie):
+        meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], rijen=b.get("rijen"))
+
     with meet_tijd("kern_berekeningen"):
         with meet_tijd("kern_waarde_over_tijd"):
             resultaat = compute_value_over_time(transacties_df, price_data)
@@ -726,12 +736,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         else:
             dividend_data = (bouw_dividend_samenvatting(dividenden, isin_ticker_product_rijen(transacties_df))
                              if dividenden else None)
-    if code:
-        kassaldo = db_get_kassaldo(code)
-        rekening_regels = db_get_rekening_regels_eur(code)
-        rekening_koop_verkoop = db_get_rekening_koop_verkoop(code)
-    else:
-        rekening_koop_verkoop = rekening_regels
+    rekening_koop_verkoop = db_get_rekening_koop_verkoop(code) if code else rekening_regels
     dividend_per_ticker = (
         {d["ticker"]: d["totaal_netto"] for d in dividend_data["per_ticker"]}
         if dividend_data else {}

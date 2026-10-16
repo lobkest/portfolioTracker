@@ -222,14 +222,14 @@ Exacte imports tussen projectmodules (op 16-10-2026 opnieuw met een AST-doorloop
 | `etf_proxy.py` | `db`, `etf_holdings_provider`, `portfolio_verdeling`, `ticker_classificatie` |
 | `historisch_rendement.py` | `debug_utils`, `portfolio_calc`, `portfolio_orchestratie`, `prijzen`, `transactie_utils` |
 | `portfolio_admin.py` | `db` |
-| `portfolio_calc.py` | `diagnostiek`, `split_correctie`, `transactie_utils` |
+| `portfolio_calc.py` | `diagnostiek`, `split_correctie`, `transactie_utils`, `verrekening` |
 | `portfolio_orchestratie.py` | `aansluitingskosten`, `box3`, `db`, `debug_utils`, `diagnostiek`, `diagnostiek_checks`, `dividend`, `etf_holdings_provider`, `etf_proxy`, `naam_verkorting`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `split_correctie`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_resultaat`, `transactie_utils`, `transactiebestand_status` |
 | `portfolio_verdeling.py` | `ticker_classificatie`, `transactie_utils` |
 | `prijzen.py` | `db`, `debug_utils`, `diagnostiek`, `split_correctie`, `yahoo_client` |
 | `rekening_regelsoorten.py` | — (alleen pandas) |
 | `rekeningoverzicht_status.py` | `rekening_regelsoorten`, `transactie_utils` |
 | `split_correctie.py` | `transactie_utils` |
-| `statistieken.py` | `debug_utils`, `rekening_regelsoorten`, `rekeningoverzicht_status`, `transactie_utils` |
+| `statistieken.py` | `debug_utils`, `rekening_regelsoorten`, `rekeningoverzicht_status`, `transactie_utils`, `verrekening` |
 | `ticker_classificatie.py` | `db`, `debug_utils`, `etf_holdings_provider`, `yahoo_client` |
 | `ticker_matching.py` | `db`, `debug_utils`, `transactie_utils`, `yahoo_client` |
 | `ticker_prijscheck.py` | `db`, `prijzen`, `ticker_classificatie`, `yahoo_client` |
@@ -802,7 +802,7 @@ Geen FX-melding betekent: bij deze laadbeurt is niets gedownload of ververst (al
 |---|---|---|
 | Order ID's | `lees_transacties_excel()` → `_meld_order_ids()` | `GOED` alle ID's echt; `INFO` N van M synthetisch; `LET_OP` aantal ID-rijen ≠ aantal transacties (alles synthetisch; een eerder opgeslagen portfolio met echte ID's kan dan niet herkend worden, zie `find_matching_code()`). De `INFO`-tekst zegt dat het portfolio aan de echte Order ID's herkend wordt, dus dat synthetische ID's geen probleem zijn. Nooit ID-waarden in de tekst. |
 | Order ID's | `meld_order_ids_rekening(code)` (na opslaan, binnen `db_deel_verbinding()`, met `db_get_order_id_periodes()`) en `meld_order_ids_rekening_uit_bestanden()` ("niet opslaan") → `check_order_ids_rekening()` | Alleen met een rekeningoverzicht: `INFO` met beide periodes en hoeveel orders vergeleken zijn (of dat de periodes niet overlappen), en `LET_OP` per richting (alleen transacties / alleen rekeningoverzicht) met een tabel Datum / Product / Order ID. Alleen binnen de overlappende periode; een deelorder-achtervoegsel en `SYN-`-ID's tellen niet (`kale_order_id()`). |
-| Rekeningoverzicht | `check_rekening_regelsoorten()` (via `upload_verwerking.py`), `pas_promotie_toe()` en `_aansluitingskosten()` (`portfolio_orchestratie.py`) | `LET_OP` voor "Verrekening van Aandelen" en onbekende regelsoorten (`INFO`), `INFO` voor een promotiebedrag dat niet als kostenkorting verrekend kon worden, `LET_OP` voor een aansluitingskostenregel in een onbekend formaat. Alleen direct na een upload. |
+| Rekeningoverzicht | `check_rekening_regelsoorten()` (via `upload_verwerking.py`), `pas_promotie_toe()` en `_aansluitingskosten()` (`portfolio_orchestratie.py`) | `INFO` voor onbekende regelsoorten (`INFO`), `INFO` voor een promotiebedrag dat niet als kostenkorting verrekend kon worden, `LET_OP` voor een aansluitingskostenregel in een onbekend formaat. Alleen direct na een upload. |
 | Opslaan | `vind_of_maak_portfolio()` | `INFO` nieuwe portfolio / bestaande aangevuld met N / geen nieuwe transacties. |
 | Opslaan | `_meld_nieuwe_rijen_kwaliteit()` (vanuit `vind_of_maak_portfolio()`) | `LET_OP` N gewone aankopen zonder `Waarde EUR` (GAK valt terug op `Totaal EUR`); `INFO` N corporate-action-rijen zonder ticker. Losse lege kostencellen bewust niet (kan echt €0 zijn). |
 | Opslaan | `_insert_nieuwe_transacties()` → `_meld_insert_resultaat()` | `GOED` N opgeslagen (`cur.rowcount`), `INFO` K genegeerd (ON CONFLICT), `FOUT` J mislukt met alleen het fouttype. Bij een `psycopg2.Error` alleen de `FOUT` ("kan de hele upload hebben teruggedraaid"): na een DB-fout faalt de rest van de transactie. Het insert-gedrag zelf is ongewijzigd. |
@@ -865,7 +865,8 @@ Bedragen en percentages in Nederlandse notatie (`_eur()`, `_pct()`), datums via 
 | Koersen | `check_verversing()` | werkdagen (`np.busday_count`) tussen de laatste koers en vandaag, alleen met open posities |
 | Plausibiliteit | `check_xirr()` | velden uit `bereken_statistieken()["geavanceerd"]` + eerste transactiedatum |
 | Order ID's | `check_order_ids_rekening()` (+ `kale_order_id()`) | Order ID's van het transactiebestand tegen die van het rekeningoverzicht, beide richtingen, alleen in de overlappende periode (zie de tabel bij `diagnostiek.py`) |
-| Rekeningoverzicht | `check_rekening_regelsoorten()` | onbekende regelsoorten (`regelsoort()` is `None`; getallen in de tekst tellen als één soort) en "Verrekening van Aandelen" |
+| Rekeningoverzicht | `check_rekening_regelsoorten()` | onbekende regelsoorten (`regelsoort()` is `None`; getallen in de tekst tellen als één soort) |
+| Rekeningoverzicht | `check_verrekening_aandelen()` | uit `bouw_verrekeningen()`: `INFO` met totaal en positie(s) ("telt mee als opbrengst van <product>") en `LET_OP` (sleutel `rekening:verrekening_aandelen_zonder_positie`) voor regels zonder ISIN of positie, beide met een `rijen`-blok. Live gemeld in `analyze_transacties_kern()`, niet bij de upload (daar ontbreken de posities) |
 | Tickers | `check_prijscheck_zonder_fx()` | `INFO` per ticker zonder wisselkoers naar EUR: de prijscheck tegen Yahoo is dan overgeslagen |
 | Dividend | `check_dividend_zonder_positie()` | dividend-ISIN's die in geen enkele transactie staan (dividend na een verkoop is normaal en telt niet) |
 | Tickers | `dis_acc_strijdigheden()` + `check_dis_acc()` | `echte_naam` (DeGiro, niet de bijnaam) tegen `ticker_info.long_name`; kenmerken in `DIS_KENMERKEN`/`ACC_KENMERKEN`, op woordgrens |
@@ -964,6 +965,12 @@ ISIN's), `Wisselpaar`, `SplitKoppeling` en `SplitKoppelResultaat` (`gekoppeld`, 
 
 ---
 
+### `verrekening.py` — verrekening van aandelen als opbrengst van de positie
+
+**Verantwoordelijkheid:** pure functies, geen database en geen `meld()`. `bouw_verrekeningen(rekening_regels, transacties_df)` geeft `(toegekend, niet_toegekend)`: een EUR-regel "Verrekening van Aandelen" met ISIN waarvan de keten (`isin_ketens()`) een positie met ticker heeft is toegekend (`{datum, ticker, isin, product, bedrag}`), de rest niet. De lijst hangt via `zet_verrekeningen()` aan `transacties_df.attrs` (`verrekeningen_van()` leest ze): het geld is geen transactie, dus geen rij die Transacties, Diagnostiek of Box 3 zou meekrijgen. `analyze_transacties_kern()` en `laad_transacties_en_resultaat()` zetten ze, uit `rekening_regels` (opgeslagen: `db_get_rekening_regels_eur()` met product en ISIN; "niet opslaan": `bouw_rekening_regels()`), dus beide routes geven dezelfde getallen.
+
+**Wat telt mee:** `compute_value_over_time()` (geïnvesteerd daalt vanaf de datum, dus Totaal rendement), `_bouw_xirr_cashflows()` (positieve cashflow), `bereken_twr()` (cashflow `-bedrag`, zoals de opbrengst van een verkoop; eerste-orde gelijk aan het bedrag als rendement), `bereken_holdings_en_gesloten()` (`verrekening_eur` bij een open positie, in `gerealiseerd_eur` bij een gesloten positie) en `bereken_statistieken()` (`rendement_eur`/`rendement_pct` en `verrekening_eur` per open positie). Aantal, GAK, waarde en `compute_per_ticker()` blijven ongewijzigd. `bereken_overige_kassabewegingen()` trekt de toegekende bedragen van "overig" af, anders telt de Home-opbouw ze dubbel. Box 3 (`bouw_box3_basis()`) kent ze niet.
+
 ### `statistieken.py` — rendement, XIRR, TWR, GAK, jaaroverzicht
 
 **Verantwoordelijkheid:** de berekeningen voor het Statistieken-tabblad en het Rendement-tabblad (%-weergave). Bijna alles zijn **pure functies** (getallen/DataFrames in,
@@ -984,7 +991,7 @@ getallen uit, geen DB/netwerk), daardoor met de hand na te rekenen en goed te te
 | `bereken_rendement_over_tijd()` | rendement%/XIRR%/TWR% per maandeinde (+ laatste datum) | `transacties_df, resultaat` → dict met lijsten | `rendement_over_tijd()` |
 | `bereken_totale_transactiekosten()` | som van `transactiekosten` (na promotiekorting) als `totaal`, plus `totaal_betaald` en `korting` (uit `kostenkorting_eur`); `beschikbaar=False` als de kolom leeg is | `transacties_df` → dict | `bereken_statistieken()` |
 | `bereken_totaal_degiro()` | DeGiro's "Totaal W/V": `waarde_eur + saldo_eur − netto_gestort_eur` (dividend en promotie zitten al in het saldo); `None` zonder kassaldo (geen rekeningoverzicht) | `waarde_eur`, kassaldo-dict → getal of `None` | `bereken_statistieken()` |
-| `bereken_overige_kassabewegingen()` | het deel van het kassaldo dat geen aankoop, storting of dividend is: som van de EUR-mutaties van de soorten in `OVERIGE_KASSA_SOORTEN` (`rekening_regelsoorten.py`: aansluitingskosten, rente, verrekening aandelen, onbekend); negatief = kosten. Zo geldt `geïnvesteerd = netto_gestort + dividend + overig − cash` (op afrondingen na; promotie zit al in de transactiekosten). `None` zonder rekeningoverzicht, bij een onbetrouwbaar kassaldo (negatief saldo, of geen stortingen bij wel transacties) en bij een overzicht dat niet vanaf de opening van de rekening loopt (`vanaf_opening` onwaar: dan zit het beginsaldo in de cash en sluit de opbouw niet) | `rekening_regels` (zoals `bouw_rekening_regels()` / `db_get_rekening_regels_eur()`), kassaldo-dict, geïnvesteerd, waarde → getal of `None` | `bereken_statistieken()` |
+| `bereken_overige_kassabewegingen()` | het deel van het kassaldo dat geen aankoop, storting of dividend is: som van de EUR-mutaties van de soorten in `OVERIGE_KASSA_SOORTEN`, min de verrekeningen die als opbrengst van een positie in geïnvesteerd zitten (`verrekeningen`) (`rekening_regelsoorten.py`: aansluitingskosten, rente, verrekening aandelen, onbekend); negatief = kosten. Zo geldt `geïnvesteerd = netto_gestort + dividend + overig − cash` (op afrondingen na; promotie zit al in de transactiekosten). `None` zonder rekeningoverzicht, bij een onbetrouwbaar kassaldo (negatief saldo, of geen stortingen bij wel transacties) en bij een overzicht dat niet vanaf de opening van de rekening loopt (`vanaf_opening` onwaar: dan zit het beginsaldo in de cash en sluit de opbouw niet) | `rekening_regels` (zoals `bouw_rekening_regels()` / `db_get_rekening_regels_eur()`), kassaldo-dict, geïnvesteerd, waarde → getal of `None` | `bereken_statistieken()` |
 | `bereken_statistieken()` | orkestratie voor het Statistieken-tabblad; `totalen` bevat ook `totale_transactiekosten` (netto), `totale_transactiekosten_betaald`, `transactiekosten_korting`, `dividend_netto`, `kassaldo_eur`, `kassaldo_per_datum`, `netto_gestort_eur` (uit het kassaldo, `None` zonder rekeningoverzicht), `overige_kassabewegingen_eur` (zie `bereken_overige_kassabewegingen()`; beide routes via `analyze_transacties_kern()`, dat de rekening-regels aanlevert) `rekeningoverzicht_status` (zie `rekeningoverzicht_status.py`; ontbreekt/`None` zonder rekeningoverzicht) en `totaal_degiro_eur` (de tegels op Samenvatting en Statistieken) | `transacties_df, price_data, resultaat, ..., kassaldo` → dict | `analyze_transacties_kern()` |
 
 Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", "AEX": "IAEA.AS"}`.
@@ -1071,7 +1078,7 @@ voor gebruikt wordt (`GEBRUIK_*`: dividend, valutaconversie, kostenkorting, Diag
 | `valuta_debitering`, `valuta_creditering` | "Valuta Debitering" | ja (EUR-kant) | nee | conversiepaar voor het EUR-bedrag van een dividend |
 | `promotie` | "DEGIRO Verrekening Promotie" | ja | nee | kostenkorting (`promotie_bedragen()` → `verdeel_kostenkorting()`) |
 | `corporate_action` | "CLAIMEMISSIE: Koop …", "PRODUCTWIJZIGING : Verkoop …" | ja | nee | de stukken staan in het transactiebestand |
-| `verrekening_aandelen` | "Verrekening van Aandelen" | ja | nee | `LET_OP` in Diagnostiek |
+| `verrekening_aandelen` | "Verrekening van Aandelen" | ja | nee | kassaldo, en met ISIN en positie ook opbrengst van die positie (`verrekening.py`); zonder: `LET_OP` in Diagnostiek |
 | `conversie_geldmarktfonds` | "Conversie geldmarktfonds: Koop 0,000001 @ 9.899,3674 EUR" | **nee** | nee | heeft in echte exports geen bedrag of valuta |
 | onbekend (`None`) | | ja (alleen EUR) | nee | bewuste terugval; `INFO` in Diagnostiek met de onbekende teksten |
 

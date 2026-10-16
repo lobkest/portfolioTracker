@@ -123,9 +123,8 @@ class TestDividendKarakterisering(unittest.TestCase):
 
 
 class TestDiagnostiekKarakterisering(unittest.TestCase):
-    def test_verrekening_en_onbekende_soorten(self):
-        verrekening, onbekend = check_rekening_regelsoorten(_overzicht())
-        self.assertEqual((verrekening["niveau"], verrekening["sleutel"]), (LET_OP, "rekening:verrekening_aandelen"))
+    def test_onbekende_soorten(self):
+        [onbekend] = check_rekening_regelsoorten(_overzicht())
         self.assertEqual((onbekend["niveau"], onbekend["sleutel"]), (INFO, "rekening:onbekende_soorten"))
         # Voor de regelsoortentabel stonden hier ook "Koop/Verkoop # stuks" en de conversie geldmarktfonds.
         self.assertEqual([rij[0] for rij in onbekend["tabel"]["rijen"]], [ONBEKEND])

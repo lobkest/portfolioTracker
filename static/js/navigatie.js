@@ -8,6 +8,7 @@
     const PORTFOLIO_PAD_PREFIX = "/p/";
     const STANDAARD_VIEW = "portfolio";
     const MELDING_PARAM = "melding";
+    const TICKERS_OPNIEUW_PARAM = "tickers_opnieuw";
 
     const MELDING_ONGELDIGE_CODE = "ongeldige-code";
     const MELDING_ONBEKENDE_CODE = "onbekende-code";
@@ -74,8 +75,13 @@
         return Object.hasOwn(START_MELDING_TEKSTEN, sleutel) ? START_MELDING_TEKSTEN[sleutel] : null;
     }
 
+    // Beheerfunctie: de vinkjes "Ticker-informatie opnieuw bepalen" staan alleen op de startpagina met ?tickers_opnieuw=1.
+    function toonTickersOpnieuw(zoekdeel) {
+        return new URLSearchParams(zoekdeel).get(TICKERS_OPNIEUW_PARAM) === "1";
+    }
+
     const exportsObj = {
-        START_PAD, ANALYSE_PAD, STANDAARD_VIEW, MELDING_PARAM,
+        START_PAD, ANALYSE_PAD, STANDAARD_VIEW, MELDING_PARAM, TICKERS_OPNIEUW_PARAM, toonTickersOpnieuw,
         MELDING_ONGELDIGE_CODE, MELDING_ONBEKENDE_CODE, MELDING_VERWIJDERD,
         VEREIST_CODE_JA, VEREIST_CODE_NEE,
         portfolioPad, startPadMetMelding, viewUitHash, viewInLijst, elementZichtbaar, maakTabWisselaar, startMeldingTekst,

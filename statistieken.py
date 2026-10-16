@@ -5,6 +5,7 @@ from pyxirr import xirr
 from debug_utils import meet_tijd
 from rekening_regelsoorten import OVERIGE_KASSA_SOORTEN, regelsoort
 from rekeningoverzicht_status import beoordeel_rekeningoverzicht
+from verrekening import verrekeningen_van
 from transactie_utils import KOSTENKORTING_KOLOM, _is_corporate_action_row, _sorteer_chronologisch
 
 # Accumulerende UCITS-ETF's in EUR: geen dividend-boekhouding nodig. IAEA.AS heeft pas koersen vanaf 2020-07-29.
@@ -15,12 +16,15 @@ BENCHMARK_TICKERS = {
 }
 
 
-def bereken_positie_rendement(gak, aantal, huidige_koers):
-    """Noemer is de kostenbasis van de huidige stukken (GAK x aantal), niet de historische inleg."""
+def bereken_positie_rendement(gak, aantal, huidige_koers, verrekening_eur=0.0):
+    """Noemer is de kostenbasis van de huidige stukken (GAK x aantal), niet de historische inleg. Een verrekening van
+    aandelen (contant geld voor fracties) is opbrengst van de positie en telt in het rendement mee."""
     geinvesteerd = gak * aantal
     waarde = aantal * huidige_koers
-    rendement_pct = ((waarde - geinvesteerd) / geinvesteerd * 100) if geinvesteerd else None
-    return {"waarde": waarde, "geinvesteerd": geinvesteerd, "rendement_pct": rendement_pct}
+    rendement_eur = waarde - geinvesteerd + verrekening_eur
+    rendement_pct = (rendement_eur / geinvesteerd * 100) if geinvesteerd else None
+    return {"waarde": waarde, "geinvesteerd": geinvesteerd, "rendement_eur": rendement_eur,
+            "rendement_pct": rendement_pct}
 
 
 def bereken_totaal_rendement(geinvesteerd, waarde):
@@ -64,6 +68,7 @@ def bereken_twr(transacties_df, resultaat):
     if resultaat.empty or len(resultaat) < 2:
         return None
 
+    verrekeningen = verrekeningen_van(transacties_df)
     df = transacties_df.dropna(subset=["ticker"])
     df = _rijen_met_cashflow(df)
     cf_lookup = {}
@@ -73,6 +78,9 @@ def bereken_twr(transacties_df, resultaat):
             continue
         datum = pd.Timestamp(row["datum"]).normalize()
         cf_lookup[datum] = cf_lookup.get(datum, 0.0) + cf
+    # Als uitstroom, net als de opbrengst van een verkoop.
+    for v in verrekeningen:
+        cf_lookup[v["datum"]] = cf_lookup.get(v["datum"], 0.0) - v["bedrag"]
 
     product = 1.0
     geldige_periode = False
@@ -93,11 +101,15 @@ def bereken_twr(transacties_df, resultaat):
 
 def bereken_holdings_en_gesloten(transacties_df):
     """GAK-methode, zie CLAUDE.md: Data en rekenen. Alle rijen tellen voor het aantal, alleen rijen
-    met totaal_eur != 0 voor kostenbasis en gemiddelde koersen.
-    Geeft (open_posities {ticker: {aantal, gak, deels_verkocht?}},
+    met totaal_eur != 0 voor kostenbasis en gemiddelde koersen. Een verrekening van aandelen verandert aantal en GAK
+    niet: bij een open positie komt ze als verrekening_eur mee, bij een gesloten positie zit ze in gerealiseerd_eur.
+    Geeft (open_posities {ticker: {aantal, gak, deels_verkocht?, verrekening_eur?}},
            gesloten_posities {ticker: {aantal, gemiddelde_aankoopkoers, gemiddelde_verkoopkoers, gerealiseerd_eur}})."""
     open_posities = {}
     gesloten_posities = {}
+    verrekening_per_ticker = {}
+    for v in verrekeningen_van(transacties_df):
+        verrekening_per_ticker[v["ticker"]] = verrekening_per_ticker.get(v["ticker"], 0.0) + v["bedrag"]
     df = transacties_df.dropna(subset=["ticker"])
     for ticker, groep in df.groupby("ticker"):
         groep = _sorteer_chronologisch(groep)
@@ -134,6 +146,8 @@ def bereken_holdings_en_gesloten(transacties_df):
 
         if aantal_lopend > 1e-9:
             positie = {"aantal": aantal_lopend, "gak": kostprijs_lopend / aantal_lopend}
+            if ticker in verrekening_per_ticker:
+                positie["verrekening_eur"] = verrekening_per_ticker[ticker]
             if totaal_verkocht_aantal > 1e-9:
                 # Gerealiseerd resultaat van een gedeeltelijke verkoop; zelfde velden als gesloten.
                 positie["deels_verkocht"] = {
@@ -154,7 +168,8 @@ def bereken_holdings_en_gesloten(transacties_df):
                     totaal_verkocht_bedrag / totaal_verkocht_aantal
                     if totaal_verkocht_aantal > 1e-9 else None
                 ),
-                "gerealiseerd_eur": totaal_verkocht_bedrag - totaal_gekocht_bedrag,
+                "gerealiseerd_eur": (
+                    totaal_verkocht_bedrag - totaal_gekocht_bedrag + verrekening_per_ticker.get(ticker, 0.0)),
             }
 
     return open_posities, gesloten_posities
@@ -211,6 +226,8 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
     """Echte transacties plus als laatste een fictieve 'verkoop vandaag' van de huidige waarde."""
     if resultaat.empty:
         return []
+    laatste_datum = resultaat.index.max()
+    verrekeningen = verrekeningen_van(transacties_df)
     df = transacties_df.dropna(subset=["ticker"])
     df = _rijen_met_cashflow(df)
     cashflows = [
@@ -219,7 +236,7 @@ def _bouw_xirr_cashflows(transacties_df, resultaat):
     ]
     if not cashflows:
         return []
-    laatste_datum = resultaat.index.max()
+    cashflows += [(v["datum"].date(), v["bedrag"]) for v in verrekeningen if v["datum"] <= laatste_datum]
     laatste_waarde = float(resultaat["waarde"].iloc[-1])
     cashflows.append((pd.Timestamp(laatste_datum).date(), laatste_waarde))
     cashflows.sort(key=lambda c: c[0])
@@ -347,9 +364,10 @@ def bereken_totaal_degiro(waarde_eur, kassaldo):
     return round(waarde_eur + kassaldo["saldo_eur"] - kassaldo["netto_gestort_eur"], 2)
 
 
-def bereken_overige_kassabewegingen(rekening_regels, kassaldo, geinvesteerd, waarde):
+def bereken_overige_kassabewegingen(rekening_regels, kassaldo, geinvesteerd, waarde, verrekeningen=()):
     """Som van de EUR-kassabewegingen buiten aankopen, stortingen en dividend (negatief = kosten), zodat
-    geïnvesteerd = netto gestort + dividend + overig − cash. None zonder rekeningoverzicht, bij een onbetrouwbaar
+    geïnvesteerd = netto gestort + dividend + overig − cash. Verrekeningen van aandelen die als opbrengst van een positie
+    in geïnvesteerd zitten (`verrekeningen`, zie verrekening.py) horen hier niet meer bij. None zonder rekeningoverzicht, bij een onbetrouwbaar
     kassaldo of als het overzicht niet vanaf de opening van de rekening loopt (dan sluit de opbouw niet)."""
     if not rekening_regels or not kassaldo or not kassaldo.get("vanaf_opening"):
         return None
@@ -358,6 +376,7 @@ def bereken_overige_kassabewegingen(rekening_regels, kassaldo, geinvesteerd, waa
     totaal = sum(float(r["mutatie"]) for r in rekening_regels
                  if r["mutatie_valuta"] == "EUR" and r["mutatie"] is not None
                  and regelsoort(r["omschrijving"]) in OVERIGE_KASSA_SOORTEN)
+    totaal -= sum(v["bedrag"] for v in verrekeningen)
     return round(totaal, 2)
 
 
@@ -376,7 +395,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
         if ticker not in price_data.columns or pd.isna(laatste_prijzen.get(ticker)):
             continue
         huidige_koers = float(laatste_prijzen[ticker])
-        r = bereken_positie_rendement(info["gak"], info["aantal"], huidige_koers)
+        verrekening_eur = info.get("verrekening_eur", 0.0)
+        r = bereken_positie_rendement(info["gak"], info["aantal"], huidige_koers, verrekening_eur)
         posities.append({
             "ticker": ticker,
             "aantal": round(info["aantal"], 4),
@@ -384,8 +404,9 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "huidige_koers": round(huidige_koers, 4),
             "huidige_waarde": round(r["waarde"], 2),
             "geinvesteerd": round(r["geinvesteerd"], 2),
-            "rendement_eur": round(r["waarde"] - r["geinvesteerd"], 2),
+            "rendement_eur": round(r["rendement_eur"], 2),
             "rendement_pct": round(r["rendement_pct"], 2) if r["rendement_pct"] is not None else None,
+            "verrekening_eur": round(verrekening_eur, 2),
             "dividend_ontvangen": round(dividend_per_ticker.get(ticker, 0.0), 2),
         })
     posities.sort(key=lambda p: p["huidige_waarde"], reverse=True)
@@ -469,7 +490,8 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
         aantal_jaren = round((resultaat.index.max() - pd.Timestamp(eerste_datum)).days / 365.25, 2)
 
     kosten_info = bereken_totale_transactiekosten(transacties_df)
-    overige_kassa = bereken_overige_kassabewegingen(rekening_regels, kassaldo, totaal_geinvesteerd, totaal_waarde)
+    overige_kassa = bereken_overige_kassabewegingen(
+        rekening_regels, kassaldo, totaal_geinvesteerd, totaal_waarde, verrekeningen_van(transacties_df))
 
     return {
         "posities": posities,
