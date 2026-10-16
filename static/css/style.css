@@ -531,7 +531,20 @@ body:has(.startPagina) {
     flex-direction: column;
     align-items: center;
     justify-content: center;
+}
+
+.laadKaart {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     gap: 16px;
+    box-sizing: border-box;
+    width: min(360px, 85vw);
+    padding: 24px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+    text-align: center;
 }
 
 /* display: flex hierboven wint anders van het hidden-attribuut. */
@@ -542,22 +555,25 @@ body:has(.startPagina) {
 .laadSpinner {
     width: 40px;
     height: 40px;
-    border: 4px solid rgba(255, 255, 255, 0.35);
-    border-top-color: #fff;
+    flex: 0 0 auto;
+    border: 4px solid #e5e5e5;
+    border-top-color: #2c7a4b;
     border-radius: 50%;
     animation: laadSpinnerDraaien 0.8s linear infinite;
 }
 
 .laadOverlayTekst {
-    color: #fff;
+    max-width: 100%;
+    color: #222;
     font-size: 1.1em;
     font-weight: bold;
+    overflow-wrap: anywhere;
 }
 
 .laadVoortgang {
-    width: min(320px, 80vw);
+    width: 100%;
     height: 10px;
-    background-color: rgba(255, 255, 255, 0.35);
+    background-color: #e5e5e5;
     border-radius: 5px;
     overflow: hidden;
 }
@@ -569,7 +585,7 @@ body:has(.startPagina) {
 .laadVoortgangBalk {
     height: 100%;
     width: 0;
-    background-color: #fff;
+    background-color: #2c7a4b;
     transition: width 0.3s ease;
 }
 
@@ -2457,12 +2473,21 @@ button.diagnostiekChip:disabled:hover {
         text-overflow: ellipsis;
     }
 
+    .startPagina,
+    body:has(.startPagina) {
+        --startRuimte: clamp(3px, 1.3dvh, 12px);
+    }
+
     body:has(.startPagina) {
         padding-top: 0;
     }
 
     .startPagina {
-        padding: calc(var(--startRuimte) + env(safe-area-inset-top)) 12px calc(var(--startRuimte) + env(safe-area-inset-bottom));
+        padding: calc(var(--startRuimte) + env(safe-area-inset-top)) 12px 0;
+    }
+
+    body:has(.startPagina) .sitevoet {
+        padding: 6px 16px calc(8px + env(safe-area-inset-bottom));
     }
 
     .startKop h1 {

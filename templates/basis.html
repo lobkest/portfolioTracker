@@ -30,13 +30,15 @@
     </footer>
 
     <div id="laadOverlay" class="laadOverlay" hidden>
-        <div class="laadSpinner"></div>
-        <div id="laadOverlayTekst" class="laadOverlayTekst"></div>
-        <div id="laadVoortgang" class="laadVoortgang" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-             aria-valuenow="0" hidden>
-            <div id="laadVoortgangBalk" class="laadVoortgangBalk"></div>
+        <div class="laadKaart">
+            <div class="laadSpinner"></div>
+            <div id="laadOverlayTekst" class="laadOverlayTekst"></div>
+            <div id="laadVoortgang" class="laadVoortgang" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+                 aria-valuenow="0" hidden>
+                <div id="laadVoortgangBalk" class="laadVoortgangBalk"></div>
+            </div>
+            <div id="laadVoortgangProcent" class="laadOverlayTekst" hidden></div>
         </div>
-        <div id="laadVoortgangProcent" class="laadOverlayTekst" hidden></div>
     </div>
     <script src="{{ url_for('static', filename='js/navigatie.js') }}"></script>
     <script src="{{ url_for('static', filename='js/overdracht.js') }}"></script>
