@@ -27,6 +27,7 @@ from ticker_classificatie import (
 )
 from naam_verkorting import uitkeringsvorm, uitkeringsvorm_strijdig
 from yahoo_client import yahoo_teller_stand
+from voortgang import meld_teller
 
 
 # Op True: per positie de 30 duurste eigen functies (cProfile). Alleen voor analyse, kost zelf ook tijd.
@@ -810,7 +811,8 @@ def backfill_verouderde_tickers(code):
     conn = db_connect()
     cur = conn.cursor()
     gecorrigeerd = 0
-    for (isin, beurs), info in groepen:
+    for gedaan, ((isin, beurs), info) in enumerate(groepen, start=1):
+        meld_teller(gedaan - 1, len(groepen))
         oude_ticker = info["ticker"]
         transacties = info["transacties"]
         nieuw = find_ticker_met_snelle_prijscheck(info["echte_naam"] or info["naam"], isin, beurs, transacties)
@@ -942,7 +944,8 @@ def vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=None,
             ): i
             for i, (product, isin, beurs, transacties) in enumerate(posities)
         }
-        for future in as_completed(future_naar_index):
+        for gedaan, future in enumerate(as_completed(future_naar_index), start=1):
+            meld_teller(gedaan, len(posities))
             i = future_naar_index[future]
             try:
                 resultaten[i] = future.result()

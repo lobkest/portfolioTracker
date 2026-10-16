@@ -1,7 +1,7 @@
 """Koersen ophalen en cachen (tabel koersen) en omrekenen naar EUR."""
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 
 import pandas as pd
@@ -15,6 +15,7 @@ from db import (
 from debug_utils import meet_tijd, tprint
 from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
 from split_correctie import ruwe_koers
+from voortgang import meld_teller, zonder_tellers
 from yahoo_client import download_koersen_met_retry, _tel_yahoo_call
 
 FX_PAAR_PER_VALUTA = {"USD": "USDEUR=X", "GBP": "GBPEUR=X", "GBp": "GBPEUR=X"}
@@ -223,6 +224,18 @@ def _rijen(ruw):
     ]
 
 
+def _download_parallel(tickers, download_functie, max_workers, al_gedaan=0, totaal=0):
+    """Resultaten in de volgorde van `tickers`. Telt in de aanroepende thread: de pool-workers erven de voortgang niet."""
+    tickers = list(tickers)
+    resultaten = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_naar_ticker = {executor.submit(download_functie, t): t for t in tickers}
+        for gedaan, future in enumerate(as_completed(future_naar_ticker), start=1):
+            resultaten[future_naar_ticker[future]] = future.result()
+            meld_teller(al_gedaan + gedaan, totaal)
+    return [resultaten[t] for t in tickers]
+
+
 def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
     """RUWE koersen in EUR (de koers zoals hij die dag noteerde, zie CLAUDE.md: Data en rekenen), index = datum,
     kolommen = tickers. verversen=False slaat alleen de incrementele verversing over; nieuwe tickers worden altijd gedownload.
@@ -272,6 +285,9 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
         _noteer_fx_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
         _noteer_koers_bron(t, FX_BRON_GEDOWNLOAD if t in missing else FX_BRON_CACHE)
 
+    # Eén teller (tickers) over de download van nieuwe tickers en de incrementele verversing samen.
+    teller_totaal = len(missing) + (len(stale) if verversen else 0)
+    teller_gedaan = 0
     onvolledig = []
     if missing:
         with meet_tijd(f"koersen_download_nieuw ({len(missing)} ticker(s))"):
@@ -279,6 +295,8 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
             for groepje in _in_groepjes(missing, KOERS_DOWNLOAD_GROEPJE):
                 if time.monotonic() - begin > KOERS_TIJDBUDGET_SECONDEN:
                     onvolledig.extend(groepje)
+                    teller_gedaan += len(groepje)
+                    meld_teller(teller_gedaan, teller_totaal)
                     continue
                 ruw, splits = _download_ruwe_koersen_in_eur(groepje, start_date, verversen)
                 fresh_rows = _rijen(ruw)
@@ -289,6 +307,8 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
                 # Bij overlap de verse waarde houden; duplicaten breken pivot().
                 cached = pd.concat([cached, fresh_df], ignore_index=True)
                 cached = cached.drop_duplicates(subset=["ticker", "datum"], keep="last")
+                teller_gedaan += len(groepje)
+                meld_teller(teller_gedaan, teller_totaal)
 
     if stale and verversen:
         # Per ticker: yfinance kent geen eigen startdatum per ticker in één bulk-call.
@@ -303,8 +323,8 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
 
             # Alleen de netwerkcall parallel: de verwerking gebruikt de database en meldt aan de Diagnostiek (hoofdthread).
             with meet_tijd(f"koersen_incrementeel_downloaden ({len(stale)} ticker(s), {KOERS_VERVERS_THREADS} threads)"):
-                with ThreadPoolExecutor(max_workers=KOERS_VERVERS_THREADS) as executor:
-                    downloads_met_duur = list(executor.map(download_met_duur, stale))
+                downloads_met_duur = _download_parallel(
+                    stale, download_met_duur, KOERS_VERVERS_THREADS, teller_gedaan, teller_totaal)
             downloads = [download for download, _ in downloads_met_duur]
             duren = [duur for _, duur in downloads_met_duur]
             tprint(f"[timing] koersen_incrementeel_per_call: {len(duren)} calls, gemiddeld {sum(duren) / len(duren):.2f}s, "
@@ -375,7 +395,8 @@ def _fx_prijzen_serie(valuta, verversen=True):
                 return cached_reeks
 
     with _fx_serie_locks[fx_pair]:
-        prijzen = get_prices([fx_pair], FX_ANKER_DATUM, verversen=verversen)
+        with zonder_tellers():
+            prijzen = get_prices([fx_pair], FX_ANKER_DATUM, verversen=verversen)
     reeks = prijzen[fx_pair] if not prijzen.empty and fx_pair in prijzen.columns else pd.Series(dtype=float)
 
     if cache is not None:

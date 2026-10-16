@@ -19,14 +19,50 @@ async function fetchMetTimeout(url, opties, timeoutMs = 55000) {
     }
 }
 
+function toonVoortgangEvent(event) {
+    toonVoortgang(event.procent, voortgangTekst(event));
+}
+
+// Als fetchMetTimeout(), maar de timer loopt ook tijdens het lezen van de voortgangsstroom; geeft { status, data }.
+async function fetchStroomMetTimeout(url, opties, opVoortgang, timeoutMs = 55000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { ...(opties || {}), signal: controller.signal });
+        return await leesVoortgangsstroom(res, opVoortgang);
+    } catch (fout) {
+        if (fout.name === "AbortError") {
+            throw new Error("TIMEOUT");
+        }
+        throw fout;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 // Voorkomt dubbelklikken of wegnavigeren tijdens een serververzoek.
 function toonLaadOverlay(tekst) {
     document.getElementById("laadOverlayTekst").textContent = tekst;
+    zetVoortgangZichtbaar(false);
     document.getElementById("laadOverlay").hidden = false;
 }
 
 function verbergLaadOverlay() {
     document.getElementById("laadOverlay").hidden = true;
+}
+
+function zetVoortgangZichtbaar(zichtbaar) {
+    document.getElementById("laadVoortgang").hidden = !zichtbaar;
+    document.getElementById("laadVoortgangProcent").hidden = !zichtbaar;
+}
+
+// Laadbalk met percentage; de stapregel is de bestaande laadOverlayTekst.
+function toonVoortgang(procent, tekst) {
+    document.getElementById("laadOverlayTekst").textContent = `${tekst}...`;
+    document.getElementById("laadVoortgangBalk").style.width = `${procent}%`;
+    document.getElementById("laadVoortgang").setAttribute("aria-valuenow", String(procent));
+    document.getElementById("laadVoortgangProcent").textContent = `${procent}%`;
+    zetVoortgangZichtbaar(true);
 }
 
 // Het opvragen zelf kan al gooien als de browser opslag blokkeert.

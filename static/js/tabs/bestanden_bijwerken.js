@@ -51,10 +51,9 @@ document.getElementById("bestandenBijwerkenForm").addEventListener("submit", asy
 
     toonLaadOverlay("Bijwerken...");
     try {
-        const res = await fetchMetTimeout(`/api/portfolio/${huidigeData.code}/bijwerken`,
-            { method: "POST", body: formData }, UPLOAD_TIMEOUT_MS);
-        const data = await res.json();
-        if (!res.ok) {
+        const { status, data } = await fetchStroomMetTimeout(`/api/portfolio/${huidigeData.code}/bijwerken?voortgang=1`,
+            { method: "POST", body: formData }, toonVoortgangEvent, UPLOAD_TIMEOUT_MS);
+        if (status < 200 || status >= 300) {
             toonBijwerkenMelding(data.error || "Bijwerken mislukt.", "foutTekst");
             return;
         }

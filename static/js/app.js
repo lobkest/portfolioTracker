@@ -309,18 +309,18 @@ async function haalPortfolioOp() {
     document.getElementById("laadFout").hidden = true;
     toonLaadOverlay("Ophalen...");
     try {
-        const res = await fetchMetTimeout(`/api/portfolio/${paginaCode}`);
-        if (res.status === 404) {
+        const { status, data } = await fetchStroomMetTimeout(
+            `/api/portfolio/${paginaCode}?voortgang=1`, undefined, toonVoortgangEvent);
+        if (status === 404) {
             location.replace(startPadMetMelding(MELDING_ONBEKENDE_CODE));
             return;
         }
-        const data = await res.json();
-        if (res.status === HTTP_TE_VEEL_AANVRAGEN) {
+        if (status === HTTP_TE_VEEL_AANVRAGEN) {
             document.getElementById("laadFoutTekst").textContent = data.error || LAADFOUT_STANDAARDTEKST;
             document.getElementById("laadFout").hidden = false;
             return;
         }
-        if (!res.ok) throw new Error(data.error || "Ophalen mislukt.");
+        if (status < 200 || status >= 300) throw new Error(data.error || "Ophalen mislukt.");
         document.getElementById("laadFoutTekst").textContent = LAADFOUT_STANDAARDTEKST;
         toonDashboard(data);
     } catch (err) {

@@ -1,8 +1,13 @@
+import json
 import os
 import re
+import threading
 import time
 
-from flask import Flask, Response, g, render_template, send_from_directory, request, jsonify, redirect, url_for
+from flask import (
+    Flask, Response, copy_current_request_context, g, make_response, render_template, send_from_directory,
+    request, jsonify, redirect, stream_with_context, url_for,
+)
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from xml.sax.saxutils import escape as xml_escape
@@ -23,6 +28,10 @@ from ticker_zekerheid import (
 )
 from debug_utils import meet_tijd, maskeer_codes, print_traceback
 from diagnostiek import voeg_diagnostiek_toe
+from voortgang import (
+    Voortgang, meld_stap, zet_voortgang, reset_voortgang, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN,
+    STAPPEN_BIJWERKEN, STAPPEN_OPHALEN, STAPPEN_OPHALEN_ZONDER_HERBEPALEN,
+)
 from yahoo_client import (
     reset_yahoo_call_teller, log_yahoo_call_samenvatting, yahoo_teller_stand, meld_yahoo_samenvatting,
     DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING,
@@ -175,11 +184,48 @@ def voor_request():
     return None
 
 
-@app.after_request
-def na_request(response):
+def registreer_foute_code_poging():
     if g.get("foute_code_poging"):
         toegangslimiet.registreer(CATEGORIE_FOUTE_CODE, client_ip())
         toegangslimiet.registreer(CATEGORIE_FOUTE_CODE_GLOBAAL, SLEUTEL_GLOBAAL)
+
+
+def _als_voortgangsstroom(werk, stappen, foutmelding):
+    """NDJSON-stroom: voortgangsregels en als laatste een `klaar`-regel met de status en JSON van `werk()`."""
+    voortgang = Voortgang(stappen)
+
+    # De kopie heeft een eigen `g`: de foute-code-poging uit `werk` moet hier geregistreerd worden, na_request ziet hem niet.
+    @copy_current_request_context
+    def draai():
+        token = zet_voortgang(voortgang)
+        status, data = 500, {"error": foutmelding}
+        try:
+            response = make_response(werk())
+            status, data = response.status_code, response.get_json()
+            registreer_foute_code_poging()
+        except Exception as e:
+            print(f"[voortgang] ONVERWACHTE FOUT: {maskeer_codes(e)}")
+            print_traceback()
+        finally:
+            reset_voortgang(token)
+            voortgang.klaar(status, data)
+
+    threading.Thread(target=draai, daemon=True).start()
+
+    def regels():
+        while True:
+            event = voortgang.events.get()
+            yield json.dumps(event) + "\n"
+            if event["type"] == "klaar":
+                return
+
+    return Response(stream_with_context(regels()), mimetype="application/x-ndjson",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.after_request
+def na_request(response):
+    registreer_foute_code_poging()
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
@@ -255,6 +301,21 @@ def analyse_pagina():
 
 @app.route("/upload", methods=["POST"])
 def upload():
+    if request.args.get("voortgang") != "1":
+        return _upload_uitvoeren()
+    # Eerst hier parseren: een 413 hoort een gewoon antwoord te zijn, geen stroom.
+    request.files
+    stappen = STAPPEN_UPLOAD_NIET_OPSLAAN if request.form.get("niet_opslaan") == "on" else STAPPEN_UPLOAD_OPSLAAN
+    return _als_voortgangsstroom(_upload_uitvoeren, stappen, MELDING_UPLOAD_MISLUKT)
+
+
+MELDING_UPLOAD_MISLUKT = (
+    "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
+    "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
+)
+
+
+def _upload_uitvoeren():
     """Zet elke onverwachte fout om in een JSON-foutrespons; anders blijft de frontend hangen."""
     db_reset_verbinding_teller()
     try:
@@ -269,16 +330,14 @@ def upload():
     except Exception as e:
         print(f"[upload] ONVERWACHTE FOUT: {maskeer_codes(e)}")
         print_traceback()
-        return jsonify({
-            "error": "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
-                     "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
-        }), 500
+        return jsonify({"error": MELDING_UPLOAD_MISLUKT}), 500
     finally:
         db_log_verbinding_samenvatting()
 
 
 def _upload_impl():
     reset_yahoo_call_teller()
+    meld_stap("bestand_inlezen")
     bestand1 = _gekozen_bestand("bestand1")
     if not bestand1:
         return jsonify({"error": "Het eerste bestand (transacties) is verplicht."}), 400
@@ -305,6 +364,7 @@ def _upload_impl():
             g.foute_code_poging = True
             return jsonify({"error": str(e)}), 400
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
+    meld_stap("klaar_maken")
     response = jsonify(voeg_diagnostiek_toe(result))
     log_yahoo_call_samenvatting()
     return response
@@ -312,6 +372,7 @@ def _upload_impl():
 
 def _analyseer_zonder_opslaan(df, rekening_df, naam):
     # Alleen de lichte ticker-check: de volledige liep hier over de gunicorn-timeout (zie CLAUDE.md: Yahoo en tickers).
+    meld_stap("tickers_zoeken")
     ticker_by_isin_beurs, ticker_zekerheid, ticker_posities_ruw = ticker_resolutie_niet_opslaan(df)
     product_per_ticker = bepaal_product_per_ticker(df, ticker_by_isin_beurs)
     transacties_df = bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticker)
@@ -319,6 +380,7 @@ def _analyseer_zonder_opslaan(df, rekening_df, naam):
     dividend_records = verwerk_dividend_zonder_opslaan(rekening_df) if rekening_df is not None else None
     rekening_regels = bouw_rekening_regels(rekening_df) if rekening_df is not None else None
     promoties = promotie_bedragen(rekening_regels) if rekening_regels is not None else None
+    meld_stap("koersen_analyseren")
     result = analyze_transacties(transacties_df, code=None, naam=naam or None, kassaldo=kassaldo, box3=True,
                                  box3_dividenden=dividend_records or None, promoties=promoties,
                                  rekening_regels=rekening_regels)
@@ -341,6 +403,7 @@ def _dividend_niet_opslaan(transacties_df, dividend_records):
 def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
     df = vul_synthetische_order_ids_aan(df)
     with db_transactie() as cur:
+        meld_stap("portfolio_zoeken")
         with meet_tijd("portfolio_zoeken_of_maken"):
             code, bestaand, rows_to_insert = vind_of_maak_portfolio(cur, df, naam)
         db_markeer_portfolio_gebruikt(cur, code)
@@ -349,9 +412,11 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
         voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
         vul_bronkolommen_aan(cur, code, df)
         if rekening_df is not None:
+            meld_stap("rekeningoverzicht")
             sla_dividend_bestand_op(cur, code, rekening_df)
             sla_kassaldo_op(cur, code, rekening_df)
             sla_rekening_regels_op(cur, code, rekening_df)
+    meld_stap("koersen_analyseren")
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         _meld_valuta_na_opslaan(df, code)
@@ -385,6 +450,16 @@ def _gekozen_bestand(veld):
 
 @app.route("/api/portfolio/<code>/bijwerken", methods=["POST"])
 def bijwerken(code):
+    if request.args.get("voortgang") != "1":
+        return _bijwerken_uitvoeren(code)
+    request.files
+    return _als_voortgangsstroom(lambda: _bijwerken_uitvoeren(code), STAPPEN_BIJWERKEN, MELDING_BIJWERKEN_MISLUKT)
+
+
+MELDING_BIJWERKEN_MISLUKT = "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."
+
+
+def _bijwerken_uitvoeren(code):
     """Zelfde vangnet als /upload."""
     db_reset_verbinding_teller()
     try:
@@ -395,7 +470,7 @@ def bijwerken(code):
     except Exception as e:
         print(f"[bijwerken] ONVERWACHTE FOUT: {maskeer_codes(e)}")
         print_traceback()
-        return jsonify({"error": "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."}), 500
+        return jsonify({"error": MELDING_BIJWERKEN_MISLUKT}), 500
     finally:
         db_log_verbinding_samenvatting()
 
@@ -403,6 +478,7 @@ def bijwerken(code):
 def _bijwerken_impl(code):
     """Alleen opslaan als élk meegestuurd bestand bij deze portfolio hoort."""
     reset_yahoo_call_teller()
+    meld_stap("bestand_inlezen")
     if not db_portfolio_bestaat(code):
         return _geen_portfolio(code)
 
@@ -419,6 +495,7 @@ def _bijwerken_impl(code):
             return jsonify({"error": str(e)}), 400
     nieuw = set(df["Order ID"]) if df is not None else set()
 
+    meld_stap("bestanden_controleren")
     with meet_tijd("order_ids_ophalen"), db_transactie() as cur:
         opgeslagen = db_get_order_ids(cur, code)
         bij_andere_portfolios = db_get_order_ids_bij_andere_portfolios(cur, code, nieuw)
@@ -440,6 +517,8 @@ def _bijwerken_impl(code):
     rows_to_insert = df[df["Order ID"].isin(toe_te_voegen)] if df is not None else pd.DataFrame()
     meld_portfolio_opslaan(True, rows_to_insert)
     if df is not None or rekening_df is not None:
+        if rows_to_insert.empty:
+            meld_stap("transacties_opslaan")
         with db_transactie() as cur:
             db_markeer_portfolio_gebruikt(cur, code)
             voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers=False)
@@ -449,6 +528,7 @@ def _bijwerken_impl(code):
                 sla_dividend_bestand_op(cur, code, rekening_df)
                 sla_kassaldo_op(cur, code, rekening_df)
                 sla_rekening_regels_op(cur, code, rekening_df)
+    meld_stap("koersen_analyseren")
     with db_deel_verbinding():
         result = _kern_na_opslaan(code)
         if df is not None:
@@ -456,6 +536,7 @@ def _bijwerken_impl(code):
         meld_order_ids_rekening(code)
     bewaar_upload_meldingen(code, UPLOAD_SOORT_BIJWERKEN)
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "upload")
+    meld_stap("klaar_maken")
     result["bijwerken"] = {
         "nieuwe_transacties": len(rows_to_insert),
         "dividend_verwerkt": rekening_df is not None,
@@ -468,14 +549,27 @@ def _bijwerken_impl(code):
 @app.route("/api/portfolio/<code>")
 def api_portfolio(code):
     code = code.strip().upper()
+    if request.args.get("voortgang") != "1":
+        return _portfolio_ophalen(code)
+    herbepalen = request.args.get("herbepaal_alle_tickers", "").lower() == "true"
+    stappen = STAPPEN_OPHALEN if herbepalen else STAPPEN_OPHALEN_ZONDER_HERBEPALEN
+    return _als_voortgangsstroom(lambda: _portfolio_ophalen(code), stappen, MELDING_OPHALEN_MISLUKT)
+
+
+MELDING_OPHALEN_MISLUKT = "Ophalen mislukt. Probeer het opnieuw."
+
+
+def _portfolio_ophalen(code):
     reset_yahoo_call_teller()
     db_reset_verbinding_teller()
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
         if not db_portfolio_bestaat(code):
             return _geen_portfolio(code)
+        meld_stap("tickers_herbepalen")
         _herbepaal_tickers(code)
         # Anders levert de _basis_cache de oude tickers.
         wis_portfolio_basis_cache(code)
+    meld_stap("koersen_analyseren")
     with meet_tijd("ophalen_totaal"), db_deel_verbinding():
         result = build_portfolio_response(code)
     if result is None:
@@ -484,6 +578,7 @@ def api_portfolio(code):
     log_yahoo_call_samenvatting()
     db_log_verbinding_samenvatting()
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "ophalen")
+    meld_stap("klaar_maken")
     return jsonify(voeg_diagnostiek_toe(result))
 
 

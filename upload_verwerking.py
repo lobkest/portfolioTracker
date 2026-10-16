@@ -6,6 +6,7 @@ import psycopg2
 
 from bestand_controle import controleer_excel_bestand, controleer_aantal_rijen
 from debug_utils import meet_tijd, maskeer_codes
+from voortgang import meld_stap
 from diagnostiek import (
     meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
     CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT, MAX_BEWAARDE_UPLOADS, haal_meldingen,
@@ -427,10 +428,12 @@ def voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_ticker
     """Ticker en product per nieuwe rij bepalen en invoegen, in de transactie van de aanroeper."""
     if rows_to_insert.empty:
         return
+    meld_stap("tickers_zoeken")
     with meet_tijd("ticker_resolutie"):
         ticker_by_isin_beurs = _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers)
     with meet_tijd("long_names_ophalen"):
         product_per_ticker = _product_per_ticker_opslaan(cur, code, rows_to_insert, ticker_by_isin_beurs)
+    meld_stap("transacties_opslaan")
     with meet_tijd(f"db_insert_transacties ({len(rows_to_insert)} rij(en))"):
         _insert_nieuwe_transacties(cur, code, rows_to_insert, ticker_by_isin_beurs, product_per_ticker)
 

@@ -96,9 +96,10 @@ document.getElementById("uploadForm").addEventListener("submit", async (e) => {
     let navigeert = false;
     toonLaadOverlay("Analyseren...");
     try {
-        const res = await fetchMetTimeout("/upload", { method: "POST", body: formData }, UPLOAD_TIMEOUT_MS);
-        const data = await res.json();
-        if (!res.ok) {
+        const { status, data } = await fetchStroomMetTimeout(
+            "/upload?voortgang=1", { method: "POST", body: formData },
+            toonVoortgangEvent, UPLOAD_TIMEOUT_MS);
+        if (status < 200 || status >= 300) {
             document.getElementById("errorMsg").textContent = data.error || "Er ging iets mis.";
             return;
         }
@@ -123,14 +124,14 @@ document.getElementById("codeForm").addEventListener("submit", async (e) => {
     // Dit vinkje komt nooit in de URL van de portfolio-pagina: een refresh zou de dure herbepaling herhalen.
     const herbepaalAlleTickers = document.getElementById("herbepaalAlleTickersCode").checked;
     const url = herbepaalAlleTickers
-        ? `/api/portfolio/${encodeURIComponent(code)}?herbepaal_alle_tickers=true`
-        : `/api/portfolio/${encodeURIComponent(code)}`;
+        ? `/api/portfolio/${encodeURIComponent(code)}?herbepaal_alle_tickers=true&voortgang=1`
+        : `/api/portfolio/${encodeURIComponent(code)}?voortgang=1`;
     let navigeert = false;
     toonLaadOverlay("Ophalen...");
     try {
         const res = await fetch(url);
-        const data = await res.json();
-        if (!res.ok) {
+        const { status, data } = await leesVoortgangsstroom(res, toonVoortgangEvent);
+        if (status < 200 || status >= 300) {
             document.getElementById("errorMsg").textContent = data.error || "Code niet gevonden.";
             return;
         }
