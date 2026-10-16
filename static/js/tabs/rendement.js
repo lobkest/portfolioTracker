@@ -84,6 +84,7 @@ function toonRendementEuro() {
     }
 
     updateChart(d.labels, datasets);
+    pasPeriodeToe(d.labels);
 }
 
 async function wisselBenchmark(benchmarkNaam) {
@@ -253,4 +254,5 @@ async function toonRendementOverTijd() {
         { label: "XIRR (%)", data: data.xirr_pct, borderColor: "#3182bd" },
         { label: "TWR (%)", data: data.twr_pct, borderColor: "#d9822b" }
     ], formatPct);
+    pasPeriodeToe(data.labels);
 }

@@ -68,6 +68,7 @@ function toonPortfolio() {
         { label: "Waarde (€)", data: d.waarde, borderColor: "#2c7a4b" },
         { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
     ]);
+    pasPeriodeToe(d.labels);
 
     // Zelfde totalen als Statistieken; geen extra API-call.
     const homeSectie = document.getElementById("homeTotalenSectie");

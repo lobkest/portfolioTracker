@@ -165,6 +165,7 @@ const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, 
 function toonDashboard(data) {
     huidigeData = data;
     RESET_PER_TAB.forEach(reset => reset());
+    resetPeriode();
     voegDiagnostiekToe(data);
     document.getElementById("dashboardSection").style.display = "flex";
     document.getElementById("dashCode").textContent = data.code || "";
@@ -276,6 +277,7 @@ window.addEventListener("hashchange", () => {
 });
 
 document.getElementById("resetZoomBtn").addEventListener("click", resetZoom);
+maakPeriodeKnoppen();
 document.getElementById("zoomIcoonKnop").addEventListener("click", resetZoom);
 
 let kopieerStatusTimer = null;

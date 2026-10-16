@@ -189,6 +189,9 @@
 
             <!-- De ene gedeelde grafiek: plaatsGrafiek() verhuist dit blok naar het data-grafiek-plek van het tabblad. -->
             <div id="chartWrapper" style="display: none;">
+                <div class="margeOnder10" data-views="portfolio rendement" style="display: none;">
+                    <div id="periodeKeuze" class="segmentKeuze" role="group" aria-label="Periode"></div>
+                </div>
                 <div class="chart-wrapper">
                     <canvas id="rendementChart"></canvas>
                     <button id="zoomIcoonKnop" class="zoomIcoonKnop" type="button" aria-label="Zoom resetten" hidden>&#x27F2;</button>
@@ -640,6 +643,7 @@
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bestandsmelding.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/periode.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/grafiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/tabel.js') }}"></script>

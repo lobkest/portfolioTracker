@@ -55,24 +55,106 @@ function werkZoomIcoonBij(c) {
 // Niet voorbij de eerste/laatste datum pannen of uitzoomen: anders blijft een lege grafiek over.
 const ZOOM_LIMIETEN = { x: { min: "original", max: "original" } };
 
+// Gedeeld door Samenvatting en Rendement; null = handmatig gezoomd, geen knop actief.
+let actievePeriode = "alles";
+let periodeLabels = [];
+// De zoom-plugin roept de callbacks mogelijk ook bij programmatisch zoomen aan.
+let periodeZoomBezig = false;
+
+function vandaagIso() {
+    const nu = new Date();
+    return `${nu.getFullYear()}-${String(nu.getMonth() + 1).padStart(2, "0")}-${String(nu.getDate()).padStart(2, "0")}`;
+}
+
+function werkPeriodeKnoppenBij() {
+    const vandaag = vandaagIso();
+    document.querySelectorAll("#periodeKeuze .segmentKnop").forEach(knop => {
+        const periode = GRAFIEK_PERIODES.find(p => p.id === knop.dataset.periode);
+        const beschikbaar = periodeBeschikbaar(periodeLabels, periode.maanden, vandaag);
+        knop.disabled = !beschikbaar;
+        knop.title = beschikbaar ? "" : `Minder dan ${periode.label} data`;
+        knop.classList.toggle("actief", periode.id === actievePeriode);
+    });
+}
+
+function handmatigGezoomd(c) {
+    if (periodeZoomBezig) return;
+    actievePeriode = null;
+    werkPeriodeKnoppenBij();
+    werkZoomIcoonBij(c);
+}
+
 // Voor de zoombare lijngrafieken op het gedeelde canvas. Een nieuwe grafiek is niet ingezoomd: icoon weg.
 function zoomOpties() {
     werkZoomIcoonBij(null);
     return {
         limits: ZOOM_LIMIETEN,
-        pan: { enabled: true, mode: "x", onPanComplete: ({ chart: c }) => werkZoomIcoonBij(c) },
+        pan: { enabled: true, mode: "x", onPanComplete: ({ chart: c }) => handmatigGezoomd(c) },
         zoom: {
             wheel: { enabled: true },
             pinch: { enabled: true },
             mode: "x",
-            onZoomComplete: ({ chart: c }) => werkZoomIcoonBij(c),
+            onZoomComplete: ({ chart: c }) => handmatigGezoomd(c),
         },
     };
 }
 
+function zoomNaarActievePeriode() {
+    const periode = GRAFIEK_PERIODES.find(p => p.id === actievePeriode);
+    periodeZoomBezig = true;
+    try {
+        if (!periode || periode.maanden === null) {
+            chart.resetZoom();
+        } else {
+            const start = startIndexVoorPeriode(periodeLabels, periode.maanden, vandaagIso());
+            chart.zoomScale("x", { min: start, max: periodeLabels.length - 1 }, "none");
+        }
+    } finally {
+        periodeZoomBezig = false;
+    }
+    werkZoomIcoonBij(chart);
+}
+
+// Na updateChart() aanroepen met de ruwe ISO-labels.
+function pasPeriodeToe(isoLabels) {
+    periodeLabels = isoLabels;
+    // Een verse grafiek is niet ingezoomd, ook na handmatig zoomen.
+    if (actievePeriode === null) actievePeriode = "alles";
+    const periode = GRAFIEK_PERIODES.find(p => p.id === actievePeriode);
+    if (periode && !periodeBeschikbaar(isoLabels, periode.maanden, vandaagIso())) actievePeriode = "alles";
+    if (actievePeriode !== "alles") zoomNaarActievePeriode();
+    werkPeriodeKnoppenBij();
+}
+
+function kiesPeriode(id) {
+    actievePeriode = id;
+    if (chart) zoomNaarActievePeriode();
+    werkPeriodeKnoppenBij();
+}
+
+function maakPeriodeKnoppen() {
+    const keuze = document.getElementById("periodeKeuze");
+    keuze.replaceChildren(...GRAFIEK_PERIODES.map(p => {
+        const knop = document.createElement("button");
+        knop.type = "button";
+        knop.className = "segmentKnop";
+        knop.dataset.periode = p.id;
+        knop.textContent = p.label;
+        knop.addEventListener("click", () => kiesPeriode(p.id));
+        return knop;
+    }));
+}
+
+function resetPeriode() {
+    actievePeriode = "alles";
+    periodeLabels = [];
+}
+
 function resetZoom() {
+    actievePeriode = "alles";
     if (chart) chart.resetZoom();
     werkZoomIcoonBij(null);
+    werkPeriodeKnoppenBij();
 }
 
 // waardeFormatter: opmaak in de tooltip, standaard euro.
