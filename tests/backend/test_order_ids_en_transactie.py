@@ -19,6 +19,7 @@ except ImportError:
 class TestDbTransactie(unittest.TestCase):
     def setUp(self):
         self.conn = MagicMock()
+        self.conn.closed = 0
         p = patch.object(db, "db_connect", return_value=self.conn)
         p.start()
         self.addCleanup(p.stop)

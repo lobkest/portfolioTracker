@@ -137,6 +137,7 @@ class TestUploadOpslaan(unittest.TestCase):
         self.app_module = app_module
         self.client = app_module.app.test_client()
         self.conn = MagicMock()
+        self.conn.closed = 0
         self.mock_kern = self._start(patch.object(app_module, "_kern_na_opslaan", return_value={}))
         self._start(patch.object(db, "db_connect", return_value=self.conn))
         self._start(patch.object(app_module, "meld_valuta_consistentie"))
