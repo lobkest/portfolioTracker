@@ -1135,7 +1135,8 @@ def db_get_portfolio_naam_en_transacties(code):
     return result[0] or "", rows
 
 
-ORDER_ID_KOLOMMEN = ["order_id", "datum", "tijd", "product", "isin", "beurs", "aantal", "koers", "transactiekosten"]
+ORDER_ID_KOLOMMEN = ["order_id", "datum", "tijd", "product", "isin", "beurs", "aantal", "koers", "transactiekosten",
+                      "totaal_eur", "echte_naam"]
 
 
 def db_get_order_id_rijen(code):
@@ -1233,6 +1234,15 @@ def db_get_order_id_sets_met_overlap(cur, order_ids):
     return sets
 
 
+def db_get_synthetische_transacties(cur, code):
+    """[(order_id, datum, tijd, isin, aantal)] van de rijen met een synthetische Order ID."""
+    cur.execute(
+        "SELECT order_id, datum, tijd, isin, aantal FROM transacties WHERE code = %s AND order_id LIKE %s",
+        (code, "SYN-%"),
+    )
+    return cur.fetchall()
+
+
 def db_get_order_ids(cur, code):
     cur.execute("SELECT order_id FROM transacties WHERE code = %s AND order_id IS NOT NULL", (code,))
     return {order_id for (order_id,) in cur.fetchall()}
@@ -1320,6 +1330,22 @@ def db_vul_bronkolommen_aan(cur, code, rijen):
             WHERE t.code = v.code AND t.order_id = v.order_id AND ({ergens_aan_te_vullen})""",
         [(code, *rij) for rij in rijen],
         template=template,
+        page_size=len(rijen),
+    )
+    return cur.rowcount
+
+
+def db_vul_transactiekosten_aan(cur, code, rijen):
+    """rijen: (order_id, kosten). Vult alleen NULL aan, overschrijft nooit; geeft het aantal bijgewerkte rijen."""
+    if not rijen:
+        return 0
+    execute_values(
+        cur,
+        """UPDATE transacties AS t SET transactiekosten = v.kosten
+           FROM (VALUES %s) AS v (code, order_id, kosten)
+           WHERE t.code = v.code AND t.order_id = v.order_id AND t.transactiekosten IS NULL""",
+        [(code, order_id, kosten) for order_id, kosten in rijen],
+        template="(%s::text, %s::text, %s::numeric)",
         page_size=len(rijen),
     )
     return cur.rowcount

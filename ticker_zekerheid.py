@@ -542,6 +542,14 @@ def _voeg_uitkeringsvorm_check_toe(resultaat, product):
     ))
 
 
+def handelt_in_eur(transacties):
+    """True als DeGiro in EUR rekende (geen enkele Wisselkoers, leeg of 0 telt als geen), False bij een Wisselkoers;
+    None als de transacties dat niet vermelden."""
+    if not any("wisselkoers" in t for t in transacties):
+        return None
+    return not any(pd.notna(t.get("wisselkoers")) and float(t["wisselkoers"]) != 0 for t in transacties)
+
+
 def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker=None):
     print(f"[ticker-zekerheid] {isin}: start '{product}' op {beurs}, {len(transacties_van_dit_isin)} transacties")
     t0, y0 = time.time(), _tz_stand()
@@ -549,7 +557,7 @@ def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, 
         basis = {"ticker": opgeslagen_ticker, "zekerheid": "zeker", "alternatieven": []}
         _tz_print(isin, f"opgeslagen ticker {opgeslagen_ticker}", t0, y0)
     else:
-        basis = find_ticker_detailed(product, isin, beurs)
+        basis = find_ticker_detailed(product, isin, beurs, in_eur=handelt_in_eur(transacties_van_dit_isin))
         _tz_print(isin, f"find_ticker_detailed -> {basis['ticker']} ({basis['zekerheid']}, "
                         f"{len(basis.get('alternatieven') or [])} alternatieven)", t0, y0)
     resultaat = _leeg_resultaat(basis["zekerheid"], beurs)
@@ -626,11 +634,11 @@ def _voeg_openfigi_check_toe(resultaat, isin, waarschuwing_veld="prijswaarschuwi
     return resultaat
 
 
-def _begin_resultaat(product, isin, beurs, bekende_ticker):
+def _begin_resultaat(product, isin, beurs, bekende_ticker, transacties=()):
     if bekende_ticker:
         basis = {"ticker": bekende_ticker, "zekerheid": "zeker", "alternatieven": []}
     else:
-        basis = find_ticker_detailed(product, isin, beurs)
+        basis = find_ticker_detailed(product, isin, beurs, in_eur=handelt_in_eur(transacties))
     return {**basis, "prijs_checks": [], "prijswaarschuwing": None}
 
 
@@ -731,7 +739,7 @@ def find_ticker_met_snelle_prijscheck(product, isin, beurs, transacties_van_dit_
     Geeft find_ticker_detailed()-velden plus prijs_checks en prijswaarschuwing."""
     geldige_transacties = _geldige_transacties(transacties_van_dit_isin)
 
-    resultaat = _begin_resultaat(product, isin, beurs, bekende_ticker)
+    resultaat = _begin_resultaat(product, isin, beurs, bekende_ticker, transacties_van_dit_isin)
     resultaat = _voeg_prijscheck_laatste_toe(resultaat, geldige_transacties)
     openfigi = haal_openfigi_resultaten(isin) if resultaat["ticker"] else None
     root_ontbreekt = _openfigi_root_oordeel(resultaat["ticker"], openfigi)[1] is False
@@ -756,6 +764,11 @@ def _ticker_heeft_prijsprobleem(ticker, transacties_van_dit_isin):
     check = vergelijk_prijs_op_datum(ticker, laatste["datum"], float(laatste["koers"]))
     probleem = check["afwijking_pct"] is None or _prijscheck_is_probleem(check)
     return probleem
+
+
+def _getal_of_none(waarde):
+    getal = pd.to_numeric(waarde, errors="coerce")
+    return float(getal) if pd.notna(getal) else None
 
 
 def groepeer_posities_per_keten(rijen):
@@ -793,7 +806,7 @@ def groepeer_posities_per_keten(rijen):
                 "ticker": rij["ticker"] if pd.notna(rij["ticker"]) else None, "transacties": [],
             }
         )
-        groep["transacties"].append({"datum": datum, "koers": koers})
+        groep["transacties"].append({"datum": datum, "koers": koers, "wisselkoers": _getal_of_none(rij["wisselkoers"])})
 
     for groep in per_groep.values():
         groep["transacties"].sort(key=lambda t: t["datum"])

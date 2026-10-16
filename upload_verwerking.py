@@ -1,5 +1,6 @@
 """Taakfuncties achter POST /upload en /api/portfolio/<code>/bijwerken; app.py roept ze in volgorde aan."""
 import hashlib
+from collections import Counter
 
 import pandas as pd
 import psycopg2
@@ -12,9 +13,9 @@ from diagnostiek import (
     CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT, MAX_BEWAARDE_UPLOADS, haal_meldingen,
     upload_meldingen_om_te_bewaren,
 )
-from diagnostiek_checks import check_rekening_regelsoorten
+from diagnostiek_checks import aantal_tekst, check_rekening_regelsoorten
 from split_correctie import isin_ketens, vind_wisselparen
-from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, OngeldigExcelBestand
+from transactie_utils import SYNTHETISCH_ORDER_ID_PREFIX, _is_corporate_action_row, formatteer_datum_nl, OngeldigExcelBestand
 from ticker_zekerheid import (
     basis_ticker_zekerheid_parallel, vind_tickers_met_snelle_prijscheck_parallel,
     find_ticker_met_snelle_prijscheck,
@@ -22,7 +23,8 @@ from ticker_zekerheid import (
 from portfolio_admin import find_matching_code, maak_portfolio_met_nieuwe_code
 from db import (
     db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_get_bekende_tickers, db_insert_transactie,
-    db_get_product_per_ticker, db_vul_bronkolommen_aan, db_save_rekening_regels, db_save_upload_meldingen,
+    db_get_product_per_ticker, db_vul_bronkolommen_aan, db_vul_transactiekosten_aan, db_get_synthetische_transacties,
+    db_save_rekening_regels, db_save_upload_meldingen,
 )
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from dividend import (
@@ -43,6 +45,7 @@ AUTOFX_KOLOM = "AutoFX Kosten"
 
 DIAGNOSTIEK_SLEUTEL_EXCEL_WISSELKOERS = "excel_wisselkoers"
 DIAGNOSTIEK_SLEUTEL_ORDER_IDS = "order_ids"
+DIAGNOSTIEK_SLEUTEL_SYN_HERNOEMD = "order_ids_syn_hernoemd"
 DIAGNOSTIEK_SLEUTEL_PORTFOLIO = "portfolio"
 DIAGNOSTIEK_SLEUTEL_INSERT_OPGESLAGEN = "insert_opgeslagen"
 DIAGNOSTIEK_SLEUTEL_INSERT_GENEGEERD = "insert_genegeerd"
@@ -90,6 +93,8 @@ def lees_transacties_excel(bestand1):
             f"Upload het transactiebestand zoals DeGiro het exporteert."
         )
     df["Datum"] = pd.to_datetime(df["Datum"], dayfirst=True)
+    # DeGiro zet de kosten van een deelorder op één rij en laat de andere leeg: een lege cel is €0.
+    df[KOSTEN_KOLOM] = pd.to_numeric(df[KOSTEN_KOLOM], errors="coerce").fillna(0.0)
     df["Order ID"], order_id_bron = _kolom_of_naamloze_buurkolom(df, "Order ID")
     df["_koers_valuta"] = naamloze_kolom_rechts(df, "Koers")
     df["_lokale_waarde_valuta"] = naamloze_kolom_rechts(df, "Lokale waarde")
@@ -165,7 +170,9 @@ def _bouw_posities(df):
         product = (eigen if not eigen.empty else groep)["Product"].iloc[0]
         markt = groep[~groep.index.isin(list(wisselrijen))].sort_values("Datum", kind="stable")
         posities.append((product, eind, beurs, [
-            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"])} for _, row in markt.iterrows()
+            {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"]),
+             "wisselkoers": _getal_of_none(row.get(WISSELKOERS_KOLOM))}
+            for _, row in markt.iterrows()
         ]))
     return posities
 
@@ -273,6 +280,7 @@ def bouw_transacties_df_niet_opslaan(df, ticker_by_isin_beurs, product_per_ticke
         "tijd": df["Tijd"],
         "wisselkoers": pd.to_numeric(df[WISSELKOERS_KOLOM], errors="coerce"),
         "autofx_kosten": pd.to_numeric(df[AUTOFX_KOLOM], errors="coerce"),
+        "order_id": df["Order ID"],
     })
 
 
@@ -281,7 +289,7 @@ def vul_synthetische_order_ids_aan(df):
     def basis_hash(row):
         # Zonder Product: DeGiro hernoemt producten soms (BYD CO LTD -> BYD COMPANY LIMITED).
         basis = f"{row['Datum']}|{row['Tijd']}|{row['ISIN']}|{row['Aantal']}|{row['Totaal EUR']}"
-        return "SYN-" + hashlib.md5(basis.encode()).hexdigest()[:16]
+        return SYNTHETISCH_ORDER_ID_PREFIX + hashlib.md5(basis.encode()).hexdigest()[:16]
 
     heeft_order_id = df["Order ID"].notna()
     if (~heeft_order_id).any():
@@ -316,9 +324,44 @@ def _meld_order_ids(order_ids, bron=None):
     else:
         meld(CATEGORIE_ORDER_IDS, INFO,
              f"{aantal_rijen - aantal_echt} van {aantal_rijen} transacties zonder Order ID; die krijgen "
-             f"een synthetische ID en worden bij een volgende upload herkend aan datum, tijd, ISIN, "
-             f"aantal en bedrag.{indeling}",
+             f"een synthetische ID. Het portfolio wordt bij een volgende upload herkend aan de echte Order ID's, "
+             f"dus dit is geen probleem.{indeling}",
              sleutel=DIAGNOSTIEK_SLEUTEL_ORDER_IDS)
+
+
+def _synthetische_sleutel(datum, tijd, isin, aantal):
+    """Zonder bedrag en product: juist die kunnen in een nieuwere export veranderen en geven dan een andere SYN-ID."""
+    tijd_tekst = "" if tijd is None or pd.isna(tijd) else str(tijd)[:5]
+    return (pd.Timestamp(datum).date(), tijd_tekst, isin, round(float(aantal), 6))
+
+
+def sluit_hernoemde_synthetische_rijen_uit(cur, code, rows_to_insert, upload_order_ids):
+    """Een opgeslagen rij met SYN-ID die niet meer in de upload staat, terwijl er een 'nieuwe' rij is met dezelfde
+    datum, tijd, ISIN en aantal, is dezelfde transactie met een andere ID: niet nog eens invoegen."""
+    if rows_to_insert.empty:
+        return rows_to_insert
+    verdwenen = Counter(
+        _synthetische_sleutel(datum, tijd, isin, aantal)
+        for order_id, datum, tijd, isin, aantal in db_get_synthetische_transacties(cur, code)
+        if order_id not in upload_order_ids
+    )
+    if not verdwenen:
+        return rows_to_insert
+    behouden = []
+    for _, rij in rows_to_insert.iterrows():
+        sleutel = _synthetische_sleutel(rij["Datum"], _normaliseer_tijd(rij["Tijd"]), rij["ISIN"], rij["Aantal"])
+        if verdwenen[sleutel] > 0:
+            verdwenen[sleutel] -= 1
+            behouden.append(False)
+        else:
+            behouden.append(True)
+    overgeslagen = behouden.count(False)
+    if overgeslagen:
+        meld(CATEGORIE_ORDER_IDS, INFO,
+             f"{aantal_tekst(overgeslagen, 'transactie', 'transacties')} zonder echte Order ID kwam in dit bestand met "
+             f"een andere synthetische ID terug en is niet nog eens opgeslagen.",
+             sleutel=DIAGNOSTIEK_SLEUTEL_SYN_HERNOEMD)
+    return rows_to_insert[behouden]
 
 
 def vind_of_maak_portfolio(cur, df, naam):
@@ -330,7 +373,8 @@ def vind_of_maak_portfolio(cur, df, naam):
         code = match_code
         if naam:
             db_zet_portfolio_naam(cur, code, naam)
-        rows_to_insert = df[df["Order ID"].isin(missing_ids)]
+        rows_to_insert = sluit_hernoemde_synthetische_rijen_uit(
+            cur, code, df[df["Order ID"].isin(missing_ids)], set(df["Order ID"]))
     else:
         code = maak_portfolio_met_nieuwe_code(cur, naam or None)
         rows_to_insert = df
@@ -462,7 +506,8 @@ def _bronwaarden(row):
 def vul_bronkolommen_aan(cur, code, df):
     """Vult lege bronkolommen van al opgeslagen rijen aan bij een herupload; een insert raakt bestaande Order ID's niet."""
     rijen = [(row["Order ID"], *_bronwaarden(row)) for _, row in df.iterrows()]
-    aangevuld = db_vul_bronkolommen_aan(cur, code, rijen)
+    kosten = [(row["Order ID"], float(row[KOSTEN_KOLOM])) for _, row in df.iterrows() if pd.notna(row[KOSTEN_KOLOM])]
+    aangevuld = db_vul_bronkolommen_aan(cur, code, rijen) + db_vul_transactiekosten_aan(cur, code, kosten)
     if aangevuld:
         meld(CATEGORIE_OPSLAAN, INFO, f"Ontbrekende Excel-kolommen aangevuld bij {aangevuld} bestaande transacties.",
              sleutel=DIAGNOSTIEK_SLEUTEL_BRONKOLOMMEN_AANGEVULD)
@@ -547,7 +592,8 @@ def _meld_rekening_regelsoorten(rekening_df):
     """Diagnostiek mag de upload nooit breken."""
     try:
         for b in check_rekening_regelsoorten(rekening_df):
-            meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"))
+            meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"),
+                 rijen=b.get("rijen"))
     except Exception as e:
         meld(CATEGORIE_REKENINGOVERZICHT, LET_OP, f"Regelsoorten niet gecontroleerd door een fout ({type(e).__name__}).",
              sleutel="check_mislukt:regelsoorten")

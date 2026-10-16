@@ -7,7 +7,7 @@ import requests
 from yahooquery.misc import _make_request
 from yahooquery.session_management import initialize_session
 
-from db import db_get_cached_openfigi, db_save_openfigi
+from db import db_get_cached_openfigi, db_get_ticker_details, db_save_openfigi
 from debug_utils import dprint
 from transactie_utils import _is_corporate_action_row
 from yahoo_client import _tel_yahoo_call
@@ -23,6 +23,17 @@ BEURS_MAP = {
     "EBR": ["BRU"], "BME": ["MCE"], "BIT": ["MIL"], "SWX": ["SWX"],
     "TSE": ["TOR"], "ASX": ["ASX"],
 }
+
+# Handelsvaluta per Yahoo-beurscode, om bij het zoeken kandidaten uit te sluiten die niet bij de valuta van de Excel
+# passen. Een bekende ticker_info.valuta gaat voor; een onbekende beurs doet niet mee.
+EXCHANGE_VALUTA = {
+    "NMS": "USD", "NGM": "USD", "NCM": "USD", "NYQ": "USD", "PCX": "USD", "ASE": "USD",
+    "GER": "EUR", "FRA": "EUR", "MUN": "EUR", "STU": "EUR", "DUS": "EUR", "HAM": "EUR", "BER": "EUR", "HAN": "EUR",
+    "AMS": "EUR", "PAR": "EUR", "BRU": "EUR", "MIL": "EUR", "MCE": "EUR", "HEL": "EUR", "LIS": "EUR", "VIE": "EUR",
+    "LSE": "GBP", "SWX": "CHF", "TOR": "CAD", "ASX": "AUD",
+}
+RECHTSVORMEN = {"INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "PLC", "NV", "SA", "AG", "SE", "LLC",
+                "LP", "SPA", "OYJ", "AB", "ASA"}
 
 # Bewust niet in BEURS_MAP: dan kiest het zoeken OTC-noteringen (BBRYF) voor aandelen die gewoon op de beurs staan.
 AMERIKAANSE_BEURZEN = {"NDQ", "NSY", "NASDAQ", "NYSE"}
@@ -77,18 +88,51 @@ def _yahoo_search(query):
         return []
 
 
-def _kies_beurs_match(quotes, targets):
+def _valuta_botst(valuta, in_eur):
+    """in_eur: DeGiro rekende in EUR (geen Wisselkoers) of juist niet; None = onbekend. Onbekende valuta botst niet."""
+    if in_eur is None or not valuta:
+        return False
+    return valuta != "EUR" if in_eur else valuta == "EUR"
+
+
+def botsende_symbolen(quotes, in_eur):
+    """Symbolen waarvan de valuta niet past bij de Excel. ticker_info.valuta gaat voor de beurscode; een databasefout
+    laat alleen de beurscode over."""
+    if in_eur is None or not quotes:
+        return frozenset()
+    symbolen = [q.get("symbol") for q in quotes if q.get("symbol")]
+    try:
+        bekend = db_get_ticker_details(symbolen)
+    except Exception:
+        bekend = {}
+    return frozenset(
+        q.get("symbol") for q in quotes
+        if _valuta_botst((bekend.get(q.get("symbol")) or {}).get("valuta") or EXCHANGE_VALUTA.get(q.get("exchange")),
+                         in_eur)
+    )
+
+
+def _kies_beurs_match(quotes, targets, botsend=frozenset()):
     for exch in targets:
         for q in quotes:
-            if q.get("exchange") == exch:
+            if q.get("exchange") == exch and q.get("symbol") not in botsend:
                 return q.get("symbol"), exch
     return None
 
 
-def _onzeker_fallback(quotes):
-    symbol = quotes[0].get("symbol")
-    alternatieven = [{"symbol": q.get("symbol"), "exchange": q.get("exchange")} for q in quotes[1:]]
-    return symbol, alternatieven
+def _onzeker_fallback(quotes, botsend=frozenset()):
+    eerste = next((q for q in quotes if q.get("symbol") not in botsend), quotes[0])
+    alternatieven = [{"symbol": q.get("symbol"), "exchange": q.get("exchange")} for q in quotes if q is not eerste]
+    return eerste.get("symbol"), alternatieven
+
+
+def zoeknaam_zonder_rechtsvorm(product):
+    """'NETFLIX, INC.' -> 'NETFLIX': Yahoo's zoekresultaten hangen af van de exacte spelling. Leeg als er niets verandert."""
+    woorden = [w.replace(".", "") for w in product.replace(",", " ").split()]
+    while len(woorden) > 1 and woorden[-1].upper() in RECHTSVORMEN:
+        woorden.pop()
+    naam = " ".join(woorden)
+    return naam if naam != product else ""
 
 
 def _woorden_varianten(product, min_woorden=2):
@@ -108,16 +152,22 @@ def _noteer_stap(stappen, query, quotes, match):
         })
 
 
-def _zoek_product_progressief(product, beurs, targets, min_woorden=2, stappen=None):
+def _zoek_product_progressief(product, beurs, targets, min_woorden=2, stappen=None, in_eur=None):
     """Kort de naam in tot er een match op de verwachte beurs is; anders het eerste resultaat
     van de eerste poging die iets vond. Geeft (symbol, zekerheid, alternatieven).
     stappen: optionele lijst waar elke zoekopdracht aan wordt toegevoegd (voor de Diagnostiek)."""
     varianten = _woorden_varianten(product, min_woorden)
+    kaal = zoeknaam_zonder_rechtsvorm(product)
+    if kaal and kaal not in varianten:
+        varianten.append(kaal)
     eerste_quotes = None
+    botsend_totaal = set()
 
     for variant in varianten:
         quotes = _yahoo_search(variant)
-        match = _kies_beurs_match(quotes, targets)
+        botsend = botsende_symbolen(quotes, in_eur)
+        botsend_totaal |= botsend
+        match = _kies_beurs_match(quotes, targets, botsend)
         _noteer_stap(stappen, variant, quotes, match)
 
         if eerste_quotes is None and quotes:
@@ -128,7 +178,7 @@ def _zoek_product_progressief(product, beurs, targets, min_woorden=2, stappen=No
             return symbol, "zeker", _alternatieven_naast(quotes, symbol)
 
     if eerste_quotes:
-        symbol, alternatieven = _onzeker_fallback(eerste_quotes)
+        symbol, alternatieven = _onzeker_fallback(eerste_quotes, botsend_totaal)
         return symbol, "onzeker", alternatieven
 
     return None, None, []
@@ -141,16 +191,17 @@ def _alternatieven_naast(quotes, symbol):
     ]
 
 
-def _zoek_op_isin(isin, targets, beurs, stappen=None):
+def _zoek_op_isin(isin, targets, beurs, stappen=None, in_eur=None):
     """Zelfde uitkomst als _zoek_product_progressief(): (symbol, zekerheid, alternatieven)."""
     quotes = _yahoo_search(isin)
-    match = _kies_beurs_match(quotes, targets)
+    botsend = botsende_symbolen(quotes, in_eur)
+    match = _kies_beurs_match(quotes, targets, botsend)
     _noteer_stap(stappen, isin, quotes, match)
     if match:
         symbol, _exch = match
         return symbol, "zeker", _alternatieven_naast(quotes, symbol)
     if quotes:
-        symbol, alternatieven = _onzeker_fallback(quotes)
+        symbol, alternatieven = _onzeker_fallback(quotes, botsend)
         return symbol, "onzeker", alternatieven
     return None, None, []
 
@@ -178,10 +229,11 @@ def _als_resultaat(kandidaat):
     return {"ticker": symbol, "zekerheid": zekerheid, "alternatieven": alternatieven}
 
 
-def find_ticker_detailed(product, isin, beurs):
+def find_ticker_detailed(product, isin, beurs, in_eur=None):
     """{ticker, zekerheid, alternatieven, zoekstappen}. zekerheid: "zeker" (override of beurs-match),
     "onzeker" (eerste zoekresultaat) of "geen_match". zoekstappen ([{query, resultaten, beurs_match}])
-    alleen als er bij Yahoo gezocht is."""
+    alleen als er bij Yahoo gezocht is. in_eur: DeGiro rekende in EUR (geen Wisselkoers), True/False; een kandidaat
+    met een andere valuta is dan nooit "zeker"."""
     if _is_corporate_action_row({"beurs": beurs, "product": product}):
         return {"ticker": None, "zekerheid": "geen_match", "alternatieven": []}
 
@@ -192,11 +244,11 @@ def find_ticker_detailed(product, isin, beurs):
 
     targets = BEURS_MAP.get(beurs, [])
     stappen = []
-    kandidaat = _zoek_product_progressief(product, beurs, targets, stappen=stappen)
+    kandidaat = _zoek_product_progressief(product, beurs, targets, stappen=stappen, in_eur=in_eur)
 
     # ISIN alleen als de naam nog niet "zeker" gaf (scheelt een call).
     if kandidaat[1] != "zeker":
-        kandidaat = _kies_beste(kandidaat, _zoek_op_isin(isin, targets, beurs, stappen=stappen))
+        kandidaat = _kies_beste(kandidaat, _zoek_op_isin(isin, targets, beurs, stappen=stappen, in_eur=in_eur))
 
     # Pas ná het zoeken: een naam-override is niet beurs-specifiek.
     if kandidaat[1] != "zeker":

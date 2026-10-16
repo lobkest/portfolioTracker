@@ -58,7 +58,7 @@ from upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
     bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
     voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
-    sla_kassaldo_op, vul_bronkolommen_aan, sla_rekening_regels_op,
+    sla_kassaldo_op, vul_bronkolommen_aan, sluit_hernoemde_synthetische_rijen_uit, sla_rekening_regels_op,
     meld_portfolio_opslaan, bewaar_upload_meldingen, upload_meldingen_voor_api, UPLOAD_SOORT_UPLOAD,
     UPLOAD_SOORT_BIJWERKEN,
 )
@@ -540,6 +540,9 @@ def _bijwerken_impl(code, bestanden):
         return jsonify({"error": MELDING_PER_EIGENDOMSFOUT[fout]}), 400
 
     rows_to_insert = df[df["Order ID"].isin(toe_te_voegen)] if df is not None else pd.DataFrame()
+    if not rows_to_insert.empty:
+        with db_transactie() as cur:
+            rows_to_insert = sluit_hernoemde_synthetische_rijen_uit(cur, code, rows_to_insert, nieuw)
     meld_portfolio_opslaan(True, rows_to_insert)
     if df is not None or rekening_df is not None:
         if rows_to_insert.empty:

@@ -77,7 +77,7 @@ class TestOudeAanpakRisicoOpTimeout(unittest.TestCase):
     def test_25_posities_met_koude_cache_nadert_of_overschrijdt_gunicorn_timeout(self):
         posities = [(f"FONDS {i}", f"ISIN{i}", "TDG", _transacties()) for i in range(AANTAL_POSITIES)]
 
-        def trage_find_ticker_detailed(product, isin, beurs):
+        def trage_find_ticker_detailed(product, isin, beurs, in_eur=None):
             time.sleep(ZOEK_VERTRAGING)
             return {
                 "ticker": f"TICK-{isin}",
@@ -130,7 +130,7 @@ class TestNieuweAanpakBlijftSnel(unittest.TestCase):
         # zowel de zoekopdracht (ZOEK_VERTRAGING) als 1 prijscheck
         # (PRIJSCHECK_VERTRAGING) -- geen enkele wijkt af, dus geen
         # escalatie naar stap 2/3.
-        def trage_find_ticker_detailed(product, isin, beurs):
+        def trage_find_ticker_detailed(product, isin, beurs, in_eur=None):
             time.sleep(ZOEK_VERTRAGING)
             return {"ticker": f"TICK-{isin}", "zekerheid": "zeker", "alternatieven": []}
 

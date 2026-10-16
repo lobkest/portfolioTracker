@@ -2106,6 +2106,20 @@ button.diagnostiekChip:disabled:hover {
     margin-top: 6px;
 }
 
+.diagnostiekRijen {
+    margin-top: 6px;
+}
+
+.diagnostiekRijen > summary {
+    cursor: pointer;
+    color: #2c7a4b;
+    font-weight: bold;
+}
+
+.diagnostiekRijenMeer {
+    margin: 4px 0 0;
+}
+
 .diagnostiekActie {
     margin-top: 4px;
     padding: 0;

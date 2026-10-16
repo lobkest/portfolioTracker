@@ -79,9 +79,10 @@ def _verzameling():
     return lijst
 
 
-def meld(categorie, niveau, tekst, sleutel=None, tabel=None, actie=None):
+def meld(categorie, niveau, tekst, sleutel=None, tabel=None, actie=None, rijen=None):
     """Zelfde (categorie, sleutel) vervangt de eerdere melding op dezelfde plek. Gooit nooit een exception.
     tabel: optioneel {"kolommen": [...], "rijen": [[...], ...]}, getoond onder de tekst.
+    rijen: optioneel zo'n tabel plus "meer" (aantal niet getoonde rijen): de betrokken transacties, inklapbaar.
     actie: optioneel {"label", "tab"}, een link naar dat tabblad (bv. ACTIE_TICKER_ZEKERHEID)."""
     try:
         verzameling = _verzameling()
@@ -94,6 +95,8 @@ def meld(categorie, niveau, tekst, sleutel=None, tabel=None, actie=None):
         nieuw = {"categorie": categorie, "niveau": niveau, "tekst": tekst, "sleutel": sleutel}
         if tabel is not None:
             nieuw["tabel"] = tabel
+        if rijen is not None:
+            nieuw["rijen"] = rijen
         if actie is not None:
             nieuw["actie"] = dict(actie)
         for i, bestaand in enumerate(verzameling):
@@ -136,7 +139,7 @@ def upload_meldingen_om_te_bewaren(meldingen):
 def meld_opnieuw(meldingen):
     for m in meldingen or []:
         meld(m.get("categorie"), m.get("niveau"), m.get("tekst"), m.get("sleutel"), tabel=m.get("tabel"),
-             actie=m.get("actie"))
+             actie=m.get("actie"), rijen=m.get("rijen"))
 
 
 def meld_laadtijd(label, duur_seconden):

@@ -377,7 +377,7 @@ class TestBekendeTickerSlaatZoekopdrachtOver(unittest.TestCase):
                 "APPLE INC", "US0378331005", "NASDAQ", transacties,
             )
 
-        mock_ftd.assert_called_once_with("APPLE INC", "US0378331005", "NASDAQ")
+        mock_ftd.assert_called_once_with("APPLE INC", "US0378331005", "NASDAQ", in_eur=None)
         self.assertEqual(resultaat["ticker"], "AAPL")
 
     def test_bekende_ticker_met_prijsprobleem_escaleert_alsnog(self):
@@ -448,7 +448,7 @@ class TestBasisTickerZekerheidParallel(unittest.TestCase):
             ("FONDS C", "ISINC", "EAM", []),
         ]
 
-        def fake_find_ticker_detailed(product, isin, beurs):
+        def fake_find_ticker_detailed(product, isin, beurs, in_eur=None):
             return {"ticker": f"TICK-{isin}", "zekerheid": "zeker", "alternatieven": []}
 
         with patch.object(ticker_zekerheid, "find_ticker_detailed", side_effect=fake_find_ticker_detailed):

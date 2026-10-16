@@ -7,7 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
-    hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
+    hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen, diagnostiekRijenBlok,
     deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie, categorieSamenvatting, meldingActie,
     formatUploadMoment, uploadBlokken, meldingenVoorTelling, uploadOokLiveTekst,
 } = require("../static/js/diagnostiek.js");
@@ -107,6 +107,16 @@ test("diagnostiekTabelRijen: zonder tabel of rijen null; null-cel wordt leeg", (
     assert.equal(diagnostiekTabelRijen(undefined), null);
     assert.equal(diagnostiekTabelRijen({ kolommen: ["Bedrijf"], rijen: [] }), null);
     assert.deepEqual(diagnostiekTabelRijen({ kolommen: ["Bedrijf"], rijen: [[null]] }).rijen, [[""]]);
+});
+
+test("diagnostiekRijenBlok: titel, rijen en 'en N meer'", () => {
+    const blok = diagnostiekRijenBlok({ kolommen: ["Datum"], rijen: [["01-01-2024"], ["02-01-2024"]], meer: 3 });
+    assert.equal(blok.titel, "Toon 5 rijen");
+    assert.equal(blok.meerTekst, "... en 3 meer");
+    assert.equal(blok.rijen.length, 2);
+    assert.equal(diagnostiekRijenBlok({ kolommen: ["Datum"], rijen: [["x"]], meer: 0 }).meerTekst, "");
+    assert.equal(diagnostiekRijenBlok({ kolommen: ["Datum"], rijen: [["x"]], meer: 0 }).titel, "Toon de rij");
+    assert.equal(diagnostiekRijenBlok(undefined), null);
 });
 
 test("deelInBlokken: FOUT/LET_OP naar aandacht (ernstigste eerst), de rest naar in orde", () => {

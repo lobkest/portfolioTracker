@@ -13,15 +13,16 @@ from diagnostiek import INFO, LET_OP
 from diagnostiek_checks import (
     MAX_BEVINDINGEN_PER_CHECK, check_ontbrekende_kolommen, check_posities_zonder_ticker,
     check_synthetische_order_ids, check_corporate_action_rijen, check_isin_wissels,
+    MAX_RIJEN_PER_BEVINDING, maak_rijen_blok, check_valuta_consistentie,
 )
 
 
 def _rij(datum=datetime.date(2021, 3, 1), product="ACME", isin="NL0000000001", beurs="EAM", ticker="ACM.AS",
          aantal=10.0, transactiekosten=1.0, waarde_eur=-100.0, tijd=datetime.time(10, 0), echte_naam=None,
-         koers=10.0, order_id=None):
+         koers=10.0, order_id=None, totaal_eur=-101.0):
     return {"datum": datum, "product": product, "isin": isin, "beurs": beurs, "ticker": ticker, "aantal": aantal,
             "transactiekosten": transactiekosten, "waarde_eur": waarde_eur, "tijd": tijd,
-            "echte_naam": echte_naam or product, "koers": koers, "order_id": order_id}
+            "echte_naam": echte_naam or product, "koers": koers, "order_id": order_id, "totaal_eur": totaal_eur}
 
 
 def _wisselpaar(d=datetime.date(2022, 2, 1), **extra):
@@ -153,7 +154,7 @@ class TestMeldDatakwaliteit(unittest.TestCase):
 
         df = _df(_rij(tijd=None))
         app = Flask(__name__)
-        rij = ("SYN-1-0", datetime.date(2021, 3, 1), datetime.time(10, 0), "ACME", "NL1", "EAM", 10.0, 10.0, 1.0)
+        rij = ("SYN-1-0", datetime.date(2021, 3, 1), datetime.time(10, 0), "ACME", "NL1", "EAM", 10.0, 10.0, 1.0, -101.0, "ACME")
         with app.test_request_context(), patch.object(po, "db_get_order_id_rijen", return_value=[rij]):
             po._meld_datakwaliteit("ZZTEST", df)
             sleutels = {m["sleutel"] for m in haal_meldingen() if m["categorie"] == CATEGORIE_DATA}
@@ -161,6 +162,48 @@ class TestMeldDatakwaliteit(unittest.TestCase):
 
         with app.test_request_context(), patch.object(po, "db_get_order_id_rijen", side_effect=RuntimeError("db weg")):
             po._meld_datakwaliteit("ZZTEST", df)
+
+
+class TestRijenBijBevinding(unittest.TestCase):
+    def test_ontbrekende_kosten_toont_de_betrokken_rij(self):
+        df = _df(_rij(), _rij(transactiekosten=None, aantal=-2.5, order_id="abcdefghijklmnop",
+                              datum=datetime.date(2024, 11, 4), product="NETFLIX", totaal_eur=-12.5))
+        [b] = check_ontbrekende_kolommen(df)
+        self.assertEqual(b["rijen"], {
+            "kolommen": ["Datum", "Naam", "Aantal", "Totaal EUR", "Order ID"],
+            "rijen": [["04-11-2024", "NETFLIX", "-2,5", "-12,5", "abcdefghijkl…"]],
+            "meer": 0,
+        })
+
+    def test_synthetische_id_toont_alleen_de_syn_rij(self):
+        df = _df(_rij(order_id="SYN-1234"), _rij(order_id="echt-1"))
+        [b] = check_synthetische_order_ids(df)
+        self.assertEqual([r[4] for r in b["rijen"]["rijen"]], ["SYN-1234"])
+
+    def test_corporate_action_heeft_rijen(self):
+        ca = _rij(beurs="DEG", isin="CA1", product="BYD NON TRADEABLE")
+        [b] = check_corporate_action_rijen(_df(ca, _rij()))
+        self.assertEqual(len(b["rijen"]["rijen"]), 1)
+
+    def test_valuta_check_heeft_rijen(self):
+        excel = pd.DataFrame({
+            "ISIN": ["US1"], "Beurs": ["TDG"], "Product": ["NETFLIX"], "Wisselkoers": [None],
+            "Datum": [pd.Timestamp("2024-01-02")], "Aantal": [1.0], "Totaal EUR": [-100.0], "Order ID": ["o1"]})
+        [b] = check_valuta_consistentie(excel, {("US1", "TDG"): "NFLX"}, {"NFLX": "USD"})
+        self.assertEqual(b["rijen"]["rijen"], [["02-01-2024", "NETFLIX", "1", "-100", "o1"]])
+
+    def test_grens_van_tien_rijen(self):
+        df = _df(*[_rij(datum=datetime.date(2024, 1, 1 + i), order_id=f"o{i}") for i in range(MAX_RIJEN_PER_BEVINDING + 3)])
+        blok = maak_rijen_blok(df)
+        self.assertEqual(len(blok["rijen"]), MAX_RIJEN_PER_BEVINDING)
+        self.assertEqual(blok["meer"], 3)
+
+    def test_precies_tien_rijen_geen_meer(self):
+        df = _df(*[_rij(order_id=f"o{i}") for i in range(MAX_RIJEN_PER_BEVINDING)])
+        self.assertEqual(maak_rijen_blok(df)["meer"], 0)
+
+    def test_zonder_rijen_geen_blok(self):
+        self.assertIsNone(maak_rijen_blok(_df()))
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ import re
 import secrets
 import string
 
+from transactie_utils import SYNTHETISCH_ORDER_ID_PREFIX
 from db import db_get_order_id_sets_met_overlap, db_portfolio_bestaat_met_cursor, db_probeer_portfolio_te_maken
 
 CODE_LENGTH = 3
@@ -67,15 +68,27 @@ def maak_portfolio_met_nieuwe_code(cur, naam):
     raise GeenVrijeCode(MELDING_GEEN_VRIJE_CODE)
 
 
+def echte_order_ids(ids):
+    return {i for i in ids if not str(i).startswith(SYNTHETISCH_ORDER_ID_PREFIX)}
+
+
+def ids_om_te_vergelijken(opgeslagen, ids):
+    """Alleen de echte Order ID's: een SYN-ID hangt aan datum, tijd, aantal en bedrag en kan in een nieuwere export
+    veranderen. Een portfolio met alleen SYN-ID's heeft niets anders om op te herkennen."""
+    return echte_order_ids(ids) if echte_order_ids(opgeslagen) else set(ids)
+
+
 def find_matching_code(cur, new_order_ids):
     """Geeft (code, ontbrekende_order_ids) als een bestaande set ⊆ upload (nieuwere export), anders (None, None).
     Is de upload een deelverzameling van een bestaande portfolio, dan UploadHoortBijBestaandePortfolio."""
     existing = db_get_order_id_sets_met_overlap(cur, new_order_ids)
     for code, ids in existing.items():
-        if ids <= new_order_ids:
+        if ids_om_te_vergelijken(ids, ids) <= ids_om_te_vergelijken(ids, new_order_ids):
             return code, new_order_ids - ids
-    if any(new_order_ids <= ids for ids in existing.values()):
-        raise UploadHoortBijBestaandePortfolio(MELDING_UPLOAD_HOORT_BIJ_BESTAANDE)
+    for ids in existing.values():
+        nieuw = ids_om_te_vergelijken(ids, new_order_ids)
+        if nieuw and nieuw <= ids:
+            raise UploadHoortBijBestaandePortfolio(MELDING_UPLOAD_HOORT_BIJ_BESTAANDE)
     return None, None
 
 
@@ -88,9 +101,10 @@ FOUT_ONBEKENDE_TRANSACTIES = "onbekende_transacties"
 def controleer_eigen_transactiebestand(opgeslagen, nieuw, ids_andere_portfolios):
     """Strenger dan find_matching_code(): het bestand moet alle opgeslagen Order ID's bevatten.
     Geeft (foutcode, None) of (None, toe_te_voegen_order_ids)."""
-    if nieuw & ids_andere_portfolios or (opgeslagen and not nieuw & opgeslagen):
+    vergelijk_nieuw = ids_om_te_vergelijken(opgeslagen, nieuw)
+    if echte_order_ids(nieuw) & ids_andere_portfolios or (opgeslagen and not vergelijk_nieuw & opgeslagen):
         return FOUT_ANDERE_PORTFOLIO, None
-    if not opgeslagen <= nieuw:
+    if not ids_om_te_vergelijken(opgeslagen, opgeslagen) <= vergelijk_nieuw:
         return FOUT_TRANSACTIES_ONTBREKEN, None
     return None, nieuw - opgeslagen
 

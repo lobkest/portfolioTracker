@@ -170,7 +170,7 @@ class TestBijwerkenRoute(unittest.TestCase):
         self._assert_niets_opgeslagen()
 
     def test_afgekeurd_transactiebestand_verwerkt_ook_het_rekeningoverzicht_niet(self):
-        een_id = next(iter(self.transactie_ids))
+        een_id = next(i for i in sorted(self.transactie_ids) if not i.startswith("SYN-"))
         self.mock_opgeslagen.return_value = self.transactie_ids - {een_id}
         self.mock_bij_andere.return_value = {een_id}
         res = self._post(rekening=True)

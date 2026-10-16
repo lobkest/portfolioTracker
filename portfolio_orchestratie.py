@@ -218,21 +218,46 @@ def _meld_check_mislukt(categorie, wat, e):
          sleutel=f"check_mislukt:{wat}")
 
 
+def _order_id_sleutel(datum, tijd, isin, aantal, totaal_eur):
+    return (str(datum)[:10], "" if tijd is None or pd.isna(tijd) else str(tijd)[:5], isin,
+            round(float(aantal), 6), round(float(totaal_eur), 2))
+
+
+def voeg_order_ids_toe(transacties_df, order_id_rijen):
+    """Kopie met een kolom order_id, alleen om in Diagnostiek de betrokken rijen te tonen. De transactietabel zelf
+    heeft die kolom niet; gelijke sleutels (deelorders) krijgen elk een eigen ID."""
+    beschikbaar = {}
+    for rij in order_id_rijen:
+        r = dict(zip(ORDER_ID_KOLOMMEN, rij))
+        sleutel = _order_id_sleutel(r["datum"], r["tijd"], r["isin"], r["aantal"], r["totaal_eur"])
+        beschikbaar.setdefault(sleutel, []).append(r["order_id"])
+
+    def kies(rij):
+        ids = beschikbaar.get(_order_id_sleutel(rij["datum"], rij["tijd"], rij["isin"], rij["aantal"], rij["totaal_eur"]))
+        return ids.pop(0) if ids else None
+
+    kopie = transacties_df.copy()
+    kopie["order_id"] = [kies(rij) for _, rij in kopie.iterrows()]
+    return kopie
+
+
 def _meld_datakwaliteit(code, transacties_df):
     """Diagnostiek mag het laden nooit breken. code None ('niet opslaan'): zonder de check op synthetische Order ID's
     (die meldt de upload zelf al, in Order ID's) en zonder het advies om opnieuw te uploaden."""
     try:
         opgeslagen = code is not None
+        order_id_rijen = db_get_order_id_rijen(code) if opgeslagen else []
+        met_order_ids = voeg_order_ids_toe(transacties_df, order_id_rijen) if opgeslagen else transacties_df
         bevindingen = (
-            check_ontbrekende_kolommen(transacties_df, opgeslagen=opgeslagen)
+            check_ontbrekende_kolommen(met_order_ids, opgeslagen=opgeslagen)
             + check_posities_zonder_ticker(transacties_df)
-            + (check_synthetische_order_ids(pd.DataFrame(db_get_order_id_rijen(code), columns=ORDER_ID_KOLOMMEN))
+            + (check_synthetische_order_ids(pd.DataFrame(order_id_rijen, columns=ORDER_ID_KOLOMMEN))
                if opgeslagen else [])
-            + check_corporate_action_rijen(transacties_df)
+            + check_corporate_action_rijen(met_order_ids)
             + check_negatief_aantal(transacties_df)
         )
         for b in bevindingen:
-            meld(CATEGORIE_DATA, b["niveau"], b["tekst"], sleutel=b["sleutel"])
+            meld(CATEGORIE_DATA, b["niveau"], b["tekst"], sleutel=b["sleutel"], rijen=b.get("rijen"))
         for b in check_isin_wissels(transacties_df):
             meld(CATEGORIE_SPLITS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
     except Exception as e:
@@ -290,7 +315,8 @@ def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
         tickers = sorted({t for t in ticker_per_isin_beurs.values() if t})
         valuta = {t: d.get("valuta") for t, d in db_get_ticker_details(tickers).items()}
         for b in check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta):
-            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"], actie=ACTIE_TICKER_ZEKERHEID)
+            meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"], actie=ACTIE_TICKER_ZEKERHEID,
+                 rijen=b.get("rijen"))
     except Exception as e:
         _meld_check_mislukt(CATEGORIE_TICKERS, "Valuta-consistentie", e)
 

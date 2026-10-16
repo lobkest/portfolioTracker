@@ -67,6 +67,22 @@ function maakDiagnostiekTabel(tabel) {
     return wrapper;
 }
 
+function maakDiagnostiekRijen(blok) {
+    const details = document.createElement("details");
+    details.className = "diagnostiekRijen";
+    const samenvatting = document.createElement("summary");
+    samenvatting.textContent = blok.titel;
+    details.appendChild(samenvatting);
+    details.appendChild(maakDiagnostiekTabel(blok));
+    if (blok.meerTekst) {
+        const meer = document.createElement("p");
+        meer.className = "diagnostiekRijenMeer";
+        meer.textContent = blok.meerTekst;
+        details.appendChild(meer);
+    }
+    return details;
+}
+
 function maakNiveauIcoon(niveau) {
     const icoon = document.createElement("span");
     icoon.className = `niveauIcoon icoon${niveau}`;
@@ -113,6 +129,8 @@ function maakDiagnostiekMelding(melding, categorieNiveau) {
     inhoud.appendChild(tekst);
     const tabel = diagnostiekTabelRijen(melding.tabel);
     if (tabel) inhoud.appendChild(maakDiagnostiekTabel(tabel));
+    const rijenBlok = diagnostiekRijenBlok(melding.rijen);
+    if (rijenBlok) inhoud.appendChild(maakDiagnostiekRijen(rijenBlok));
     const actie = meldingActie(melding);
     if (actie) {
         const knop = document.createElement("button");

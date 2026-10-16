@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 from diagnostiek import GOED, INFO, LET_OP
+from dividend import ORDER_ID_KOLOM_REKENING
 from rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, REGELSOORT_VERREKENING_AANDELEN, regelsoort
 from naam_verkorting import uitkeringsvorm_strijdig
 from portfolio_calc import MIN_AANTAL_TEKORT, holdings_op_datums, stand_per_dag_per_keten
@@ -16,16 +17,20 @@ from split_correctie import isin_ketens, vind_wisselparen
 from ticker_matching import MANUAL_TICKER_OVERRIDES_ISIN, _openfigi_root_matches
 from ticker_prijscheck import PRIJSCHECK_REDEN_GEEN_FX
 from ticker_zekerheid import BEURS_OTC_NA_DELISTING, beurs_status, prijs_klopt
-from transactie_utils import _is_corporate_action_row, formatteer_datum_nl, getal_nl
+from transactie_utils import SYNTHETISCH_ORDER_ID_PREFIX, _is_corporate_action_row, formatteer_datum_nl, getal_nl
 
 MAX_BEVINDINGEN_PER_CHECK = 5
-SYNTHETISCH_ORDER_ID_PREFIX = "SYN-"
+MAX_RIJEN_PER_BEVINDING = 10
+ORDER_ID_AFKORTING = 12
+RIJEN_KOLOMMEN = ("Datum", "Naam", "Aantal", "Totaal EUR", "Order ID")
 # Alleen deze kolommen kunnen in oude rijen NULL zijn doordat er geen backfill is.
 KOLOMMEN_ZONDER_BACKFILL = {
     "tijd": "de volgorde van transacties binnen een dag",
     "transactiekosten": "de getoonde kosten",
     "waarde_eur": "de GAK (die valt terug op Totaal EUR, incl. kosten, en wordt iets te hoog)",
 }
+# Een herupload vult deze kolommen in bestaande rijen aan (vul_bronkolommen_aan()).
+KOLOMMEN_MET_AANVULLING = {"transactiekosten"}
 
 
 # Intraday-koers en Yahoo-slot (plus DeGiro- vs. Yahoo-FX) verschillen normaal enkele procenten; een gemiste
@@ -52,8 +57,51 @@ def aantal_tekst(aantal, enkelvoud, meervoud):
     return f"{aantal} {enkelvoud if aantal == 1 else meervoud}"
 
 
-def _bevinding(niveau, tekst, sleutel):
-    return {"niveau": niveau, "tekst": tekst, "sleutel": sleutel}
+def _bevinding(niveau, tekst, sleutel, rijen=None):
+    bevinding = {"niveau": niveau, "tekst": tekst, "sleutel": sleutel}
+    if rijen is not None:
+        bevinding["rijen"] = rijen
+    return bevinding
+
+
+def _leeg(waarde):
+    return waarde is None or (not isinstance(waarde, str) and pd.isna(waarde))
+
+
+def _korte_order_id(order_id):
+    if _leeg(order_id):
+        return ""
+    tekst = str(order_id)
+    return tekst if len(tekst) <= ORDER_ID_AFKORTING else tekst[:ORDER_ID_AFKORTING] + "…"
+
+
+def _getal_of_leeg(waarde, decimalen):
+    return "" if _leeg(waarde) else getal_nl(waarde, decimalen)
+
+
+def maak_rijen_blok(df, datum="datum", naam=("echte_naam", "product"), aantal="aantal", totaal="totaal_eur",
+                    order_id="order_id"):
+    """De betrokken rijen onder een melding: {"kolommen", "rijen", "meer"}. Kolomnamen die ontbreken geven lege cellen;
+    maximaal MAX_RIJEN_PER_BEVINDING rijen, de rest als `meer`. None zonder rijen."""
+    if df is None or len(df) == 0:
+        return None
+    df = df.sort_values(datum, kind="mergesort") if datum in df.columns else df
+    namen = [n for n in ([naam] if isinstance(naam, str) else naam) if n in df.columns]
+
+    def cel(rij, kolom):
+        return rij[kolom] if kolom in df.columns else None
+
+    rijen = []
+    for _, rij in df.head(MAX_RIJEN_PER_BEVINDING).iterrows():
+        kolom_naam = next((n for n in namen if not _leeg(rij[n])), None)
+        rijen.append([
+            "" if _leeg(cel(rij, datum)) else formatteer_datum_nl(rij[datum]),
+            "" if kolom_naam is None else str(rij[kolom_naam]),
+            _getal_of_leeg(cel(rij, aantal), 4),
+            _getal_of_leeg(cel(rij, totaal), 2),
+            _korte_order_id(cel(rij, order_id)),
+        ])
+    return {"kolommen": list(RIJEN_KOLOMMEN), "rijen": rijen, "meer": max(0, len(df) - MAX_RIJEN_PER_BEVINDING)}
 
 
 def _beperk(bevindingen, niveau, sleutel_meer):
@@ -81,8 +129,26 @@ def _wisselrij_masker(df):
     return masker
 
 
+def _productwijziging_masker(df):
+    """De gewone kant van een productwijziging (rechten -> aandelen): koers 0, geen echte Order ID en op dezelfde datum
+    en tijd een DEG/NON TRADEABLE-rij met het tegengestelde aantal. Alleen voor Diagnostiek: de rij blijft echt bezit."""
+    masker = pd.Series(False, index=df.index)
+    if df.empty or "tijd" not in df.columns:
+        return masker
+    ca = _corporate_action_masker(df)
+    tegenpartij = {(str(d)[:10], str(t), round(float(a), 6))
+                   for d, t, a in zip(df.loc[ca, "datum"], df.loc[ca, "tijd"], df.loc[ca, "aantal"])}
+    zonder_id = (~df["order_id"].map(lambda i: not _leeg(i) and not str(i).startswith(SYNTHETISCH_ORDER_ID_PREFIX))
+                 if "order_id" in df.columns else pd.Series(True, index=df.index))
+    gratis = pd.to_numeric(df["koers"], errors="coerce") == 0
+    heeft_tegenpartij = pd.Series(
+        [(str(d)[:10], str(t), round(-float(a), 6)) in tegenpartij
+         for d, t, a in zip(df["datum"], df["tijd"], df["aantal"])], index=df.index)
+    return ~ca & zonder_id & gratis & heeft_tegenpartij
+
+
 def _gewone_rijen(df):
-    return df[~_corporate_action_masker(df) & ~_wisselrij_masker(df)]
+    return df[~_corporate_action_masker(df) & ~_wisselrij_masker(df) & ~_productwijziging_masker(df)]
 
 
 def _weergavenaam(rij):
@@ -105,10 +171,12 @@ def check_ontbrekende_kolommen(df, opgeslagen=True):
             continue
         tekst = (f"{len(rijen)} transacties hebben geen '{kolom}' (oudste: {formatteer_datum_nl(rijen['datum'].min())}). "
                  f"Dit raakt {geraakt}.")
-        if opgeslagen:
+        if opgeslagen and kolom in KOLOMMEN_MET_AANVULLING:
+            tekst += " Upload een nieuwe DeGiro-export om dit aan te vullen."
+        elif opgeslagen:
             tekst += (" Er is geen backfill voor bestaande rijen; de oplossing is het portfolio "
                       "te verwijderen en opnieuw te uploaden.")
-        bevindingen.append(_bevinding(LET_OP, tekst, f"data:ontbrekend:{kolom}"))
+        bevindingen.append(_bevinding(LET_OP, tekst, f"data:ontbrekend:{kolom}", maak_rijen_blok(rijen)))
     return bevindingen
 
 
@@ -138,21 +206,23 @@ def check_synthetische_order_ids(df):
     if df.empty:
         return []
     gewone = _gewone_rijen(df)
-    aantal = int(gewone["order_id"].astype(str).str.startswith(SYNTHETISCH_ORDER_ID_PREFIX).sum())
-    if not aantal:
+    synthetisch = gewone[gewone["order_id"].astype(str).str.startswith(SYNTHETISCH_ORDER_ID_PREFIX)]
+    if synthetisch.empty:
         return []
     return [_bevinding(
         INFO,
-        f"{aantal} van {len(gewone)} gewone transacties hebben een synthetische Order ID ({SYNTHETISCH_ORDER_ID_PREFIX}...): "
-        f"bij een volgende upload kan het portfolio daardoor minder betrouwbaar herkend worden.",
+        f"{len(synthetisch)} van {len(gewone)} gewone transacties hebben een synthetische Order ID "
+        f"({SYNTHETISCH_ORDER_ID_PREFIX}...): DeGiro gaf die rijen geen Order ID. Het portfolio wordt bij een volgende "
+        f"upload herkend aan de echte Order ID's, dus dit is geen probleem.",
         "data:synthetisch",
+        maak_rijen_blok(synthetisch),
     )]
 
 
 def check_corporate_action_rijen(df):
     if df.empty:
         return []
-    ca = df[_corporate_action_masker(df)]
+    ca = df[_corporate_action_masker(df) | _productwijziging_masker(df)]
     per_isin = sorted(ca.groupby("isin", dropna=False), key=lambda x: -len(x[1]))
     bevindingen = [
         _bevinding(
@@ -161,6 +231,7 @@ def check_corporate_action_rijen(df):
             f"({formatteer_datum_nl(groep['datum'].min())} t/m {formatteer_datum_nl(groep['datum'].max())}); "
             f"hier is een split of wissel geboekt.",
             f"data:corporate_action:{isin}",
+            maak_rijen_blok(groep),
         )
         for isin, groep in per_isin
     ]
@@ -593,6 +664,8 @@ def check_rekening_regelsoorten(rekening_df):
             f"{', '.join(_bedrag(v, b) for v, b in totalen.items())}): geld uit een corporate action. Het staat niet "
             f"in het transactiebestand en telt dus niet mee in het rendement.",
             "rekening:verrekening_aandelen",
+            maak_rijen_blok(verrekening, datum="Datum", naam="Product", aantal=None, totaal="mutatie",
+                            order_id=ORDER_ID_KOLOM_REKENING),
         ))
 
     onbekend = rekening_df[soorten.isna()]
@@ -828,7 +901,8 @@ def check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta_per_ticker
         valuta = valuta_per_ticker.get(ticker)
         if not ticker or not valuta:
             continue
-        product = excel.loc[(excel["ISIN"] == isin) & (excel["Beurs"] == beurs), "Product"].iloc[0]
+        positie_rijen = excel[(excel["ISIN"] == isin) & (excel["Beurs"] == beurs)]
+        product = positie_rijen["Product"].iloc[0]
         if valuta != "EUR" and not met_wisselkoers:
             tekst = (f"Yahoo noteert {ticker} in {valuta}, maar de Excel heeft voor {product} ({isin}, {beurs}) geen "
                      f"Wisselkoers: DeGiro rekende in EUR. Controleer of ticker en beurs bij elkaar passen.")
@@ -837,5 +911,8 @@ def check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta_per_ticker
                      f"Wisselkoers: DeGiro rekende in een andere valuta. Controleer of ticker en beurs bij elkaar passen.")
         else:
             continue
-        bevindingen.append(_bevinding(LET_OP, tekst, f"tickers:valuta:{ticker}"))
+        bevindingen.append(_bevinding(
+            LET_OP, tekst, f"tickers:valuta:{ticker}",
+            maak_rijen_blok(positie_rijen, datum="Datum", naam="Product", aantal="Aantal", totaal="Totaal EUR",
+                            order_id="Order ID")))
     return _beperk(bevindingen, LET_OP, "tickers:valuta:meer")

@@ -190,6 +190,20 @@
         return { kolommen, rijen };
     }
 
+    // De betrokken rijen onder een melding ({kolommen, rijen, meer}); null zonder rijen. Cellen als tekst.
+    function diagnostiekRijenBlok(rijenBlok) {
+        const tabel = diagnostiekTabelRijen(rijenBlok);
+        if (!tabel) return null;
+        const meer = Number.isFinite(rijenBlok.meer) && rijenBlok.meer > 0 ? rijenBlok.meer : 0;
+        const aantal = tabel.rijen.length + meer;
+        return {
+            kolommen: tabel.kolommen,
+            rijen: tabel.rijen,
+            meerTekst: meer ? `... en ${meer} meer` : "",
+            titel: `Toon ${aantal === 1 ? "de rij" : `${aantal} rijen`}`,
+        };
+    }
+
     // ISO-tijdstip -> "dd-mm-jjjj hh:mm" in lokale tijd; "" als het geen geldige datum is.
     function formatUploadMoment(iso) {
         const d = new Date(iso);
@@ -245,7 +259,7 @@
         normaalNiveau, deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie,
         categorieSamenvatting, meldingActie,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
-        hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen,
+        hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen, diagnostiekRijenBlok,
         formatUploadMoment, uploadBlokken, meldingenVoorTelling, uploadOokLiveTekst,
     };
 

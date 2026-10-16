@@ -5,6 +5,7 @@ import pandas as pd
 
 
 KOSTENKORTING_KOLOM = "kostenkorting_eur"
+SYNTHETISCH_ORDER_ID_PREFIX = "SYN-"
 
 
 class OngeldigExcelBestand(Exception):

@@ -251,8 +251,9 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         posities = self._posities(self._excel(_xela_rijen("NSQ", "XELA")))
         # De -14 @ 0,72 en +4 @ 2,16 tellen niet mee; de aankopen van de oude en de verkoop van de nieuwe ISIN wel.
         self.assertEqual(posities, {(NIEUW_ISIN, "NSQ"): [
-            {"datum": "2021-01-08", "koers": 0.41}, {"datum": "2021-01-25", "koers": 0.71},
-            {"datum": "2021-01-27", "koers": 1.91}]})
+            {"datum": "2021-01-08", "koers": 0.41, "wisselkoers": None},
+            {"datum": "2021-01-25", "koers": 0.71, "wisselkoers": None},
+            {"datum": "2021-01-27", "koers": 1.91, "wisselkoers": None}]})
 
     def test_upload_zonder_tijd_blijven_twee_posities(self):
         rijen = _xela_rijen("NSQ", "XELA")
