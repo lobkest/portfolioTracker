@@ -223,6 +223,20 @@ def db_connect():
     return gedeeld
 
 
+def is_verbindingsfout(e):
+    return isinstance(e, (psycopg2.OperationalError, psycopg2.InterfaceError))
+
+
+def _rollback_stil(conn):
+    # Een door Neon gesloten verbinding mag met zijn rollback-fout de oorspronkelijke fout niet overschrijven.
+    if conn.closed:
+        return
+    try:
+        conn.rollback()
+    except (psycopg2.InterfaceError, psycopg2.OperationalError):
+        pass
+
+
 @contextmanager
 def db_transactie():
     """Cursor voor één transactie: commit na het blok, rollback bij een exception; sluit altijd."""
@@ -232,10 +246,13 @@ def db_transactie():
         yield cur
         conn.commit()
     except BaseException:
-        conn.rollback()
+        _rollback_stil(conn)
         raise
     finally:
-        cur.close()
+        try:
+            cur.close()
+        except psycopg2.Error:
+            pass
         conn.close()
 
 

@@ -185,6 +185,7 @@ def pas_effectieve_datums_toe(transacties_df):
     with meet_tijd("effectieve_datums_koppelen"):
         transacties_df, resultaat = bepaal_effectieve_datums(transacties_df, boekingen, splits_per_ticker)
     meld_split_koppeling(resultaat)
+    transacties_df.attrs["split_koppeling"] = resultaat
     # Hergebruikt door analyze_transacties_kern(): scheelt een tweede database-read.
     transacties_df.attrs["koers_splits"] = splits_per_ticker
     return transacties_df
@@ -685,6 +686,9 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         rekening_regels = db_get_rekening_regels_eur(code)
     verrekeningen, verrekening_zonder_positie = bouw_verrekeningen(rekening_regels, transacties_df)
     zet_verrekeningen(transacties_df, verrekeningen)
+    split_koppeling = transacties_df.attrs.get("split_koppeling")
+    if split_koppeling is not None:
+        meld_split_koppeling(split_koppeling, verrekeningen if rekening_regels is not None else None)
     for b in check_verrekening_aandelen(verrekeningen, verrekening_zonder_positie):
         meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], rijen=b.get("rijen"))
 

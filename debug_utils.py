@@ -1,6 +1,7 @@
 """Logging-helpers voor het hele project (dprint, meet_tijd)."""
 import os
 import re
+import secrets
 import time
 import traceback
 from contextlib import contextmanager
@@ -28,6 +29,15 @@ def timing_detail_aan():
 _CODE_IN_DB_FOUT = re.compile(r"(Key \(code(?:, \w+)*\)=\()[A-Z]{3}")
 # De code staat in het pad: /p/<code> en /api/portfolio/<code>/...
 _CODE_IN_PAD = re.compile(r"^(/p/|/api/portfolio/)[^/?#]+")
+
+
+FOUTCODE_LENGTE = 6
+# Zonder 0/O en 1/I: de code wordt voorgelezen of overgetypt.
+_FOUTCODE_TEKENS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def maak_foutcode():
+    return "".join(secrets.choice(_FOUTCODE_TEKENS) for _ in range(FOUTCODE_LENGTE))
 
 
 def maskeer_codes(tekst):

@@ -95,6 +95,9 @@ class Voortgang:
         print(stap_logregel(self._stap, nu - self._stap_begin[0], self._stap_begin[1], stand))
         self._stap_begin = None
 
+    def stap_tekst(self):
+        return self._teksten.get(self._stap)
+
     def start_stap(self, stap_id):
         if stap_id not in self._teksten:
             return
@@ -146,6 +149,12 @@ def zet_voortgang(voortgang):
 
 def reset_voortgang(token):
     _huidige.reset(token)
+
+
+def huidige_stap_tekst():
+    """Label van de laatst gestarte stap, of None zonder actieve voortgang."""
+    voortgang = _huidige.get()
+    return voortgang.stap_tekst() if voortgang is not None else None
 
 
 def meld_stap(stap_id):

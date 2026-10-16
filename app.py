@@ -20,6 +20,7 @@ from db import (
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
     db_get_dividenden, db_get_upload_meldingen, db_markeer_portfolio_gebruikt, db_verbinding_teller_stand,
+    is_verbindingsfout,
 )
 from bewaartermijn import ruim_verlopen_portfolios_op, BEWAARTERMIJN_MAANDEN
 from ticker_classificatie import haal_long_names, bewaar_long_names
@@ -28,10 +29,10 @@ from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
     controleer_alle_transactieprijzen, bijnaam_na_tickerwissel,
 )
-from debug_utils import meet_tijd, maskeer_codes, print_traceback
+from debug_utils import meet_tijd, maskeer_codes, print_traceback, maak_foutcode
 from diagnostiek import voeg_diagnostiek_toe
 from voortgang import (
-    Voortgang, meld_stap, zet_voortgang, reset_voortgang, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN,
+    Voortgang, meld_stap, zet_voortgang, reset_voortgang, huidige_stap_tekst, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN,
     STAPPEN_BIJWERKEN, STAPPEN_OPHALEN, STAPPEN_OPHALEN_ZONDER_HERBEPALEN,
 )
 from yahoo_client import (
@@ -317,10 +318,17 @@ def upload():
     return _als_voortgangsstroom(lambda: _upload_uitvoeren(bestanden), stappen, MELDING_UPLOAD_MISLUKT, flow)
 
 
-MELDING_UPLOAD_MISLUKT = (
-    "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
-    "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
+MELDING_UPLOAD_MISLUKT = "Er ging iets onverwachts mis tijdens de upload. Probeer het opnieuw."
+
+MELDING_DB_ONDERBROKEN = (
+    "De verbinding met de database werd onderbroken. Klik nog een keer op Uploaden; meestal lukt het dan wel."
 )
+
+
+def _melding_onverwachte_fout(stap, foutcode):
+    waar = f" bij de stap '{stap}'" if stap else ""
+    return (f"Er ging iets onverwachts mis{waar}. Probeer het opnieuw. "
+            f"Blijft het misgaan, noem dan foutcode {foutcode}.")
 
 
 def _upload_uitvoeren(bestanden):
@@ -336,9 +344,12 @@ def _upload_uitvoeren(bestanden):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[upload] ONVERWACHTE FOUT: {maskeer_codes(e)}")
+        foutcode = maak_foutcode()
+        print(f"[upload] ONVERWACHTE FOUT (foutcode {foutcode}): {maskeer_codes(e)}")
         print_traceback()
-        return jsonify({"error": MELDING_UPLOAD_MISLUKT}), 500
+        if is_verbindingsfout(e):
+            return jsonify({"error": MELDING_DB_ONDERBROKEN}), 503
+        return jsonify({"error": _melding_onverwachte_fout(huidige_stap_tekst(), foutcode)}), 500
     finally:
         db_log_verbinding_samenvatting()
 

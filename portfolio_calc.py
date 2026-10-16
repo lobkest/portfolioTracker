@@ -7,7 +7,9 @@ from split_correctie import (
     DegiroSplitGebeurtenis, SPLIT_KOPPEL_MAX_DAGEN, SplitBoeking, isin_ketens, vind_wisselparen,
 )
 from verrekening import verrekeningen_van
-from transactie_utils import _is_corporate_action_row, _sorteer_chronologisch, formatteer_datum_nl, getal_nl
+from transactie_utils import (
+    _is_corporate_action_row, _sorteer_chronologisch, bedrag_nl, formatteer_datum_nl, getal_nl,
+)
 
 
 # Float-ruis bij fractionele aantallen; een echt tekort is groter.
@@ -154,7 +156,8 @@ def bepaal_split_boekingen(transacties_df):
         for c in item["conversies"]:
             gebeurtenis = DegiroSplitGebeurtenis(
                 pd.Timestamp(c["bijschrijfdatum"]), c["shares_before"], c["shares_before"] + c["new_shares"])
-            boekingen.append(SplitBoeking(ticker, gebeurtenis, tuple(c["rijen"]), "conversierij"))
+            boekingen.append(SplitBoeking(
+                ticker, gebeurtenis, tuple(c["rijen"]), "conversierij", (item["isin"],), pd.Timestamp(c["datum"])))
 
     paren, _onduidelijk = vind_wisselparen(transacties_df)
     for paar in paren:
@@ -187,18 +190,45 @@ def _wissel_tekst(boeking, koppeling, verschil):
     return tekst + "."
 
 
-def meld_split_koppeling(resultaat):
-    """Diagnostiek-meldingen bij het koppelen van DeGiro-boekingen aan Yahoo-splits."""
+# Een verrekening hoort bij de conversie als ze er niet eerder dan de splitdatum en hooguit een week later staat.
+VERREKENING_NA_CONVERSIE_DAGEN = 7
+
+
+def _conversie_tekst(boeking, koppeling, verrekeningen):
+    """Split met conversierij: werkelijk aantal naast het theoretische, met de verrekening als die er is.
+    verrekeningen: toegekende verrekeningen (verrekening.py); None = geen rekeningoverzicht, dan geen bedrag."""
+    g = boeking.gebeurtenis
+    theoretisch = g.oud_aantal * koppeling.yahoo_ratio
+    tekst = (f"{split_tekst(koppeling.yahoo_ratio)} van {boeking.ticker} op {formatteer_datum_nl(koppeling.yahoo_datum)}: "
+             f"{getal_nl(g.oud_aantal, 4)} \u2192 {getal_nl(g.nieuw_aantal, 4)} stuks")
+    conversie = pd.Timestamp(boeking.conversiedatum).normalize() if boeking.conversiedatum is not None else None
+    conversie_tekst = f"DeGiro-conversie {formatteer_datum_nl(conversie)}" if conversie is not None else ""
+    if abs(theoretisch - g.nieuw_aantal) <= 1e-6:
+        if conversie is not None and conversie != koppeling.yahoo_datum:
+            tekst += f" ({conversie_tekst})"
+        return tekst + "."
+    tekst += f" (theoretisch {getal_nl(theoretisch, 4)}" + (f"; {conversie_tekst})" if conversie_tekst else ")") + "."
+    bedrag = sum(
+        v["bedrag"] for v in verrekeningen or []
+        if v["isin"] in boeking.isins and koppeling.yahoo_datum <= v["datum"]
+        <= (conversie or koppeling.yahoo_datum) + pd.Timedelta(days=VERREKENING_NA_CONVERSIE_DAGEN))
+    if bedrag:
+        tekst += (f" Het verschil is contant uitbetaald (Verrekening van Aandelen, \u20ac {bedrag_nl(bedrag)}, telt mee "
+                  f"als opbrengst).")
+    return tekst
+
+
+def meld_split_koppeling(resultaat, verrekeningen=None):
+    """Diagnostiek-meldingen bij het koppelen van DeGiro-boekingen aan Yahoo-splits. Een conversierij vervangt de melding
+    'Split voor ... factor' van compute_split_adjusted_shares() (zelfde sleutel)."""
     for boeking, koppeling in resultaat.gekoppeld:
         verschil = (pd.Timestamp(boeking.gebeurtenis.datum).normalize() - koppeling.yahoo_datum).days
         if boeking.patroon == "wisselpaar":
             meld(CATEGORIE_SPLITS, INFO, _wissel_tekst(boeking, koppeling, verschil),
                  sleutel=f"split_koppeling:{boeking.ticker}:{koppeling.yahoo_datum:%Y-%m-%d}")
-        elif verschil:
-            meld(CATEGORIE_SPLITS, INFO,
-                 f"Split van {boeking.ticker}: DeGiro boekte op {formatteer_datum_nl(boeking.gebeurtenis.datum)}, Yahoo op "
-                 f"{formatteer_datum_nl(koppeling.yahoo_datum)}; het aantal telt mee vanaf Yahoo's datum.",
-                 sleutel=f"split_koppeling:{boeking.ticker}:{koppeling.yahoo_datum:%Y-%m-%d}")
+        else:
+            meld(CATEGORIE_SPLITS, INFO, _conversie_tekst(boeking, koppeling, verrekeningen),
+                 sleutel=f"split:{boeking.isins[0]}:{pd.Timestamp(boeking.conversiedatum):%Y-%m-%d}")
     for boeking in resultaat.zonder_yahoo:
         g = boeking.gebeurtenis
         meld(CATEGORIE_SPLITS, LET_OP,
