@@ -1,7 +1,6 @@
 import os
 import re
 import time
-import traceback
 
 from flask import Flask, Response, g, render_template, send_from_directory, request, jsonify, redirect, url_for
 from werkzeug.exceptions import HTTPException
@@ -13,15 +12,16 @@ from db import (
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
-    db_get_dividenden, db_get_upload_meldingen,
+    db_get_dividenden, db_get_upload_meldingen, db_markeer_portfolio_gebruikt,
 )
+from bewaartermijn import ruim_verlopen_portfolios_op, BEWAARTERMIJN_MAANDEN
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
 from ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
     controleer_alle_transactieprijzen, bijnaam_na_tickerwissel,
 )
-from debug_utils import dprint, meet_tijd
+from debug_utils import meet_tijd, maskeer_codes, print_traceback
 from diagnostiek import voeg_diagnostiek_toe
 from yahoo_client import (
     reset_yahoo_call_teller, log_yahoo_call_samenvatting, yahoo_teller_stand, meld_yahoo_samenvatting,
@@ -79,6 +79,7 @@ registreer_static_versies(app)
 # Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
 if os.environ.get("DATABASE_URL"):
     db_init()
+    ruim_verlopen_portfolios_op()
 
 
 MELDING_ONGELDIGE_CODE = "ongeldige-code"
@@ -127,9 +128,9 @@ def client_ip():
     return request.remote_addr or ONBEKEND_IP
 
 
-def _log_ip_ter_controle():
-    dprint(f"[ip] gebruikt={client_ip()} x_forwarded_for={request.headers.get('X-Forwarded-For')!a} "
-           f"true_client_ip={request.headers.get('True-Client-IP')!a}")
+def _markeer_gebruikt(code):
+    with db_transactie() as cur:
+        db_markeer_portfolio_gebruikt(cur, code)
 
 
 def _geen_portfolio(code):
@@ -202,6 +203,7 @@ def robots_txt():
     regels = [
         "User-agent: *",
         "Allow: /",
+        "Allow: /privacy",
         "Disallow: /p/",
         "Disallow: /api/",
         "Disallow: /analyse",
@@ -218,6 +220,7 @@ def sitemap_xml():
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
         f"  <url><loc>{xml_escape(request.url_root)}</loc></url>",
+        f"  <url><loc>{xml_escape(request.url_root)}privacy</loc></url>",
         "</urlset>",
     ]
     return Response("\n".join(regels) + "\n", mimetype="application/xml")
@@ -225,7 +228,12 @@ def sitemap_xml():
 
 @app.route("/")
 def home():
-    return render_template("start.html", code_lengte=CODE_LENGTH)
+    return render_template("start.html", code_lengte=CODE_LENGTH, bewaartermijn_maanden=BEWAARTERMIJN_MAANDEN)
+
+
+@app.route("/privacy")
+def privacy():
+    return render_template("privacy.html", bewaartermijn_maanden=BEWAARTERMIJN_MAANDEN)
 
 
 # Alleen de template: de pagina haalt de data zelf op, dus geen database hier.
@@ -249,14 +257,16 @@ def upload():
     db_reset_verbinding_teller()
     try:
         with meet_tijd("upload_totaal"):
-            return _upload_impl()
+            response = _upload_impl()
+        ruim_verlopen_portfolios_op()
+        return response
     except GeenVrijeCode:
         return jsonify({"error": MELDING_GEEN_VRIJE_CODE}), 503
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[upload] ONVERWACHTE FOUT: {e}")
-        traceback.print_exc()
+        print(f"[upload] ONVERWACHTE FOUT: {maskeer_codes(e)}")
+        print_traceback()
         return jsonify({
             "error": "Analyse van deze portfolio duurde te lang of is mislukt. Probeer het opnieuw, of upload "
                      "zonder 'Niet opslaan' zodat de resultaten tussentijds bewaard blijven."
@@ -331,6 +341,7 @@ def _upload_opslaan(df, rekening_df, naam, herbepaal_alle_tickers):
     with db_transactie() as cur:
         with meet_tijd("portfolio_zoeken_of_maken"):
             code, bestaand, rows_to_insert = vind_of_maak_portfolio(cur, df, naam)
+        db_markeer_portfolio_gebruikt(cur, code)
         if bestaand and herbepaal_alle_tickers:
             _herbepaal_tickers(code)
         voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)
@@ -380,8 +391,8 @@ def bijwerken(code):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[bijwerken] ONVERWACHTE FOUT: {e}")
-        traceback.print_exc()
+        print(f"[bijwerken] ONVERWACHTE FOUT: {maskeer_codes(e)}")
+        print_traceback()
         return jsonify({"error": "Bijwerken duurde te lang of is mislukt. Probeer het opnieuw."}), 500
     finally:
         db_log_verbinding_samenvatting()
@@ -428,6 +439,7 @@ def _bijwerken_impl(code):
     meld_portfolio_opslaan(True, rows_to_insert)
     if df is not None or rekening_df is not None:
         with db_transactie() as cur:
+            db_markeer_portfolio_gebruikt(cur, code)
             voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers=False)
             if df is not None:
                 vul_bronkolommen_aan(cur, code, df)
@@ -454,7 +466,6 @@ def _bijwerken_impl(code):
 @app.route("/api/portfolio/<code>")
 def api_portfolio(code):
     code = code.strip().upper()
-    _log_ip_ter_controle()
     reset_yahoo_call_teller()
     db_reset_verbinding_teller()
     if request.args.get("herbepaal_alle_tickers", "").lower() == "true":
@@ -467,6 +478,7 @@ def api_portfolio(code):
         result = build_portfolio_response(code)
     if result is None:
         return _geen_portfolio(code)
+    _markeer_gebruikt(code)
     log_yahoo_call_samenvatting()
     db_log_verbinding_samenvatting()
     meld_yahoo_samenvatting(DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, "ophalen")
@@ -510,7 +522,7 @@ def verdeling_over_tijd(code):
         with db_deel_verbinding():
             result = bouw_verdeling_over_tijd(code, dimensie, samenvoegen)
     except Exception as e:
-        print(f"[over-tijd] WARN {dimensie} mislukt: {type(e).__name__}: {e!a}")
+        print(f"[over-tijd] WARN {dimensie} mislukt: {type(e).__name__}: {maskeer_codes(e)!a}")
         return jsonify({
             "error": "De verdeling over tijd berekenen is mislukt of duurde te lang. Probeer het opnieuw: "
                      "wat al is opgehaald blijft bewaard, dus een tweede poging gaat sneller."
@@ -677,8 +689,8 @@ def ticker_zekerheid_positie(code):
                 info["echte_naam"], isin, info["beurs"], info["transacties"], opgeslagen_ticker=info["ticker"],
             )
         except Exception as e:
-            print(f"[ticker-zekerheid] {isin}: FOUT na {time.time() - start:.2f}s ({e!a})")
-            traceback.print_exc()
+            print(f"[ticker-zekerheid] {isin}: FOUT na {time.time() - start:.2f}s ({maskeer_codes(e)!a})")
+            print_traceback()
             return jsonify({
                 "error": "Ticker-zekerheid controleren voor deze positie is mislukt. Probeer het opnieuw."
             }), 500
@@ -720,7 +732,7 @@ def ticker_zekerheid_wijzig(code):
             print(f"[ticker-zekerheid] {isin}: bijnaam -> {bijnaam!a}")
     except Exception as e:
         # De ticker staat er al; de bijnaam is bijzaak.
-        print(f"[ticker-zekerheid] {isin}: WARN bijnaam niet aangepast ({e!a})")
+        print(f"[ticker-zekerheid] {isin}: WARN bijnaam niet aangepast ({maskeer_codes(e)!a})")
         bijnaam = None
     wis_portfolio_basis_cache(code)
     return jsonify({"ticker": ticker, "oude_ticker": info["ticker"], "bijnaam": bijnaam})
@@ -746,8 +758,8 @@ def ticker_zekerheid_alle_prijzen(code):
         try:
             resultaat = controleer_alle_transactieprijzen(info["ticker"], info["transacties"])
         except Exception as e:
-            print(f"[ticker-zekerheid] {isin}: alle prijzen FOUT na {time.time() - start:.2f}s ({e!a})")
-            traceback.print_exc()
+            print(f"[ticker-zekerheid] {isin}: alle prijzen FOUT na {time.time() - start:.2f}s ({maskeer_codes(e)!a})")
+            print_traceback()
             return jsonify({"error": "Alle prijzen controleren voor deze positie is mislukt. Probeer het opnieuw."}), 500
 
         print(f"[ticker-zekerheid] {isin}: alle prijzen ({len(resultaat['prijs_checks'])}) "
@@ -823,7 +835,7 @@ def dividend_verwachting(code):
         with meet_tijd("dividend_verwachting"):
             resultaat = bereken_dividend_verwachting(code)
     except Exception:
-        traceback.print_exc()
+        print_traceback()
         return jsonify({"error": "Verwacht dividend ophalen is mislukt. Probeer het later opnieuw."}), 500
     return jsonify(voeg_diagnostiek_toe(resultaat or {"beschikbaar": False}))
 
@@ -838,7 +850,7 @@ def historisch_rendement(code):
         with meet_tijd("historisch_rendement"):
             resultaat = bereken_historisch_rendement(code)
     except Exception:
-        traceback.print_exc()
+        print_traceback()
         return jsonify({"error": "Historisch rendement berekenen is mislukt. Probeer het later opnieuw."}), 500
     return jsonify(voeg_diagnostiek_toe(resultaat or {"beschikbaar": False}))
 

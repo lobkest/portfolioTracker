@@ -1,0 +1,70 @@
+{% extends "basis.html" %}
+
+{% block titel %}Privacy – Portfolio Dashboard{% endblock %}
+
+{% block zoekmachine_meta %}
+    <meta name="description" content="Welke gegevens Portfolio Dashboard bewaart, waar, hoe lang en hoe je alles zelf verwijdert.">
+    <meta property="og:title" content="Privacy – Portfolio Dashboard">
+    <meta property="og:description" content="Welke gegevens Portfolio Dashboard bewaart, waar, hoe lang en hoe je alles zelf verwijdert.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.url_root }}privacy">
+    <link rel="canonical" href="{{ request.url_root }}privacy">
+{% endblock %}
+
+{% block inhoud %}
+    <main class="container privacyPagina">
+        <p><a href="/">&larr; Terug naar de startpagina</a></p>
+        <h1>Privacy</h1>
+        <p class="kleineMelding">Laatst bijgewerkt: 16 oktober 2026</p>
+
+        <h2>Wat doet deze app?</h2>
+        <p>Je uploadt je DeGiro-export en ziet in één dashboard je rendement, verdeling, dividend en prognoses.</p>
+
+        <h2>Welke gegevens gebruikt de app?</h2>
+        <ul>
+            <li>de transacties uit je DeGiro-transactiebestand;</li>
+            <li>als je het uploadt: je rekeningoverzicht (alle regels, met bedragen en saldo's) en de dividenden daaruit;</li>
+            <li>de naam die je zelf bij een portfolio invult (optioneel) en de bijnamen die je aan posities geeft;</li>
+            <li>meldingen over de verwerking van je uploads, bijvoorbeeld productnamen, ISIN's en Order ID's waar iets niet klopte (van maximaal de laatste 5 uploads).</li>
+        </ul>
+        <p>Je bestanden zelf worden niet bewaard, alleen wat eruit wordt gelezen. Er is geen account, de app vraagt geen e-mailadres, gebruikt geen cookies en heeft geen tracking of analytics.</p>
+
+        <h2>Waarvoor?</h2>
+        <p>Alleen om je dashboard te tonen en onder je code te bewaren, zodat je later terug kunt komen zonder opnieuw te uploaden.</p>
+
+        <h2>Waar staan je gegevens?</h2>
+        <p>De database (Neon) en de server (Render) staan in Frankfurt, in de EU.</p>
+
+        <h2>Hoe lang worden ze bewaard?</h2>
+        <ul>
+            <li>Tot {{ bewaartermijn_maanden }} maanden na je laatste gebruik: ophalen met je code, uploaden of bijwerken telt als gebruik. Daarna wordt je portfolio automatisch verwijderd. De opruiming draait bij het opstarten van de server en na uploads, dus dat kan iets later gebeuren.</li>
+            <li>Verwijder je je portfolio zelf, dan is alles direct uit de database. De herstelgeschiedenis van de database blijft 6 uur bewaard; daarna is het ook daar weg.</li>
+            <li>Serverlogs bevatten geen portfolio-code en geen IP-adres. Ze verdwijnen na 7 dagen.</li>
+        </ul>
+
+        <h2>Als je "Niet opslaan" kiest</h2>
+        <ul>
+            <li>Je transacties worden niet opgeslagen en je krijgt geen code.</li>
+            <li>Wel bewaard blijven anonieme koersgegevens (ticker en datum), die niet aan jou te koppelen zijn, en de serverlogs (7 dagen), die fondsnamen en ISIN's kunnen bevatten.</li>
+            <li>Je browser houdt het resultaat tijdelijk vast (<code>sessionStorage</code>), tot de portfolio-pagina het heeft gelezen of je het tabblad sluit.</li>
+        </ul>
+
+        <h2>Externe diensten</h2>
+        <p>Voor koersen en fondsgegevens vraagt de server gegevens op bij Yahoo Finance, OpenFIGI, iShares en VanEck. Die krijgen alleen tickers, ISIN's, namen van fondsen en bedrijven, en datums. Nooit je code, aantallen of bedragen. De verzoeken komen van de server, niet uit je browser. Alle scripts worden van de eigen server geladen; je browser haalt niets bij andere partijen op.</p>
+
+        <h2>Wat staat er in je browser?</h2>
+        <ul>
+            <li><code>sessionStorage</code>, sleutel <code>portfolioOverdracht</code>: brengt het resultaat van de startpagina naar de portfolio-pagina. Het wordt gewist zodra het is gelezen, en verdwijnt anders als je het tabblad sluit.</li>
+            <li><code>localStorage</code>, sleutel <code>ontwikkelTabsAan</code>: onthoudt welke tabbladen in ontwikkeling je hebt aangezet. Alleen functioneel.</li>
+        </ul>
+
+        <h2>Beveiliging</h2>
+        <p>Je komt alleen bij je portfolio met je code. Wie je code kent, kan je portfolio zien en verwijderen, dus bewaar hem zorgvuldig. Het aantal foute pogingen om een code te raden is beperkt. De verbinding loopt via https.</p>
+
+        <h2>Jouw rechten</h2>
+        <p>Je ziet al je opgeslagen gegevens in het dashboard. Via Instellingen &rarr; Portfolio verwijderen wis je alles zelf, direct en permanent. Een klacht indienen kan bij de <a href="https://autoriteitpersoonsgegevens.nl" rel="noopener noreferrer">Autoriteit Persoonsgegevens</a>.</p>
+
+        <h2>Geen financieel advies</h2>
+        <p>De cijfers, prognoses en de box 3-berekening zijn indicaties, geen advies.</p>
+    </main>
+{% endblock %}

@@ -116,7 +116,9 @@ def db_init():
         CREATE TABLE IF NOT EXISTS portfolios (
             code TEXT PRIMARY KEY,
             naam TEXT,
-            aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            aangemaakt_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- Basis voor de bewaartermijn: zie bewaartermijn.py
+            laatst_gebruikt TIMESTAMP NOT NULL DEFAULT now()
         );
     """)
     cur.execute("""
@@ -709,16 +711,16 @@ def db_wijzig_portfolio_code(oude_code, nieuwe_code):
     conn = db_connect()
     cur = conn.cursor()
     try:
-        cur.execute("SELECT naam, aangemaakt_op FROM portfolios WHERE code = %s", (oude_code,))
+        cur.execute("SELECT naam, aangemaakt_op, laatst_gebruikt FROM portfolios WHERE code = %s", (oude_code,))
         row = cur.fetchone()
         if row is None:
             return False, f"Geen portfolio gevonden met code '{oude_code}'."
-        naam, aangemaakt_op = row
+        naam, aangemaakt_op, laatst_gebruikt = row
 
         try:
             cur.execute(
-                "INSERT INTO portfolios (code, naam, aangemaakt_op) VALUES (%s, %s, %s)",
-                (nieuwe_code, naam, aangemaakt_op),
+                "INSERT INTO portfolios (code, naam, aangemaakt_op, laatst_gebruikt) VALUES (%s, %s, %s, %s)",
+                (nieuwe_code, naam, aangemaakt_op, laatst_gebruikt),
             )
         except pg_errors.UniqueViolation:
             conn.rollback()
@@ -1069,6 +1071,21 @@ def db_probeer_portfolio_te_maken(cur, code, naam):
 
 def db_zet_portfolio_naam(cur, code, naam):
     cur.execute("UPDATE portfolios SET naam = %s WHERE code = %s", (naam, code))
+
+
+def db_markeer_portfolio_gebruikt(cur, code):
+    cur.execute("UPDATE portfolios SET laatst_gebruikt = now() WHERE code = %s", (code,))
+
+
+def db_get_verlopen_codes(grens):
+    """Codes met laatst_gebruikt vóór `grens` (UTC, zoals Neon)."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute("SELECT code FROM portfolios WHERE laatst_gebruikt < %s", (grens,))
+    codes = [rij[0] for rij in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return codes
 
 
 def db_get_order_id_sets_met_overlap(cur, order_ids):

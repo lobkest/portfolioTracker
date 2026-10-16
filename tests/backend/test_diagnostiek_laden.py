@@ -51,7 +51,7 @@ class _MetRequest(unittest.TestCase):
 
 class TestLaadtijden(_MetRequest):
     def test_bekende_fase_info_met_leesbare_naam(self):
-        _, meldingen, _ = self._in_request(diagnostiek.meld_laadtijd, "basis_ophalen_db (code=ABC)", 1.26)
+        _, meldingen, _ = self._in_request(diagnostiek.meld_laadtijd, "basis_ophalen_db", 1.26)
         self.assertEqual(meldingen, [{
             "categorie": CATEGORIE_LAADTIJDEN, "niveau": INFO,
             "tekst": "Transacties ophalen uit de database: 1,3 s.", "sleutel": "basis_ophalen_db",

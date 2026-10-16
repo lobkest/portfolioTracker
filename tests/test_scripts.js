@@ -45,13 +45,20 @@ test("geen script wordt dubbel geladen", () => {
     }
 });
 
-test("elk script-element in de templates gebruikt url_for of een cdnjs-adres", () => {
-    for (const template of ["basis.html", "start.html", "portfolio.html"]) {
+test("elk script-element in de templates gebruikt url_for naar static, nooit een extern adres", () => {
+    for (const template of ["basis.html", "start.html", "portfolio.html", "privacy.html"]) {
         const html = fs.readFileSync(path.join(BASIS, "templates", template), "utf8");
-        const alle = [...html.matchAll(/<script\b[^>]*>/g)].length;
-        const cdn = [...html.matchAll(/<script src="https:\/\/cdnjs\.cloudflare\.com\//g)].length;
-        assert.equal(scriptsIn(template).length + cdn, alle, template);
+        const alle = [...html.matchAll(/<script[^>]*>/g)].length;
+        const eigen = [...html.matchAll(/<script src="\{\{ url_for\('static', filename='(js|vendor)\/[^']+'\) \}\}"><\/script>/g)].length;
+        assert.equal(eigen, alle, template);
     }
+});
+
+test("elk vendor-script in portfolio.html bestaat in static/vendor", () => {
+    const html = fs.readFileSync(path.join(BASIS, "templates", "portfolio.html"), "utf8");
+    const vendor = [...html.matchAll(/filename='vendor\/([^']+)'/g)].map(m => m[1]);
+    assert.ok(vendor.length > 0);
+    for (const bestand of vendor) assert.ok(fs.existsSync(path.join(BASIS, "static", "vendor", bestand)), bestand);
 });
 
 test("portfolio.html laadt elk bestand uit static/js/tabs en static/js/gedeeld", () => {

@@ -5,7 +5,7 @@ import pandas as pd
 import psycopg2
 
 from bestand_controle import controleer_excel_bestand, controleer_aantal_rijen
-from debug_utils import meet_tijd
+from debug_utils import meet_tijd, maskeer_codes
 from diagnostiek import (
     meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
     CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT, MAX_BEWAARDE_UPLOADS, haal_meldingen,
@@ -596,7 +596,7 @@ def bewaar_upload_meldingen(code, soort):
     try:
         db_save_upload_meldingen(code, soort, upload_meldingen_om_te_bewaren(haal_meldingen()), MAX_BEWAARDE_UPLOADS)
     except Exception as e:
-        print(f"[upload] WARN upload-meldingen niet opgeslagen ({type(e).__name__}: {e!a})")
+        print(f"[upload] WARN upload-meldingen niet opgeslagen ({type(e).__name__}: {maskeer_codes(e)!a})")
 
 
 def upload_meldingen_voor_api(uploads):

@@ -11,6 +11,12 @@
 > zes nieuwe checks, Data-checks ook bij "niet opslaan"); `_haal_splits_op()` bij `None`; de testaantallen (geteld op 09-10-2026).
 > Bijgewerkt op 10-10-2026: Verdeling-uitleg in HTML (`#verdelingUitleg`), taartlabels 5%/8% (`taartLabelMinPct()`), mobiele rij zonder details
 > (`.mobielRijVast`), Bijnamen als radiogroep, `bekendeWaarde()`, `openfigi_kandidaten_debug` alleen bij niet-zeker, en de JS-testaantallen.
+> Bijgewerkt op 16-10-2026 (openbaar online en AVG): `toegangslimiet.py` (limieten, 429), `bestand_controle.py` (controle van het Excel-bestand vóór pandas),
+> `bewaartermijn.py` met `portfolios.laatst_gebruikt` (opruimen na 6 maanden), `gunicorn.conf.py` (accesslog zonder IP of URL), `static/vendor/` (zelf gehoste scripts,
+> geen cdnjs meer), `templates/privacy.html` met `/privacy` en de footer, `ProxyFix`/`client_ip()` en de beveiligingsheaders, `robots.txt`/`sitemap.xml`/`/favicon.ico`,
+> 404 bij onbekende codes en 413 bij te grote uploads, de tabel `upload_meldingen`, logs zonder portfolio-codes of IP-adressen, de startpagina (meta-tags, inklapbare uitleg),
+> de testbestanden met nep-Order ID's, en de testaantallen (geteld op 16-10-2026). Niet alle hoofdstukken zijn hierbij opnieuw regel voor regel vergeleken met de code;
+> gecontroleerd zijn de delen die hierboven worden genoemd. Staat er elders iets dat hiermee botst, dan wint dit blok (en de code).
 > Alles hieronder is uit de bronbestanden gelezen, niet uit CLAUDE.md overgenomen. Waar ik iets niet zeker
 > kon vaststellen staat het woord **onzeker**. Hoe CLAUDE.md en de code zich tot elkaar verhouden, staat onderaan
 > bij [Stand van zaken](#stand-van-zaken-claudemd-en-de-code).
@@ -46,20 +52,25 @@ Je uploadt een DeGiro-transactiebestand (Excel, en optioneel het "Rekeningoverzi
 4. toont dat in een dashboard op een eigen pagina (`/p/<code>`) (rendement, verdeling ETF/aandeel, land/sector/valuta/beurs, top-bedrijven, ETF-overlap,
    statistieken, dividend, transacties, prognose).
 
-Je kunt ook **"Niet opslaan"** kiezen: dan wordt er niets in de database bewaard en is er geen code.
+Je kunt ook **"Niet opslaan"** kiezen: dan worden je transacties niet opgeslagen en is er geen code. Wel schrijft de analyse nog anonieme marktdata naar de
+cache-tabellen (bv. `ticker_prijscheck`: ticker + datum van een gecontroleerde transactie, zonder code of bedrag), en staan fondsnamen en ISIN's in de serverlogs (zie
+`templates/privacy.html`).
 
 ### Ingangspunt en opstarten
 
 | Wat | Waar | Toelichting |
 |---|---|---|
 | Ingangspunt | `app.py` | Bevat `app = Flask(__name__)`, direct onder de imports. Dit `app`-object is wat een WSGI-server nodig heeft. |
-| Database initialiseren | `app.py`: `db_init()`, direct onder `app = Flask(__name__)` | Staat **op moduleniveau** (dus bij het *importeren* van `app.py`, niet in `if __name__ == "__main__"`), achter `if os.environ.get("DATABASE_URL")`. Daardoor draait het onder gunicorn, en in een test die `app` importeert alleen als `DATABASE_URL` is ingesteld. |
+| Database initialiseren | `app.py`: `db_init()`, direct onder `app = Flask(__name__)` | Staat **op moduleniveau** (dus bij het *importeren* van `app.py`, niet in `if __name__ == "__main__"`), achter `if os.environ.get("DATABASE_URL")`. Daardoor draait het onder gunicorn, en in een test die `app` importeert alleen als `DATABASE_URL` is ingesteld. Direct na `db_init()` draait `ruim_verlopen_portfolios_op()` (zie `bewaartermijn.py`: portfolio's zonder gebruik van meer dan 6 maanden worden verwijderd). |
 | Cache-busting | `app.py`: `registreer_static_versies(app)`, direct onder `app = Flask(__name__)` | Zie [`static_versie.py`](#static_versiepy--cache-busting-voor-statische-bestanden). Elke static-URL in de templates krijgt `?v=<inhoudshash>`, zodat de browser na een deploy de nieuwe CSS/JS ophaalt. |
 | Lokaal draaien | `python app.py` | Onderaan `app.py`: `app.run(debug=True)`. Alleen bedoeld voor lokaal. |
 | Configuratie | `.env` met `DATABASE_URL` | `db.py` roept `load_dotenv()` aan; `db_connect()` doet `psycopg2.connect(os.environ["DATABASE_URL"])`. Zonder `DATABASE_URL` slaat `app.py` `db_init()` over; pas de eerste echte databasecall crasht dan met een `KeyError`. |
 | Optionele omgevingsvariabele | `OPENFIGI_API_KEY` | Alleen gelezen in `ticker_matching.py`; mag ontbreken. |
-| Productie (Render) | gunicorn | `gunicorn` staat in `requirements.txt`. Startcommando: `gunicorn app:app --workers 1 --threads 4 --timeout 120`. Dat staat in het **Render-dashboard**, niet in de repo (geen `Procfile` of `render.yaml`): een wijziging daar zie je niet in git. |
+| Productie (Render) | gunicorn | `gunicorn` staat in `requirements.txt`. Startcommando: `gunicorn app:app --workers 1 --threads 4 --timeout 120`. Dat staat in het **Render-dashboard**, niet in de repo (geen `Procfile` of `render.yaml`): een wijziging daar zie je niet in git. Gunicorn leest daarnaast `gunicorn.conf.py` uit de repo-root: daar staat alleen `access_log_format` (methode, status, grootte en duur; geen IP, URL, query, referer of user-agent), zodat de Render-logs geen portfolio-codes of IP-adressen bevatten. Geeft het startcommando zelf een `--access-logformat` mee, dan overschrijft dat de config (**onzeker**: niet in de repo na te gaan). |
 | Gunicorn-timeout | Render-dashboard (`--timeout 120`) | 120 s. De frontend breekt eerder af: na 55 s (`fetchMetTimeout`) resp. 60 s (upload, `UPLOAD_TIMEOUT_MS`). Duurt een request langer dan dat, dan ziet de gebruiker al een timeout terwijl de server nog doorwerkt (en bij een upload eventueel nog opslaat). |
+| Proxy en IP-adres | `app.py`: `ProxyFix(x_for=PROXY_AANTAL_X_FOR, x_proto=PROXY_AANTAL_X_PROTO)`, `client_ip()` | `PROXY_AANTAL_X_FOR` = 3: `X-Forwarded-For` is "bezoeker, Cloudflare, Render-proxy". Elke proxy voegt achteraan toe, dus de bezoeker kan adressen vooraan meesturen maar de derde positie van achteren niet vervalsen. `client_ip()` (= `request.remote_addr` na ProxyFix) is het IP waarop de limieten tellen; `True-Client-IP` wordt bewust niet gebruikt. Gecontroleerd in de Render-logs (16-10-2026): `client_ip()` was het eerste adres van `X-Forwarded-For`. Het IP-adres komt alleen in het geheugen van de limiet voor en nooit in de logs. |
+| Beveiligingsheaders | `app.py`: `na_request()` | Elk antwoord krijgt `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` en `Referrer-Policy: same-origin`; `portfolio.html` zet daarnaast `<meta name="robots" content="noindex, nofollow">` en `<meta name="referrer" content="no-referrer">`. |
+| Bewaartermijn | `bewaartermijn.py`, aangeroepen in `app.py` na `db_init()` en in `upload()` | Zie de sectie `bewaartermijn.py` in hoofdstuk 3. |
 
 Wat `db_init()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF NOT EXISTS` voor elke tabel (zie [hoofdstuk 4](#4-database)),
 `commit`, sluiten. Het is dus veilig om het bij elke start opnieuw uit te voeren — ook bij elke gunicorn-worker.
@@ -67,23 +78,25 @@ Wat `db_init()` (in `db.py`) doet: één verbinding openen, dan `CREATE TABLE IF
 ### Hoe de modules elkaar aanroepen
 
 Lagen (van boven naar beneden): **browser → routes → orkestratie → analyse/ticker-logica → data/infra → extern**.
-Pijlen betekenen "importeert" (en dus "roept aan"). `debug_utils.py` (alleen `dprint()`/`meet_tijd()`) en `diagnostiek.py` (meldingen
+Pijlen betekenen "importeert" (en dus "roept aan"). `debug_utils.py` (`dprint()`, `meet_tijd()`, `maskeer_codes()`, `print_traceback()`) en `diagnostiek.py` (meldingen
 per laadbeurt) zijn weggelaten uit het diagram omdat veel modules ze importeren; de exacte importlijst per module staat in de tabel eronder.
 
 ```mermaid
 flowchart LR
     subgraph FE["Browser"]
-        HTML["templates/<br/>basis.html, start.html, portfolio.html"]
+        HTML["templates/<br/>basis.html, start.html, portfolio.html, privacy.html"]
         JS["static/js/<br/>start.js, app.js, gedeeld.js, infotip.js,<br/>navigatie.js, overdracht.js, menu.js, prognose.js,<br/>transacties.js, bedrijven.js, dividend.js, statistieken.js,<br/>diagnostiek.js, bestandskeuze.js, koersen.js, per_aandeel.js,<br/>land_sector.js, etf_overlap.js, gedeeld/*.js, tabs/*.js"]
     end
 
     subgraph ROUTES["Routes"]
         APP["app.py"]
+        TOEG["toegangslimiet.py"]
     end
 
     subgraph ORK["Orkestratie"]
         UPL["upload_verwerking.py"]
         ORC["portfolio_orchestratie.py"]
+        BEW["bewaartermijn.py"]
     end
 
     subgraph ANA["Analyse"]
@@ -111,6 +124,7 @@ flowchart LR
         YC["yahoo_client.py"]
         ETFP["etf_holdings_provider.py"]
         UTIL["transactie_utils.py"]
+        BCTL["bestand_controle.py"]
     end
 
     subgraph EXT["Externe bronnen"]
@@ -126,6 +140,8 @@ flowchart LR
 
     APP --> UPL
     APP --> ORC
+    APP --> TOEG
+    APP --> BEW
     APP --> VERD
     APP --> STAT
     APP --> DIV
@@ -136,6 +152,7 @@ flowchart LR
     APP --> YC
     APP --> DB
 
+    UPL --> BCTL
     UPL --> ZEK
     UPL --> ADM
     UPL --> DIV
@@ -167,6 +184,9 @@ flowchart LR
     STAT --> UTIL
     VERD --> CLASS
     DIV --> DB
+    DIV --> BCTL
+    BCTL --> UTIL
+    BEW --> DB
     ADM --> DB
 
     ZEK --> MATCH
@@ -200,32 +220,40 @@ flowchart LR
 
 Als je Markdown-preview geen Mermaid toont: GitHub rendert dit blok wel.
 
-Exacte imports tussen projectmodules (afgeleid uit de code, `debug_utils` en `diagnostiek` staan erbij):
+Exacte imports tussen projectmodules (op 16-10-2026 met een AST-doorloop uit de code afgeleid, `debug_utils` en `diagnostiek` staan erbij):
 
 | Module | Importeert van andere projectmodules |
 |---|---|
-| `app.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `portfolio_calc`, `portfolio_orchestratie`, `portfolio_verdeling`, `prijzen`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `static_versie`, `upload_verwerking`, `yahoo_client` |
-| `upload_verwerking.py` | `db`, `debug_utils`, `diagnostiek`, `dividend`, `portfolio_admin`, `split_correctie`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_utils` |
-| `portfolio_orchestratie.py` | `db`, `debug_utils`, `diagnostiek`, `diagnostiek_checks`, `dividend`, `etf_proxy`, `naam_verkorting`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `split_correctie`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_resultaat`, `transactie_utils` |
-| `transactie_resultaat.py` | `split_correctie`, `transactie_utils` |
-| `etf_proxy.py` | `db`, `debug_utils`, `etf_holdings_provider`, `portfolio_verdeling`, `ticker_classificatie` |
-| `portfolio_calc.py` | `debug_utils`, `diagnostiek`, `split_correctie`, `transactie_utils` |
-| `split_correctie.py` | `transactie_utils` |
-| `statistieken.py` | `transactie_utils` |
-| `portfolio_verdeling.py` | `ticker_classificatie` |
-| `dividend.py` | `db`, `rekening_regelsoorten`, `transactie_utils` (`OngeldigExcelBestand`) |
-| `rekening_regelsoorten.py` | — (alleen pandas) |
-| `portfolio_admin.py` | `db` |
-| `ticker_zekerheid.py` | `db`, `debug_utils`, `ticker_classificatie`, `ticker_matching`, `ticker_prijscheck`, `transactie_utils` |
-| `ticker_prijscheck.py` | `db`, `debug_utils`, `prijzen`, `ticker_classificatie`, `yahoo_client` |
-| `ticker_matching.py` | `db`, `debug_utils`, `transactie_utils`, `yahoo_client` |
-| `ticker_classificatie.py` | `db`, `debug_utils`, `etf_holdings_provider`, `yahoo_client` |
-| `prijzen.py` | `db`, `debug_utils`, `diagnostiek`, `split_correctie`, `yahoo_client` |
-| `etf_holdings_provider.py` | `debug_utils` |
-| `diagnostiek_checks.py` | `diagnostiek`, `naam_verkorting`, `portfolio_calc`, `rekening_regelsoorten`, `split_correctie`, `ticker_matching`, `ticker_zekerheid` (alleen `beurs_status()`), `transactie_utils` |
+| `aansluitingskosten.py` | `portfolio_verdeling`, `rekening_regelsoorten` |
+| `app.py` | `bewaartermijn`, `box3`, `db`, `debug_utils`, `diagnostiek`, `dividend`, `dividend_verwachting`, `historisch_rendement`, `portfolio_admin`, `portfolio_calc`, `portfolio_orchestratie`, `portfolio_verdeling`, `prijzen`, `static_versie`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `toegangslimiet`, `upload_verwerking`, `yahoo_client` |
+| `bestand_controle.py` | `transactie_utils` |
+| `bewaartermijn.py` | `db` |
+| `box3.py` | `box3_parameters`, `debug_utils`, `statistieken`, `transactie_utils` |
 | `debug_utils.py` | `diagnostiek` |
+| `diagnostiek_checks.py` | `diagnostiek`, `naam_verkorting`, `portfolio_calc`, `rekening_regelsoorten`, `split_correctie`, `ticker_matching`, `ticker_prijscheck`, `ticker_zekerheid`, `transactie_utils` |
+| `dividend.py` | `bestand_controle`, `db`, `rekening_regelsoorten`, `transactie_utils` |
+| `dividend_verwachting.py` | `db`, `diagnostiek`, `diagnostiek_checks`, `portfolio_calc`, `portfolio_orchestratie`, `prijzen`, `split_correctie`, `ticker_prijscheck`, `ticker_zekerheid`, `transactie_utils`, `yahoo_client` |
+| `etf_holdings_provider.py` | `debug_utils` |
+| `etf_proxy.py` | `db`, `etf_holdings_provider`, `portfolio_verdeling`, `ticker_classificatie` |
+| `historisch_rendement.py` | `debug_utils`, `portfolio_calc`, `portfolio_orchestratie`, `prijzen`, `transactie_utils` |
+| `portfolio_admin.py` | `db` |
+| `portfolio_calc.py` | `diagnostiek`, `split_correctie`, `transactie_utils` |
+| `portfolio_orchestratie.py` | `aansluitingskosten`, `box3`, `db`, `debug_utils`, `diagnostiek`, `diagnostiek_checks`, `dividend`, `etf_holdings_provider`, `etf_proxy`, `naam_verkorting`, `portfolio_calc`, `portfolio_verdeling`, `prijzen`, `split_correctie`, `statistieken`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_resultaat`, `transactie_utils`, `transactiebestand_status` |
+| `portfolio_verdeling.py` | `ticker_classificatie`, `transactie_utils` |
+| `prijzen.py` | `db`, `debug_utils`, `diagnostiek`, `split_correctie`, `yahoo_client` |
+| `rekening_regelsoorten.py` | — (alleen pandas) |
+| `rekeningoverzicht_status.py` | `rekening_regelsoorten`, `transactie_utils` |
+| `split_correctie.py` | `transactie_utils` |
+| `statistieken.py` | `debug_utils`, `rekening_regelsoorten`, `rekeningoverzicht_status`, `transactie_utils` |
+| `ticker_classificatie.py` | `db`, `debug_utils`, `etf_holdings_provider`, `yahoo_client` |
+| `ticker_matching.py` | `db`, `debug_utils`, `transactie_utils`, `yahoo_client` |
+| `ticker_prijscheck.py` | `db`, `prijzen`, `ticker_classificatie`, `yahoo_client` |
+| `ticker_zekerheid.py` | `db`, `naam_verkorting`, `split_correctie`, `ticker_classificatie`, `ticker_matching`, `ticker_prijscheck`, `transactie_utils`, `yahoo_client` |
+| `transactie_resultaat.py` | `split_correctie`, `transactie_utils` |
+| `transactiebestand_status.py` | `diagnostiek_checks`, `portfolio_calc`, `rekening_regelsoorten`, `split_correctie`, `transactie_utils` |
+| `upload_verwerking.py` | `bestand_controle`, `db`, `debug_utils`, `diagnostiek`, `diagnostiek_checks`, `dividend`, `portfolio_admin`, `split_correctie`, `ticker_classificatie`, `ticker_zekerheid`, `transactie_utils` |
 | `yahoo_client.py` | `diagnostiek`, `transactie_utils` |
-| `db.py`, `diagnostiek.py`, `transactie_utils.py`, `naam_verkorting.py`, `static_versie.py` | *(geen)* — het zijn de "bladeren" van de boom |
+| `box3_parameters.py`, `db.py`, `diagnostiek.py`, `naam_verkorting.py`, `static_versie.py`, `toegangslimiet.py`, `transactie_utils.py` | *(geen)* — het zijn de "bladeren" van de boom |
 
 Er zijn geen circulaire imports; dat is precies waarom `transactie_utils.py` en `yahoo_client.py` als losse modules bestaan, die
 zelf hooguit `diagnostiek` importeren: helpers die meerdere domeinmodules nodig hebben, zouden anders een import in een kring opleveren.
@@ -267,11 +295,11 @@ app.js: toonDashboard(data)
 | # | Waar (bestand → functie) | Wat gebeurt er | Data in → data uit |
 |---|---|---|---|
 | 1 | `static/js/start.js` → submit-handler van `#uploadForm` | Bouwt een `FormData` uit het formulier (`naam`, `bestand1`, optioneel `bestand2`, vinkjes `niet_opslaan` en `herbepaal_alle_tickers`). Is er geen `bestand2` gekozen, dan wordt dat veld met `formData.delete("bestand2")` weggehaald. Toont de overlay "Analyseren..." en roept `fetchMetTimeout("/upload", ..., 60000)` aan. | formulier → `multipart/form-data` |
-| 2 | `app.py` → `upload()` | Dunne wrapper om `_upload_impl()`: elke onverwachte exception wordt een nette JSON-foutmelding met status 500, in plaats van een hangende request. | request → `_upload_impl()`-resultaat of `{"error": ...}` |
+| 2 | `app.py` → `upload()` | Dunne wrapper om `_upload_impl()`: elke onverwachte exception wordt een nette JSON-foutmelding met status 500, in plaats van een hangende request. Daarvoor draait `voor_request()` (limiet `upload`: 10 per uur per IP, anders 429) en weigert Flask een verzoek boven `MAX_UPLOAD_BYTES` (5 MB) met een JSON-413; na een geslaagde `_upload_impl()` volgt `ruim_verlopen_portfolios_op()` (hooguit één keer per uur). De foutlog bevat het type en de tekst via `maskeer_codes()`, nooit een code. | request → `_upload_impl()`-resultaat of `{"error": ...}` |
 | 3 | `app.py` → `_upload_impl()` | Zet de Yahoo-call-teller op nul (`reset_yahoo_call_teller()`), leest `naam`, controleert of `bestand1` er is (anders status 400). | |
-| 4 | `upload_verwerking.py` → `lees_transacties_excel()` | `pd.read_excel()`, kolomnamen `.strip()`, controle op `VERWACHTE_KOLOMMEN` (ontbreekt er een → `OngeldigExcelBestand`; `_upload_impl()` geeft dan een 400 met "Ongeldig Excel-bestand: kolom(men) ontbreken: …" en stopt), `Datum` → datetime (`dayfirst=True`), `Order ID` uit de kolom zelf of (als die leeg is) uit de naamloze buurkolom (`_kolom_of_naamloze_buurkolom()`), de `Unnamed`-kolommen weg, en `_meld_order_ids()` voor Diagnostiek. | bestandsobject → **DataFrame `df`** (kolommen zoals DeGiro ze heeft: `Datum`, `Tijd`, `Product`, `ISIN`, `Beurs`, `Aantal`, `Koers`, `Totaal EUR`, ...) |
+| 4 | `upload_verwerking.py` → `lees_transacties_excel()` | `controleer_excel_bestand()` (`bestand_controle.py`, vóór pandas), `pd.read_excel()`, `controleer_aantal_rijen()` (max. 50.000 rijen), kolomnamen `.strip()`, controle op `VERWACHTE_KOLOMMEN` (ontbreekt er een → `OngeldigExcelBestand`; `_upload_impl()` geeft dan een 400 met "Ongeldig Excel-bestand: kolom(men) ontbreken: …" en stopt), `Datum` → datetime (`dayfirst=True`), `Order ID` uit de kolom zelf of (als die leeg is) uit de naamloze buurkolom (`_kolom_of_naamloze_buurkolom()`), de `Unnamed`-kolommen weg, en `_meld_order_ids()` voor Diagnostiek. | bestandsobject → **DataFrame `df`** (kolommen zoals DeGiro ze heeft: `Datum`, `Tijd`, `Product`, `ISIN`, `Beurs`, `Aantal`, `Koers`, `Totaal EUR`, ...) |
 | 5 | `upload_verwerking.py` → `voeg_koers_eur_toe()` | Voegt de hulpkolom `_koers_eur` toe (= `Koers` gedeeld door `Wisselkoers` als die er is en niet 0, anders `Koers`) en meldt in Diagnostiek hoeveel transacties een wisselkoers gebruikten. Kosten en `Waarde EUR` worden rechtstreeks uit `KOSTEN_KOLOM` resp. `WAARDE_KOLOM` gelezen (al EUR); de kolommen bestaan altijd (zie stap 4), een lege cel geeft NaN. | `df` → `df` + 1 kolom |
-| 6 | `app.py` → `_upload_impl()` | Is er een `bestand2`, dan eerst `lees_rekeningoverzicht()` (`dividend.py`): mist het de kolommen uit `VERWACHTE_KOLOMMEN_REKENING`, dan een 400 met "Dit lijkt geen DeGiro-rekeningoverzicht…" vóór er iets is opgeslagen. Het ingelezen `rekening_df` gaat naar **beide** takken mee; het bestand wordt dus maar één keer ingelezen. Daarna de vinkjes: `niet_opslaan` en `herbepaal_alle_tickers` (`== "on"`, want een aangevinkte HTML-checkbox stuurt "on"). **Hier splitst de route** ↓ naar `_analyseer_zonder_opslaan()` of `_upload_opslaan()`. Na beide takken: `meld_yahoo_samenvatting()`, `jsonify(...)` en `log_yahoo_call_samenvatting()`. | |
+| 6 | `app.py` → `_upload_impl()` | Is er een `bestand2`, dan eerst `lees_rekeningoverzicht()` (`dividend.py`, dezelfde bestandscontrole als stap 4): mist het de kolommen uit `VERWACHTE_KOLOMMEN_REKENING`, dan een 400 met "Dit lijkt geen DeGiro-rekeningoverzicht…" vóór er iets is opgeslagen. Het ingelezen `rekening_df` gaat naar **beide** takken mee; het bestand wordt dus maar één keer ingelezen. Daarna de vinkjes: `niet_opslaan` en `herbepaal_alle_tickers` (`== "on"`, want een aangevinkte HTML-checkbox stuurt "on"). **Hier splitst de route** ↓ naar `_analyseer_zonder_opslaan()` of `_upload_opslaan()`. Na beide takken: `meld_yahoo_samenvatting()`, `jsonify(...)` en `log_yahoo_call_samenvatting()`. | |
 
 ### 2.2 Tak A — "Niet opslaan" (geen database, geen code)
 
@@ -284,7 +312,7 @@ app.js: toonDashboard(data)
 
 Gevolgen van deze tak (allemaal zichtbaar in de code):
 
-- Er worden **geen Order ID's** bepaald, niets naar Postgres geschreven, en er is **geen code**.
+- Er worden **geen Order ID's** bepaald, er is **geen code**, en er gaat niets naar de tabellen met persoonlijke data (`portfolios`, `transacties`, `dividenden`, `kassaldo`, `rekening_regels`, `upload_meldingen`). De anonieme cache-tabellen krijgen wel rijen (koersen, `ticker_info`, `ticker_prijscheck` met de datum van elke gecontroleerde transactie, `openfigi_cache`); de Diagnostiek-meldingen blijven in het antwoord (`g`) en worden niet bewaard.
 - `bestand2` (rekeningoverzicht) wordt wel verwerkt, maar niet opgeslagen: `_dividend_niet_opslaan()` (zie A4) en het kassaldo (zie A3). Transacties en Dividend lezen `transacties_lijst` (+ `transacties_promotie`) en `dividend` uit het antwoord in plaats van een fetch.
 - De frontend verbergt alleen de tabbladen die de database nodig hebben (Bestanden bijwerken en Bijnamen, `VIEWS_MET_CODE`, zie 5.3); op Algemeen alleen de blokken verwijderen en code wijzigen (`data-vereist-code="ja"`).
 - De dure, prijs-geverifieerde ticker-check draait hier bewust **niet** mee; de frontend kan die later los aanvragen via `POST /api/ticker-zekerheid-check` (zie [hoofdstuk 5](#5-frontend)). Reden (uit de commentaren): een groter portfolio met koude cache liep anders over de gunicorn-timeout.
@@ -296,13 +324,15 @@ Gevolgen van deze tak (allemaal zichtbaar in de code):
 |---|---|---|---|
 | B1 | `upload_verwerking.py` → `vul_synthetische_order_ids_aan(df)` | De echte Order ID's zijn al ingelezen in stap 4 (in het DeGiro-bestand staat de kop "Order ID" door samengevoegde cellen één kolom verschoven; daarom pakt `_kolom_of_naamloze_buurkolom()` bij een lege kolom de naamloze buurkolom). Deze stap vult alleen de ontbrekende aan: rijen zonder Order ID krijgen een **synthetische ID**: `"SYN-"` + eerste 16 tekens van de MD5 over `Datum\|Tijd\|ISIN\|Aantal\|Totaal EUR` (bewust zonder `Product`: DeGiro hernoemt producten soms, bv. `BYD CO LTD` → `BYD COMPANY LIMITED`), plus een volgnummer voor identieke rijen. Daarna maakt `_maak_deelorder_ids_uniek()` de Order ID's van **deelorders** uniek: DeGiro geeft elke deeluitvoering van één order een eigen rij met dezelfde Order ID, en door `UNIQUE(code, order_id)` viel alles na de eerste rij weg. De eerste rij (in bestandsvolgorde) houdt de kale ID, de volgende krijgen `-1`, `-2`, ... | `df` → `df` + kolom `Order ID` |
 | B2 | `app.py` → `_upload_opslaan()` → `with db_transactie() as cur:` | Opent één verbinding + cursor voor B3 t/m B7. Na het blok volgt een commit; gaat er binnen het blok iets mis, dan een rollback (er blijft dan ook geen lege nieuwe portfolio staan, en geen transacties zonder hun dividend). De verbinding gaat in beide gevallen dicht. | |
-| B3 | `upload_verwerking.py` → `vind_of_maak_portfolio(cur, df, naam)` | Roept `find_matching_code()` (in `portfolio_admin.py`) aan. Die haalt via `db_get_order_id_sets_met_overlap()` alleen de Order ID-sets op van portfolio's die minstens één Order ID met deze upload delen, en vergelijkt die met de set van de upload. Is een bestaande set een deelverzameling van de nieuwe → dat is een update van hetzelfde portfolio (de ontbrekende ID's zijn de nieuwe rijen). Is de nieuwe set een deelverzameling van de bestaande → niets nieuws. Geen match → `generate_code(cur)` maakt een nieuwe, nog niet gebruikte 3-letter-code en er komt een rij in `portfolios`. Bij een match en een ingevulde `naam` wordt de naam bijgewerkt. Daarna meldt `meld_portfolio_opslaan()` de datakwaliteit van de nieuwe rijen (zie Diagnostiek). | `df` → `(code, bestaand, rows_to_insert)`; `bestaand` is een bool |
+| B3 | `upload_verwerking.py` → `vind_of_maak_portfolio(cur, df, naam)` | Roept `find_matching_code()` (in `portfolio_admin.py`) aan. Die haalt via `db_get_order_id_sets_met_overlap()` alleen de Order ID-sets op van portfolio's die minstens één Order ID met deze upload delen, en vergelijkt die met de set van de upload. Is een bestaande set een deelverzameling van de nieuwe → dat is een update van hetzelfde portfolio (de ontbrekende ID's zijn de nieuwe rijen). Is de nieuwe set een deelverzameling van een bestaande set, dan gooit `find_matching_code()` `UploadHoortBijBestaandePortfolio`: `_upload_impl()` antwoordt 400 met `MELDING_UPLOAD_HOORT_BIJ_BESTAANDE` (nooit de code zelf) en telt dit als foute poging (`g.foute_code_poging`), zodat de upload geen manier is om codes te raden. Geen match → `maak_portfolio_met_nieuwe_code(cur, naam)` kiest met `generate_code(cur)` (`secrets.choice`) een nog niet gebruikte 3-letter-code en maakt de rij in `portfolios` met `db_probeer_portfolio_te_maken()` (een savepoint: heeft een gelijktijdige upload dezelfde code genomen, dan probeert de verliezer een andere; na `MAX_CODE_POGINGEN` (100) pogingen `GeenVrijeCode` → 503). Bij een match en een ingevulde `naam` wordt de naam bijgewerkt. Daarna meldt `meld_portfolio_opslaan()` de datakwaliteit van de nieuwe rijen (zie Diagnostiek). | `df` → `(code, bestaand, rows_to_insert)`; `bestaand` is een bool |
+| B3b | `app.py` → `_upload_opslaan()` | Direct na B3, in dezelfde transactie: `db_markeer_portfolio_gebruikt(cur, code)` zet `portfolios.laatst_gebruikt` op nu (bewaartermijn, zie `bewaartermijn.py`). | cursor, code → — |
 | B4 | `app.py` → `_herbepaal_tickers(code)` | Alleen bij een **bestaande** code én het vinkje "opnieuw bepalen": `backfill_verouderde_tickers(code)` herbeoordeelt de opgeslagen tickers per positie (een ISIN-keten is één positie, zonder de omboekingsrijen; via `groepeer_posities_per_keten()`) en overschrijft alleen door een kandidaat zónder prijsprobleem, voor alle ISIN's van de keten, en `db_wis_etf_proxies_voor_portfolio(code)` wist de opgeslagen ETF-land-proxy's. Ophalen met code (2.7) gebruikt dezelfde functie. | |
 | B5 | `upload_verwerking.py` → `voeg_nieuwe_transacties_toe(cur, code, rows_to_insert, herbepaal_alle_tickers)` | Doet niets als er geen nieuwe rijen zijn. Anders drie stappen, elk met een `meet_tijd()`: **(a)** `_ticker_resolutie_opslaan()`: alleen de **nieuwe** rijen, gegroepeerd met `_bouw_posities()` (per eind-ISIN, zie A1). Haalt (tenzij het vinkje aan staat) de al bekende tickers van deze code op en zet ze met `_bekende_ticker_per_positie()` per positie als `bekende_tickers`, zodat de dure yahooquery-zoekopdracht voor bekende posities wordt overgeslagen: de eigen ticker van de eind-ISIN gaat voor, anders erft de positie die van een eerdere ISIN in de keten (alleen als het wisselpaar in déze upload zit, zie de valkuilen bij `upload_verwerking.py`); `vind_tickers_met_snelle_prijscheck_parallel()` (12 threads); gaf een groep geen ticker, dan probeert `_probeer_andere_productnamen()` de namen van de andere rijen; `_ticker_per_isin_beurs()` zet de ticker per positie op alle (ISIN, Beurs) van de nieuwe rijen. **(b)** `_product_per_ticker_opslaan()`: `product` per ticker (bestaand blijft, nieuw krijgt Yahoo's `longName`; `bepaal_product_per_ticker()` bewaart die namen ook in `ticker_info.long_name` via `bewaar_long_names()`, alleen als de rij al bestaat). **(c)** `_insert_nieuwe_transacties()`: `INSERT ... ON CONFLICT (code, order_id) DO NOTHING` per rij; een mislukte rij wordt overgeslagen en in Diagnostiek gemeld. | rijen → `transacties` |
 | B6 | `upload_verwerking.py` → `sla_dividend_bestand_op(cur, code, rekening_df)` en `sla_kassaldo_op(cur, code, rekening_df)` | Alleen met `bestand2`, nog binnen de transactie: `verwerk_rekeningoverzicht_df()` (in `dividend.py`) → lijst dividendrecords → `db_save_dividenden(cur, ...)` (upsert in `dividenden`); daarna `bereken_kassaldo()` → `db_save_kassaldo(cur, ...)` (upsert in `kassaldo`, één rij per code: het laatst geüploade rekeningoverzicht wint); daarna `sla_rekening_regels_op()`: alle rijen van het bestand in `rekening_regels` (`bouw_rekening_regels()` → `db_save_rekening_regels()`, `DO NOTHING`), met een `INFO`-melding nieuw/al bekend. | DataFrame → records → DB |
 | B7 | einde `with`-blok | Commit: portfolio, transacties, dividend, kassaldo en rekeningregels worden in één keer definitief. | |
 | B8 | `app.py` → `_kern_na_opslaan(code)` | Binnen `with db_deel_verbinding():` (samen met B9): `wis_portfolio_basis_cache(code)` (ná alle mutaties hierboven), dan `build_portfolio_response(code)`. Alle `db_`-leesfuncties van de basis (zie 2.5) en de valutacheck delen zo één verbinding. Levert de **kern** (zonder verrijking). | code → dict |
 | B9 | `app.py` → `_meld_valuta_na_opslaan()` → `meld_valuta_consistentie()` | Vergelijkt de valuta uit de Excel met die van de tickers (uit de net gebouwde basis via `ticker_per_isin_beurs_uit_basis()`). | → Diagnostiek |
+| B10 | `upload_verwerking.py` → `bewaar_upload_meldingen(code, soort)` | Na B8–B9, buiten de schrijftransactie: de bewaarde Diagnostiek-categorieën (`BEWAARDE_UPLOAD_CATEGORIEEN`) van deze upload gaan met `db_save_upload_meldingen()` naar `upload_meldingen`, hooguit de nieuwste `MAX_BEWAARDE_UPLOADS` (5) per code. Mislukt dit, dan alleen een WARN-log (zonder details); de upload zelf slaagt. De frontend leest ze via `GET /api/portfolio/<code>/upload-meldingen` en `upload_meldingen_voor_api()`. | → DB |
 
 Een upload naar een bestaande portfolio opent zo twee databaseverbindingen: de schrijftransactie (B2–B7) en de gedeelde leesverbinding
 (B8–B9). `upload()` en `bijwerken()` printen het aantal als `[timing] DB-verbindingen ...`, plus `upload_totaal`/`bijwerken_totaal`.
@@ -374,15 +404,16 @@ Frontend: `#codeForm` submit-handler in `start.js` (code in hoofdletters) → `f
 de URL van de portfolio-pagina: een refresh zou de dure herbepaling herhalen. Let op: dit vinkje (en dat bij de upload) staat sinds 06-10-2026
 in `start.html` verborgen (`<div class="labelRij" hidden>`); de code erachter werkt nog, maar via de UI is hij nu niet aan te zetten.
 
-Backend: `app.py` → `api_portfolio(code)`:
+Backend: `app.py` → `api_portfolio(code)` (vooraf draait `voor_request()`: een IP met te veel foute codes krijgt 429):
 
 1. `code.strip().upper()`; `reset_yahoo_call_teller()`;
 2. bij `?herbepaal_alle_tickers=true`: `_herbepaal_tickers(code)` (dezelfde als B4 in 2.3: `backfill_verouderde_tickers(code)` en
    `db_wis_etf_proxies_voor_portfolio(code)`, zodat de volgende verrijking de land-proxy opnieuw zoekt) en daarna
    `wis_portfolio_basis_cache(code)` (anders zou de cache nog de oude tickers teruggeven);
 3. `build_portfolio_response(code)` → `haal_portfolio_basis()` → `analyze_transacties_kern()` (zie 2.4/2.5). `None` (code bestaat
-   niet) → JSON-fout met status 404;
-4. `log_yahoo_call_samenvatting()` en `jsonify(result)`.
+   niet) → JSON-fout met status 404 via `_geen_portfolio()` (telt als foute poging voor de limiet);
+4. `_markeer_gebruikt(code)`: zet `portfolios.laatst_gebruikt` op nu (alleen hier en bij upload/bijwerken, niet bij de luie endpoints);
+5. `log_yahoo_call_samenvatting()` en `jsonify(result)`.
 
 Daarna volgt dezelfde `toonDashboard()` → `laadVerrijking()`-vervolgstap als bij een upload. Het verschil met een upload: er wordt niets
 ingelezen of weggeschreven (behalve de optionele ticker-backfill), en de koersen worden wel opnieuw "ververst" — `get_prices()` heeft
@@ -401,13 +432,14 @@ bijgehaald, tenzij dezelfde ticker minder dan 2 minuten eerder al is ververst (`
    van een "niet opslaan"-analyse brengt je dus naar de startpagina.
 5. De startpagina toont de melding uit `?melding=` als vaste tekst per sleutel (`startMeldingTekst()` in `navigatie.js`) en haalt de query
    daarna weg met `history.replaceState()`.
+6. De pagina draait zonder externe scripts: Chart.js en de plugins staan in `static/vendor/` (zie 5.1). `portfolio.html` is `noindex` en stuurt geen referrer mee.
 
 ### 2.9 Route: bestanden bijwerken (Instellingen > Bestanden bijwerken)
 
 `POST /api/portfolio/<code>/bijwerken` met `bestand1` (transacties) en/of `bestand2` (rekeningoverzicht). Anders dan `/upload` zoekt deze
 route geen portfolio op: de code staat vast, en elk bestand moet **eerst** bewijzen dat het bij deze portfolio hoort.
 
-1. `bijwerken()` → `_bijwerken_impl()`: 404 als de code niet bestaat, 400 zonder bestand (een leeg bestandsveld telt niet).
+1. `bijwerken()` → `_bijwerken_impl()`: 404 als de code niet bestaat (via `_geen_portfolio()`), 400 zonder bestand (een leeg bestandsveld telt niet), 413 boven 5 MB.
 2. `bestand1`: `lees_transacties_excel()` → `voeg_koers_eur_toe()` → `vul_synthetische_order_ids_aan()`; daarna
    in één `db_transactie()` `db_get_order_ids(cur, code)` (= `opgeslagen`) en `db_get_order_ids_bij_andere_portfolios(cur, code, nieuw)`
    (alleen de ID's uit het bestand die al bij een andere portfolio staan; niet meer alle Order ID's van alle portfolio's), en dan
@@ -418,15 +450,15 @@ route geen portfolio op: de code staat vast, en elk bestand moet **eerst** bewij
    `controleer_eigen_rekeningoverzicht()`: minstens één Order ID, en allemaal in `opgeslagen ∪ nieuw`.
 4. Is één bestand afgekeurd, dan 400 met een vaste melding (`MELDING_PER_EIGENDOMSFOUT` in `app.py`; nooit de code van een andere portfolio)
    en wordt er niets opgeslagen. Anders `meld_portfolio_opslaan(True, rows_to_insert)` (Diagnostiek); alleen als er nieuwe rijen zijn
-   met `bestand1` of `bestand2` één `db_transactie()` met `voeg_nieuwe_transacties_toe()` (zonder "opnieuw bepalen"), met `bestand1` ook `vul_bronkolommen_aan()`,
+   met `bestand1` of `bestand2` één `db_transactie()` met `db_markeer_portfolio_gebruikt()` en `voeg_nieuwe_transacties_toe()` (zonder "opnieuw bepalen"), met `bestand1` ook `vul_bronkolommen_aan()`,
    en (met `bestand2`) `sla_dividend_bestand_op()` + `sla_kassaldo_op()` + `sla_rekening_regels_op()`; dan in één `db_deel_verbinding()` `_kern_na_opslaan(code)` en (met `bestand1`) `_meld_valuta_na_opslaan()`. De naam blijft ongewijzigd.
 5. Antwoord: de kern, plus `bijwerken: {nieuwe_transacties, dividend_verwerkt}`. De frontend (`tabs/bestanden_bijwerken.js`) toont het
    dashboard opnieuw met `toonDashboard(data)` (verrijking en tab-toestand horen bij de oude transacties) en een melding via
-   `bijwerkenSuccesTekst()` (`bestandskeuze.js`).
+   `bijwerkenSuccesTekst()` (`bestandskeuze.js`). Na `_kern_na_opslaan()` bewaart `bewaar_upload_meldingen(code, "bijwerken")` de meldingen (zie B10).
 
 ## 3. Per Python-module
 
-24 Python-modules (zonder tests), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
+36 Python-modules (zonder tests; `gunicorn.conf.py` is configuratie en telt niet mee), in de map `portfolioTracker/`. Per module: verantwoordelijkheid, een functietabel en bijzonderheden.
 De kolom **"Aangeroepen door"** is met een script uit de code afgeleid (een AST-doorloop van alle `.py`-bestanden); "—" betekent: geen
 aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, via een dict of via HTTP gebruikt — dat staat erbij).
 
@@ -462,16 +494,24 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | **Soorten regels in het rekeningoverzicht** (kassaldo, stortingen, promotie, onbekende regels) | `rekening_regelsoorten.py` | `regelsoort()`, `BEHANDELING` |
 | **Box 3** (drie belastingstelsels) | `box3.py` (rekenwerk), `box3_parameters.py` (wetsparameters) | `bouw_box3_basis()`, `bereken_box3()`; in de UI `toonBox3()` (`tabs/box3.js`) |
 | **Prognose** (+ Huidige portfolio) | `static/js/prognose.js` (rekenkern) en `static/js/tabs/prognose.js` (formulier en grafiek); het verwachte dividend in `dividend_verwachting.py`; rendement op basis van historie in `historisch_rendement.py` | `berekenPrognose()`, `bouwPrognoseGrafiekData()`, `berekenDividendCumulatief()`, `historiePrognosePaden()` (JS); `bereken_dividend_verwachting()`, `bereken_historisch_rendement()` |
+| **Limieten per IP** (foute codes, upload, zware routes) | `toegangslimiet.py` (pure logica), `app.py` (`voor_request()`, `na_request()`, `client_ip()`) | `Toegangslimiet.verbruik()`, `wachttijd()`, `registreer()`, `REGELS_PER_CATEGORIE` |
+| **Controle van het Excel-bestand** (extensie, zip-inhoud, macro's, rijen) | `bestand_controle.py` | `controleer_excel_bestand()`, `controleer_aantal_rijen()` |
+| **Bewaartermijn** (verlopen portfolio's opruimen) | `bewaartermijn.py` (+ `db.py`) | `ruim_verlopen_portfolios_op()`, `verloopgrens()`, `db_get_verlopen_codes()`, `db_markeer_portfolio_gebruikt()` |
+| **Privacy** | `templates/privacy.html`, route `privacy()` | tekst en datum "Laatst bijgewerkt" bijwerken bij elke wijziging aan opslag, logging, bewaartermijn, browseropslag of externe diensten (CLAUDE.md) |
 
 ---
 
 ### `app.py` — de Flask-routes
 
-**Verantwoordelijkheid:** het Flask-object aanmaken, `db_init()` draaien, en 27 routes definiëren. Naast de routes een paar helpers met één taak: `_upload_impl()` (bestanden lezen, tak kiezen), `_analyseer_zonder_opslaan()`, `_dividend_niet_opslaan()`, `_upload_opslaan()`, `_herbepaal_tickers()` (backfill + land-proxy's wissen, ook voor `api_portfolio()`), `_kern_na_opslaan()` (cache wissen + kern in `db_deel_verbinding()`), `_bijwerken_impl()`, `_gekozen_bestand()` en `_korte_namen_voorstellen_of_fout()`. Schrijfwerk loopt via `with db_transactie() as cur:`; `app.py` opent zelf geen `db_connect()`.
+**Verantwoordelijkheid:** het Flask-object aanmaken (met `ProxyFix`, `MAX_CONTENT_LENGTH` = 5 MB en de beveiligingsheaders), `db_init()` en het opruimen draaien, en 35 routes definiëren. Naast de routes een paar helpers met één taak: `client_ip()`, `voor_request()` en `na_request()` (limieten en headers), `_geen_portfolio()` (404 + telt als foute poging), `_markeer_gebruikt()` (zet `laatst_gebruikt`), `_upload_impl()` (bestanden lezen, tak kiezen), `_analyseer_zonder_opslaan()`, `_dividend_niet_opslaan()`, `_upload_opslaan()`, `_herbepaal_tickers()` (backfill + land-proxy's wissen, ook voor `api_portfolio()`), `_kern_na_opslaan()` (cache wissen + kern in `db_deel_verbinding()`), `_bijwerken_impl()`, `_gekozen_bestand()` en `_korte_namen_voorstellen_of_fout()`. Schrijfwerk loopt via `with db_transactie() as cur:`; `app.py` opent zelf geen `db_connect()`.
 
 | Route | Methode | Functie | Wat | Aangeroepen door (frontend) |
 |---|---|---|---|---|
-| `/` | GET | `home()` | rendert `templates/start.html` (startpagina) | de browser |
+| `/favicon.ico` | GET | `favicon()` | het icoon uit `static/favicon/`, want browsers vragen het op de root | de browser |
+| `/robots.txt` | GET | `robots_txt()` | `Allow: /` en `Allow: /privacy`; `Disallow` voor `/p/`, `/api/`, `/analyse` en `/upload`; verwijst naar de sitemap op het eigen domein (`request.url_root`) | zoekmachines |
+| `/sitemap.xml` | GET | `sitemap_xml()` | alleen de startpagina en `/privacy` | zoekmachines |
+| `/` | GET | `home()` | rendert `templates/start.html` (startpagina), met `code_lengte` en `bewaartermijn_maanden` | de browser |
+| `/privacy` | GET | `privacy()` | rendert `templates/privacy.html` met `bewaartermijn_maanden`; geen database | de browser; de footer en de uploadkaart |
 | `/p/<code>` | GET | `portfolio_pagina()` | rendert `templates/portfolio.html` met `data-code`; redirect bij kleine letters of een ongeldige code (zie 2.8). Geen database | de browser; `gaNaarPortfolioPagina()` |
 | `/analyse` | GET | `analyse_pagina()` | dezelfde template zonder code, voor "niet opslaan" | `gaNaarPortfolioPagina()` |
 | `/upload` | POST | `upload()` → `_upload_impl()` | zie [hoofdstuk 2](#2-de-route-van-een-upload-stap-voor-stap) | submit-handler van `#uploadForm` |
@@ -491,6 +531,9 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 | `/api/portfolio/<code>/ticker-zekerheid/alle-prijzen` | GET | `ticker_zekerheid_alle_prijzen()` | elke transactie van 1 positie (`isin`, `beurs`) tegen de dagrange van de opgeslagen ticker (`controleer_alle_transactieprijzen()`) | `controleerAllePrijzen()` |
 | `/api/ticker-zekerheid-check` | POST | `ticker_zekerheid_check()` | volledige verificatie voor een "niet opslaan"-analyse, op meegestuurde transacties | `controleerTickerZekerheidUitgebreid()` |
 | `/api/portfolio/<code>/dividend` | GET | `dividend()` | `bereken_dividend_samenvatting()`; `{"beschikbaar": False}` als er geen dividenden zijn | `toonDividend()` |
+| `/api/portfolio/<code>/upload-meldingen` | GET | `upload_meldingen()` | `{"uploads": [{soort, geupload_op, meldingen}]}` uit `upload_meldingen` (nieuwste eerst, max. 5); 404 bij onbekende code | Diagnostiek |
+| `/api/portfolio/<code>/dividend-verwachting` | GET | `dividend_verwachting()` | `bereken_dividend_verwachting(code)` met de Diagnostiek erbij; `{"beschikbaar": False}` zonder resultaat; JSON-500 bij een fout | Prognose (dividend-vinkje) |
+| `/api/portfolio/<code>/historisch-rendement` | GET | `historisch_rendement()` | `bereken_historisch_rendement(code)` met de Diagnostiek erbij; JSON-500 bij een fout | Prognose (Huidige portfolio) |
 | `/api/portfolio/<code>/transacties` | GET | `transacties_overzicht()` | `bouw_transacties_lijst(code)` = `{"lijst": [...], "promotie": {...} of null}`: elke rij met `resultaat_eur`, `resultaat_pct`, `status`, `dividend_eur`, `dividend_pct` en `kostenkorting_eur` (0 zonder korting; `totaal_eur` en `transactiekosten` staan zoals betaald). `promotie`: `bedrag_eur` (toegepaste korting), `datum` (laatste promoregel), `regels` (`[{datum, bedrag_eur}]`) | `toonTransacties()` |
 | `/api/portfolio/<code>/bijnamen` | POST | `set_bijnamen()` | body `{"namen": {ticker: naam}}`; lege namen vallen weg, de rest in één transactie via `db_wijzig_bijnamen()`; geeft de kern terug | `pasBijnamenToe()` (alle knoppen en het invoerveld op Bijnamen) |
 | `/api/portfolio/<code>/bijnaam` | POST | `set_bijnaam()` | `UPDATE transacties SET product = ...` voor alle rijen met die ticker | — (alleen tests; de frontend gebruikt `/bijnamen`) |
@@ -504,7 +547,7 @@ aanroeper in de productiecode gevonden (de functie wordt dan alleen door tests, 
 
 - `app.py` is **niet helemaal "alleen dunne routes"**: `_upload_impl()` is een lange orkestratiefunctie, en `ticker_koers_bereik()`, `dividend()`,
   `transacties_overzicht()` doen een eigen validatie of berekening (de "bestaat de code?"-check via `db_portfolio_bestaat()`). `benchmark_vergelijking()` bevat validatielogica en roept `get_prices()` rechtstreeks aan.
-- Er is **geen authenticatie of gebruikersbegrip**: wie een code kent, kan alles lezen, wijzigen en met de `DELETE`-route verwijderen.
+- Er is **geen authenticatie of gebruikersbegrip**: wie een code kent, kan alles lezen, wijzigen en met de `DELETE`-route verwijderen. Beschermd door limieten per IP (`toegangslimiet.py`): `voor_request()` weigert met 429 (`Retry-After`) als een IP te veel foute codes heeft geprobeerd (`foute_code`, `foute_code_globaal`), te vaak een gevoelige actie deed (`verwijder_portfolio`, `wijzig_code`: `GEVOELIGE_ENDPOINTS`) of te veel zware code-loze routes aanriep (`CATEGORIE_PER_ZWAAR_ENDPOINT`: `upload`, `ticker_zekerheid_check`, `etf_overlap_detail`, `box3_bereken`); `na_request()` registreert een foute poging als `g.foute_code_poging` is gezet. Elke `<code>`-route moet een onbekende code met `_geen_portfolio()` (404) beantwoorden. De tellers staan in het geheugen en resetten bij een herstart.
 - De route-functie `dividend()` heeft dezelfde naam als de module `dividend.py`. Dat werkt omdat `app.py` alleen losse functies uit die module
   importeert, maar het is verwarrend bij zoeken.
 - Drie routes gebruikt de frontend niet meer: `/bijnaam`, `/reset-bijnaam` en `POST /korte-namen` (sinds Bijnamen alles via `/bijnamen` doet); ze worden nog wel getest. Ticker-zekerheid gaat in twee stappen: `/ticker-zekerheid/lijst` (snel) en daarna per positie
@@ -522,7 +565,7 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
-| `lees_transacties_excel()` | Excel → DataFrame, kolommen strippen, controle op `VERWACHTE_KOLOMMEN` (anders `OngeldigExcelBestand`), `Datum` parsen (`dayfirst=True`) | bestandsobject → DataFrame | `_upload_impl()`, `_bijwerken_impl()` |
+| `lees_transacties_excel()` | `controleer_excel_bestand()` (`bestand_controle.py`), Excel → DataFrame, `controleer_aantal_rijen()`, kolommen strippen, controle op `VERWACHTE_KOLOMMEN` (anders `OngeldigExcelBestand`), `Datum` parsen (`dayfirst=True`) | bestandsobject → DataFrame | `_upload_impl()`, `_bijwerken_impl()` |
 | `voeg_koers_eur_toe()` | voegt `_koers_eur` toe en meldt het gebruik van de wisselkoers in Diagnostiek | DataFrame → DataFrame | `_upload_impl()`, `_bijwerken_impl()` |
 | `_kolom_of_naamloze_buurkolom()` | de `Order ID`-kolom, of bij een lege kolom de naamloze buurkolom | DataFrame, kolomnaam → Series | `lees_transacties_excel()` |
 | `_normaliseer_tijd()` | maakt van een tijdcel (string, `time` of `datetime`) een `"HH:MM:SS"`-string voor een Postgres-`TIME` | cel → tekst of `None` | `_insert_nieuwe_transacties()` |
@@ -548,6 +591,8 @@ Constanten: `VERWACHTE_KOLOMMEN` (de 15 benoemde kolommen die een geldig bestand
 | `sla_dividend_bestand_op()` | dividendrecords uit het ingelezen rekeningoverzicht berekenen en opslaan, met Diagnostiek | code, DataFrame → (schrijft naar DB) | `_upload_opslaan()`, `_bijwerken_impl()` |
 | `verwerk_dividend_zonder_opslaan()` | hetzelfde zonder opslaan; geeft de records terug | DataFrame → lijst | `_dividend_niet_opslaan()` |
 | `sla_kassaldo_op()` | `bereken_kassaldo()` en, als er EUR-rijen zijn, `db_save_kassaldo()` | cursor, code, DataFrame → (schrijft naar DB) | `_upload_opslaan()`, `_bijwerken_impl()` |
+| `bewaar_upload_meldingen()` | `db_save_upload_meldingen()` met de bewaarde Diagnostiek-categorieën; een fout wordt alleen gelogd | code, soort (`UPLOAD_SOORT_UPLOAD` of `UPLOAD_SOORT_BIJWERKEN`) → — | `_upload_opslaan()`, `_bijwerken_impl()` |
+| `upload_meldingen_voor_api()` | rijen uit `db_get_upload_meldingen()` → `[{soort, geupload_op (ISO met 'Z'), meldingen}]` | lijst → lijst | `upload_meldingen()` |
 
 **Bijzonderheden en valkuilen**
 
@@ -619,10 +664,12 @@ Constante: `CODE_LENGTH = 3`; `app.py` geeft die ook als `code_lengte` mee aan `
 | Functie | Wat | Input → output | Aangeroepen door |
 |---|---|---|---|
 | `is_geldige_code()` | `re.fullmatch` op exact `CODE_LENGTH` hoofdletters A–Z | tekst → bool | `portfolio_pagina()`, `wijzig_code()` |
-| `generate_code()` | willekeurige code, herhaalt tot `db_portfolio_bestaat_met_cursor()` zegt dat hij nog niet in `portfolios` staat | cursor → tekst | `vind_of_maak_portfolio()` |
-| `find_matching_code()` | eerste code waarvan de bestaande set (uit `db_get_order_id_sets_met_overlap()`: alleen portfolio's die minstens één Order ID met de upload delen) ⊆ nieuwe set (dan: nieuwe − bestaande = te inserten), of nieuwe set ⊆ bestaande set (dan: niets nieuws) | cursor, set → `(code, set)` of `(None, None)` | `vind_of_maak_portfolio()` |
+| `generate_code()` | willekeurige code (`secrets.choice`), herhaalt (max. `MAX_CODE_POGINGEN` = 100, daarna `GeenVrijeCode`) tot `db_portfolio_bestaat_met_cursor()` zegt dat hij nog niet in `portfolios` staat | cursor → tekst | `vind_of_maak_portfolio()` |
+| `maak_portfolio_met_nieuwe_code()` | kiest een code met `generate_code()` en maakt de rij met `db_probeer_portfolio_te_maken()`; verliest hij een race om dezelfde code, dan een volgende poging | cursor, naam → code | `vind_of_maak_portfolio()` |
+| `find_matching_code()` | eerste code waarvan de bestaande set (uit `db_get_order_id_sets_met_overlap()`: alleen portfolio's die minstens één Order ID met de upload delen) ⊆ nieuwe set (dan: nieuwe − bestaande = te inserten), of nieuwe set ⊆ bestaande set (dan gooit hij `UploadHoortBijBestaandePortfolio`: de upload is een deelverzameling van een bestaande portfolio, en de code mag niet worden prijsgegeven) | cursor, set → `(code, set)` of `(None, None)` | `vind_of_maak_portfolio()` |
 | `controleer_eigen_transactiebestand()` | superset-regel: alle opgeslagen ID's in het bestand, geen ID van een andere portfolio, wel overlap | drie sets → `(foutcode, None)` of `(None, toe_te_voegen)` | `_bijwerken_impl()` |
 | `controleer_eigen_rekeningoverzicht()` | minstens één Order ID, allemaal bekend | twee sets → foutcode of `None` | `_bijwerken_impl()` |
+| `valideer_bijnaam()` | foutmelding of `None`: een bijnaam is maximaal `MAX_BIJNAAM_LENGTE` (100) tekens | tekst → tekst of `None` | `set_bijnaam()`, `set_bijnamen()` |
 
 **Valkuilen:** de match is het *eerste* portfolio dat aan een van beide deelverzameling-voorwaarden voldoet. Een portfolio zonder enige
 overlap komt niet eens uit de database (vroeger werden alle Order ID's van alle portfolio's gelezen); een upload zonder Order ID's matcht
@@ -630,6 +677,47 @@ dus nooit.
 
 ---
 
+### `toegangslimiet.py` — limieten per IP en globaal
+
+**Verantwoordelijkheid:** pure logica (geen Flask, geen database) voor "hoe vaak mag dit IP dit doen". `Toegangslimiet` houdt per `(categorie, sleutel)` een `deque` met tijdstippen bij, in het geheugen en achter een `threading.Lock`; de klok is injecteerbaar (`klok=time.monotonic`) voor tests. De koppeling met Flask staat in `app.py` (`voor_request()`, `na_request()`).
+
+| Onderdeel | Wat |
+|---|---|
+| `Regel(maximum, venster_seconden)` | één limiet; een categorie kan meerdere regels hebben, de strengste wint |
+| `REGELS_PER_CATEGORIE` | `foute_code` (10 per 10 min en 30 per dag, per IP), `foute_code_globaal` (200 per uur, sleutel `SLEUTEL_GLOBAAL`), `gevoelige_actie` (5 per uur), `upload` (10 per uur), `externe_bron` (60 per uur), `berekening` (600 per uur) |
+| `wachttijd()`, `registreer()`, `verbruik()` | controleren zonder te tellen, tellen, of beide in één stap (0 = toegestaan en geteld; anders de wachttijd, niet geteld) |
+| `MAX_BIJGEHOUDEN_SLEUTELS` (50.000) | een aanvaller met veel IP's mag het geheugen niet vullen: bij het maximum ruimt `_ruim_op()` verlopen gebeurtenissen op |
+| `wachttijd_tekst()` | "over 3 minuten" voor de melding in het 429-antwoord |
+
+**Valkuilen:** de tellers staan in het geheugen, dus ze resetten bij een herstart of deploy en gelden per gunicorn-worker (nu 1). Het IP-adres komt alleen hier voor en wordt nooit gelogd. Tests: `test_toegang_routes.py` (limieten, 404's, uploadgrenzen, headers, robots/sitemap, meta-tags) en `test_portfolio_code_bescherming.py` (`generate_code()`, race, `find_matching_code()`).
+
+---
+
+### `bestand_controle.py` — controle van een Excel-bestand vóór pandas
+
+`controleer_excel_bestand(bestand)` (gooit `OngeldigExcelBestand`) kijkt, zonder pandas: de extensie (`.xlsx`/`.xls`; de inhoud is leidend, `.xls` staat erin omdat DeGiro zijn export zo kan noemen), of het een zip is met `[Content_Types].xml` en `xl/workbook.xml`, geen macro-onderdeel (`xl/vbaProject.bin`), hooguit `MAX_ZIP_BESTANDEN` (200) onderdelen en `MAX_UITGEPAKTE_BYTES` (50 MB) uitgepakt (zip-bom). De bestandspositie wordt altijd teruggezet. `controleer_aantal_rijen(df)` weigert meer dan `MAX_RIJEN` (50.000) rijen. Aangeroepen door `lees_transacties_excel()` en `lees_rekeningoverzicht()`; `_upload_impl()` en `_bijwerken_impl()` maken er een 400 van. Tests: `test_bestand_controle.py` met `tests/test_files/` (zie 7.1).
+
+---
+
+### `bewaartermijn.py` — portfolio's na 6 maanden zonder gebruik verwijderen
+
+**Verantwoordelijkheid:** de bewaartermijn uit `templates/privacy.html`. Importeert alleen `db`.
+
+| Onderdeel | Wat |
+|---|---|
+| `BEWAARTERMIJN_MAANDEN` (6), `OPRUIM_MIN_INTERVAL_SECONDEN` (3600) | de twee constanten; de privacypagina en de uploadkaart halen het aantal maanden hieruit |
+| `verloopgrens(nu)` | `nu` min 6 maanden (`relativedelta`, dus een maandeinde wordt afgekapt: 31 aug → 28 feb). Wie **vóór** de grens voor het laatst is gebruikt is verlopen; precies op de grens nog niet (`db_get_verlopen_codes()` gebruikt `laatst_gebruikt < %s`) |
+| `ruim_verlopen_portfolios_op(nu=None, klok=time.monotonic)` | vraagt de verlopen codes op en roept per code `db_delete_portfolio()` aan. Hooguit één keer per uur per proces (in-memory tijdstempel achter een lock); een tweede aanroep binnen het uur geeft `None`. Een fout breekt niets (alleen een WARN zonder details en `None`). Logt alleen het aantal (`[opruimen] N verlopen portfolio('s) verwijderd`), nooit codes |
+
+**Waar het draait:** in `app.py` direct na `db_init()` (dus bij het opstarten, alleen als `DATABASE_URL` is ingesteld) en in `upload()` na een geslaagde `_upload_impl()`. **Waar `laatst_gebruikt` wordt gezet:** `GET /api/portfolio/<code>` (`_markeer_gebruikt()`), `_upload_opslaan()` (nieuw of bestaand) en `_bijwerken_impl()`, en het verhuist mee bij `db_wijzig_portfolio_code()`. De luie endpoints tellen niet. **Valkuil:** de kolom `portfolios.laatst_gebruikt` bestaat in een bestaande Neon-database pas na een handmatige `ALTER TABLE` (`CREATE TABLE IF NOT EXISTS` raakt een bestaande tabel niet aan); doe dat vóór de deploy, met `now()` als startwaarde voor bestaande rijen (niet `aangemaakt_op`), anders worden oude portfolio's direct gewist. Neon draait in UTC; `verloopgrens()` rekent daarom met UTC-naive tijd. Tests: `test_bewaartermijn.py` (grens, rem, markeren per route).
+
+---
+
+### `gunicorn.conf.py` — accesslog zonder IP en URL
+
+Eén regel: `access_log_format = "%(m)s %(s)s %(B)s %(L)s"` (methode, status, grootte, duur). Gunicorn leest dit bestand uit de werkmap; verder staat er bewust niets in. Tests: `test_gunicorn_config.py` (geen `%(h)s`, `%(r)s`, `%(U)s`, `%(q)s`, `%(f)s`, `%(a)s`, en niets anders in het bestand).
+
+---
 ### `transactie_utils.py` — kleine gedeelde helpers
 
 **Verantwoordelijkheid:** kleine functies op ruwe transactierijen, datums en getallen, zonder DB/netwerk, gebruikt door meerdere modules (daarom een eigen bestand: anders circulaire imports).
@@ -651,8 +739,8 @@ dezelfde dag verwerken gaf een "onbekende" verkoopkoers op Statistieken. Een ont
 
 ### `debug_utils.py` — logging
 
-`DEBUG = True` (bovenin), `dprint()` (print alleen als `DEBUG`) en `meet_tijd(label)` (contextmanager die `[timing] label: 0.42s` print). Alles staat standaard
-**aan**, dus ook productie print de `dprint`-regels. Alle geprinte vaste tekst is ASCII (`WARN`/`OK` i.p.v. emoji), zodat een Windows-console met cp1252
+`DEBUG = True` (bovenin), `dprint()` (print alleen als `DEBUG`), `meet_tijd(label)` (contextmanager die `[timing] label: 0.42s` print), `maskeer_codes(tekst)` (vervangt de code in een Postgres-foutmelding als `Key (code, order_id)=(ABC, ...)` door `***`) en `print_traceback()` (de traceback, gemaskeerd). Alles staat standaard
+**aan**, dus ook productie print de `dprint`-regels. **Geen portfolio-codes of IP-adressen in de logs**: niet in labels (`meet_tijd("basis_ophalen_db")`, zonder `code=`), niet in `[memory]`-regels, foutmeldingen in `app.py` lopen via `maskeer_codes()`/`print_traceback()`, en de tijdelijke `[ip]`-regel is weg. `test_logs_zonder_codes.py` loopt met een AST-doorloop alle `print`/`dprint`/`meet_tijd`-aanroepen in de root-modules na op de namen `code`, `nieuwe_code`, `oude_code`, `ip` en `remote_addr`/`headers`. Productnamen en ISIN's mogen wel in de logs (Render bewaart ze 7 dagen). Alle geprinte vaste tekst is ASCII (`WARN`/`OK` i.p.v. emoji), zodat een Windows-console met cp1252
 niet crasht. Er staan geen uitgecommentarieerde prints in de code: wat niet gelogd hoeft te worden, staat er niet.
 
 ---
@@ -1488,12 +1576,13 @@ Hoofdstuk 4 beschrijft de tabellen; hier alleen de functies.
 | ETF-caches | `db_get_cached_etf_sector_verdeling()`, `db_save_etf_sector_verdeling()`, `db_get_cached_etf_holdings()`, `db_save_etf_holdings()` | `get_etf_sector_verdeling()`, `get_etf_holdings()` |
 | Prijscheck/splits/OpenFIGI | `db_get_cached_prijscheck()`, `db_save_prijscheck()`, `db_get_cached_splits()`, `db_save_splits()`, `db_get_cached_openfigi()`, `db_get_cached_openfigi_voor_isins()`, `db_save_openfigi()` | `vergelijk_prijs_op_datum()`, `_haal_splits_op()`, `haal_openfigi_resultaten()`, `_meld_tickers()` (één query voor alle ISIN's) |
 | Koersen (`koersen`, `koers_splits`) | `db_get_gecachte_koersen()`, `db_save_koersen()` (koersen + splits in één transactie), `db_get_koers_splits()`, `db_get_laatste_koers_update()` | `get_prices()`, `pas_effectieve_datums_toe()`, `continue_koersreeks()`, `analyze_transacties_kern()` |
-| Portfolio beheren | `db_delete_portfolio()`, `db_wijzig_portfolio_code()`, `db_portfolio_bestaat()`, `db_portfolio_bestaat_met_cursor()` (cur), `db_maak_portfolio()` (cur), `db_zet_portfolio_naam()` (cur), `db_get_order_id_sets_met_overlap()` (cur), `db_get_order_ids()` (cur), `db_get_order_ids_bij_andere_portfolios()` (cur) | `verwijder_portfolio()`, `wijzig_code()`, `dividend()`, `generate_code()`, `find_matching_code()`, `vind_of_maak_portfolio()`, `_bijwerken_impl()` |
+| Portfolio beheren | `db_delete_portfolio()`, `db_wijzig_portfolio_code()`, `db_portfolio_bestaat()`, `db_portfolio_bestaat_met_cursor()` (cur), `db_maak_portfolio()` (cur), `db_zet_portfolio_naam()` (cur), `db_get_order_id_sets_met_overlap()` (cur), `db_get_order_ids()` (cur), `db_get_order_ids_bij_andere_portfolios()` (cur), `db_markeer_portfolio_gebruikt()` (cur), `db_get_verlopen_codes()` | `verwijder_portfolio()`, `wijzig_code()`, `_markeer_gebruikt()`, `_upload_opslaan()`, `_bijwerken_impl()`, `ruim_verlopen_portfolios_op()`, `dividend()`, `generate_code()`, `find_matching_code()`, `vind_of_maak_portfolio()`, `_bijwerken_impl()` |
 | Transacties lezen | `TRANSACTIE_KOLOMMEN` en `ORDER_ID_KOLOMMEN` (constanten), `db_get_order_id_rijen()` (Order ID's met hun rijgegevens, voor `check_synthetische_order_ids()`), `db_get_portfolio_naam_en_transacties()`, `db_get_isin_ticker_product()`, `db_get_bekende_tickers()` (cur) | `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()`, `ticker_zekerheid_groepen()`, `backfill_verouderde_tickers()`, `bouw_transacties_lijst()`, `bereken_dividend_samenvatting()`, `_ticker_resolutie_opslaan()` |
 | Transacties schrijven | `db_insert_transactie()` (cur), `db_wijzig_ticker_voor_isins()` (cur; `isin = ANY(...)` en dezelfde beurs: alle ISIN's van een keten), `db_wijzig_bijnamen()`, `db_wijzig_bijnaam()`, `db_herstel_echte_naam()` | `_insert_nieuwe_transacties()`, `backfill_verouderde_tickers()`, `ticker_zekerheid_wijzig()`, `set_bijnamen()`, `pas_korte_namen_toe()`, `set_bijnaam()`, `reset_bijnaam()` |
 | Dividend | `db_save_dividenden()` (cur), `db_get_dividenden()` | `sla_dividend_bestand_op()`, `bereken_dividend_samenvatting()`, `analyze_transacties_kern()`, `box3_basis()` |
 | Kassaldo | `db_save_kassaldo()` (cur, upsert), `db_get_kassaldo()` (`None` als er geen rij is) | `sla_kassaldo_op()`, `analyze_transacties_kern()` |
 | Rekeningregels | `db_save_rekening_regels()` (cur, `DO NOTHING`, geeft het aantal nieuwe), `db_get_rekening_regels_eur()` (EUR-regels met een bedrag) | `sla_rekening_regels_op()`, `_laad_transacties()` |
+| Upload-meldingen (`upload_meldingen`) | `db_save_upload_meldingen()` (eigen transactie; houdt daarna alleen de nieuwste `maximum` uploads van de code), `db_get_upload_meldingen()` | `bewaar_upload_meldingen()`, `upload_meldingen()` |
 | ETF-land-proxy (`ishares_fondsen`, `etf_proxy`) | `db_get_ishares_fondsen()` (`None` als leeg of ouder dan `ISHARES_FONDSEN_GELDIGHEID` = 7 dagen), `db_save_ishares_fondsen()` (delete + bulk insert, niet met een lege lijst), `db_get_etf_proxies()`, `db_save_etf_proxy()` (upsert), `db_wis_etf_proxies_voor_portfolio()` | `_ishares_fondsen()`, `land_proxies_voor_etfs()`, `_herbepaal_tickers()` |
 
 Functies met `(cur)` krijgen een cursor van de aanroeper.
@@ -1503,14 +1592,14 @@ Functies met `(cur)` krijgen een cursor van de aanroeper.
 - **Elke functie zonder `cur`-parameter opent en sluit zijn eigen verbinding** (geen connection pool). Dat is eenvoudig, maar betekent veel round-trips naar Neon.
 - `CACHE_GELDIGHEID = "30 days"` geldt voor `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings`, `ticker_splits` en `ticker_dividenden`.
 - `db_save_dividenden()`, `db_save_kassaldo()`, `db_save_prijscheck()` en `db_save_koersen()` zijn **upserts** (`DO UPDATE`); de inserts in `transacties` zijn `DO NOTHING`: kies bewust welke je nodig hebt.
-- `db_wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij, verhuist dan transacties/dividenden/kassaldo/rekening_regels en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
+- `db_wijzig_portfolio_code()` maakt eerst een nieuwe `portfolios`-rij (met dezelfde `aangemaakt_op` en `laatst_gebruikt`), verhuist dan transacties/dividenden/kassaldo/rekening_regels/upload_meldingen en verwijdert daarna de oude rij (de foreign key laat een directe hernoeming niet toe).
 
 ## 4. Database
 
-Alle tabellen worden aangemaakt in `db_init()` (`db.py`), PostgreSQL bij Neon. Er zijn **16 tabellen**: 5 met persoonlijke data (`portfolios`, `transacties`, `dividenden`, `kassaldo`, `rekening_regels`) en 11 die
-"anonieme marktdata/cache" zijn (`koersen`, `koers_splits`, `ticker_info`, `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings`, `ticker_prijscheck`, `ticker_splits`, `openfigi_cache`,
-`ishares_fondsen`, `etf_proxy`).
-`db_delete_portfolio()` verwijdert alleen de eerste groep; de caches blijven staan.
+Alle tabellen worden aangemaakt in `db_init()` (`db.py`), PostgreSQL bij Neon. Er zijn **19 tabellen**: 6 met persoonlijke data (`portfolios`, `transacties`, `dividenden`, `kassaldo`, `rekening_regels`, `upload_meldingen`) en 13 die
+"anonieme marktdata/cache" zijn (`koersen`, `koers_splits`, `koers_begin`, `ticker_info`, `ticker_land_sector`, `etf_sector_verdeling`, `etf_holdings`, `ticker_prijscheck`, `ticker_splits`, `openfigi_cache`,
+`ticker_dividenden`, `ishares_fondsen`, `etf_proxy`). De oude tabellen `prijzen` en `prijscheck_koersen` maakt `db_init()` niet meer aan; ze kunnen in Neon nog bestaan (**onzeker**).
+`db_delete_portfolio()` en `db_wijzig_portfolio_code()` behandelen precies de eerste groep; de caches blijven staan (anonieme marktdata). Een nieuwe tabel met een `code`-kolom hoort in beide functies.
 Diagrammen met alle tabellen en koppelingen: [Databaseschema](#databaseschema).
 
 ### 4.1 Persoonlijke data
@@ -1521,8 +1610,9 @@ Diagrammen met alle tabellen en koppelingen: [Databaseschema](#databaseschema).
 | `code` | TEXT, primary key | de 3-letter-code |
 | `naam` | TEXT | optionele naam |
 | `aangemaakt_op` | TIMESTAMP, default nu | |
+| `laatst_gebruikt` | TIMESTAMP, NOT NULL, default `now()` | basis voor de bewaartermijn van 6 maanden (`bewaartermijn.py`); gezet bij ophalen met code, upload en bijwerken, en meeverhuisd bij code wijzigen. In Neon met de hand toegevoegd: `ALTER TABLE portfolios ADD COLUMN laatst_gebruikt TIMESTAMP NOT NULL DEFAULT now();` (bestaande rijen krijgen daarmee `now()`, niet `aangemaakt_op`) |
 
-Schrijven: `vind_of_maak_portfolio()` (via `db_maak_portfolio()` en `db_zet_portfolio_naam()`), `db_wijzig_portfolio_code()`, `db_delete_portfolio()`.
+Schrijven: `vind_of_maak_portfolio()` (via `db_probeer_portfolio_te_maken()` en `db_zet_portfolio_naam()`), `db_markeer_portfolio_gebruikt()`, `db_wijzig_portfolio_code()`, `db_delete_portfolio()`.
 Lezen: `generate_code()` (bestaat de code al? via `db_portfolio_bestaat_met_cursor()`), `haal_portfolio_basis()`, `laad_split_gecorrigeerde_transacties()` (voor `ticker_koers_bereik()`, `benchmark_vergelijking()`, `rendement_over_tijd()`; beide via `db_get_portfolio_naam_en_transacties()`), de routes `dividend()` en `transacties_overzicht()` (via `db_portfolio_bestaat()`), `db_wijzig_portfolio_code()`.
 
 #### `transacties`
@@ -1578,6 +1668,20 @@ Schrijven: `db_save_kassaldo()` (**upsert**: het laatst geüploade rekeningoverz
 `db_delete_portfolio()`. Lezen: `db_get_kassaldo()` (via `analyze_transacties_kern()`). Een nieuwe tabel, dus `db_init()` maakt hem bij de volgende start zelf aan;
 portfolio's van vóór deze tabel krijgen pas een rij na een nieuwe upload van het rekeningoverzicht (Bestanden bijwerken).
 
+#### `upload_meldingen`
+De Diagnostiek-meldingen van de laatste uploads, zodat ze er na verversen nog zijn (de Excel is dan weg). Alleen de categorieën in `BEWAARDE_UPLOAD_CATEGORIEEN` (Opslaan, Order ID's, Wisselkoersen, Tickers, Dividend, Rekeningoverzicht); de rest berekent het laden opnieuw (`ook_live`).
+
+| Kolom | Type | Betekenis |
+|---|---|---|
+| `id` | SERIAL, primary key | |
+| `code` | TEXT, NOT NULL | portfolio-code (**geen** foreign key) |
+| `soort` | TEXT, NOT NULL | `upload` of `bijwerken` |
+| `geupload_op` | TIMESTAMP, default nu | |
+| `meldingen` | JSONB, NOT NULL | `[{categorie, niveau, tekst, sleutel[, tabel, actie, ook_live]}]`; de tekst en tabellen kunnen productnamen, ISIN's, Order ID's en datums bevatten |
+| | index `upload_meldingen_code_idx` op `(code, geupload_op)` | |
+
+Schrijven: `db_save_upload_meldingen()` (voegt toe en houdt per code de nieuwste `MAX_BEWAARDE_UPLOADS` = 5), `db_wijzig_portfolio_code()`, `db_delete_portfolio()`. Lezen: `db_get_upload_meldingen()` (via `GET /api/portfolio/<code>/upload-meldingen`).
+
 #### `rekening_regels`
 Elke rij van het rekeningoverzicht, zodat het bestand na te bouwen is. Dividend en kassaldo komen uit het geüploade bestand zelf; alleen de promotiekorting wordt hieruit gelezen (`db_get_rekening_regels_eur()` → `promotie_bedragen()`).
 
@@ -1603,11 +1707,12 @@ Schrijven: `db_save_rekening_regels()` (`ON CONFLICT DO NOTHING`: `regel_id` is 
 |---|---|---|---|---|
 | `koersen` — PK `(ticker, datum)` | `koers_eur`, `bijgewerkt_op` | **ruwe** dagkoersen in EUR (zoals ze die dag noteerden, nooit achteraf voor splits gecorrigeerd); ook FX-paren (bv. `USDEUR=X`) omdat yfinance die als ticker behandelt | `db_save_koersen()` (vanuit `get_prices()`, upsert) | `db_get_gecachte_koersen()`, `db_get_laatste_koers_update()` |
 | `koers_splits` — PK `(ticker, datum)` | `ratio` | Yahoo's splits uit dezelfde download als de koersen; een ticker met koersen maar zonder rijen hier heeft geen splits gehad | `db_save_koersen()` (zelfde transactie) | `db_get_koers_splits()` |
+| `koers_begin` — PK `ticker` | `gevraagd_vanaf`, `bijgewerkt_op` | een volledige download vanaf `gevraagd_vanaf` begon later: Yahoo heeft niets eerder (jonge aandelen). `gevraagd_vanaf` is de startdatum van de download, dus de datum van de eerste transactie van de portfolio waarmee hij is opgehaald | `db_save_koers_begin()` | `db_get_koers_begin()` |
 | `ticker_info` — PK `ticker` | `is_etf`, `quote_type`, `valuta`, `yahoo_beurs`, `fund_family`, `category`, `bijgewerkt_op`, `long_name` | ETF/aandeel-classificatie + Yahoo-metadata; `long_name` voor de DIS/ACC-check in Diagnostiek en als fallback in Bijnamen (in Neon met de hand toegevoegd: `ALTER TABLE ticker_info ADD COLUMN long_name TEXT;`). Land en sector staan alleen in `ticker_land_sector`; de oude kolommen `land`/`sector` worden niet meer geschreven of gelezen (in Neon met de hand te verwijderen: `ALTER TABLE ticker_info DROP COLUMN land, DROP COLUMN sector;`, pas ná de deploy) | `db_save_classification()`, `db_save_long_names()` | `db_get_ticker_details()` |
 | `ticker_land_sector` — PK `ticker` | `land`, `sector`, `bijgewerkt_op` | land/sector van een los aandeel of holding-ticker | `db_save_land_sector()` | `db_get_cached_land_sector()` |
 | `etf_sector_verdeling` — PK `(etf_ticker, sector)` | `gewicht`, `bijgewerkt_op` | sectorverdeling per ETF, gewicht als fractie 0–1 | `db_save_etf_sector_verdeling()` (delete + bulk insert) | `db_get_cached_etf_sector_verdeling()` |
 | `etf_holdings` — PK `(etf_ticker, holding_naam)` | `holding_ticker`, `gewicht`, `land`, `bron`, `bijgewerkt_op` | holdings per ETF; `bron` is `'provider_csv'` of `'yfinance_top10'` | `db_save_etf_holdings()` (delete + bulk insert) | `db_get_cached_etf_holdings()` |
-| `ticker_prijscheck` — PK `(ticker, datum)` | `yahoo_slotkoers`, `valuta`, `high`, `low`, `opgehaald_op` | historische Yahoo-slotkoers + dagrange voor de prijsvergelijking | `db_save_prijscheck()` (upsert), `db_save_prijschecks()` (dezelfde upsert voor meerdere datums in één statement) | `db_get_cached_prijscheck()`, `db_get_cached_prijschecks()` (meerdere datums in één query) |
+| `ticker_prijscheck` — PK `(ticker, datum)` | `yahoo_slotkoers`, `valuta`, `high`, `low`, `opgehaald_op` | historische Yahoo-slotkoers + dagrange voor de prijsvergelijking; `datum` is de datum van een transactie die iemand liet controleren (ook bij "niet opslaan"), zonder code, aantal of bedrag | `db_save_prijscheck()` (upsert), `db_save_prijschecks()` (dezelfde upsert voor meerdere datums in één statement) | `db_get_cached_prijscheck()`, `db_get_cached_prijschecks()` (meerdere datums in één query) |
 | `ticker_splits` — PK `ticker` | `splits` (JSONB), `bijgewerkt_op` | `{iso_datum: ratio}` | `db_save_splits()` | `db_get_cached_splits()` |
 | `ticker_dividenden` — PK `ticker` | `dividenden` (JSONB), `dividend_rate`, `trailing_rate`, `bijgewerkt_op` | `{iso_ex_datum: bedrag per aandeel}` in Yahoo-valuta, plus `dividendRate`/`trailingAnnualDividendRate` | `db_save_ticker_dividenden()` (upsert) | `db_get_cached_ticker_dividenden()` |
 | `openfigi_cache` — PK `isin` | `resultaten` (JSONB), `opgehaald_op` | OpenFIGI-antwoord per ISIN | `db_save_openfigi()` | `db_get_cached_openfigi()` |
@@ -1621,6 +1726,7 @@ De functies die deze helpers aanroepen: zie de tabel "db.py" in hoofdstuk 3 (bv.
 | Cache | Vervalt na | Mislukte lookup | Bijzonderheid |
 |---|---|---|---|
 | `koersen` + `koers_splits` | nooit als geheel; wel **incrementeel verversen** vanaf de laatste gecachte datum bij elke portfolio-opening, tenzij < 2 minuten geleden | niets opslaan (`download_koersen_met_retry()` geeft een leeg DataFrame); een ticker zonder splitlijst ook niet | een cache die te laat begint (> 5 dagen na `start_date`) telt als "missing" en wordt volledig opnieuw gedownload |
+| `koers_begin` | 30 dagen | niet opslaan bij een fout, een lege respons of het tijdbudget | alleen na een geslaagde download met data die later begint dan gevraagd; FX-paren doen niet mee |
 | `ticker_info` | **nooit** (`db_get_ticker_details()` filtert niet op leeftijd) | niet cachen; die keer telt de ticker als "aandeel" (of de oude `is_etf` als er al een rij is) | `_rij_is_vers()`: `classify_tickers()` en `_ticker_details_met_cache()` halen een rij opnieuw op als `valuta` en `quote_type` beide NULL zijn; een lege `long_name` vult `vul_ontbrekende_long_names()` aan |
 | `ticker_land_sector` | 30 dagen | niet cachen | `land = NULL` (Yahoo heeft het niet) wordt wél gecachet |
 | `etf_sector_verdeling` | 30 dagen | lege uitkomst niet cachen | |
@@ -1663,12 +1769,14 @@ erDiagram
     portfolios ||..o{ dividenden : "code"
     portfolios ||..o| kassaldo : "code"
     portfolios ||..o{ rekening_regels : "code"
+    portfolios ||..o{ upload_meldingen : "code"
     transacties }o..o{ dividenden : "code + isin"
 
     portfolios {
         TEXT code PK
         TEXT naam
         TIMESTAMP aangemaakt_op
+        TIMESTAMP laatst_gebruikt "bewaartermijn"
     }
     transacties {
         SERIAL id PK
@@ -1731,6 +1839,13 @@ erDiagram
         TEXT saldo_valuta
         NUMERIC saldo
         TEXT order_id
+    }
+    upload_meldingen {
+        SERIAL id PK
+        TEXT code "geen FK"
+        TEXT soort "upload of bijwerken"
+        TIMESTAMP geupload_op
+        JSONB meldingen
     }
 ```
 
@@ -1884,14 +1999,16 @@ Bij een schemawijziging in `db_init()` ook deze diagrammen en de tabel bijwerken
 
 | Bestand | Rol |
 |---|---|
-| `templates/basis.html` | Het gedeelde skelet (Jinja-overerving): `<head>`, `<body data-code="...">`, de laad-overlay en de scripts die beide pagina's nodig hebben. De andere twee templates vullen de blokken `head_scripts`, `inhoud` en `scripts` in. |
-| `templates/start.html` | De **startpagina** (`/`): twee kaarten onder elkaar, "Bestaande portfolio" (`#codeForm`: code + Ophalen op één rij) bovenaan en "Nieuwe portfolio" (`#uploadForm`: per bestand een aanklikbaar vak uit de macro `bestand_vak()`, met de file-input visueel verborgen achter het label; Naam; schakelaar "Niet opslaan"; Uploaden), plus `#startMelding` en `#errorMsg`. De route geeft `code_lengte` mee (`maxlength` en `data-code-lengte`). Laadt geen Chart.js. |
+| `templates/basis.html` | Het gedeelde skelet (Jinja-overerving): `<head>`, `<body data-code="...">`, de laad-overlay en de scripts die beide pagina's nodig hebben. De andere templates vullen de blokken `titel`, `beschrijving`, `zoekmachine_meta`, `head_scripts`, `inhoud` en `scripts` in. `zoekmachine_meta` bevat de meta description, de Open Graph-tags en de canonical-link (portfolio.html vervangt dit blok door `noindex` en `no-referrer`, privacy.html door een eigen description en canonical). Onder `inhoud` staat de footer (`<footer class="sitevoet">`: link naar `/privacy` en "Geen financieel advies"); op het mobiele dashboard is hij verborgen (de hoofdtabs zitten dan vast onderaan) en staat dezelfde regel onderaan Instellingen. |
+| `templates/start.html` | De **startpagina** (`/`): twee kaarten onder elkaar, "Bestaande portfolio" (`#codeForm`: code + Ophalen op één rij) bovenaan en "Nieuwe portfolio" (`#uploadForm`: per bestand een aanklikbaar vak uit de macro `bestand_vak()`, met de file-input visueel verborgen achter het label; Naam; schakelaar "Niet opslaan"; Uploaden), plus `#startMelding` en `#errorMsg`. De uitleg "Wat doet deze app?" staat in een standaard ingeklapt `<details class="startUitleg">` (wel in de HTML, voor zoekmachines); de meta description en Open Graph-tags komen uit `basis.html`. Onder de uploadknop staat één regel over de bewaartermijn met een link naar `/privacy`. De route geeft `code_lengte` mee (`maxlength` en `data-code-lengte`). Laadt geen Chart.js. |
 | `templates/portfolio.html` | De **portfolio-pagina** (`/p/<code>` en `/analyse`): `#laadFout` en `#dashboardSection` (zijmenu + `.content`). Elk tabblad heeft een eigen verborgen blok `<div id="tab-<view>" data-views="<view>">` met de vaste opmaak erin (koppen, uitleg, formuliervelden, lege containers); de scripts in `static/js/tabs/` vullen alleen in. Eén gedeelde `<canvas id="rendementChart">` in `#chartWrapper` dient voor **alle** grafiek-tabbladen en verhuist naar het `data-grafiek-plek` van het actieve tabblad. |
+| `templates/privacy.html` | De **privacypagina** (`/privacy`): wat de app bewaart, waar, hoe lang, "Niet opslaan", externe diensten, browseropslag, beveiliging, rechten en "geen financieel advies", met bovenaan "Laatst bijgewerkt: <datum>". Geen scripts. De bewaartermijn komt uit `BEWAARTERMIJN_MAANDEN`. Bij elke wijziging aan opslag, logging, bewaartermijn, browseropslag of externe diensten hoort deze tekst en de datum mee te veranderen (CLAUDE.md); `test_privacy_pagina.py` bewaakt o.a. dat de genoemde browsersleutels de echte zijn. |
+| `static/vendor/` | De zelf gehoste bibliotheken, exact de versies die eerst van cdnjs kwamen, met de MIT-licenties ernaast (`LICENSE-*.txt`): Chart.js 4.4.0, hammer.js 2.0.8, chartjs-plugin-zoom 2.0.1, chartjs-plugin-datalabels 2.2.0, chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1. `portfolio.html` laadt ze via `url_for('static', filename='vendor/...')` (dus met `?v=<hash>` uit `static_versie.py`), in die volgorde. De startpagina laadt ze niet. Geen linting of eigen tests op deze map. Bijwerken = het bestand vervangen door de nieuwe versie en `test_privacy_pagina.py` (volgorde, bestaan) laten slagen. |
 | `static/js/app.js` | Opstarten, gedeelde toestand en navigatie van de portfolio-pagina (~300 regels): `huidigeData`, `chart`, `verrijkingStatus`; `startPortfolioPagina()`, `haalPortfolioOp()`, `toonDashboard()` met `RESET_PER_TAB`; `wisselView()`, `pasViewToe()`, `plaatsGrafiek()`, `gaNaarView()`, `TOON_PER_VIEW`, `VIEWS_MET_CODE`; `laadVerrijking()` en `toonVerrijkingWachtstatusIndienNodig()`; de hoofdtabs/subtabs (`ververMenu()`, met de scroll-fades via `werkSubTabFadesBij()`) en de ticker-waarschuwingsbanner. Laadt als laatste script. |
 | `static/js/gedeeld/` | Hulpfuncties met DOM of Chart.js die meerdere tabbladen gebruiken (alleen portfolio-pagina; alleen `tabel.js` en `grafiek.js` hebben een test, met een nep-DOM): `opmaak.js` (`formatDatum()`, `formatteerEuro()`, `formatPct()`, `klasseVoorRendement()`, `kortNaam()`, `toonAlleen()`), `grafiek.js` (kleurenpalet, `kleurVoorIndex()`, `kleurVoorTicker()`, `maakStrepenPatroon()`, `updateChart()`, `renderGestapeldeStaafgrafiek()`, `isSmalScherm()` (dezelfde media-query als de mobiele CSS) en `legendaPositie()`; `zoomOpties()` met `ZOOM_LIMIETEN`: niet voorbij de eerste/laatste datum pannen of uitzoomen), `tabel.js` (`maakSorteerbareTabel()`, `maakCel()`, `maakRendementCel()`) en `tegels.js` (`maakStatTegel()`, `maakTotalenSectie()`). Niet te verwarren met `gedeeld.js`: dat delen de start- en de portfolio-pagina. |
 | `static/js/tabs/` | Eén bestand per tabblad met de DOM-code van dat tabblad: de `toon...()`-functie, de eigen toestand (met een `reset...()`-functie als die per portfolio geldt, zie 5.2), de `fetch()`-aanroepen en de event-listeners. Welk bestand bij welk tabblad hoort staat in 5.4. `land_sector.js` bedient vier tabbladen (Land, Sector, Valuta en Beurs delen de weergavekeuze). Staat er een bestand met dezelfde naam direct in `static/js/` (`prognose.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `statistieken.js`, `diagnostiek.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`, `bijnamen.js`), dan is dat de pure, geteste rekenkern en het bestand in `tabs/` de DOM-kant. |
 | `static/js/start.js` | De startpagina: submit-handlers van `#uploadForm` en `#codeForm`, `gaNaarPortfolioPagina()`, `toonStartMelding()`, `werkKnoppenBij()` (Uploaden pas actief met een transactiebestand, Ophalen pas bij een code van `code_lengte` tekens) en `koppelSleepNaarVak()` (een Excel-bestand op een bestandsvak slepen). |
-| `static/js/gedeeld.js` | DOM-helpers voor beide pagina's: `fetchMetTimeout()`, `UPLOAD_TIMEOUT_MS`, `toonLaadOverlay()`/`verbergLaadOverlay()`, `sessieOpslag()`, `koppelBestandWisKnop()` (startpagina en Bestanden bijwerken; op de startpagina zet hij ook de klasse `gekozen` op het `.bestandVak`). |
+| `static/js/gedeeld.js` | DOM-helpers voor beide pagina's: `fetchMetTimeout()`, `UPLOAD_TIMEOUT_MS`, `toonLaadOverlay()`/`verbergLaadOverlay()`, `sessieOpslag()` en `lokaleOpslag()` (geven `null` als de browser opslag blokkeert), `koppelBestandWisKnop()` (startpagina en Bestanden bijwerken; op de startpagina zet hij ook de klasse `gekozen` op het `.bestandVak`). |
 | `static/js/navigatie.js` | Pure logica voor paden en URL's: `portfolioPad()`, `startPadMetMelding()`, `viewUitHash()`, `viewInLijst()`, `elementZichtbaar()` (zichtbaarheid uit `data-views` en `data-vereist-code`), `maakTabWisselaar()` (de fade tussen tabbladen, zie 5.3), `startMeldingTekst()` en de constanten (`START_PAD`, `ANALYSE_PAD`, `STANDAARD_VIEW`, de meldingsleutels). |
 | `static/js/overdracht.js` | Pure logica voor de eenmalige overdracht start → portfolio-pagina: `bewaarOverdracht(opslag, data)`, `haalOverdracht(opslag, code)` (wist na lezen). De opslag komt als parameter mee, zodat de test een nep-object kan gebruiken. |
 | `static/js/prognose.js` | Rekenkern van het Prognose-tabblad: `berekenPrognose()` (gebruikt `berekenPrognosePad()`, `berekenGeinvesteerdPad()` en `maandRenteVanJaarPct()`), `valideerPrognoseInvoer()` (met `{ metInleg: false }` zonder inlegvelden), `genereerToekomstDatums()`, `berekenDividendCumulatief()` en `bouwPrognoseGrafiekData()` (optioneel `dividendYield`: extra lijn waarde + verwacht dividend). Daarnaast alleen tekst, geen rekenwerk: `historiePct()`, `historieKwartielenTekst()` ("Waarschijnlijk 10,9–15,7% per jaar (historie, 10 jaar)"), de mobiele rij van de historietabel (`historieMobielSubregel()`, `historieMobielWaarde()`, `historieMobielSubwaarde()`; een positie die niet meetelt krijgt een korte status, bv. "telt niet mee") en van de dividendtabel (`dividendMobielSubregel()` ("60 st × 1,4852 EUR/jaar"), `dividendMobielWaarde()` met "niet meegeteld", `dividendMobielSubwaarde()`), `eigenDividendTekst()` (kolom "Ontvangen (12 mnd)"; de afwijking t.o.v. Yahoo is per aandeel) en `dividendTotaalTekst()` (`{hoofd, noot}`). Puur JS, geen DOM. Maandrente = `(1 + jaarrendement)^(1/12) − 1`; inleg komt na de groei van die maand erbij. |
@@ -1911,22 +2028,22 @@ Bij een schemawijziging in `db_init()` ook deze diagrammen en de tabel bijwerken
 | `static/js/etf_overlap.js` | Pure logica voor ETF-overlap: `etfWeergaveNaam()` kiest de naam in de matrix (korte naam uit `yahooNamen`, anders de huidige bijnaam, anders de ticker). **Alleen weergave**: er wordt niets opgeslagen. De DOM-kant is `renderEtfOverlapTabel()` in `tabs/etf_overlap.js`. |
 | `static/js/bestandskeuze.js` | `bestandSelectieWeergave()`: welke tekst de rij "gekozen bestand + x-knop" onder een bestandsveld toont (DOM-kant: `koppelBestandWisKnop()` in `gedeeld.js`), `bijwerkenSuccesTekst()`: de melding na Bestanden bijwerken, en voor de startpagina `isExcelBestandsnaam()`, `uploadKnopActief()`, `normaliseerCode()` en `ophaalKnopActief()`. Beide pagina's laden dit bestand. |
 | `static/js/infotip.js` | Bouwt van `<span class="infoTip">` een (i)-knop met tooltip (`initInfoTips()`, start vanzelf bij `DOMContentLoaded`); voor elementen die JS later maakt `window.activeerInfoTip(tip)` (bv. het promotielabel op Transacties). Raakt de DOM, heeft geen exports en (nog) geen test. |
-| `static/css/style.css` | Opmaak, één bestand (~1350 regels) met bovenaan een inhoudsopgave en zes secties: 1 basis (reset, elementen, `[hidden]`), 2 layout en menu, 3 gedeelde componenten, 4 per tabblad, 5 hulpklassen die moeten winnen (kleuren `.positief`/`.negatief`/`.mild`/`.gedempt`/`.vet` en marges `.margeBoven10`, `.margeOnder15`, ...), 6 mobiel. Sectie 5 staat bewust na 3 en 4: bij gelijke specificiteit wint de latere regel. Onder `@media (max-width: 768px)` (en liggend tot 900 px) worden de hoofdtabs een vaste onderbalk. `.badge` (+ kleurvarianten `.badgeHerinvesteerd`, `.badgeDeelsVerkocht`, `.badgeGesloten`) is het kleine label in een tabelcel. Wat de JS bouwt krijgt zijn opmaak uit klassen, niet uit inline stijlen: `.dataTabel`/`.compacteTabel`/`.kleineTabel`/`.overlapMatrix` (tabellen), `.tegelRij`/`.statTegel`/`.statWaarde` (tegels), `.mobieleLijst`/`.mobielRij`/`.mobielDetails`/`.sorteerKeuze`/`.kopMetSorteer` (tabellen als compacte rijen op mobiel, zie 5.4), `.tickerKaart` en verwanten (Ticker-zekerheid), `.paginaNavigatie`. Ook `portfolio.html` heeft geen inline stijlen meer, op `style="display: none;"` na (elementen die JS of de zichtbaarheidslogica aan- en uitzet). In JS blijft inline alleen wat uit data of de zichtbaarheidslogica komt: `display`, de hoogte van de Top-bedrijven-grafiek en de celkleur in de overlap-matrix. Zet JS een klasse met `className =` op een element uit de HTML, neem dan de vaste klasse van dat element mee (zoals `"melding foutTekst"` bij `#instellingenMsg`). Er is geen dark mode. |
+| `static/css/style.css` | Opmaak, één bestand (~2666 regels) met bovenaan een inhoudsopgave en zes secties: 1 basis (reset, elementen, `[hidden]`), 2 layout en menu, 3 gedeelde componenten, 4 per tabblad, 5 hulpklassen die moeten winnen (kleuren `.positief`/`.negatief`/`.mild`/`.gedempt`/`.vet` en marges `.margeBoven10`, `.margeOnder15`, ...), 6 mobiel. Sectie 5 staat bewust na 3 en 4: bij gelijke specificiteit wint de latere regel. Onder `@media (max-width: 768px)` (en liggend tot 900 px) worden de hoofdtabs een vaste onderbalk. `.badge` (+ kleurvarianten `.badgeHerinvesteerd`, `.badgeDeelsVerkocht`, `.badgeGesloten`) is het kleine label in een tabelcel. Wat de JS bouwt krijgt zijn opmaak uit klassen, niet uit inline stijlen: `.dataTabel`/`.compacteTabel`/`.kleineTabel`/`.overlapMatrix` (tabellen), `.tegelRij`/`.statTegel`/`.statWaarde` (tegels), `.mobieleLijst`/`.mobielRij`/`.mobielDetails`/`.sorteerKeuze`/`.kopMetSorteer` (tabellen als compacte rijen op mobiel, zie 5.4), `.tickerKaart` en verwanten (Ticker-zekerheid), `.paginaNavigatie`. Ook `portfolio.html` heeft geen inline stijlen meer, op `style="display: none;"` na (elementen die JS of de zichtbaarheidslogica aan- en uitzet). In JS blijft inline alleen wat uit data of de zichtbaarheidslogica komt: `display`, de hoogte van de Top-bedrijven-grafiek en de celkleur in de overlap-matrix. Zet JS een klasse met `className =` op een element uit de HTML, neem dan de vaste klasse van dat element mee (zoals `"melding foutTekst"` bij `#instellingenMsg`). Er is geen dark mode. |
 
 **Laadvolgorde:** beide pagina's laden uit `basis.html` eerst `navigatie.js`, `overdracht.js`, `infotip.js` en `gedeeld.js`. De startpagina laadt daarna `bestandskeuze.js` en `start.js`.
-De portfolio-pagina laadt in de `<head>` de externe bibliotheken van cdnjs (Chart.js 4.4.0, hammer.js 2.0.8, chartjs-plugin-zoom 2.0.1, chartjs-plugin-datalabels 2.2.0,
-chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1) en na de gedeelde scripts, in deze volgorde:
+De portfolio-pagina laadt in de `<head>` de bibliotheken uit `static/vendor/` (Chart.js 4.4.0, hammer.js 2.0.8, chartjs-plugin-zoom 2.0.1, chartjs-plugin-datalabels 2.2.0,
+chartjs-plugin-annotation 3.0.1, luxon 3.7.2, chartjs-adapter-luxon 1.3.1; geen cdnjs meer, dus geen externe partij die het IP-adres van de bezoeker ziet) en na de gedeelde scripts, in deze volgorde:
 
 1. de pure modules `prognose.js`, `menu.js`, `bestandskeuze.js`, `diagnostiek.js`, `bedrijven.js`, `transacties.js`, `dividend.js`, `statistieken.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`, `verdeling_over_tijd.js`, `box3.js`, `etf_overlap.js`, `bijnamen.js`, `aansluitingskosten.js`;
 2. `gedeeld/opmaak.js`, `gedeeld/grafiek.js`, `gedeeld/tabel.js`, `gedeeld/tegels.js`, `gedeeld/home_indeling.js`;
 3. de tabbladen in menuvolgorde: `tabs/portfolio.js`, `rendement.js`, `per_aandeel.js`, `per_aandeel_aankoop.js`, `verdeling.js`, `land_sector.js`, `bedrijven.js`, `etf_overlap.js`, `statistieken.js`, `transacties.js`, `prognose.js`, `dividend.js`, `instellingen.js`, `bestanden_bijwerken.js`, `bijnamen.js`, `ticker_zekerheid.js`, `diagnostiek.js`;
 4. als laatste `app.js`.
 
-Ze zijn gewone `<script>`-tags, geen ES-modules. `tests/test_scripts.js` bewaakt dat elk geladen script en elk gelinkt CSS-bestand bestaat, dat er geen script dubbel wordt geladen, dat elk bestand in `gedeeld/` en `tabs/` ook echt geladen wordt, dat `app.js` als laatste komt en dat `RESET_PER_TAB` klopt (zie 5.2).
+Ze zijn gewone `<script>`-tags, geen ES-modules. `tests/test_scripts.js` bewaakt dat elk geladen script en elk gelinkt CSS-bestand bestaat, dat elk script-element een `url_for('static', ...)` naar `js/` of `vendor/` is (nooit een extern adres), dat elk vendor-script bestaat, dat er geen script dubbel wordt geladen, dat elk bestand in `gedeeld/` en `tabs/` ook echt geladen wordt, dat `app.js` als laatste komt en dat `RESET_PER_TAB` klopt (zie 5.2).
 
 **Waarom losse bestanden zonder `import` werken.** Alle scripts delen één globale scope: een `function`, `let` of `const` op het hoogste niveau van het ene bestand is in elk ander bestand te gebruiken. De volgorde doet er alleen toe voor code die *tijdens het laden* draait. Bijna alles staat in functies, en die draaien pas na een klik of een `fetch()`, als alle scripts al geladen zijn; daarom mag een tabblad `huidigeData` of `toonVerrijkingWachtstatusIndienNodig()` uit `app.js` gebruiken, ook al laadt `app.js` later. Wat wél tijdens het laden draait: de event-listeners op het hoogste niveau van elk bestand (het element moet dan in de HTML staan, anders crasht het script: `test_pagina_routes.py` bewaakt dat), `Chart.register()` in `gedeeld/grafiek.js`, en in `app.js` het object `TOON_PER_VIEW`, dat direct naar de `toon...()`-functies verwijst. Daarom laadt `app.js` na de tabbladen, en eindigt het met `startPortfolioPagina()`. Keerzijde van één globale scope: twee bestanden mogen niet dezelfde naam op het hoogste niveau declareren (dat geeft een `SyntaxError` bij het laden).
 
-**Browsercache.** De script- en CSS-adressen hebben geen versie-parameter. Flask stuurt statische bestanden met `Cache-Control: no-cache` en een `ETag` (`SEND_FILE_MAX_AGE_DEFAULT` is niet ingesteld): de browser mag ze bewaren, maar vraagt bij elke paginalading per bestand na of het veranderd is. Na een deploy krijg je dus vanzelf de nieuwe scripts; een harde refresh (Ctrl+F5) is alleen nodig als er iets tussen zit dat die header negeert.
+**Browsercache.** Elke `url_for('static', ...)` krijgt `?v=<inhoudshash>` (`static_versie.py`, zie hoofdstuk 3): na een deploy haalt de browser vanzelf de nieuwe bestanden op, en een ongewijzigd bestand blijft in de cache. Een harde refresh (Ctrl+F5) is niet nodig.
 
 **Het "pure module"-patroon.** `prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `statistieken.js`, `diagnostiek.js`, `bestandskeuze.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`, `bijnamen.js` en `aansluitingskosten.js` zijn een IIFE `(function (root) { ... })(window of globalThis)` die aan het eind ofwel
 `module.exports` zet (onder Node, voor de tests) ofwel `Object.assign(root, exportsObj)` (in de browser). Daardoor worden hun functies gewone **globale functies** die `app.js`, `start.js` en de scripts in `gedeeld/` en `tabs/`
@@ -1949,7 +2066,7 @@ Uitzondering: Top-bedrijven heeft een eigen canvas (`#bedrijvenChart` in `#bedri
 
 - Het JSON-antwoord komt in de globale variabele **`huidigeData`** (in het geheugen). Later binnenkomende delen worden erbij gevoegd met `Object.assign(huidigeData, data)`: de verrijking (`laadVerrijking()`), en de antwoorden van
   bijnaam/reset/wijzig-code — zo verdwijnen de al opgehaalde verrijkingsvelden niet.
-- `sessionStorage` wordt alleen gebruikt voor de eenmalige overdracht van de startpagina naar de portfolio-pagina (zie 2.6), en die wordt na het lezen gewist. Pagina verversen op `/p/<code>` haalt de portfolio dus opnieuw op bij de server (zie 2.8); op `/analyse` ga je terug naar de startpagina.
+- Browseropslag (alles staat ook in `templates/privacy.html`; er zijn geen cookies, geen IndexedDB en geen tracking): `sessionStorage["portfolioOverdracht"]` voor de eenmalige overdracht van de startpagina naar de portfolio-pagina (zie 2.6), na het lezen gewist en anders weg bij het sluiten van het tabblad; `localStorage["ontwikkelTabsAan"]` (`menu.js`, `tabs/instellingen.js`): welke tabbladen "in ontwikkeling" de gebruiker aanzette, alleen functioneel. De opslag wordt via `sessieOpslag()`/`lokaleOpslag()` benaderd en kan `null` zijn. Pagina verversen op `/p/<code>` haalt de portfolio dus opnieuw op bij de server (zie 2.8); op `/analyse` ga je terug naar de startpagina.
 - Overige gedeelde toestand in `app.js`: `chart`, `verrijkingStatus` (`null`/`"laden"`/`"fout"`/`"klaar"`) en `actieveView`.
 - Toestand van één tabblad staat bovenaan het bestand van dat tabblad in `tabs/`: `prognoseDividend` en `prognoseHistorie` (`prognose.js`, gedeeld door beide prognosetabbladen; invoer en resultaat zitten per tabblad in `maakPrognoseTab()`), `benchmarkVergelijkingData` en `eigenAandeelVergelijkingData` (`rendement.js`),
   `transactiesRuweLijst` en `transactiesStaat` (sorteerkolom, richting, pagina, rijen per pagina; `transacties.js`), `landSectorWeergave` (`"taart"`/`"staaf"`, `land_sector.js`), `meerHistorieUitgeput` (`per_aandeel_aankoop.js`), `bedrijvenTopN` en `bedrijvenChart` (`bedrijven.js`), `etfOverlapMetVerkocht` (`etf_overlap.js`), `yahooNamen` en de laadstatus ervan (`bijnamen.js`, ook gelezen door `etf_overlap.js`), en
@@ -2031,8 +2148,10 @@ Bij Verdeling/Land/Sector/Bedrijven/ETF-overlap begint elke `toon...()` met `too
 | **OpenFIGI** (`POST https://api.openfigi.com/v3/mapping`) | alle bekende noteringen per ISIN, als extra validatiesignaal | `haal_openfigi_resultaten()` in `ticker_matching.py`; timeout 10 s; optionele header `X-OPENFIGI-APIKEY` uit `OPENFIGI_API_KEY` | HTTP 429 en andere fouten geven een foutmelding zonder te cachen | tabel `openfigi_cache` (permanent; "geen match" wordt als lege lijst gecachet) |
 | **ETF-aanbieders** (blackrock.com/ishares.com, vaneck.com) | volledige holdingslijst met land per positie | `fetch_provider_holdings()` in `etf_holdings_provider.py`; `requests.get` met een browser-`User-Agent`, timeout 30 s | geen retry; elke fout → `None` → terugval op yfinance-top-10 | `etf_holdings` (30 dagen, `bron = 'provider_csv'`) |
 | **iShares-productscreener + productpagina's** (ishares.com/nl) | fondsenlijst en holdings van kandidaat-proxy's voor de ETF-land-proxy | `fetch_ishares_fondsenlijst()` (timeout 60 s), `fetch_ishares_holdings_via_productpagina()` (2 × 30 s) in `etf_holdings_provider.py`, aangeroepen uit `etf_proxy.py` (5 kandidaten parallel) | geen retry; een fout → `None` → geen proxy en niet cachen | `ishares_fondsen` (7 dagen), `etf_proxy` (permanent) |
-| **cdnjs.cloudflare.com** (in de browser) | Chart.js en plugins, hammer.js, luxon | `templates/portfolio.html` | — | de browsercache |
+| *(cdnjs.cloudflare.com)* | Chart.js en plugins, hammer.js, luxon | **niet meer in gebruik**: de scripts staan sinds 16-10-2026 in `static/vendor/` (zie 5.1) | — | — |
 | **Neon PostgreSQL** | alle opslag | `db.py`, via `DATABASE_URL` | — | — |
+
+Wat naar de externe bronnen gaat: alleen tickers, ISIN's, namen van fondsen en bedrijven, en datums (de prijscheck stuurt per gecontroleerde transactie de datum; de koersdownload gebruikt de datum van de eerste transactie als startdatum). Nooit een portfolio-code, aantallen of bedragen. De verzoeken komen van het Render-IP, niet van de bezoeker.
 
 ### 6.2 Rate limits en gelijktijdigheid
 
@@ -2058,11 +2177,12 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 94 bestanden `tests/backend/test_*.py` met samen 1017 `def test_...`-methodes (geteld op 09-10-2026). `tests/backend/` heeft een
+- **Python:** `unittest` (geen pytest), 115 bestanden `tests/backend/test_*.py` met samen 1384 `def test_...`-methodes (geteld op 16-10-2026; zonder lokale database slagen ze allemaal, de 16 **[DB]**-bestanden slaan hun database-klassen over). `tests/backend/` heeft een
   `__init__.py`; elk bestand zet daarnaast zelf `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt. `tests/db_helper.py` staat één map hoger.
-- **JavaScript:** 20 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 10-10-2026 slaagden alle 291 tests (`test_prognose.js` 41, `test_menu.js` 29, `test_transacties.js` 14, `test_bedrijven.js` 32, `test_bestandskeuze.js` 10, `test_diagnostiek.js` 24, `test_navigatie.js` 32, `test_overdracht.js` 10, `test_dividend.js` 9, `test_statistieken.js` 3, `test_koersen.js` 18, `test_per_aandeel.js` 3, `test_land_sector.js` 8, `test_box3.js` 7, `test_etf_overlap.js` 5, `test_getallen.js` 7, `test_tabel.js` 19, `test_grafiek.js` 3, `test_bijnamen.js` 7, `test_scripts.js` 10).
+- **JavaScript:** 26 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 16-10-2026 slaagden alle 406 tests (`test_aansluitingskosten.js` 10, `test_bedrijven.js` 32, `test_bestandskeuze.js` 10, `test_bestandsmelding.js` 21, `test_bijnamen.js` 7, `test_box3.js` 7, `test_diagnostiek.js` 34, `test_dividend.js` 9, `test_etf_overlap.js` 5, `test_getallen.js` 7, `test_grafiek.js` 3, `test_home_indeling.js` 21, `test_koersen.js` 18, `test_land_sector.js` 8, `test_menu.js` 30, `test_navigatie.js` 32, `test_overdracht.js` 10, `test_per_aandeel.js` 3, `test_prognose.js` 47, `test_scripts.js` 11, `test_statistieken.js` 8, `test_tabel.js` 19, `test_tegels.js` 16, `test_transacties.js` 29, `test_verdeling_over_tijd.js` 7, `test_xss_sinks.js` 2).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `statistieken.js`, `bestandskeuze.js`, `diagnostiek.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`, `bijnamen.js`, `aansluitingskosten.js`). Uitzonderingen: `test_tabel.js` test `maakSorteerbareTabel()` (`gedeeld/tabel.js`) met een kleine nep-DOM in het testbestand zelf, `test_grafiek.js` test `zoomOpties()` en `taartLabelMinPct()` (`gedeeld/grafiek.js`) met gestubde `Chart` en `document`.
-  Drie bestanden lezen daarnaast bronbestanden als tekst: `test_menu.js` (`style.css` en `basis.html`, mobiele CSS-regels), `test_navigatie.js` (`portfolio.html`: tabblad-blokken, `data-views`, `data-verberg-buiten`, `data-vereist-code`, `data-grafiek-plek`, en de id's uit de toestand-lijsten in `tabs/`) en `test_scripts.js` (script- en stylesheet-tags in de templates tegen de bestanden in `static/`, en `RESET_PER_TAB` tegen de tab-bestanden, zie 5.1 en 5.2).
+  `test_xss_sinks.js` leest de scripts in `static/js/` als tekst en bewaakt dat er geen onveilige `innerHTML`-plekken bijkomen. Drie bestanden lezen daarnaast bronbestanden als tekst: `test_menu.js` (`style.css` en `basis.html`, mobiele CSS-regels), `test_navigatie.js` (`portfolio.html`: tabblad-blokken, `data-views`, `data-verberg-buiten`, `data-vereist-code`, `data-grafiek-plek`, en de id's uit de toestand-lijsten in `tabs/`) en `test_scripts.js` (script- en stylesheet-tags in de templates tegen de bestanden in `static/`, en `RESET_PER_TAB` tegen de tab-bestanden, zie 5.1 en 5.2).
+- **Testbestanden:** `tests/test_files/` bevat twee verzonnen voorbeeldbestanden: `Transactions_test.xlsx` (14 transacties, 18 kolommen) en `Account_test.xlsx` (rekeningoverzicht), met nep-Order ID's van de vorm `00000000-0000-4000-8000-00000000000N`. Ze worden gebruikt door `test_bestand_controle.py`, `test_bestanden_bijwerken.py`, `test_upload_verwerking.py`, `test_bronkolommen.py`, `test_rekening_regels.py`, `test_diagnostiek_fase_b.py`, `test_upload_route_foutafhandeling.py` en `test_waarde_latere_splits.py`. Tests gebruiken nooit echte portfolio-codes, namen of IP-adressen.
 - **Afspraak (CLAUDE.md):** elke feature of bugfix krijgt kleine, gerichte unit tests, bij voorkeur op pure rekenfuncties met met de hand na te rekenen voorbeelden.
 - **Wat ik zelf gedaan heb:** op 06-10-2026 de JS-tests (170 geslaagd). De Python-suite is bij deze controle niet opnieuw gedraaid (de aantallen hierboven zijn geteld); de vorige keer, met een lege `DATABASE_URL` in Git Bash (in cmd werkt dat niet, zie 7.3), slaagden alle uitgevoerde tests. De 16 **[DB]**-bestanden draaien zonder lokale database alleen hun database-vrije klassen; de rest wordt overgeslagen (zie hieronder).
 
@@ -2072,7 +2192,7 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand (of een deel ervan) word
 
 | Module | Testbestanden |
 |---|---|
-| `statistieken.py` | `test_rendement.py` (37), `test_twr.py` (6), `test_rendement_over_tijd.py` (6), `test_benchmark_vergelijking.py` (5), `test_gak_waarde_eur.py` (4), `test_gedeeltelijke_verkoop.py` (8), `test_chronologische_sortering.py` (11, ook `portfolio_calc` en `transactie_utils`) |
+| `statistieken.py` | `test_rendement.py` (37), `test_twr.py` (6), `test_rendement_over_tijd.py` (6), `test_benchmark_vergelijking.py` (5), `test_gak_waarde_eur.py` (5), `test_gedeeltelijke_verkoop.py` (8), `test_chronologische_sortering.py` (11, ook `portfolio_calc` en `transactie_utils`) |
 | `portfolio_calc.py` | `test_nog_in_bezit.py` (4), `test_per_ticker_koers_en_aankopen.py` (10), `test_holdings_op_datums.py` (11), `test_performance_regressie.py` (3, golden master), `test_waarde_latere_splits.py` (10, van Yahoo-download tot waardereeks), `test_wisselpaar_en_effectieve_datum.py` (33, XELA met ISIN-wissel; ook `isin_ketens()`, de keten in `ticker_zekerheid_groepen()` en in de upload: `_bouw_posities()`, `_ticker_per_isin_beurs()`, `_bekende_ticker_per_positie()`, niet opslaan) |
 | `split_correctie.py` | `test_split_correctie.py` (18: ruwe koers, continue reeks, koppeling aan Yahoo-splits) |
 | `dividend.py` | `test_dividend.py` (14, database-vrij; o.a. het `herinvesteerd`-veld in `lijst`), `test_rekening_regels.py` (9: `regel_id` database-vrij; opslaan, verwijderen en code wijzigen **[DB]**) |
@@ -2095,7 +2215,8 @@ Tussen haakjes het aantal tests. **[DB]** = het bestand (of een deel ervan) word
 | `transactie_utils.py` | `test_datum_nl.py` (3, `formatteer_datum_nl()`); `_sorteer_chronologisch()` zit in `test_chronologische_sortering.py` |
 | `db.py` (echte database) | `test_wijzig_code_db.py` (3), `test_dividend_db.py` (4), `test_koersen_tabellen_db.py` (6: `koersen`, `koers_splits`) — allemaal **[DB]**; `test_order_ids_en_transactie.py` (7: `db_transactie()` database-vrij, de gerichte Order ID-queries en `find_matching_code()` **[DB]**) |
 | `tests/db_helper.py` (de skip-decorator zelf) | `test_db_helper.py` (8, database-vrij: alleen localhost/127.0.0.1 toegestaan, Neon-URL geweigerd vóór een verbindingspoging) |
-| Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | database-vrij: `test_pagina_routes.py` (10, de pagina-routes `/`, `/p/<code>` en `/analyse`; bewaakt ook dat elk element-id uit alle scripts die een pagina laadt op die pagina bestaat en dat `maxlength` uit `CODE_LENGTH` komt), `test_basis_cache.py` (3), `test_herbepaal_tickers_ophalen_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (5), `test_koersstatus.py` (4: `bepaal_koersstatus()` en `splits_voor_grafiek()`), `test_korte_namen_routes.py` (11), `test_niet_opslaan_overzichten.py` (10), `test_upload_verwerking.py` (7), `test_bestanden_bijwerken.py` (21, eigendomscheck, ongeldig rekeningoverzicht en `/bijwerken` met gemockte database); `test_bronkolommen.py` (9: de zes bronkolommen inlezen database-vrij; opslaan en aanvullen **[DB]**); `test_upload_route_foutafhandeling.py` (10, deels **[DB]**; o.a. rollback en sluiten van de schrijftransactie in de opslaan-tak); **[DB]**: `test_gefaseerd_laden.py` (5), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (4), `test_ticker_zekerheid_positie_route.py` (5, ook `/wijzig` over een keten), `test_corporate_action_filtering.py` (7) |
+| Routes en orkestratie (`app.py`, `portfolio_orchestratie.py`, `upload_verwerking.py`) | database-vrij: `test_pagina_routes.py` (10, de pagina-routes `/`, `/p/<code>` en `/analyse`; bewaakt ook dat elk element-id uit alle scripts die een pagina laadt op die pagina bestaat en dat `maxlength` uit `CODE_LENGTH` komt), `test_basis_cache.py` (3), `test_herbepaal_tickers_ophalen_route.py` (4), `test_etf_overlap_detail_route.py` (2), `test_benchmark_vergelijking_eigen_ticker.py` (5), `test_koersstatus.py` (4: `bepaal_koersstatus()` en `splits_voor_grafiek()`), `test_korte_namen_routes.py` (11), `test_niet_opslaan_overzichten.py` (11), `test_upload_verwerking.py` (7), `test_bestanden_bijwerken.py` (23, eigendomscheck, ongeldig rekeningoverzicht en `/bijwerken` met gemockte database); `test_bronkolommen.py` (9: de zes bronkolommen inlezen database-vrij; opslaan en aanvullen **[DB]**); `test_upload_route_foutafhandeling.py` (12, deels **[DB]**; o.a. rollback en sluiten van de schrijftransactie in de opslaan-tak); **[DB]**: `test_gefaseerd_laden.py` (5), `test_ticker_koers_bereik_route.py` (5), `test_transacties_overzicht_route.py` (6), `test_ticker_zekerheid_positie_route.py` (5, ook `/wijzig` over een keten), `test_corporate_action_filtering.py` (7) |
+| Beveiliging en privacy (alle database-vrij) | `test_toegang_routes.py` (limieten per categorie, 404's, uploadgrenzen en 413, headers, client-IP achter de proxy, robots/sitemap, meta-tags, favicon), `test_portfolio_code_bescherming.py` (`toegangslimiet`-regels, `generate_code()`, `find_matching_code()`, `valideer_bijnaam()`, unique-fout bij code wijzigen), `test_bestand_controle.py` (`bestand_controle.py` met de bestanden uit `tests/test_files/`), `test_bewaartermijn.py` (verloopgrens, opruimen, één keer per uur, `laatst_gebruikt` per route), `test_logs_zonder_codes.py` (AST-waakhond op logregels, `maskeer_codes()`), `test_gunicorn_config.py` (accesslog-formaat), `test_privacy_pagina.py` (`/privacy`, footer, disclaimers, zelfgehoste scripts, geen extern adres in templates/css/js); `test_xss_sinks.js` |
 | JavaScript | `test_prognose.js`, `test_menu.js`, `test_transacties.js`, `test_bedrijven.js`, `test_bestandskeuze.js`, `test_diagnostiek.js`, `test_navigatie.js`, `test_overdracht.js`, `test_dividend.js`, `test_statistieken.js`, `test_koersen.js`, `test_per_aandeel.js`, `test_land_sector.js`, `test_box3.js`, `test_etf_overlap.js`, `test_getallen.js`, `test_tabel.js`, `test_grafiek.js`, `test_bijnamen.js`, `test_verdeling_over_tijd.js`, `test_tegels.js`, `test_aansluitingskosten.js`, `test_scripts.js` |
 
 **Niet (direct) getest, voor zover ik zag:** `dprint()` in `debug_utils.py` (`meet_tijd()` wel, via `test_diagnostiek_laden.py`), `infotip.js`, `gedeeld.js`, `start.js`, `app.js` en de scripts in `gedeeld/` en `tabs/` (alles met DOM).
@@ -2117,7 +2238,7 @@ Andere commando's (met `.env` hernoemd zoals hierboven):
 python -m unittest discover -s tests -p "test_rendement.py" -v
 
 :: alle JavaScript-tests (zelfde commando als de CI, geen database nodig)
-node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js tests/test_navigatie.js tests/test_overdracht.js tests/test_dividend.js tests/test_statistieken.js tests/test_koersen.js tests/test_per_aandeel.js tests/test_land_sector.js tests/test_box3.js tests/test_etf_overlap.js tests/test_getallen.js tests/test_tabel.js tests/test_grafiek.js tests/test_bijnamen.js tests/test_verdeling_over_tijd.js tests/test_scripts.js
+node --test tests/test_prognose.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js tests/test_navigatie.js tests/test_overdracht.js tests/test_dividend.js tests/test_statistieken.js tests/test_koersen.js tests/test_per_aandeel.js tests/test_land_sector.js tests/test_box3.js tests/test_etf_overlap.js tests/test_getallen.js tests/test_tabel.js tests/test_grafiek.js tests/test_bijnamen.js tests/test_verdeling_over_tijd.js tests/test_tegels.js tests/test_home_indeling.js tests/test_aansluitingskosten.js tests/test_bestandsmelding.js tests/test_scripts.js tests/test_xss_sinks.js
 ```
 
 `set DATABASE_URL=` werkt in cmd **niet**: het verwijdert de variabele, en daarna leest `load_dotenv()` de Neon-URL uit `.env` alsnog in. Alleen in Git Bash werkt een lege waarde: `DATABASE_URL= python -m unittest discover -s tests -v`.
@@ -2678,7 +2799,7 @@ technische termen staan in 10.1, de domeintermen in hoofdstuk 9.
 
 ## Stand van zaken: CLAUDE.md en de code
 
-Gecontroleerd op 07-10-2026, na de ISIN-keten (Ticker-zekerheid, upload en backfill), `/ticker-zekerheid/wijzig` en `/alle-prijzen`, de dagrange-marge van 2%, `rekening_regels` en de bronkolommen: CLAUDE.md en de code komen overeen. CLAUDE.md is bewust een korte regelset voor Claude Code; de
+Gecontroleerd op 16-10-2026 voor de onderdelen uit het blok "Bijgewerkt op 16-10-2026" bovenaan (de rest: 07-10-2026), na de ISIN-keten (Ticker-zekerheid, upload en backfill), `/ticker-zekerheid/wijzig` en `/alle-prijzen`, de dagrange-marge van 2%, `rekening_regels` en de bronkolommen: CLAUDE.md en de code komen overeen. CLAUDE.md is bewust een korte regelset voor Claude Code; de
 uitgebreide beschrijving staat alleen in dit document.
 
 **Bewust anders**
@@ -2695,6 +2816,8 @@ Dingen die ik niet met zekerheid uit de code kon vaststellen, of waar mijn besch
 3. **Yahoo-timeouts:** er staat nergens een expliciete timeout op yfinance-calls; wat yfinance zelf doet, weet ik niet.
 4. **Hoe DeGiro's exportformaat precies is:** kolomnamen (`Waarde EUR`, `Wisselkoers`, de lange kostenkolom), positie-afhankelijke hernoemingen in het rekeningoverzicht (`Unnamed: 8`/`10`) en het Order-ID-gedrag beschrijf ik zoals de code ze verwacht, niet zoals DeGiro ze nu levert.
 5. **Diepte van mijn lezing:** de Python-modules heb ik volledig gelezen. De frontend-scripts (`app.js`, `gedeeld/` en `tabs/`, samen circa 3000 regels) heb ik gelezen via de datastroom en de belangrijkste functies; enkele opmaakfuncties (`maakPositieTabel()`, `maakGeslotenPositiesTabel()`,
-   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `vulPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (83 bestanden, 820 tests op 07-10-2026, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
-6. **Niet uitgevoerd:** de database-delen van de **[DB]**-Python-tests (16 bestanden, ze hebben een lokale database nodig) en de app zelf. Wel gedraaid: de JS-tests (170 geslaagd, 06-10-2026). De Python-suite is na de laatste wijzigingen niet lokaal gedraaid; dat doet de CI.
-7. **iShares-screener:** de JSON-URL en de `aladdin*Code`-waarden in `etf_proxy.py` zijn niet gedocumenteerd door iShares; verandert de site, dan valt de land-proxy stil terug op "geen proxy" (of op een netwerkfout die niet gecachet wordt).
+   `maakJarenTabel()`, `maakTickerZekerheidKaart()`, `vulPrognoseFormulier()`, ...) beschrijf ik op grond van naam, commentaar en aanroeper, niet regel voor regel. De Python-testbestanden (115 bestanden, 1384 tests op 16-10-2026, zie 7.1) zijn niet allemaal regel voor regel doorgelezen; de koppeling test ↔ module in 7.2 is gebaseerd op imports, bestandsnamen en docstrings.
+6. **Niet uitgevoerd:** de zelfgehoste scripts in een echte browser (grafieken, zoom/pan, labels, annotaties) en de gunicorn-config (gunicorn draait niet op Windows); alleen de HTML, de bestanden en de tests zijn gecontroleerd. De database-delen van de **[DB]**-Python-tests (16 bestanden, ze hebben een lokale database nodig) en de app zelf. Wel gedraaid: de JS-tests (170 geslaagd, 06-10-2026). De Python-suite is na de laatste wijzigingen niet lokaal gedraaid; dat doet de CI.
+7. **Render-logs en het startcommando:** of Render zelf requests met URL registreert, en of het startcommando een eigen `--access-logformat` meegeeft (dat de `gunicorn.conf.py` overschrijft), is niet uit de repo te halen. De bewaartermijn van 7 dagen voor logs en de 6 uur herstelgeschiedenis van Neon (gratis plan) zijn gegevens van de eigenaar, niet uit de code.
+8. **Deze update:** de hoofdstukken 8 (waar pas ik iets aan) en 10 (leesgids) en een deel van hoofdstuk 3 zijn niet opnieuw naast de code gelegd; ze kunnen verouderd zijn.
+9. **iShares-screener:** de JSON-URL en de `aladdin*Code`-waarden in `etf_proxy.py` zijn niet gedocumenteerd door iShares; verandert de site, dan valt de land-proxy stil terug op "geen proxy" (of op een netwerkfout die niet gecachet wordt).

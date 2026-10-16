@@ -3,6 +3,7 @@ import io
 import os
 import sys
 import unittest
+from contextlib import redirect_stdout
 from unittest.mock import patch
 
 import pandas as pd
@@ -87,6 +88,7 @@ class TestFouteCodeLimiet(_MetApp):
 
     def test_geldige_code_telt_niet_als_fout(self):
         self.patch_app("build_portfolio_response", return_value={"code": "XYZ"})
+        self.patch_app("_markeer_gebruikt")
         for _ in range(REGELS_FOUTE_CODE[0].maximum + 5):
             self.assertEqual(self.client.get("/api/portfolio/XYZ", **ip("1.1.1.1")).status_code, 200)
 
@@ -179,6 +181,7 @@ class TestGevoeligeActies(_MetApp):
 
     def test_gewone_routes_vallen_niet_onder_de_gevoelige_limiet(self):
         self.patch_app("build_portfolio_response", return_value={"code": "ABC"})
+        self.patch_app("_markeer_gebruikt")
         for _ in range(REGELS_GEVOELIGE_ACTIE[0].maximum + 3):
             self.assertEqual(self.client.get("/api/portfolio/ABC").status_code, 200)
 
@@ -278,15 +281,23 @@ class TestHeadersEnProxy(_MetApp):
                 self.assertEqual(h["X-Frame-Options"], "DENY")
                 self.assertEqual(h["Referrer-Policy"], "same-origin")
 
-    def test_ip_komt_uit_x_forwarded_for_en_wordt_gelogd(self):
-        self.patch_app("build_portfolio_response", return_value={"code": "ABC"})
-        with patch.object(self.m, "dprint") as dprint:
-            self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": XFF_PER_BEZOEKER("5.6.7.8"),
-                                                           "True-Client-IP": "9.9.9.9"})
-        melding = dprint.call_args.args[0]
-        self.assertIn("gebruikt=5.6.7.8", melding)
-        self.assertIn("'nep, 5.6.7.8, 104.22.109.68, 10.0.0.1'", melding)
-        self.assertIn("'9.9.9.9'", melding)
+    def _client_ip_bij_aanvraag(self, headers):
+        gezien = []
+        self.patch_app("_markeer_gebruikt")
+        self.patch_app("build_portfolio_response", side_effect=lambda code: gezien.append(self.m.client_ip()) or {})
+        self.client.get("/api/portfolio/ABC", headers=headers)
+        return gezien[0]
+
+    def test_ip_komt_uit_x_forwarded_for_en_niet_uit_true_client_ip(self):
+        ip_gezien = self._client_ip_bij_aanvraag(
+            {"X-Forwarded-For": XFF_PER_BEZOEKER("5.6.7.8"), "True-Client-IP": "9.9.9.9"})
+        self.assertEqual(ip_gezien, "5.6.7.8")
+
+    def test_ip_komt_niet_in_de_logs(self):
+        uitvoer = io.StringIO()
+        with redirect_stdout(uitvoer):
+            self._client_ip_bij_aanvraag({"X-Forwarded-For": XFF_PER_BEZOEKER("5.6.7.8")})
+        self.assertNotIn("5.6.7.8", uitvoer.getvalue())
 
     def test_limiet_telt_per_client_ip_achter_de_proxy(self):
         self.patch_app("db_portfolio_bestaat", return_value=False)
@@ -299,16 +310,12 @@ class TestHeadersEnProxy(_MetApp):
         self.assertEqual(andere.status_code, 404)
 
     def test_client_ip_is_de_bezoeker_ook_als_die_adressen_vooraan_meestuurt(self):
-        self.patch_app("build_portfolio_response", return_value={"code": "ABC"})
         for header, verwacht in (
             ("nep, 1.2.3.4, 5.6.7.8, 10.0.0.1", "1.2.3.4"),
             ("1.2.3.4, 104.22.109.68, 10.0.0.1", "1.2.3.4"),
         ):
             with self.subTest(header=header):
-                gezien = []
-                with patch.object(self.m, "dprint", side_effect=gezien.append):
-                    self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": header})
-                self.assertIn(f"gebruikt={verwacht} ", gezien[0])
+                self.assertEqual(self._client_ip_bij_aanvraag({"X-Forwarded-For": header}), verwacht)
 
 
 class TestFavicon(_MetApp):
@@ -322,21 +329,22 @@ class TestFavicon(_MetApp):
 
 
 class TestRobotsEnSitemap(_MetApp):
-    def test_robots_laat_alleen_de_startpagina_toe_met_sitemap_op_eigen_domein(self):
+    def test_robots_laat_startpagina_en_privacy_toe_met_sitemap_op_eigen_domein(self):
         res = self.client.get("/robots.txt", base_url="https://voorbeeld.test")
         tekst = res.get_data(as_text=True)
         self.assertEqual(res.mimetype, "text/plain")
-        for regel in ("Allow: /", "Disallow: /p/", "Disallow: /api/", "Disallow: /analyse", "Disallow: /upload",
+        for regel in ("Allow: /", "Allow: /privacy", "Disallow: /p/", "Disallow: /api/", "Disallow: /analyse", "Disallow: /upload",
                       "Sitemap: https://voorbeeld.test/sitemap.xml"):
             self.assertIn(regel + "\n", tekst)
 
-    def test_sitemap_bevat_alleen_de_startpagina_en_volgt_https_van_de_proxy(self):
+    def test_sitemap_bevat_de_startpagina_en_privacy_en_volgt_https_van_de_proxy(self):
         res = self.client.get("/sitemap.xml", base_url="http://voorbeeld.test",
                               headers={"X-Forwarded-Proto": "https"})
         xml = res.get_data(as_text=True)
         self.assertEqual(res.mimetype, "application/xml")
-        self.assertEqual(xml.count("<loc>"), 1)
+        self.assertEqual(xml.count("<loc>"), 2)
         self.assertIn("<loc>https://voorbeeld.test/</loc>", xml)
+        self.assertIn("<loc>https://voorbeeld.test/privacy</loc>", xml)
 
 
 class TestMetaTags(_MetApp):

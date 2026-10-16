@@ -119,7 +119,7 @@ class TestWijzigCodeUniqueViolation(unittest.TestCase):
     def test_code_al_in_gebruik_geeft_nette_fout_en_rollback(self):
         conn, cur = MagicMock(), MagicMock()
         conn.cursor.return_value = cur
-        cur.fetchone.return_value = ("naam", None)
+        cur.fetchone.return_value = ("naam", None, None)
 
         def execute(sql, params=None):
             if sql.startswith("INSERT INTO portfolios"):

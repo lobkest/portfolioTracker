@@ -197,14 +197,14 @@ def _land_via_isin(isin):
     """Land van registratie uit de ISIN-prefix: een benadering, niet waar het bedrijf actief is."""
     if not isin or not isinstance(isin, str) or len(isin) < 2:
         return "Unknown"
-    code = isin[:2].upper()
+    landcode = isin[:2].upper()
     try:
         import pycountry
-        land = pycountry.countries.get(alpha_2=code)
+        land = pycountry.countries.get(alpha_2=landcode)
         if land:
             return land.name
     except Exception as e:
-        dprint(f"[etf-holdings-provider] pycountry-lookup faalde voor ISIN-prefix '{code}': {e}")
+        dprint(f"[etf-holdings-provider] pycountry-lookup faalde voor ISIN-prefix '{landcode}': {e}")
     return "Unknown"
 
 

@@ -130,7 +130,7 @@ def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
             return cached["naam"], cached["transacties_df"], cached["price_data"]
 
     meldingen_voor = haal_meldingen()
-    with meet_tijd(f"basis_ophalen_db (code={code})"):
+    with meet_tijd("basis_ophalen_db"):
         naam, transacties_df, _promotie = _laad_transacties(code)
         if naam is None:
             return None, None, None
@@ -685,7 +685,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     if resource:
         mem_end = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         print(
-            f"[memory] portfolio {code}: RSS {mem_start/1024:.0f}MB -> {mem_end/1024:.0f}MB "
+            f"[memory] RSS {mem_start/1024:.0f}MB -> {mem_end/1024:.0f}MB "
             f"(+{(mem_end-mem_start)/1024:.0f}MB), {len(tickers)} ticker(s), "
             f"{len(price_data.index) if not price_data.empty else 0} handelsdagen"
         )

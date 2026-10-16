@@ -6,14 +6,14 @@
 {% endblock %}
 
 {% block head_scripts %}
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/hammer.js/2.0.8/hammer.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-zoom/2.0.1/chartjs-plugin-zoom.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-annotation/3.0.1/chartjs-plugin-annotation.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/hammer.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chartjs-plugin-zoom.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chartjs-plugin-datalabels.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chartjs-plugin-annotation.min.js') }}"></script>
     <!-- Date-adapter voor de tijd-as van de Prognose- en Dividend-grafiek. -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/luxon/3.7.2/luxon.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-adapter-luxon/1.3.1/chartjs-adapter-luxon.umd.min.js"></script>
+    <script src="{{ url_for('static', filename='vendor/luxon.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='vendor/chartjs-adapter-luxon.umd.min.js') }}"></script>
     {% endblock %}
 
 {% block inhoud %}
@@ -138,7 +138,7 @@
                 <span id="kopieerCodeStatus" class="codeChipStatus" role="status" hidden></span>
                 <span class="infoTip" data-label="Portfolio-code" data-vereist-code="ja" style="display: none;">Bewaar deze code om later terug te komen: vul hem in op de startpagina, dan hoef je niet opnieuw te uploaden.</span>
                 <span id="nietOpgeslagenLabel" class="codeChipLabel" data-vereist-code="nee" style="display: none;">niet opgeslagen</span>
-                <span class="infoTip" data-label="Niet opgeslagen" data-vereist-code="nee" style="display: none;">Deze analyse is eenmalig: er is geen code en niets is bewaard.</span>
+                <span class="infoTip" data-label="Niet opgeslagen" data-vereist-code="nee" style="display: none;">Deze analyse is eenmalig: er is geen code en je transacties zijn niet opgeslagen.</span>
             </div>
             <button class="instellingenKnop" id="instellingenKnop" type="button" data-groep="instellingen" aria-label="Instellingen">&#9881;&#xFE0E;</button>
         </header>
@@ -208,6 +208,7 @@
             </div>
 
             <div id="tab-rendement" data-views="rendement" style="display: none;">
+                <p class="kleineMelding margeOnder15">Indicatie, geen financieel advies.</p>
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <div id="rendementWeergaveWrapper" class="margeOnder15" data-vereist-code="ja">
@@ -347,6 +348,7 @@
             </div>
 
             <div id="tab-statistieken" data-views="statistieken" style="display: none;">
+                <p class="kleineMelding margeOnder15">Indicatie, geen financieel advies.</p>
                 <p id="statistiekenGeen" class="grijsTekst" hidden>Geen statistieken beschikbaar voor deze portfolio.</p>
                 <div id="statistiekenInhoud" hidden>
                     <div id="statistiekenTotalen"></div>
@@ -396,6 +398,7 @@
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <p class="prognoseUitleg">Projectie op basis van je huidige portfoliowaarde en -geschiedenis, aangevuld met instelbare aannames voor de toekomst. Rendement wordt maandelijks samengesteld; inleg wordt telkens ná de groei van die periode toegevoegd.</p>
+                <p class="kleineMelding">Indicatie, geen financieel advies.</p>
 {{ prognose_formulier("prognose", true) }}
                 </div>
                 <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
@@ -407,6 +410,7 @@
                 <div class="tabSplit">
                 <div class="tabInfo">
                 <p class="prognoseUitleg">Wat wordt je huidige portfolio waard als je vanaf nu niets meer inlegt?</p>
+                <p class="kleineMelding">Indicatie, geen financieel advies.</p>
 {{ prognose_formulier("prognoseHuidig", false, true) }}
                 </div>
                 <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
@@ -445,6 +449,7 @@
                 <p id="box3Fout" class="foutTekst" hidden>Kon de box 3-berekening niet ophalen.</p>
                 <div id="box3Inhoud" hidden>
                 <p class="waarschuwingBanner">Hypothetische berekening. Het nieuwe box 3-stelsel is nog niet definitief (stand parameters: <span id="box3Stand"></span>). Alleen deze portfolio, tenzij je hieronder ander vermogen invult. Geen belastingadvies.</p>
+                <p class="kleineMelding margeOnder15">Indicatie, geen financieel advies.</p>
                 <div class="tabSplit">
                 <div class="tabInfo">
                     <h3 class="margeBoven0">Ander box 3-vermogen (optioneel)</h3>
@@ -529,7 +534,7 @@
 
                 <div id="verwijderPortfolioBlok" class="margeBoven24" data-vereist-code="ja" style="display: none;">
                     <h3 class="margeBoven0">Portfolio verwijderen</h3>
-                    <p>Wil je stoppen met deze portfolio? Je kunt alle opgeslagen data (transacties en code) permanent uit de database verwijderen.</p>
+                    <p>Wil je stoppen met deze portfolio? Dit verwijdert direct en permanent al je transacties, dividenden, rekeningregels en upload-meldingen.</p>
                     <button id="verwijderPortfolioBtn" class="gevaarKnop">Verwijder mijn data uit de database</button>
                 </div>
 
@@ -539,6 +544,8 @@
                     <input type="text" id="nieuweCodeInput" placeholder="Nieuwe code" maxlength="{{ code_lengte }}" class="hoofdletters codeInvoer">
                     <button id="wijzigCodeBtn">Code wijzigen</button>
                 </div>
+
+                <p class="kleineMelding margeBoven24"><a href="/privacy">Privacy</a> &middot; Geen financieel advies</p>
             </div>
 
             <div id="tab-instellingen-bestanden" data-views="instellingen-bestanden" style="display: none;">

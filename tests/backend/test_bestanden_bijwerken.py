@@ -112,6 +112,7 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.mock_regels_opslaan = self._start(patch.object(upload_verwerking, "db_save_rekening_regels", return_value=0))
         self.mock_bewaar = self._start(patch.object(upload_verwerking, "db_save_upload_meldingen"))
         self._start(patch.object(app_module, "meld_order_ids_rekening"))
+        self.mock_markeer = self._start(patch.object(app_module, "db_markeer_portfolio_gebruikt"))
 
     def _start(self, p):
         mock = p.start()
@@ -134,6 +135,16 @@ class TestBijwerkenRoute(unittest.TestCase):
         self.mock_insert.assert_not_called()
         self.mock_dividend_opslaan.assert_not_called()
         self.mock_bewaar.assert_not_called()
+
+    def test_geslaagd_bijwerken_markeert_de_portfolio_als_gebruikt(self):
+        res = self._post()
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(self.mock_markeer.call_args.args[1], TEST_CODE.upper())
+
+    def test_afgekeurd_bijwerken_markeert_niet_als_gebruikt(self):
+        self.mock_opgeslagen.return_value = self.transactie_ids | {"ONTBREEKT-IN-BESTAND"}
+        self._post()
+        self.mock_markeer.assert_not_called()
 
     def test_onbekende_code_geeft_404(self):
         self.app_module.db_portfolio_bestaat.return_value = False

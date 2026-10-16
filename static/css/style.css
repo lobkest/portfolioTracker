@@ -58,6 +58,7 @@ body {
     font-family: Arial, sans-serif;
     background-color: #f4f4f4;
     display: flex;
+    flex-wrap: wrap;
     justify-content: center;
     padding-top: 60px;
     margin: 0;
@@ -570,6 +571,29 @@ body:has(.startPagina) {
 .kleineMelding {
     font-size: 0.85em;
     color: #888;
+}
+
+/* Op elke pagina onderaan (basis.html); op het mobiele dashboard verborgen, daar staat dezelfde regel in Instellingen. */
+.sitevoet {
+    flex: 0 0 100%;
+    padding: 12px 16px 16px;
+    text-align: center;
+    font-size: 0.75em;
+    color: #888;
+}
+
+.sitevoet a {
+    color: inherit;
+}
+
+.privacyPagina {
+    max-width: 720px;
+    margin-bottom: 8px;
+}
+
+.privacyPagina h2 {
+    margin: 1.4em 0 0.4em;
+    font-size: 1.1em;
 }
 
 .grijsTekst {
@@ -2251,6 +2275,10 @@ button.diagnostiekChip:disabled:hover {
    hoogte (bv. iPhone 14 landscape = 844px), dus zonder deze tak zou de
    mobiele layout hieronder überhaupt niet aanslaan in landscape. */
 @media (max-width: 768px), (max-width: 900px) and (orientation: landscape) {
+    body:has(.dashboard) .sitevoet {
+        display: none;
+    }
+
     .bestandsBannerBlokken {
         grid-template-columns: minmax(0, 1fr);
     }
