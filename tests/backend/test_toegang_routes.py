@@ -16,6 +16,10 @@ from portfolio_admin import (
 from toegangslimiet import REGELS_FOUTE_CODE, REGELS_FOUTE_CODE_GLOBAAL, REGELS_GEVOELIGE_ACTIE, REGELS_UPLOAD
 
 
+def XFF_PER_BEZOEKER(adres):
+    return f"nep, {adres}, 104.22.109.68, 10.0.0.1"
+
+
 def ip(adres):
     return {"environ_base": {"REMOTE_ADDR": adres}}
 
@@ -277,20 +281,44 @@ class TestHeadersEnProxy(_MetApp):
     def test_ip_komt_uit_x_forwarded_for_en_wordt_gelogd(self):
         self.patch_app("build_portfolio_response", return_value={"code": "ABC"})
         with patch.object(self.m, "dprint") as dprint:
-            self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": "5.6.7.8",
+            self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": XFF_PER_BEZOEKER("5.6.7.8"),
                                                            "True-Client-IP": "9.9.9.9"})
         melding = dprint.call_args.args[0]
         self.assertIn("gebruikt=5.6.7.8", melding)
-        self.assertIn("'5.6.7.8'", melding)
+        self.assertIn("'nep, 5.6.7.8, 104.22.109.68, 10.0.0.1'", melding)
         self.assertIn("'9.9.9.9'", melding)
 
     def test_limiet_telt_per_client_ip_achter_de_proxy(self):
         self.patch_app("db_portfolio_bestaat", return_value=False)
         self.patch_app("build_portfolio_response", return_value=None)
         for _ in range(REGELS_FOUTE_CODE[0].maximum):
-            self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": "5.6.7.8"})
-        self.assertEqual(self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": "5.6.7.8"}).status_code, 429)
-        self.assertEqual(self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": "6.6.6.6"}).status_code, 404)
+            self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": XFF_PER_BEZOEKER("5.6.7.8")})
+        geblokkeerd = self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": XFF_PER_BEZOEKER("5.6.7.8")})
+        self.assertEqual(geblokkeerd.status_code, 429)
+        andere = self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": XFF_PER_BEZOEKER("6.6.6.6")})
+        self.assertEqual(andere.status_code, 404)
+
+    def test_client_ip_is_de_bezoeker_ook_als_die_adressen_vooraan_meestuurt(self):
+        self.patch_app("build_portfolio_response", return_value={"code": "ABC"})
+        for header, verwacht in (
+            ("nep, 1.2.3.4, 5.6.7.8, 10.0.0.1", "1.2.3.4"),
+            ("1.2.3.4, 104.22.109.68, 10.0.0.1", "1.2.3.4"),
+        ):
+            with self.subTest(header=header):
+                gezien = []
+                with patch.object(self.m, "dprint", side_effect=gezien.append):
+                    self.client.get("/api/portfolio/ABC", headers={"X-Forwarded-For": header})
+                self.assertIn(f"gebruikt={verwacht} ", gezien[0])
+
+
+class TestFavicon(_MetApp):
+    def test_favicon_op_de_root_geeft_het_icoon(self):
+        res = self.client.get("/favicon.ico")
+        self.assertEqual(res.status_code, 200)
+        with open(os.path.join(self.m.app.static_folder, "favicon", "favicon.ico"), "rb") as f:
+            self.assertEqual(res.data, f.read())
+        self.assertIn("icon", res.mimetype)
+        res.close()
 
 
 class TestRobotsEnSitemap(_MetApp):
@@ -321,6 +349,15 @@ class TestMetaTags(_MetApp):
         self.assertIn('content="https://voorbeeld.test/static/favicon/web-app-manifest-512x512.png', html)
         self.assertIn('<link rel="canonical" href="https://voorbeeld.test/">', html)
         self.assertNotIn("noindex", html)
+
+    def test_uitleg_is_standaard_ingeklapt_maar_staat_in_de_html(self):
+        html = self.client.get("/").get_data(as_text=True)
+        self.assertIn('<details class="startUitleg">', html)
+        self.assertNotIn("<details class=\"startUitleg\" open", html)
+        self.assertIn("<summary>Wat doet deze app?</summary>", html)
+        self.assertIn("worden je transacties niet opgeslagen", html)
+        self.assertIn("eenmalig, je transacties worden niet opgeslagen", html)
+        self.assertNotIn("niets bewaard", html)
 
     def test_startpagina_legt_uit_wat_de_app_doet(self):
         html = self.client.get("/").get_data(as_text=True)

@@ -3,7 +3,7 @@ import re
 import time
 import traceback
 
-from flask import Flask, Response, g, render_template, request, jsonify, redirect, url_for
+from flask import Flask, Response, g, render_template, send_from_directory, request, jsonify, redirect, url_for
 from werkzeug.exceptions import HTTPException
 from werkzeug.middleware.proxy_fix import ProxyFix
 from xml.sax.saxutils import escape as xml_escape
@@ -65,8 +65,9 @@ from portfolio_calc import holdings_op_datums
 from static_versie import registreer_static_versies
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
-# Render zet precies één proxy voor de app.
-PROXY_AANTAL_X_FOR = 1
+# X-Forwarded-For is "bezoeker, Cloudflare, Render-proxy": drie hops. Elke proxy voegt achteraan toe, dus een
+# bezoeker kan adressen vóóraan meesturen maar de derde positie van achteren niet vervalsen.
+PROXY_AANTAL_X_FOR = 3
 PROXY_AANTAL_X_PROTO = 1
 ONBEKEND_IP = "onbekend"
 
@@ -185,6 +186,15 @@ def na_request(response):
 @app.errorhandler(413)
 def te_groot(_fout):
     return jsonify({"error": MELDING_BESTAND_TE_GROOT}), 413
+
+
+FAVICON_BESTAND = "favicon/favicon.ico"
+
+
+@app.route("/favicon.ico")
+def favicon():
+    """Browsers vragen het icoon op de root, los van de link in de head."""
+    return send_from_directory(app.static_folder, FAVICON_BESTAND)
 
 
 @app.route("/robots.txt")

@@ -100,10 +100,35 @@ body:has(.startPagina) {
 }
 
 .startUitleg {
-    margin: 0 0 var(--startRuimte);
+    margin: 0 0 calc(var(--startRuimte) * 0.8);
     color: #555;
     font-size: 0.95em;
     line-height: 1.45;
+}
+
+.startUitleg summary {
+    cursor: pointer;
+    list-style: none;
+    color: #888;
+}
+
+.startUitleg summary::-webkit-details-marker {
+    display: none;
+}
+
+.startUitleg summary::before {
+    content: "▸";
+    display: inline-block;
+    margin-right: 6px;
+    transition: transform 0.15s;
+}
+
+.startUitleg[open] summary::before {
+    transform: rotate(90deg);
+}
+
+.startUitleg[open] summary {
+    margin-bottom: 6px;
 }
 
 .startUitleg p {

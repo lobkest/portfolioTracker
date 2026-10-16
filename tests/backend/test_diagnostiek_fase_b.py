@@ -33,7 +33,7 @@ from etf_holdings_provider import aanbieder_naam
 from upload_verwerking import lees_transacties_excel, _meld_rekening_regelsoorten
 
 TEST_FILES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files")
-U1 = "dcdc8696-243a-43d1-ad68-138b293638f0"
+U1 = "00000000-0000-4000-8000-000000000001"
 U2 = "11111111-2222-3333-4444-555555555555"
 U3 = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 

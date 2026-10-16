@@ -28,7 +28,8 @@
             <h1>Portfolio Dashboard</h1>
             <p class="startSubregel">Inzicht in je DeGiro-portfolio</p>
         </header>
-        <section class="startUitleg" aria-label="Wat doet deze app?">
+        <details class="startUitleg">
+            <summary>Wat doet deze app?</summary>
             <p>Upload je DeGiro-export en zie in één dashboard hoe je portfolio ervoor staat:</p>
             <ul>
                 <li>rendement, inclusief XIRR en TWR</li>
@@ -36,8 +37,8 @@
                 <li>ETF-overlap en de grootste onderliggende bedrijven</li>
                 <li>dividend en een prognose voor de toekomst</li>
             </ul>
-            <p>Kies je voor "Niet opslaan", dan wordt er niets bewaard.</p>
-        </section>
+            <p>Kies je voor "Niet opslaan", dan worden je transacties niet opgeslagen.</p>
+        </details>
         <p id="startMelding" role="status" style="font-weight: bold;"></p>
 
         <section class="startKaart" aria-labelledby="codeKaartTitel">
@@ -68,7 +69,7 @@
                 <div class="schakelaarRij">
                     <span class="schakelaarTekst metSubregel">
                         <label for="nietOpslaan">Niet opslaan</label>
-                        <span class="kleineMelding">eenmalig, er wordt niets bewaard</span>
+                        <span class="kleineMelding">eenmalig, je transacties worden niet opgeslagen</span>
                     </span>
                     <input type="checkbox" role="switch" class="schakelaar" id="nietOpslaan" name="niet_opslaan">
                 </div>
