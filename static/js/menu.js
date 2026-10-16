@@ -106,11 +106,15 @@
         }
     }
 
-    // Een uitgeschakelde ontwikkel-view staat niet in toegestaneViews maar blijft als (grijze) chip zichtbaar.
-    function menuViews(groep, toegestaneViews, uitgeschakeld) {
-        return groep.views
-            .filter(v => toegestaneViews.includes(v.view) || (v.inOntwikkeling && uitgeschakeld.includes(v.view)))
-            .map(v => ({ ...v, uitgeschakeld: uitgeschakeld.includes(v.view) }));
+    // Alleen de ontwikkelaar-vlag van de server ontsluit de browserkeuze; anders gaat een aanzetting bij de ene
+    // portfolio mee naar een andere in dezelfde browser.
+    function actieveOntwikkelIds(ontwikkelaar, aanGezet) {
+        return ontwikkelaar === true ? aanGezet : [];
+    }
+
+    // Een uitgeschakelde ontwikkel-view staat niet in toegestaneViews en verdwijnt dus uit het menu.
+    function menuViews(groep, toegestaneViews) {
+        return groep.views.filter(v => toegestaneViews.includes(v.view));
     }
 
     // 1 px marge: scrollLeft is op telefoons met zoom vaak een gebroken getal.
@@ -123,7 +127,7 @@
 
     const exportsObj = {
         MENU_GROEPEN, ONTWIKKEL_ONDERDELEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen,
-        zichtbareViews, ontwikkelViews, ontwikkelItems, ontwikkelAan, uitgeschakeldeViews, leesAanGezet, menuViews,
+        zichtbareViews, ontwikkelViews, ontwikkelItems, ontwikkelAan, uitgeschakeldeViews, leesAanGezet, actieveOntwikkelIds, menuViews,
         scrollFades,
     };
 

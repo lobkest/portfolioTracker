@@ -101,6 +101,7 @@ Maak in de projectmap een bestand `.env` (staat niet in git):
 ```
 DATABASE_URL=postgresql://gebruiker:wachtwoord@host/database
 OPENFIGI_API_KEY=...        (optioneel)
+ONTWIKKEL_CODES=...         (optioneel, komma-gescheiden portfolio-codes die tabbladen in ontwikkeling zien)
 ```
 
 Let op: lokaal en productie gebruiken dezelfde Neon-database, dus lokaal

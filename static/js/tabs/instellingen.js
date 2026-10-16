@@ -10,6 +10,16 @@ function leesOntwikkelAan() {
     }
 }
 
+// Wat echt geldt: de browserkeuze, maar alleen bij een ontwikkel-portfolio (vlag van de server).
+function actieveOntwikkelAan() {
+    return actieveOntwikkelIds(huidigeData && huidigeData.ontwikkelaar, leesOntwikkelAan());
+}
+
+function werkOntwikkelBlokBij() {
+    const ontwikkelaar = Boolean(huidigeData) && huidigeData.ontwikkelaar === true;
+    document.getElementById("ontwikkelBlok").style.display = ontwikkelaar ? "block" : "none";
+}
+
 function bewaarOntwikkelAan(views) {
     try {
         lokaleOpslag()?.setItem(ONTWIKKEL_OPSLAG_SLEUTEL, JSON.stringify(views));
@@ -45,10 +55,14 @@ document.getElementById("ontwikkelSchakelaars").addEventListener("change", (e) =
     const aan = leesOntwikkelAan().filter(v => v !== id);
     if (e.target.checked) aan.push(id);
     bewaarOntwikkelAan(aan);
+    pasOntwikkelToe();
+});
+
+function pasOntwikkelToe() {
     if (!huidigeData) return;
     if (toegestaneViews().includes(actieveView)) ververMenu(actieveView);
     else gaNaarView(STANDAARD_VIEW);
-});
+}
 
 document.getElementById("verwijderPortfolioBtn").addEventListener("click", async () => {
     if (!huidigeData || !huidigeData.code) return;
@@ -101,6 +115,7 @@ document.getElementById("wijzigCodeBtn").addEventListener("click", async () => {
         // Object.assign (zie CLAUDE.md: Frontend); verrijking opnieuw onder de nieuwe code.
         Object.assign(huidigeData, data);
         laadVerrijking(huidigeData.code);
+        pasOntwikkelToe();
         document.getElementById("dashCode").textContent = data.code || "";
         history.replaceState(null, "", portfolioPad(data.code) + location.hash);
         input.value = "";

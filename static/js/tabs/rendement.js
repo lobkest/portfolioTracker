@@ -16,11 +16,10 @@ function resetRendement() {
 }
 
 function toonRendement() {
-    const pctAan = ontwikkelAan(RENDEMENT_PCT_ID, leesOntwikkelAan());
+    const pctAan = ontwikkelAan(RENDEMENT_PCT_ID, actieveOntwikkelAan());
     if (!pctAan) rendementWeergave = "euro";
     const pctKnop = document.querySelector('#rendementWeergaveWrapper .segmentKnop[data-weergave="pct"]');
-    pctKnop.disabled = !pctAan;
-    pctKnop.classList.toggle("uitgeschakeld", !pctAan);
+    pctKnop.style.display = pctAan ? "" : "none";
     const procent = Boolean(huidigeData.code) && rendementWeergave === "pct";
     document.querySelectorAll("#rendementWeergaveWrapper .segmentKnop").forEach(knop => {
         knop.classList.toggle("actief", knop.dataset.weergave === rendementWeergave);
@@ -211,7 +210,6 @@ document.getElementById("eigenAandeelSelect").addEventListener("change", (e) => 
 
 document.querySelectorAll("#rendementWeergaveWrapper .segmentKnop").forEach(knop => {
     knop.addEventListener("click", () => {
-        if (knop.disabled || knop.classList.contains("uitgeschakeld")) return;
         rendementWeergave = knop.dataset.weergave;
         toonRendement();
     });

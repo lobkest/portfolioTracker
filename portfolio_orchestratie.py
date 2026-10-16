@@ -58,6 +58,7 @@ from ticker_classificatie import (
     get_etf_holdings_uit_cache,
 )
 from naam_verkorting import kies_korte_namen
+from portfolio_admin import is_ontwikkel_code
 from etf_holdings_provider import aanbieder_naam
 from dividend import ORDER_ID_KOLOM_REKENING
 from etf_proxy import land_proxies_voor_etfs
@@ -647,7 +648,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     koersstatus = bepaal_koersstatus(
         tickers, set(price_data.columns), price_data.attrs.get("koersen_onvolledig", []), ticker_namen)
     if price_data.empty:
-        return {"code": code, "naam": naam, "chart_data": None, **koersstatus}
+        return {"code": code, "naam": naam, "ontwikkelaar": is_ontwikkel_code(code), "chart_data": None, **koersstatus}
 
     laatste_koersdatum, laatst_opgehaald_op = db_get_laatste_koers_update(tickers)
 
@@ -724,6 +725,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     antwoord = {
         "code": code,
         "naam": naam,
+        "ontwikkelaar": is_ontwikkel_code(code),
         "chart_data": {
             "labels": [d.strftime("%Y-%m-%d") for d in resultaat.index],
             "waarde": resultaat["waarde"].round(2).tolist(),

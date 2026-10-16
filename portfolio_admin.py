@@ -1,4 +1,5 @@
 """Portfolio-codes genereren/valideren en een upload koppelen aan een bestaande portfolio."""
+import os
 import re
 import secrets
 import string
@@ -11,6 +12,9 @@ CODE_LENGTH = 3
 def is_geldige_code(code):
     return bool(re.fullmatch(rf"[A-Z]{{{CODE_LENGTH}}}", code or ""))
 
+
+ONTWIKKEL_CODES_VARIABELE = "ONTWIKKEL_CODES"
+ONTWIKKEL_CODES_SCHEIDER = ","
 
 MAX_CODE_POGINGEN = 100
 MAX_BIJNAAM_LENGTE = 100
@@ -32,6 +36,16 @@ class UploadHoortBijBestaandePortfolio(Exception):
 def valideer_bijnaam(bijnaam):
     """Foutmelding of None."""
     return MELDING_BIJNAAM_TE_LANG if len(bijnaam) > MAX_BIJNAAM_LENGTE else None
+
+
+def ontwikkel_codes():
+    """Codes uit de omgevingsvariabele; ontbreekt die, dan is geen enkele portfolio een ontwikkel-portfolio."""
+    ruw = os.environ.get(ONTWIKKEL_CODES_VARIABELE, "")
+    return {c.strip().upper() for c in ruw.split(ONTWIKKEL_CODES_SCHEIDER) if c.strip()}
+
+
+def is_ontwikkel_code(code):
+    return bool(code) and code.upper() in ontwikkel_codes()
 
 
 def generate_code(cur, length=CODE_LENGTH, uitgesloten=frozenset()):

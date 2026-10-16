@@ -51,7 +51,7 @@ const TOON_PER_VIEW = {
 };
 
 function toegestaneViews() {
-    const uit = uitgeschakeldeViews(leesOntwikkelAan());
+    const uit = uitgeschakeldeViews(actieveOntwikkelAan());
     return Object.keys(TOON_PER_VIEW).filter(v => (huidigeData.code || !VIEWS_MET_CODE.includes(v)) && !uit.includes(v));
 }
 
@@ -92,15 +92,14 @@ function ververMenu(view) {
     });
 
     const groep = MENU_GROEPEN.find(g => g.id === groepId);
-    const uit = uitgeschakeldeViews(leesOntwikkelAan());
-    const chips = (groep ? menuViews(groep, toegestaan, uit) : []).map(v => {
+    werkOntwikkelBlokBij();
+    const chips = (groep ? menuViews(groep, toegestaan) : []).map(v => {
         const chip = document.createElement("button");
         chip.type = "button";
-        chip.className = "subTab" + (v.view === view ? " actief" : "") + (v.uitgeschakeld ? " uitgeschakeld" : "");
+        chip.className = "subTab" + (v.view === view ? " actief" : "");
         chip.dataset.view = v.view;
         chip.textContent = v.label;
-        if (v.uitgeschakeld) chip.disabled = true;
-        else chip.addEventListener("click", () => gaNaarView(v.view));
+        chip.addEventListener("click", () => gaNaarView(v.view));
         return chip;
     });
     document.getElementById("subTabs").replaceChildren(...chips);

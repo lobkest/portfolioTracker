@@ -86,6 +86,17 @@ class TestPrivacyPagina(_MetApp):
                       "geen cookies"):
             self.assertIn(tekst, html)
 
+    def test_noemt_hobbyproject_geen_garantie_en_controle_bij_degiro(self):
+        html = self.html("/privacy")
+        for tekst in ("Over deze app", "hobby- en leerproject", "geen advertenties", "Bewaar je DeGiro-exports dus zelf",
+                      "altijd bij DeGiro zelf", "Je ziet je transacties, dividenden en resultaten in het dashboard."):
+            self.assertIn(tekst, html)
+        self.assertNotIn("Je ziet al je opgeslagen gegevens", html)
+
+    def test_startpagina_heeft_een_beta_label_met_uitleg(self):
+        html = self.html("/")
+        self.assertIn('class="betaLabel" title="In ontwikkeling: er kunnen fouten in zitten."', html)
+
     def test_geen_contactgegevens(self):
         html = self.html("/privacy")
         self.assertNotIn("mailto:", html)

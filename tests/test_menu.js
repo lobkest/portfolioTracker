@@ -7,7 +7,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
     MENU_GROEPEN, ONTWIKKEL_ONDERDELEN, ONTWIKKEL_OPSLAG_SLEUTEL, groepVanView, eersteView, zichtbareGroepen,
-    ontwikkelViews, ontwikkelItems, ontwikkelAan, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades,
+    ontwikkelViews, ontwikkelItems, ontwikkelAan, uitgeschakeldeViews, leesAanGezet, menuViews, scrollFades, actieveOntwikkelIds,
 } = require("../static/js/menu.js");
 
 const ALLE_VIEWS = MENU_GROEPEN.flatMap(g => g.views.map(v => v.view));
@@ -105,15 +105,26 @@ test("leesAanGezet: lege of kapotte opslag leest als []", () => {
     assert.deepEqual(leesAanGezet('["box3"]'), ["box3"]);
 });
 
-test("menuViews: uitgeschakelde ontwikkel-view blijft als grijze chip, andere niet-toegestane views vallen weg", () => {
+test("menuViews: een uitgeschakelde ontwikkel-view staat nergens in het menu", () => {
     const overzicht = MENU_GROEPEN.find(g => g.id === "overzicht");
     const toegestaan = ["portfolio", "dividend"];
-    const uit = menuViews(overzicht, toegestaan, ["box3"]);
-    assert.deepEqual(uit.map(v => [v.view, v.uitgeschakeld]), [["portfolio", false], ["dividend", false], ["box3", true]]);
+    assert.deepEqual(menuViews(overzicht, toegestaan).map(v => v.view), ["portfolio", "dividend"]);
+    assert.ok(menuViews(overzicht, [...toegestaan, "box3"]).some(v => v.view === "box3"));
+});
 
-    const aan = menuViews(overzicht, [...toegestaan, "box3"], []);
-    assert.equal(aan.find(v => v.view === "box3").uitgeschakeld, false);
-    assert.ok(!aan.some(v => v.view === "transacties" || v.view === "statistieken"));
+test("actieveOntwikkelIds: zonder ontwikkelaar-vlag geldt alles als uit, ook als localStorage het aanzet", () => {
+    const aan = ["box3", "rendement-pct"];
+    for (const vlag of [false, undefined, null, "true", 1]) {
+        assert.deepEqual(actieveOntwikkelIds(vlag, aan), [], String(vlag));
+    }
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3"]);
+    assert.equal(ontwikkelAan("rendement-pct", actieveOntwikkelIds(false, aan)), false);
+});
+
+test("actieveOntwikkelIds: met ontwikkelaar-vlag geldt wat localStorage zegt", () => {
+    assert.deepEqual(actieveOntwikkelIds(true, ["box3"]), ["box3"]);
+    assert.deepEqual(actieveOntwikkelIds(true, []), []);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(true, ["box3"])), []);
 });
 
 test("eersteView: slaat een uitgeschakelde ontwikkel-view over", () => {
