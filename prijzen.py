@@ -12,7 +12,7 @@ from db import (
     CACHE_GELDIGHEID, db_get_gecachte_koersen, db_get_koers_begin, db_get_ticker_details, db_save_koers_begin,
     db_save_koersen,
 )
-from debug_utils import meet_tijd
+from debug_utils import meet_tijd, tprint
 from diagnostiek import meld, CATEGORIE_WISSELKOERSEN, CATEGORIE_KOERSEN, GOED, LET_OP, FOUT
 from split_correctie import ruwe_koers
 from yahoo_client import download_koersen_met_retry, _tel_yahoo_call
@@ -307,7 +307,7 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
                     downloads_met_duur = list(executor.map(download_met_duur, stale))
             downloads = [download for download, _ in downloads_met_duur]
             duren = [duur for _, duur in downloads_met_duur]
-            print(f"[timing] koersen_incrementeel_per_call: {len(duren)} calls, gemiddeld {sum(duren) / len(duren):.2f}s, "
+            tprint(f"[timing] koersen_incrementeel_per_call: {len(duren)} calls, gemiddeld {sum(duren) / len(duren):.2f}s, "
                   f"traagste {max(duren):.2f}s, samen {sum(duren):.2f}s")
 
             tijden = {}
@@ -320,7 +320,7 @@ def get_prices(tickers, start_date, verversen=True, gesloten_sinds=None):
                 stale_rows.extend(_rijen(ruw_t))
                 stale_splits.update(splits_t)
 
-            print(f"[timing] koersen_incrementeel_verwerken: "
+            tprint(f"[timing] koersen_incrementeel_verwerken: "
                   + ", ".join(f"{naam} {seconden:.2f}s" for naam, seconden in tijden.items()))
             if stale_rows:
                 with meet_tijd(f"koersen_incrementeel_opslaan ({len(stale_rows)} rij(en))"):

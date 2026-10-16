@@ -75,7 +75,8 @@ class TestLaadtijden(_MetRequest):
         def blok():
             with debug_utils.meet_tijd("koersen_ophalen_kern (3 ticker(s))"):
                 pass
-        _, meldingen, uitvoer = self._in_request(blok)
+        with patch.dict("os.environ", {"DEBUG_TIMING_DETAIL": "1"}):
+            _, meldingen, uitvoer = self._in_request(blok)
         self.assertRegex(uitvoer, r"^\[timing\] koersen_ophalen_kern \(3 ticker\(s\)\): \d+\.\d\ds\n$")
         self.assertEqual(meldingen[0]["sleutel"], "koersen_ophalen_kern")
 

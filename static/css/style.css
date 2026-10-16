@@ -2010,7 +2010,7 @@ button.diagnostiekChip:disabled:hover {
 }
 
 .diagnostiekAantal::after {
-    content: "B8";
+    content: "\25B8";
     display: inline-block;
     margin-left: 6px;
     transition: transform 0.15s;

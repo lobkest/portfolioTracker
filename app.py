@@ -63,6 +63,7 @@ from portfolio_verdeling import bereken_etf_overlap_detail
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
 from static_versie import registreer_static_versies
+from yahoo_client import init_yfinance_cache
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 # X-Forwarded-For is "bezoeker, Cloudflare, Render-proxy": drie hops. Elke proxy voegt achteraan toe, dus een
@@ -75,6 +76,7 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=PROXY_AANTAL_X_FOR, x_proto=PROXY_AANTAL_X_PROTO)
 registreer_static_versies(app)
+init_yfinance_cache()
 
 # Zonder DATABASE_URL (CI/tests) overslaan, zodat 'import app' niet crasht.
 if os.environ.get("DATABASE_URL"):

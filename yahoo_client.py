@@ -1,9 +1,13 @@
 """Yahoo-call-telling en de twee retry-patronen voor yfinance."""
+import logging
+import os
+import tempfile
 import threading
 import time
 
 import pandas as pd
 import yfinance as yf
+from yfinance.cache import get_tz_cache
 
 from diagnostiek import meld, CATEGORIE_KOERSEN, INFO, LET_OP, FOUT
 from transactie_utils import getal_nl
@@ -17,6 +21,52 @@ _yahoo_call_teller = {}
 _yahoo_retry_teller = {"retries": 0, "mislukt": 0, "wachttijd": 0.0}
 DIAGNOSTIEK_SLEUTEL_YAHOO_KERN = "yahoo_kern"
 DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING = "yahoo_verrijking"
+
+YFINANCE_CACHE_MAP = os.path.join(tempfile.gettempdir(), "yfinance-cache")
+YFINANCE_DATABASE_LOCKED = "database is locked"
+YFINANCE_LOGGER = "yfinance"
+MAX_BEWAARDE_YFINANCE_FOUTEN = 200
+
+_yfinance_fouten_lock = threading.Lock()
+_yfinance_fouten = []
+
+
+def init_yfinance_cache():
+    """De tijdzone-cache van yfinance is een SQLite-bestand. Eén keer vooraf aanmaken (hoofdthread, vaste map) voorkomt dat
+    de parallelle downloads tegelijk het schema aanmaken en op slot lopen; het blijft een retry nodig hebben (zie
+    download_koersen_met_retry), want schrijven blijft mogelijk botsen."""
+    try:
+        yf.set_tz_cache_location(YFINANCE_CACHE_MAP)
+        get_tz_cache().initialise()
+    except Exception as e:
+        print(f"[yfinance] WARN cache niet voorbereid ({type(e).__name__})")
+
+
+class _DatabaseLockedOpvanger(logging.Handler):
+    """yfinance gooit bij een mislukte download niets: de fout staat alleen in zijn log ("['EMIM.AS']: OperationalError(
+    'database is locked')") en het resultaat is leeg. Zo zien we hem toch."""
+
+    def emit(self, record):
+        bericht = record.getMessage()
+        if YFINANCE_DATABASE_LOCKED in bericht:
+            with _yfinance_fouten_lock:
+                _yfinance_fouten.append((time.monotonic(), bericht))
+                del _yfinance_fouten[:-MAX_BEWAARDE_YFINANCE_FOUTEN]
+
+
+def installeer_database_locked_opvanger():
+    logger = logging.getLogger(YFINANCE_LOGGER)
+    if not any(isinstance(h, _DatabaseLockedOpvanger) for h in logger.handlers):
+        logger.addHandler(_DatabaseLockedOpvanger())
+
+
+def _database_locked_sinds(begin, tickers):
+    with _yfinance_fouten_lock:
+        berichten = [bericht for tijd, bericht in _yfinance_fouten if tijd >= begin]
+    return any(ticker in bericht for bericht in berichten for ticker in tickers)
+
+
+installeer_database_locked_opvanger()
 
 
 def reset_yahoo_call_teller(): # zet de teller op nul, dus kan tellen hoe vaak yahoo wordt aangeroepen sinds de laatste reset.
@@ -118,10 +168,14 @@ def download_koersen_met_retry(ticker_of_pair, start_date, pogingen=BULK_DOWNLOA
     """(Close, splits): Close met auto_adjust=False is split-gecorrigeerd maar niet dividend-gecorrigeerd; de splits komen
     uit dezelfde response. Bewust anders dan _met_rate_limit_retry: retry op elke fout, vaste wachttijd, bij mislukken
     een leeg DataFrame en {}. Een ticker zonder 'Stock Splits'-kolom staat niet in splits."""
+    tickers = [ticker_of_pair] if isinstance(ticker_of_pair, str) else list(ticker_of_pair)
     for poging in range(1, pogingen + 1):
         try:
             _tel_yahoo_call("yf.download")
+            begin = time.monotonic()
             data = yf.download(ticker_of_pair, start=start_date, auto_adjust=False, actions=True, progress=False)
+            if _database_locked_sinds(begin, tickers):
+                raise RuntimeError(YFINANCE_DATABASE_LOCKED)
             close = _als_frame(data["Close"], ticker_of_pair)
             try:
                 splits = _splits_per_ticker(_als_frame(data["Stock Splits"], ticker_of_pair))
