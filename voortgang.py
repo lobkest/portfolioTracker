@@ -7,22 +7,23 @@ from contextlib import contextmanager
 import queue
 import time
 
+# Gewichten van de twee upload-flows gebaseerd op één meting op Render ([voortgang]-logregels, nieuwe portfolio).
 # (stap_id, tekst, gewicht): het gewicht is het geschatte aandeel van de totale duur, zie bereken_procent().
 STAPPEN_UPLOAD_OPSLAAN = (
     ("bestand_inlezen", "Bestand inlezen", 5),
-    ("portfolio_zoeken", "Controleren of deze portfolio al bestaat", 5),
-    ("tickers_zoeken", "Tickers zoeken", 30),
-    ("transacties_opslaan", "Transacties opslaan", 5),
-    ("rekeningoverzicht", "Rekeningoverzicht verwerken", 5),
-    ("koersen_analyseren", "Koersen ophalen en analyseren", 45),
-    ("klaar_maken", "Klaar maken", 5),
+    ("portfolio_zoeken", "Controleren of deze portfolio al bestaat", 2),
+    ("tickers_zoeken", "Tickers zoeken", 43),
+    ("transacties_opslaan", "Transacties opslaan", 2),
+    ("rekeningoverzicht", "Rekeningoverzicht verwerken", 3),
+    ("koersen_analyseren", "Koersen ophalen en analyseren", 44),
+    ("klaar_maken", "Klaar maken", 1),
 )
 
 STAPPEN_UPLOAD_NIET_OPSLAAN = (
-    ("bestand_inlezen", "Bestand inlezen", 5),
-    ("tickers_zoeken", "Tickers zoeken", 35),
-    ("koersen_analyseren", "Koersen ophalen en analyseren", 55),
-    ("klaar_maken", "Klaar maken", 5),
+    ("bestand_inlezen", "Bestand inlezen", 6),
+    ("tickers_zoeken", "Tickers zoeken", 31),
+    ("koersen_analyseren", "Koersen ophalen en analyseren", 62),
+    ("klaar_maken", "Klaar maken", 1),
 )
 
 
