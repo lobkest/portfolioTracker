@@ -6,6 +6,7 @@ from contextlib import contextmanager
 import psycopg2
 from psycopg2 import errors as pg_errors
 from psycopg2.extensions import TRANSACTION_STATUS_IDLE
+from psycopg2.pool import ThreadedConnectionPool, PoolError
 from psycopg2.extras import execute_values, Json
 from dotenv import load_dotenv
 from flask import g, has_app_context
@@ -15,7 +16,7 @@ load_dotenv()
 
 # Globaal per proces, net als de Yahoo-tellers: gelijktijdige requests tellen bij elkaar op.
 _verbinding_lock = threading.Lock()
-_verbinding_teller = {"aantal": 0, "seconden": 0.0, "worker": 0}
+_verbinding_teller = {"aantal": 0, "seconden": 0.0, "worker": 0, "hergebruikt": 0}
 
 
 def db_reset_verbinding_teller():
@@ -23,31 +24,155 @@ def db_reset_verbinding_teller():
         _verbinding_teller["aantal"] = 0
         _verbinding_teller["seconden"] = 0.0
         _verbinding_teller["worker"] = 0
+        _verbinding_teller["hergebruikt"] = 0
 
 
 def db_verbinding_teller_stand():
-    """(aantal, seconden verbinden) sinds de laatste reset."""
+    """(aantal nieuw geopend, seconden verbinden) sinds de laatste reset."""
     with _verbinding_lock:
         return _verbinding_teller["aantal"], _verbinding_teller["seconden"]
 
 
 def db_log_verbinding_samenvatting():
     with _verbinding_lock:
-        aantal, seconden, worker = (_verbinding_teller[k] for k in ("aantal", "seconden", "worker"))
-    print(f"[timing] DB-verbindingen sinds laatste reset: {aantal} (waarvan {worker} in worker-threads), "
-          f"samen {seconden:.2f}s verbinden")
+        aantal, seconden, worker, hergebruikt = (
+            _verbinding_teller[k] for k in ("aantal", "seconden", "worker", "hergebruikt"))
+    print(f"[timing] DB-verbindingen sinds laatste reset: {aantal} nieuw (waarvan {worker} in worker-threads), "
+          f"samen {seconden:.2f}s verbinden, {hergebruikt} hergebruikt")
+
+
+# gunicorn: 1 worker x 4 threads; een upload zoekt tickers met TICKER_RESOLUTIE_POOL_GROOTTE (12) threads.
+# Meer gelijktijdige verbindingen dan dit krijgen een losse verbinding (zie _haal_verbinding).
+POOL_MAX_VERBINDINGEN = 20
+# Neon zet de compute na inactiviteit stil; een verbinding die langer ongebruikt is, krijgt eerst een SELECT 1.
+POOL_CONTROLE_NA_SECONDEN = 30
+POOL_MAX_CONTROLES = 3
+
+
+class _Pool(ThreadedConnectionPool):
+    """minconn bepaalt hoeveel vrije verbindingen de pool bewaart: pas na het (lege) aanmaken op het maximum zetten,
+    anders maakt psycopg2 er bij het starten al minconn aan."""
+
+    def __init__(self, maxconn, *args, **kwargs):
+        super().__init__(0, maxconn, *args, **kwargs)
+        self.minconn = maxconn
+
+
+_pool = None
+_pool_lock = threading.Lock()
+_laatst_gebruikt = {}  # id(verbinding) -> tijdstip; ontbreekt = net aangemaakt
+
+
+def _pool_ophalen():
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = _Pool(POOL_MAX_VERBINDINGEN, os.environ["DATABASE_URL"])
+        return _pool
+
+
+def _tel_verbinding(seconden, in_worker):
+    with _verbinding_lock:
+        _verbinding_teller["aantal"] += 1
+        _verbinding_teller["seconden"] += seconden
+        if in_worker:
+            _verbinding_teller["worker"] += 1
+
+
+class _PoolVerbinding:
+    """close() geeft de verbinding terug aan de pool (of sluit een losse); dubbel close() doet niets."""
+
+    def __init__(self, verbinding, pool):
+        self._verbinding = verbinding
+        self._pool = pool
+        self._klaar = False
+
+    @property
+    def closed(self):
+        return self._klaar or self._verbinding.closed
+
+    def close(self):
+        if self._klaar:
+            return
+        self._klaar = True
+        conn, kapot = self._verbinding, False
+        try:
+            if not conn.closed:
+                conn.rollback()
+        except Exception:
+            kapot = True
+        kapot = kapot or conn.closed
+        if self._pool is None:
+            _laatst_gebruikt.pop(id(conn), None)
+            _sluit_stil(conn)
+            return
+        if kapot:
+            _laatst_gebruikt.pop(id(conn), None)
+        else:
+            _laatst_gebruikt[id(conn)] = time.time()
+        try:
+            self._pool.putconn(conn, close=kapot)
+        except Exception:
+            _laatst_gebruikt.pop(id(conn), None)
+            _sluit_stil(conn)
+
+    def __getattr__(self, naam):
+        return getattr(self._verbinding, naam)
+
+    def __del__(self):
+        # Een db_-functie die op een fout stopte vóór conn.close() mag de pool niet laten leeglopen.
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
+def _sluit_stil(conn):
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _is_nog_levend(conn):
+    try:
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.rollback()
+        return True
+    except Exception:
+        return False
+
+
+def _open_losse_verbinding(in_worker):
+    start = time.time()
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    _tel_verbinding(time.time() - start, in_worker)
+    return _PoolVerbinding(conn, None)
 
 
 def _open_verbinding():
-    start = time.time()
-    conn = psycopg2.connect(os.environ["DATABASE_URL"])
     in_worker = not has_app_context()
-    with _verbinding_lock:
-        _verbinding_teller["aantal"] += 1
-        _verbinding_teller["seconden"] += time.time() - start
-        if in_worker:
-            _verbinding_teller["worker"] += 1
-    return conn
+    pool = _pool_ophalen()
+    for _ in range(POOL_MAX_CONTROLES):
+        start = time.time()
+        try:
+            conn = pool.getconn()
+        except PoolError:
+            print("[db] pool vol, losse verbinding geopend")
+            return _open_losse_verbinding(in_worker)
+        laatst = _laatst_gebruikt.get(id(conn))
+        if laatst is None:
+            _tel_verbinding(time.time() - start, in_worker)
+            return _PoolVerbinding(conn, pool)
+        if time.time() - laatst <= POOL_CONTROLE_NA_SECONDEN or _is_nog_levend(conn):
+            with _verbinding_lock:
+                _verbinding_teller["hergebruikt"] += 1
+            return _PoolVerbinding(conn, pool)
+        _laatst_gebruikt.pop(id(conn), None)
+        pool.putconn(conn, close=True)
+    return _open_losse_verbinding(in_worker)
 
 
 _G_ATTR_DEEL_VERBINDING = "_db_deel_verbinding"
