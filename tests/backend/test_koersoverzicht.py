@@ -58,7 +58,8 @@ class BouwKoersoverzichtTests(unittest.TestCase):
         tr = transacties(("2024-01-02", "AAA", "Aaa", 1))
         r = self.bouw(tr, pr, {"AAA": {"2024-03-03": 4.0}})["reeksen"][0]
         self.assertEqual(r["pct"][:3], [0.0, 0.0, 0.0])
-        self.assertEqual(r["eur"][:3], [100.0, 100.0, 100.0])
+        self.assertEqual(r["koers_begin"], 100.0)
+        self.assertEqual(r["koers_nu"], 110.0)
         self.assertEqual(r["pct"][4], 10.0)
 
     def test_aankoop_halverwege_zet_in_bezit_om(self):
@@ -82,7 +83,17 @@ class BouwKoersoverzichtTests(unittest.TestCase):
         tr = transacties(("2024-01-02", "AAA", "Aaa", 1))
         r = self.bouw(tr, pr)["reeksen"][0]
         self.assertEqual(r["pct"], [None, None, 0.0, 10.0, 10.0])
-        self.assertEqual(r["eur"][:2], [None, None])
+        self.assertEqual(r["koers_begin"], 20.0)
+        self.assertEqual(r["koers_nu"], 22.0)
+
+    def test_koers_begin_en_nu_ontbreken_bij_alleen_nan_in_de_periode(self):
+        index = pd.date_range("2024-02-26", periods=10)
+        pr = pd.DataFrame({"AAA": [10.0] * 3 + [np.nan] * 7}, index=index)
+        tr = transacties(("2024-01-02", "AAA", "Aaa", 1))
+        r = self.bouw(tr, pr, periode="maand")["reeksen"][0]
+        self.assertIsNone(r["koers_begin"])
+        self.assertIsNone(r["koers_nu"])
+        self.assertNotIn("eur", r)
 
     def test_nan_wordt_none_en_json_werkt(self):
         pr = prijzen({"AAA": [10.0, np.nan, 12.0, 12.0, 12.0]}, start="2024-03-01", dagen=5)

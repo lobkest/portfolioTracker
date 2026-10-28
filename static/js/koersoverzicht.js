@@ -20,7 +20,9 @@
 
     // De volgorde komt van de backend; pct blijft null als er geen waarde is.
     function ranglijstRijen(reeksen) {
-        return reeksen.map(r => ({ naam: r.naam, ticker: r.ticker, pct: r.pct_periode }));
+        return reeksen.map(r => ({
+            naam: r.naam, ticker: r.ticker, pct: r.pct_periode, koersBegin: r.koers_begin, koersNu: r.koers_nu,
+        }));
     }
 
     const exportsObj = { KOERS_PERIODES, STANDAARD_KOERS_PERIODE, isGestippeld, ranglijstRijen };

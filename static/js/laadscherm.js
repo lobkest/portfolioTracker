@@ -22,7 +22,13 @@
         "Kies \"niet opslaan\" voor een eenmalige analyse: dan wordt er niets bewaard.",
         "Vergelijk je rendement met de S&P 500, de Nasdaq 100 of de AEX onder \"Rendement\".",
         "Bij \"Per aandeel\" zie je precies wanneer je kocht en verkocht, op de koersgrafiek.",
-        "Benieuwd naar later? De \"Prognose\" rekent met jouw eigen inleg en rendement."
+        "Benieuwd naar later? De \"Prognose\" rekent met jouw eigen inleg en rendement.",
+        "Een ETF is een mandje met veel aandelen dat je in één keer koopt, net zo makkelijk als een los aandeel.",
+        "Spreiding verkleint het risico dat één bedrijf je hele portfolio onderuit haalt.",
+        "Je transactiekosten per jaar zie je bij \"Statistieken\".",
+        "Hetzelfde fonds kan op meerdere beurzen noteren, elk met een eigen ticker en koers.",
+        "Bij \"Verdeling → Land\" zie je in welke landen je via je ETF's echt belegt.",
+        "Bij \"Ticker-zekerheid\" zie je per positie hoe zeker de koppeling met de koersdata is."
     ];
 
     function formatteerWachttijd(seconden) {

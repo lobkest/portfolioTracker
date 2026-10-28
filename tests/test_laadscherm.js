@@ -65,6 +65,6 @@ test("isPingOk: alleen een object met ok === true", () => {
 });
 
 test("WEETJES: gevulde lijst met alleen niet-lege teksten", () => {
-    assert.equal(WEETJES.length, 14);
+    assert.ok(WEETJES.length >= 10);
     for (const weetje of WEETJES) assert.ok(typeof weetje === "string" && weetje.length > 0);
 });

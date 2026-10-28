@@ -294,6 +294,29 @@ def get_etf_holdings(ticker, isin=None):
     return holdings
 
 
+# Holdings van een door de gebruiker gekozen ISIN horen bij het fonds, niet bij een ticker: onder de ticker zouden ze
+# de cache van elke portfolio met die ticker vergiftigen.
+ISIN_HOLDINGS_SLEUTEL_PREFIX = "isin:"
+
+
+def get_etf_holdings_voor_isin(isin):
+    """Provider-holdings van een iShares-fonds op exacte ISIN, alleen gecachet onder "isin:<ISIN>"; None zonder
+    iShares-fonds of holdings (geen yfinance-terugval: die gaat via de ticker)."""
+    sleutel = f"{ISIN_HOLDINGS_SLEUTEL_PREFIX}{isin}"
+    cached = db_get_cached_etf_holdings(sleutel)
+    if cached and cached[0]["bron"] == "provider_csv":
+        return cached
+    ishares_fonds = _ishares_fonds_voor_isin(isin)
+    if ishares_fonds is None:
+        return None
+    provider_holdings = fetch_ishares_holdings_via_productpagina(ishares_fonds["product_url"])
+    if not provider_holdings:
+        return None
+    holdings = _provider_holdings_naar_cache(provider_holdings)
+    db_save_etf_holdings(sleutel, holdings)
+    return holdings
+
+
 def get_etf_holdings_uit_cache(ticker):
     """[{naam, gewicht (0-1), land, sector}] alleen uit de cache, nooit Yahoo; sector via
     ticker_land_sector (etf_holdings heeft geen sectorkolom), anders None."""
@@ -351,6 +374,11 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, isin_per_ticker=Non
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         list(executor.map(_warm, tickers))
+
+
+def get_ticker_details(ticker):
+    """{is_etf, quote_type, valuta, long_name, ...} uit de ticker_info-cache of Yahoo; {} als beide falen."""
+    return _ticker_details_met_cache(ticker)
 
 
 def _ticker_details_met_cache(ticker):

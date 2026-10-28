@@ -19,12 +19,12 @@ test("isGestippeld: het eerste punt heeft geen segment", () => {
 
 test("ranglijstRijen behoudt de volgorde en laat null staan", () => {
     const rijen = ranglijstRijen([
-        { ticker: "AAA", naam: "Aaa", pct_periode: 4.2, pct: [0, 4.2] },
-        { ticker: "BBB", naam: "Bbb", pct_periode: null, pct: [null, null] },
+        { ticker: "AAA", naam: "Aaa", pct_periode: 4.2, pct: [0, 4.2], koers_begin: 10, koers_nu: 10.42 },
+        { ticker: "BBB", naam: "Bbb", pct_periode: null, pct: [null, null], koers_begin: null, koers_nu: null },
     ]);
     assert.deepEqual(rijen, [
-        { naam: "Aaa", ticker: "AAA", pct: 4.2 },
-        { naam: "Bbb", ticker: "BBB", pct: null },
+        { naam: "Aaa", ticker: "AAA", pct: 4.2, koersBegin: 10, koersNu: 10.42 },
+        { naam: "Bbb", ticker: "BBB", pct: null, koersBegin: null, koersNu: null },
     ]);
 });
 

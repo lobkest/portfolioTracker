@@ -1437,6 +1437,20 @@ def db_get_isin_ticker_product(code):
     return rows
 
 
+def db_get_isins_voor_ticker(ticker):
+    """Anoniem: over alle portfolio's heen en zonder code."""
+    conn = db_connect()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT DISTINCT isin FROM transacties WHERE ticker = %s AND isin IS NOT NULL ORDER BY isin",
+        (ticker,),
+    )
+    isins = [row[0] for row in cur.fetchall()]
+    cur.close()
+    conn.close()
+    return isins
+
+
 def db_wijzig_bijnaam(code, ticker, bijnaam):
     conn = db_connect()
     cur = conn.cursor()

@@ -37,7 +37,7 @@ def _afgerond_of_none(waarde, decimalen):
 
 
 def bouw_koersoverzicht(transacties_df, price_data, splits_per_ticker, periode, vandaag):
-    """{periode, vanaf, labels, reeksen: [{ticker, naam, pct, eur, in_bezit, pct_periode}], ontbreken: [{ticker, naam}]}
+    """{periode, vanaf, labels, reeksen: [{ticker, naam, pct, in_bezit, pct_periode, koers_begin, koers_nu}], ontbreken: [{ticker, naam}]}
     voor de posities met stukken op de laatste koersdag; reeksen aflopend op pct_periode."""
     grens = periode_grens(periode, vandaag)
     prijzen = price_data.copy()
@@ -67,12 +67,13 @@ def bouw_koersoverzicht(transacties_df, price_data, splits_per_ticker, periode, 
         geldig = koers.dropna()
         start = geldig.iloc[0] if not geldig.empty else None
         pct = [None if start is None or pd.isna(k) else _afgerond_of_none((k / start - 1) * 100, PCT_DECIMALEN) for k in koers]
-        eur = [_afgerond_of_none(k, EUR_DECIMALEN) for k in koers]
         in_bezit = [h > EPSILON_STUKS for h in holdings_op_datums(rijen, labels)]
         niet_leeg = [p for p in pct if p is not None]
         reeksen.append({
-            "ticker": ticker, "naam": naam, "pct": pct, "eur": eur, "in_bezit": in_bezit,
+            "ticker": ticker, "naam": naam, "pct": pct, "in_bezit": in_bezit,
             "pct_periode": niet_leeg[-1] if niet_leeg else None,
+            "koers_begin": None if start is None else _afgerond_of_none(start, EUR_DECIMALEN),
+            "koers_nu": None if geldig.empty else _afgerond_of_none(geldig.iloc[-1], EUR_DECIMALEN),
         })
 
     reeksen.sort(key=lambda r: (r["pct_periode"] is None, -(r["pct_periode"] or 0)))

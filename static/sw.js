@@ -1,4 +1,4 @@
-const CACHE_NAAM = 'laadscherm-v1';
+const CACHE_NAAM = 'laadscherm-v2';
 const LAADSCHERM = '/static/laden.html';
 const BESTANDEN = [LAADSCHERM, '/static/js/laadscherm.js'];
 const PING_TIMEOUT_MS = 3000;
@@ -30,6 +30,12 @@ async function serverIsWakker() {
 }
 
 self.addEventListener('fetch', (event) => {
+    // Deze bestanden altijd uit de cache: de server kan slapen.
+    const pad = new URL(event.request.url).pathname;
+    if (BESTANDEN.includes(pad)) {
+        event.respondWith(caches.match(pad).then((antwoord) => antwoord || fetch(event.request)));
+        return;
+    }
     if (event.request.mode !== 'navigate') return;
     event.respondWith((async () => {
         if (await serverIsWakker()) return fetch(event.request);

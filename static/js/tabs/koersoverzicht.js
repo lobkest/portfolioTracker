@@ -1,13 +1,11 @@
 // Tabblad Koersen: koersontwikkeling van alle huidige posities in één grafiek, met ranglijst.
 
 let koersPeriode = STANDAARD_KOERS_PERIODE;
-let koersWeergave = "pct";
 let koersData = null;
 let koersOphaalNr = 0;
 
 function resetKoersoverzicht() {
     koersPeriode = STANDAARD_KOERS_PERIODE;
-    koersWeergave = "pct";
     koersData = null;
     koersOphaalNr++;
 }
@@ -32,9 +30,6 @@ function bouwKoersPeriodeKnoppen() {
 function werkKoersKnoppenBij() {
     document.querySelectorAll("#koersPeriodeKeuze .segmentKnop").forEach(knop => {
         knop.classList.toggle("actief", knop.dataset.periode === koersPeriode);
-    });
-    document.querySelectorAll("#koersWeergaveKeuze .segmentKnop").forEach(knop => {
-        knop.classList.toggle("actief", knop.dataset.weergave === koersWeergave);
     });
 }
 
@@ -80,13 +75,11 @@ async function haalKoersoverzichtOp() {
 function tekenKoersoverzicht() {
     if (chart) { chart.destroy(); chart = null; }
     const d = koersData;
-    const procent = koersWeergave === "pct";
     const labelsNL = d.labels.map(formatDatum);
-    const formatteer = procent ? (x => formatPct(x, 2, true)) : (x => formatteerEuro(x));
 
     const datasets = d.reeksen.map(reeks => ({
         label: reeks.naam,
-        data: procent ? reeks.pct : reeks.eur,
+        data: reeks.pct,
         borderColor: kleurVoorTicker(reeks.ticker),
         pointRadius: 0,
         pointHoverRadius: 4,
@@ -105,7 +98,7 @@ function tekenKoersoverzicht() {
             locale: "nl-NL",
             interaction: { mode: "nearest", axis: "x", intersect: false },
             scales: {
-                y: { title: { display: true, text: procent ? "Verandering (%)" : "Koers (€)" } },
+                y: { title: { display: true, text: "Verandering (%)" } },
             },
             plugins: {
                 legend: { display: true },
@@ -113,16 +106,14 @@ function tekenKoersoverzicht() {
                     callbacks: {
                         label: ctx => {
                             const bezit = ctx.dataset.inBezit[ctx.dataIndex] ? "in bezit" : "niet in bezit";
-                            return `${ctx.dataset.label}: ${formatteer(ctx.parsed.y)} (${bezit})`;
+                            return `${ctx.dataset.label}: ${formatPct(ctx.parsed.y, 2, true)} (${bezit})`;
                         },
                     },
                 },
                 zoom: zoomOpties(),
                 datalabels: { display: false },
                 annotation: {
-                    annotations: procent
-                        ? { nulLijn: { type: "line", yMin: 0, yMax: 0, borderColor: "#6b6b66", borderWidth: 1 } }
-                        : {},
+                    annotations: { nulLijn: { type: "line", yMin: 0, yMax: 0, borderColor: "#6b6b66", borderWidth: 1 } },
                 },
             },
         },
@@ -138,6 +129,18 @@ function toonKoersRanglijst(d) {
             mobielRol: "titel",
             mobielTekst: r => r.naam,
             renderTd: r => maakCel(r.naam),
+        },
+        {
+            label: "Koers begin",
+            mobielRol: "detail",
+            waarde: r => r.koersBegin,
+            renderTd: r => maakCel(r.koersBegin === null ? "–" : formatteerEuro(r.koersBegin)),
+        },
+        {
+            label: "Koers nu",
+            mobielRol: "detail",
+            waarde: r => r.koersNu,
+            renderTd: r => maakCel(r.koersNu === null ? "–" : formatteerEuro(r.koersNu)),
         },
         {
             label: "Verandering in de periode",
@@ -157,11 +160,3 @@ function toonKoersRanglijst(d) {
     const ontbreekt = d.ontbreken.map(o => o.naam);
     toonKoersMelding(ontbreekt.length ? `Geen koers beschikbaar voor: ${ontbreekt.join(", ")}.` : "");
 }
-
-document.querySelectorAll("#koersWeergaveKeuze .segmentKnop").forEach(knop => {
-    knop.addEventListener("click", () => {
-        koersWeergave = knop.dataset.weergave;
-        werkKoersKnoppenBij();
-        if (koersData) tekenKoersoverzicht();
-    });
-});

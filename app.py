@@ -57,6 +57,7 @@ from portfolio_admin import (
 from toegangslimiet import (
     Toegangslimiet, wachttijd_tekst, SLEUTEL_GLOBAAL, CATEGORIE_FOUTE_CODE, CATEGORIE_FOUTE_CODE_GLOBAAL,
     CATEGORIE_GEVOELIGE_ACTIE, CATEGORIE_UPLOAD, CATEGORIE_EXTERNE_BRON, CATEGORIE_BEREKENING,
+    CATEGORIE_ZOEKEN,
 )
 from upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
@@ -75,6 +76,8 @@ from portfolio_orchestratie import (
     meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden, isin_ticker_product_rijen,
 )
 from portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
+from effect_profiel import bouw_effect_profiel, OnbekendEffect
+from effect_zoeken import zoek_effecten_gecachet, herken_isin, bepaal_isin_kandidaten
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
 from static_versie import registreer_static_versies
@@ -109,6 +112,9 @@ CATEGORIE_PER_ZWAAR_ENDPOINT = {
     "ticker_zekerheid_check": CATEGORIE_EXTERNE_BRON,
     "etf_overlap_detail": CATEGORIE_EXTERNE_BRON,
     "box3_bereken": CATEGORIE_BEREKENING,
+    "api_zoek": CATEGORIE_ZOEKEN,
+    "api_isin_kandidaten": CATEGORIE_ZOEKEN,
+    "api_effect_profiel": CATEGORIE_EXTERNE_BRON,
 }
 LIMIET_MELDING_PER_CATEGORIE = {
     CATEGORIE_FOUTE_CODE: "Te veel foute pogingen met een code.",
@@ -117,6 +123,7 @@ LIMIET_MELDING_PER_CATEGORIE = {
     CATEGORIE_UPLOAD: "Je hebt te veel bestanden geüpload.",
     CATEGORIE_EXTERNE_BRON: "Je hebt te veel aanvragen gedaan.",
     CATEGORIE_BEREKENING: "Je hebt te veel aanvragen gedaan.",
+    CATEGORIE_ZOEKEN: "Je hebt te veel gezocht.",
 }
 
 # De tellers staan in het geheugen: ze resetten bij een herstart en gelden per gunicorn-worker.
@@ -695,6 +702,45 @@ def etf_overlap_detail():
     if not etf_a or not etf_b:
         return jsonify({"error": "Query-parameters 'a' en 'b' (ETF-tickers) zijn verplicht."}), 400
     return jsonify({"holdings": bereken_etf_overlap_detail(etf_a, etf_b)})
+
+
+ZOEK_MIN_TEKENS = 2
+ZOEK_MAX_TEKENS = 60
+TICKER_MAX_TEKENS = 20
+NAAM_MAX_TEKENS = 200
+
+
+@app.route("/api/zoek")
+def api_zoek():
+    """Zonder portfolio-code. Een Yahoo-fout geeft een lege lijst."""
+    query = request.args.get("q", "").strip()
+    if not ZOEK_MIN_TEKENS <= len(query) <= ZOEK_MAX_TEKENS:
+        return jsonify({"error": f"Zoek met {ZOEK_MIN_TEKENS} tot {ZOEK_MAX_TEKENS} tekens."}), 400
+    return jsonify({"resultaten": zoek_effecten_gecachet(query), "isin_uit_zoekopdracht": herken_isin(query)})
+
+
+@app.route("/api/isin-kandidaten")
+def api_isin_kandidaten():
+    ticker = request.args.get("ticker", "").strip()
+    naam = request.args.get("naam", "").strip()
+    if not ticker or len(ticker) > TICKER_MAX_TEKENS or len(naam) > NAAM_MAX_TEKENS:
+        return jsonify({"error": "Geef een ticker (en eventueel een naam) van normale lengte."}), 400
+    return jsonify(bepaal_isin_kandidaten(ticker, naam, request.args.get("isin", "")))
+
+
+@app.route("/api/effect-profiel")
+def api_effect_profiel():
+    ticker = request.args.get("ticker", "").strip()
+    if not ticker or len(ticker) > TICKER_MAX_TEKENS:
+        return jsonify({"error": "Geef een ticker van normale lengte."}), 400
+    isin_param = request.args.get("isin", "").strip()
+    isin = herken_isin(isin_param) if isin_param else None
+    if isin_param and not isin:
+        return jsonify({"error": "Dit is geen geldige ISIN."}), 400
+    try:
+        return jsonify(bouw_effect_profiel(ticker, isin))
+    except OnbekendEffect:
+        return jsonify({"error": f"Geen gegevens gevonden voor '{ticker}'."}), 404
 
 
 @app.route("/api/etf-holdings")

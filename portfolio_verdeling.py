@@ -1,4 +1,5 @@
 """Portfoliobrede aggregaties: verdeling, land, sector, top-N bedrijven en ETF-overlap."""
+import math
 import re
 
 import pandas as pd
@@ -123,28 +124,35 @@ def bereken_verdeling_samenvatting(verdeling):
     }
 
 
-def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BEDRIJVEN_TOP_N_STANDAARD):
+def waarde_per_ticker_nu(transacties_df, price_data):
+    """{ticker: waarde in EUR} van de huidige posities: aantal x laatste koers; tickers zonder koers, met een
+    niet-eindige waarde of met waarde <= 0 vallen af."""
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
+    laatste_prijzen = price_data.iloc[-1]
+    waarden = {}
+    for ticker, aantal in huidige_holdings.items():
+        if ticker not in price_data.columns:
+            continue
+        waarde = float(aantal) * float(laatste_prijzen[ticker])
+        # NaN (geen koers) is nooit <= 0 en vergiftigt elke som.
+        if not math.isfinite(waarde) or waarde <= 0:
+            continue
+        waarden[ticker] = waarde
+    return waarden
+
+
+def bedrijven_verdeling_uit(waarde_per_ticker, is_etf_map, holdings_per_etf, aandeel_namen, bron_namen, top_n):
     """Top-N onderliggende bedrijven (via ETF's en losse aandelen), per bron uitgesplitst.
+    Invoer: waarde_per_ticker {ticker: EUR}, holdings_per_etf {ticker: [{holding_naam, gewicht}]},
+    aandeel_namen {ticker: weergavenaam} (ontbrekend = ticker), bron_namen {ticker: naam voor de legenda}.
     Sleutels:
       top: [{bedrijf, waarde, per_bron: {ticker: % van totaal_waarde}}], aflopend
-      overig: bedrijven buiten de top-N + niet-gedekt ETF-restant (in €)
+      overig: bedrijven buiten de top-N + niet-gedekt ETF-restant (in EUR)
       dekking_pct: fractie 0-1 die aan een bekend bedrijf is toegewezen
       totaal_waarde, top_n_standaard
       bronnen: [{ticker, naam}], aflopend op bijdrage (legenda-volgorde)
     """
-    transacties_df = transacties_df.dropna(subset=["ticker"])
-    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
-    laatste_prijzen = price_data.iloc[-1]
-
-    bron_namen = {}
-    if "product" in transacties_df.columns:
-        bron_namen = (
-            transacties_df.dropna(subset=["ticker"])
-            .drop_duplicates(subset=["ticker"], keep="last")
-            .set_index("ticker")["product"]
-            .to_dict()
-        )
-
     bedrijven = {}
     totaal_waarde = 0.0
     gedekte_waarde = 0.0
@@ -154,16 +162,11 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
         entry["waarde"] += bedrag
         entry["per_bron"][bron_ticker] = entry["per_bron"].get(bron_ticker, 0.0) + bedrag
 
-    for ticker, aantal in huidige_holdings.items():
-        if ticker not in price_data.columns:
-            continue
-        waarde = float(aantal) * float(laatste_prijzen[ticker])
-        if waarde <= 0:
-            continue
+    for ticker, waarde in waarde_per_ticker.items():
         totaal_waarde += waarde
 
         if is_etf_map.get(ticker, False):
-            holdings = get_etf_holdings(ticker)
+            holdings = holdings_per_etf[ticker]
             gedekt_gewicht = min(sum(h["gewicht"] for h in holdings), 1.0)
             gedekte_waarde += waarde * gedekt_gewicht
             for h in holdings:
@@ -172,11 +175,7 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
                     continue
                 voeg_toe(key, h["holding_naam"], ticker, waarde * h["gewicht"])
         else:
-            weergavenaam = ticker
-            aandeel_rijen = transacties_df.loc[transacties_df["ticker"] == ticker, "echte_naam"] \
-                if "echte_naam" in transacties_df.columns else None
-            if aandeel_rijen is not None and aandeel_rijen.notna().any():
-                weergavenaam = aandeel_rijen.dropna().iloc[-1]
+            weergavenaam = aandeel_namen.get(ticker, ticker)
             key = _normaliseer_bedrijfsnaam(weergavenaam) or ticker
             gedekte_waarde += waarde
             voeg_toe(key, weergavenaam, ticker, waarde)
@@ -211,6 +210,31 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
     }
 
 
+def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BEDRIJVEN_TOP_N_STANDAARD):
+    """Top-N onderliggende bedrijven uit de transacties; zie bedrijven_verdeling_uit() voor de sleutels."""
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    waarde_per_ticker = waarde_per_ticker_nu(transacties_df, price_data)
+
+    bron_namen = {}
+    if "product" in transacties_df.columns:
+        bron_namen = (
+            transacties_df.drop_duplicates(subset=["ticker"], keep="last")
+            .set_index("ticker")["product"]
+            .to_dict()
+        )
+
+    holdings_per_etf = {}
+    aandeel_namen = {}
+    for ticker in waarde_per_ticker:
+        if is_etf_map.get(ticker, False):
+            holdings_per_etf[ticker] = get_etf_holdings(ticker)
+        elif "echte_naam" in transacties_df.columns:
+            namen = transacties_df.loc[transacties_df["ticker"] == ticker, "echte_naam"].dropna()
+            if not namen.empty:
+                aandeel_namen[ticker] = namen.iloc[-1]
+    return bedrijven_verdeling_uit(waarde_per_ticker, is_etf_map, holdings_per_etf, aandeel_namen, bron_namen, top_n)
+
+
 def _groepeer_holdings_per_bedrijf(holdings):
     """({key: gewicht}, {key: weergavenaam}); de gedeelde 'zelfde bedrijf'-definitie voor overlap en holdingslijst."""
     gewichten = {}
@@ -228,9 +252,8 @@ def _holdings_gewicht_en_naam_per_bedrijf(ticker):
     return _groepeer_holdings_per_bedrijf(get_etf_holdings(ticker))
 
 
-def bereken_etf_holdings_lijst(ticker, positie_waarde=None):
+def holdings_lijst_uit(holdings, positie_waarde=None):
     """{bron, aantal, gedekt_gewicht, holdings: [{naam, gewicht, bedrag_eur}]}, aflopend op gewicht."""
-    holdings = get_etf_holdings(ticker)
     # NaN overslaan: vergiftigt de som en breekt res.json().
     geldig = [h for h in holdings if pd.notna(h["gewicht"])]
     gewichten, namen = _groepeer_holdings_per_bedrijf(geldig)
@@ -252,20 +275,16 @@ def bereken_etf_holdings_lijst(ticker, positie_waarde=None):
     }
 
 
-def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
-    """Symmetrische matrix {a: {b: overlap}}; {} bij minder dan 2 ETF's."""
-    transacties_df = transacties_df.dropna(subset=["ticker"])
-    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
+def bereken_etf_holdings_lijst(ticker, positie_waarde=None):
+    return holdings_lijst_uit(get_etf_holdings(ticker), positie_waarde)
 
-    tickers = [t for t in huidige_holdings.index if t in price_data.columns]
-    etf_tickers = [t for t in tickers if is_etf_map.get(t, False)]
 
+def etf_overlap_uit(gewichten_per_etf):
+    """Symmetrische matrix {a: {b: overlap}} uit gewichten_per_etf {ticker: {bedrijfssleutel: gewicht}}
+    (_groepeer_holdings_per_bedrijf); {} bij minder dan 2 ETF's."""
+    etf_tickers = list(gewichten_per_etf)
     if len(etf_tickers) < 2:
         return {}
-
-    gewichten_per_etf = {}
-    for ticker in etf_tickers:
-        gewichten_per_etf[ticker], _ = _holdings_gewicht_en_naam_per_bedrijf(ticker)
 
     matrix = {t: {} for t in etf_tickers}
     for i, etf_a in enumerate(etf_tickers):
@@ -278,6 +297,19 @@ def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
             matrix[etf_b][etf_a] = overlap
 
     return matrix
+
+
+def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
+    """Symmetrische matrix {a: {b: overlap}}; {} bij minder dan 2 ETF's. Zelfde selectie als de andere verdelingen:
+    open posities met een eindige waarde > 0."""
+    waarde_per_ticker = waarde_per_ticker_nu(transacties_df, price_data)
+    etf_tickers = [t for t in waarde_per_ticker if is_etf_map.get(t, False)]
+
+    if len(etf_tickers) < 2:
+        return {}
+
+    gewichten_per_etf = {t: _holdings_gewicht_en_naam_per_bedrijf(t)[0] for t in etf_tickers}
+    return etf_overlap_uit(gewichten_per_etf)
 
 
 def bereken_etf_overlap_detail(etf_a, etf_b):
@@ -415,6 +447,25 @@ def bereken_land_dekking(holdings):
     return {"onbekend_pct": max(0.0, 100 - bekend_pct), "dekking_pct": dekking_pct, "rijen": rijen}
 
 
+def sector_pct_met_restant(sector_verdeling):
+    """Niet-gedekt restant naar Unknown, zodat de totalen kloppen."""
+    sector_pct = dict(sector_verdeling)
+    restant_sector = max(0.0, 1.0 - sum(sector_verdeling.values()))
+    if restant_sector > 1e-9:
+        sector_pct["Unknown"] = sector_pct.get("Unknown", 0.0) + restant_sector
+    return sector_pct
+
+
+def land_pct_uit_holdings(holdings):
+    land_pct = {}
+    for h in holdings:
+        land_pct[h["land"] or "Unknown"] = land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
+    restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
+    if restant_land > 1e-9:
+        land_pct["Unknown"] = land_pct.get("Unknown", 0.0) + restant_land
+    return land_pct
+
+
 def land_sector_fracties(ticker, is_etf, proxy=None):
     """Land- en sectorverdeling van één ticker. proxy: etf_proxy-rij of None. Sleutels:
       land_pct, sector_pct: {naam: fractie}, met het niet-gedekte restant als "Unknown"
@@ -424,12 +475,7 @@ def land_sector_fracties(ticker, is_etf, proxy=None):
         land, sector = get_land_sector(ticker)
         return {"land_pct": {land: 1.0}, "sector_pct": {sector: 1.0}, "land_bron": None, "land_proxy": None}
 
-    # Niet-gedekt restant naar Unknown, zodat de totalen kloppen.
-    sector_verdeling = get_etf_sector_verdeling(ticker)
-    sector_pct = dict(sector_verdeling)
-    restant_sector = max(0.0, 1.0 - sum(sector_verdeling.values()))
-    if restant_sector > 1e-9:
-        sector_pct["Unknown"] = sector_pct.get("Unknown", 0.0) + restant_sector
+    sector_pct = sector_pct_met_restant(get_etf_sector_verdeling(ticker))
 
     land_proxy = None
     if proxy and proxy.get("proxy_isin") and proxy.get("proxy_land"):
@@ -439,12 +485,7 @@ def land_sector_fracties(ticker, is_etf, proxy=None):
     else:
         holdings = get_etf_holdings(ticker)
         land_bron = holdings[0]["bron"] if holdings else "yfinance_top10"
-        land_pct = {}
-        for h in holdings:
-            land_pct[h["land"] or "Unknown"] = land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
-        restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
-        if restant_land > 1e-9:
-            land_pct["Unknown"] = land_pct.get("Unknown", 0.0) + restant_land
+        land_pct = land_pct_uit_holdings(holdings)
     return {"land_pct": land_pct, "sector_pct": sector_pct, "land_bron": land_bron, "land_proxy": land_proxy}
 
 
@@ -453,16 +494,16 @@ def _aandeel_land_sector(ticker):
     return next(iter(fracties["land_pct"])), next(iter(fracties["sector_pct"]))
 
 
-def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_proxies=None):
-    """Bedragen in €. land_proxies: {ticker: etf_proxy-rij} (etf_proxy.py); met een proxy_isin komt het
-    land van de ETF uit de proxy (land_bron 'proxy'), sector blijft van Yahoo. Sleutels:
-      land, land_europa, land_azie, land_europa_azie (regio's samengevoegd): {land: €}, kleine landen in 'Overig' (taart)
-      regio_verdeling: {"Europe": {land: €}, "Asia": {land: €}}, onderverdeling binnen de regio (kleine taarten)
-      sector: {sector: €}
+def land_sector_verdeling_uit(waarde_per_ticker, is_etf_map, fracties_per_ticker, extra_aandelen=None):
+    """Bedragen in EUR. Invoer: waarde_per_ticker {ticker: EUR}, fracties_per_ticker {ticker: land_sector_fracties()},
+    extra_aandelen {ticker: (land, sector)} voor aandelen zonder positiewaarde (alleen in per_aandeel). Sleutels:
+      land, land_europa, land_azie, land_europa_azie (regio's samengevoegd): {land: EUR}, kleine landen in 'Overig' (taart)
+      regio_verdeling: {"Europe": {land: EUR}, "Asia": {land: EUR}}, onderverdeling binnen de regio (kleine taarten)
+      sector: {sector: EUR}
       per_etf: {ticker: {land, sector (fracties 0-1), land_bron, land_proxy: {naam, max_afwijking_pp} of None}}
       per_aandeel: {ticker: {land, sector}}, alle niet-ETF-tickers, ook gesloten posities
-      land_per_bron_top, land_per_bron_{europa,azie,europa_azie}_top: {land: {bron: €}}, top 10 + 'Overig' (staaf)
-      sector_per_bron: {sector: {bron: €}}
+      land_per_bron_top, land_per_bron_{europa,azie,europa_azie}_top: {land: {bron: EUR}}, top 10 + 'Overig' (staaf)
+      sector_per_bron: {sector: {bron: EUR}}
     """
     def optellen(dct, key, bedrag):
         key = key or "Unknown"
@@ -473,10 +514,6 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
         rij = dct.setdefault(key, {})
         rij[bron_ticker] = rij.get(bron_ticker, 0.0) + bedrag
 
-    transacties_df = transacties_df.dropna(subset=["ticker"])
-    huidige_holdings = transacties_df.groupby("ticker")["aantal"].sum()
-    laatste_prijzen = price_data.iloc[-1]
-
     land = {}
     sector = {}
     per_etf = {}
@@ -484,15 +521,9 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
     land_per_bron = {}
     sector_per_bron = {}
 
-    for ticker, aantal in huidige_holdings.items():
-        if ticker not in price_data.columns:
-            continue
-        waarde = float(aantal) * float(laatste_prijzen[ticker])
-        if waarde <= 0:
-            continue
-
+    for ticker, waarde in waarde_per_ticker.items():
+        fracties = fracties_per_ticker[ticker]
         if is_etf_map.get(ticker, False):
-            fracties = land_sector_fracties(ticker, True, (land_proxies or {}).get(ticker))
             for naam, gewicht in fracties["sector_pct"].items():
                 optellen(sector, naam, waarde * gewicht)
                 optellen_per_bron(sector_per_bron, naam, ticker, waarde * gewicht)
@@ -503,16 +534,15 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
             per_etf[ticker] = {"land": fracties["land_pct"], "sector": fracties["sector_pct"],
                                "land_bron": fracties["land_bron"], "land_proxy": fracties["land_proxy"]}
         else:
-            aandeel_land, aandeel_sector = _aandeel_land_sector(ticker)
+            aandeel_land, aandeel_sector = next(iter(fracties["land_pct"])), next(iter(fracties["sector_pct"]))
             per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
             optellen(land, aandeel_land, waarde)
             optellen_per_bron(land_per_bron, aandeel_land, ticker, waarde)
             optellen(sector, aandeel_sector, waarde)
             optellen_per_bron(sector_per_bron, aandeel_sector, ticker, waarde)
 
-    for ticker in huidige_holdings.index:
-        if ticker not in per_aandeel and not is_etf_map.get(ticker, False):
-            aandeel_land, aandeel_sector = _aandeel_land_sector(ticker)
+    for ticker, (aandeel_land, aandeel_sector) in (extra_aandelen or {}).items():
+        if ticker not in per_aandeel:
             per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
 
     def samengevoegd(europa, azie):
@@ -542,6 +572,24 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
         "land_per_bron_europa_azie_top": samengevoegd_per_bron(True, True),
         "sector_per_bron": sector_per_bron,
     }
+
+
+def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_proxies=None):
+    """Land- en sectorverdeling uit de transacties; zie land_sector_verdeling_uit() voor de sleutels.
+    land_proxies: {ticker: etf_proxy-rij} (etf_proxy.py); met een proxy_isin komt het land van de ETF uit de proxy
+    (land_bron 'proxy'), sector blijft van Yahoo."""
+    transacties_df = transacties_df.dropna(subset=["ticker"])
+    waarde_per_ticker = waarde_per_ticker_nu(transacties_df, price_data)
+    fracties_per_ticker = {
+        ticker: land_sector_fracties(ticker, is_etf_map.get(ticker, False), (land_proxies or {}).get(ticker))
+        for ticker in waarde_per_ticker
+    }
+    extra_aandelen = {
+        ticker: _aandeel_land_sector(ticker)
+        for ticker in sorted(transacties_df["ticker"].unique())
+        if ticker not in waarde_per_ticker and not is_etf_map.get(ticker, False)
+    }
+    return land_sector_verdeling_uit(waarde_per_ticker, is_etf_map, fracties_per_ticker, extra_aandelen)
 
 
 def gewichten_per_positie(tickers):
