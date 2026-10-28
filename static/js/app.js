@@ -38,6 +38,7 @@ const TOON_PER_VIEW = {
     "beurs": toonBeurs,
     "bedrijven": toonBedrijven,
     "etfoverlap": renderEtfOverlapTabel,
+    "watals": toonWatAls,
     "statistieken": toonStatistieken,
     "transacties": toonTransacties,
     "prognose": toonPrognose,
@@ -161,7 +162,7 @@ function pasViewToe(view) {
 }
 
 // Wist per tab-bestand de toestand van de vorige portfolio (zie CLAUDE.md: Frontend).
-const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetKoersoverzicht, resetTransacties, resetEtfOverlap, resetPerAandeel, resetKorteNamen, resetBox3, resetBestandenBijwerken];
+const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetKoersoverzicht, resetTransacties, resetEtfOverlap, resetWatAls, resetPerAandeel, resetKorteNamen, resetBox3, resetBestandenBijwerken];
 
 function toonDashboard(data) {
     huidigeData = data;

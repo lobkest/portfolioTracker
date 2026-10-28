@@ -204,6 +204,77 @@ class TestBouwAankoop(unittest.TestCase):
                 bouw_aankoop("X", None, 1)
 
 
+def basis_met_isins():
+    etf = {"land_pct": {"US": 1.0}, "sector_pct": {"Tech": 1.0}, "land_bron": "provider_csv", "land_proxy": None}
+    return {
+        "waarde_per_ticker": {"CSPX.AS": 1000.0, "IWDA.AS": 500.0}, "is_etf_map": {"CSPX.AS": True, "IWDA.AS": True},
+        "fracties_per_ticker": {"CSPX.AS": etf, "IWDA.AS": etf},
+        "holdings_per_etf": {"CSPX.AS": [{"holding_naam": "Apple Inc", "gewicht": 0.5}],
+                             "IWDA.AS": [{"holding_naam": "Apple Inc", "gewicht": 0.4}]},
+        "aandeel_namen": {}, "bron_namen": {}, "extra_aandelen": {},
+        # OUD.AS is een gesloten positie: wel een ISIN bekend, niet in waarde_per_ticker.
+        "isin_per_ticker": {"CSPX.AS": ISIN, "IWDA.AS": "IE00B4L5Y983", "OUD.AS": ISIN},
+    }
+
+
+def etf_aankoop(ticker, geverifieerd):
+    aankoop = {"ticker": ticker, "naam": "Fonds", "is_etf": True, "waarde_eur": 100.0,
+               "fracties": {"land_pct": {"US": 1.0}, "sector_pct": {"Tech": 1.0}, "land_bron": None, "land_proxy": None},
+               "holdings": [{"holding_naam": "Apple Inc", "gewicht": 0.5}]}
+    return aankoop, {"ticker": ticker, "isin_geverifieerd": geverifieerd, "waarschuwingen": []}
+
+
+class TestZelfdeFondsAls(unittest.TestCase):
+    def draai(self, basis, ticker, isin, geverifieerd):
+        with patch.object(po, "bouw_aankoop", return_value=etf_aankoop(ticker, geverifieerd)):
+            return po.bereken_wat_als(basis, ticker, isin, 1)["aankoop"]["zelfde_fonds_als"]
+
+    def test_geverifieerde_isin_van_een_open_positie_met_een_andere_ticker(self):
+        self.assertEqual(self.draai(basis_met_isins(), "SXR8.DE", ISIN, True), ["CSPX.AS"])
+
+    def test_bijkopen_van_dezelfde_ticker_staat_niet_in_de_lijst(self):
+        self.assertEqual(self.draai(basis_met_isins(), "CSPX.AS", ISIN, True), [])
+
+    def test_bijkopen_zonder_isin_gebruikt_de_isin_van_de_eigen_positie(self):
+        basis = basis_met_isins()
+        basis["waarde_per_ticker"]["SXR8.DE"] = 50.0
+        basis["isin_per_ticker"]["SXR8.DE"] = ISIN
+        basis["is_etf_map"]["SXR8.DE"] = True
+        basis["fracties_per_ticker"]["SXR8.DE"] = basis["fracties_per_ticker"]["CSPX.AS"]
+        basis["holdings_per_etf"]["SXR8.DE"] = basis["holdings_per_etf"]["CSPX.AS"]
+        self.assertEqual(self.draai(basis, "CSPX.AS", None, None), ["SXR8.DE"])
+
+    def test_niet_geverifieerde_isin_geeft_een_lege_lijst(self):
+        self.assertEqual(self.draai(basis_met_isins(), "SXR8.DE", ISIN, False), [])
+
+    def test_gesloten_positie_met_dezelfde_isin_telt_niet(self):
+        basis = basis_met_isins()
+        del basis["waarde_per_ticker"]["CSPX.AS"]
+        self.assertEqual(self.draai(basis, "SXR8.DE", ISIN, True), [])
+
+    def test_zonder_isin_en_zonder_eigen_positie_een_lege_lijst(self):
+        self.assertEqual(self.draai(basis_met_isins(), "SXR8.DE", None, None), [])
+
+    def test_niet_opslaan_geeft_none(self):
+        basis = basis_met_isins()
+        del basis["isin_per_ticker"]
+        self.assertIsNone(self.draai(basis, "SXR8.DE", ISIN, True))
+
+    def test_het_signaal_verandert_de_berekening_niet(self):
+        basis = basis_met_isins()
+        with patch.object(po, "bouw_aankoop", return_value=etf_aankoop("SXR8.DE", True)):
+            met = po.bereken_wat_als(basis, "SXR8.DE", ISIN, 1)["wat_als"]
+        zonder = dict(basis, isin_per_ticker={})
+        with patch.object(po, "bouw_aankoop", return_value=etf_aankoop("SXR8.DE", True)):
+            zonder_signaal = po.bereken_wat_als(zonder, "SXR8.DE", ISIN, 1)["wat_als"]
+        self.assertEqual(met, zonder_signaal)
+        self.assertIn("SXR8.DE", [p["ticker"] for p in met["posities"]])
+
+    def test_basis_met_code_bevat_de_isins_van_de_transacties(self):
+        po_basis = po._lege_wat_als_basis()
+        self.assertEqual(po_basis["isin_per_ticker"], {})
+
+
 class _MetApp(unittest.TestCase):
     def setUp(self):
         import app as app_module
@@ -297,6 +368,7 @@ class TestRoutes(_MetApp):
             res = self.post("/api/wat-als", {"ticker": "MSFT", "aantal": 1, "posities": self.POSITIES})
         self.assertEqual(res.status_code, 200)
         self.assertEqual(set(res.get_json()), {"wat_als", "aankoop"})
+        self.assertIsNone(res.get_json()["aankoop"]["zelfde_fonds_als"])
 
     def test_beide_routes_vallen_onder_de_externe_bron_limiet(self):
         self.patch_app("bouw_wat_als_basis", return_value=None)

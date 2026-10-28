@@ -65,7 +65,7 @@ from etf_holdings_provider import aanbieder_naam
 from dividend import ORDER_ID_KOLOM_REKENING
 from etf_proxy import land_proxies_voor_etfs
 from effect_profiel import bouw_aankoop
-from wat_als import simuleer_aankoop
+from wat_als import simuleer_aankoop, zelfde_fonds_als
 
 
 class YahooNamenOnbeschikbaar(Exception):
@@ -937,12 +937,14 @@ def bouw_wat_als_basis(code):
     if price_data.empty:
         return _lege_wat_als_basis()
     is_etf_map, land_proxies = _classificeer_en_verwarm(transacties_df, gebruik_proxy=True)
-    return bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, land_proxies, WAT_ALS_ONDERDELEN)
+    basis = bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, land_proxies, WAT_ALS_ONDERDELEN)
+    basis["isin_per_ticker"] = _isin_per_ticker(transacties_df)
+    return basis
 
 
 def _lege_wat_als_basis():
     return {"waarde_per_ticker": {}, "is_etf_map": {}, "fracties_per_ticker": {}, "extra_aandelen": {},
-            "holdings_per_etf": {}, "aandeel_namen": {}, "bron_namen": {}}
+            "holdings_per_etf": {}, "aandeel_namen": {}, "bron_namen": {}, "isin_per_ticker": {}}
 
 
 def bouw_wat_als_basis_uit_posities(posities):
@@ -960,6 +962,15 @@ def bouw_wat_als_basis_uit_posities(posities):
 
 
 def bereken_wat_als(basis, ticker, isin, aantal):
-    """{wat_als, aankoop} voor het bijkopen van `aantal` stuks. Raises OnbekendEffect, GeenKoers."""
+    """{wat_als, aankoop} voor het bijkopen van `aantal` stuks. aankoop.zelfde_fonds_als: open posities met dezelfde
+    ISIN en een andere ticker, of None als de basis geen ISIN's kent ('niet opslaan'). Raises OnbekendEffect, GeenKoers."""
     aankoop, samenvatting = bouw_aankoop(ticker, isin, aantal)
+    isin_per_ticker = basis.get("isin_per_ticker")
+    if isin_per_ticker is None:
+        samenvatting["zelfde_fonds_als"] = None
+    else:
+        # Alleen een op de server geverifieerde ISIN telt; anders de ISIN van de eigen positie in deze ticker.
+        aankoop_isin = isin if samenvatting["isin_geverifieerd"] else isin_per_ticker.get(ticker)
+        samenvatting["zelfde_fonds_als"] = zelfde_fonds_als(
+            isin_per_ticker, basis["waarde_per_ticker"], ticker, aankoop_isin)
     return {"wat_als": simuleer_aankoop(basis, aankoop, WAT_ALS_TOP_N), "aankoop": samenvatting}

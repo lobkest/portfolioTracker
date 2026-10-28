@@ -33,6 +33,7 @@
                 { view: "valuta", label: "Valuta" },
                 { view: "beurs", label: "Beurs" },
                 { view: "etfoverlap", label: "ETF-overlap" },
+                { view: "watals", label: "Zoeken & wat als", inOntwikkeling: true },
             ],
         },
         {

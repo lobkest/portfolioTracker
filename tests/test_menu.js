@@ -92,7 +92,7 @@ test("ontwikkelViews: box3 en verder alleen gemarkeerde views", () => {
 
 test("uitgeschakeldeViews: standaard uit, aangezet niet meer", () => {
     assert.ok(uitgeschakeldeViews([]).includes("box3"));
-    assert.deepEqual(uitgeschakeldeViews(["box3", "koersoverzicht"]), []);
+    assert.deepEqual(uitgeschakeldeViews(["box3", "koersoverzicht", "watals"]), []);
 });
 
 test("leesAanGezet: lege of kapotte opslag leest als []", () => {
@@ -117,14 +117,14 @@ test("actieveOntwikkelIds: zonder ontwikkelaar-vlag geldt alles als uit, ook als
     for (const vlag of [false, undefined, null, "true", 1]) {
         assert.deepEqual(actieveOntwikkelIds(vlag, aan), [], String(vlag));
     }
-    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3", "koersoverzicht"]);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3", "watals", "koersoverzicht"]);
     assert.equal(ontwikkelAan("rendement-pct", actieveOntwikkelIds(false, aan)), false);
 });
 
 test("actieveOntwikkelIds: met ontwikkelaar-vlag geldt wat localStorage zegt", () => {
     assert.deepEqual(actieveOntwikkelIds(true, ["box3"]), ["box3"]);
     assert.deepEqual(actieveOntwikkelIds(true, []), []);
-    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(true, ["box3", "koersoverzicht"])), []);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(true, ["box3", "koersoverzicht", "watals"])), []);
 });
 
 test("eersteView: slaat een uitgeschakelde ontwikkel-view over", () => {
@@ -152,7 +152,7 @@ test("ONTWIKKEL_ONDERDELEN: geen id is ook een view-naam", () => {
 test("ontwikkelViews/uitgeschakeldeViews: onderdelen tellen niet mee", () => {
     assert.ok(!ontwikkelViews().some(v => v.view === "rendement-pct"));
     assert.ok(!uitgeschakeldeViews([]).includes("rendement-pct"));
-    assert.deepEqual(uitgeschakeldeViews(["box3", "koersoverzicht", "rendement-pct"]), []);
+    assert.deepEqual(uitgeschakeldeViews(["box3", "koersoverzicht", "watals", "rendement-pct"]), []);
 });
 
 test("ontwikkelAan: alleen aan als het id in de lijst staat", () => {
@@ -238,4 +238,12 @@ test("viewport-meta: apparaatbreedte en startschaal", () => {
     const meta = HTML.match(/<meta name="viewport"[^>]*>/)[0];
     assert.match(meta, /width=device-width/);
     assert.match(meta, /initial-scale=1/);
+});
+
+test("Zoeken & wat als staat als laatste in Samenstelling en is een ontwikkeltab", () => {
+    const samenstelling = MENU_GROEPEN.find(g => g.id === "samenstelling");
+    assert.deepEqual(samenstelling.views.at(-1), { view: "watals", label: "Zoeken & wat als", inOntwikkeling: true });
+    assert.ok(ontwikkelViews().some(v => v.view === "watals"));
+    assert.ok(uitgeschakeldeViews([]).includes("watals"));
+    assert.ok(!menuViews(samenstelling, ["verdeling", "etfoverlap"]).some(v => v.view === "watals"));
 });

@@ -383,6 +383,35 @@
                 </div>
             </div>
 
+            <div id="tab-watals" data-views="watals" style="display: none;">
+                <details class="uitlegBox margeOnder12">
+                    <summary>Wat doet dit?</summary>
+                    <p>Zoek een aandeel of ETF op ticker, naam of ISIN. Je ziet waar het in belegt en wat er verandert aan je portfolio als je een aantal stuks bijkoopt. Er wordt niets gekocht of opgeslagen.</p>
+                    <p>Het gaat om de huidige samenstelling van het fonds, niet om een voorspelling. Verkopen kun je hier niet simuleren.</p>
+                </details>
+                <form id="watAlsZoekForm" class="watAlsZoekRij" autocomplete="off">
+                    <input id="watAlsZoekInvoer" type="search" maxlength="60" placeholder="Ticker, naam of ISIN" aria-label="Zoek een aandeel of ETF">
+                    <button id="watAlsZoekKnop" type="submit">Zoeken</button>
+                </form>
+                <p id="watAlsZoekMelding" class="kleineMelding" hidden></p>
+                <p id="watAlsStatus" class="grijsTekst" role="status" hidden></p>
+                <p id="watAlsFout" class="foutTekst" role="alert" hidden></p>
+                <div id="watAlsResultaten" class="margeBoven16"></div>
+                <div id="watAlsIsin" class="margeBoven16"></div>
+                <div id="watAlsProfiel" class="margeBoven16"></div>
+                <div id="watAlsInvoerBlok" class="margeBoven16" hidden>
+                    <form id="watAlsAantalForm" autocomplete="off">
+                        <label for="watAlsAantal">Aantal stuks om bij te kopen</label>
+                        <div class="watAlsAantalRij">
+                            <input id="watAlsAantal" type="text" inputmode="numeric" placeholder="bijvoorbeeld 10">
+                            <button id="watAlsBerekenKnop" type="submit" disabled>Bereken</button>
+                        </div>
+                        <p id="watAlsWaarde" class="kleineMelding"></p>
+                    </form>
+                </div>
+                <div id="watAlsUitkomst" class="margeBoven24"></div>
+            </div>
+
             <div id="tab-statistieken" data-views="statistieken" style="display: none;">
                 <p class="kleineMelding margeOnder15">Indicatie, geen financieel advies.</p>
                 <p id="statistiekenGeen" class="grijsTekst" hidden>Geen statistieken beschikbaar voor deze portfolio.</p>
@@ -674,6 +703,7 @@
     <script src="{{ url_for('static', filename='js/verdeling_over_tijd.js') }}"></script>
     <script src="{{ url_for('static', filename='js/box3.js') }}"></script>
     <script src="{{ url_for('static', filename='js/etf_overlap.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/wat_als.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bestandsmelding.js') }}"></script>
@@ -693,6 +723,7 @@
     <script src="{{ url_for('static', filename='js/tabs/land_sector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/etf_overlap.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/wat_als.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/statistieken.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/transacties.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/prognose.js') }}"></script>

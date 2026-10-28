@@ -95,6 +95,11 @@ def _etf_aandeel(basis):
     return {"etf_pct": samenvatting["etf_pct"], "aandeel_pct": samenvatting["aandeel_pct"]}
 
 
+def _etf_aandeel_voor_na(voor, na):
+    """{voor, na, verschil_pp} met per categorie (etf_pct, aandeel_pct) hetzelfde verschil in pp als land en sector."""
+    return {"voor": voor, "na": na, "verschil_pp": {k: round(na[k] - voor[k], PCT_DECIMALEN) for k in voor}}
+
+
 def _top_bedrijven(bedrijven_voor, bedrijven_na, totaal_voor, totaal_na, top_n):
     top = sorted(bedrijven_na.items(), key=lambda kv: kv[1]["waarde"], reverse=True)[:top_n]
     return [_rij(entry["naam"], _pct(bedrijven_voor.get(key, {"waarde": 0.0})["waarde"], totaal_voor),
@@ -141,7 +146,7 @@ def simuleer_aankoop(basis, aankoop, top_n):
     basis: {waarde_per_ticker, is_etf_map, fracties_per_ticker, holdings_per_etf, aandeel_namen, bron_namen,
             extra_aandelen} zoals bouw_verdeling_invoer() ze levert.
     aankoop: {ticker, naam, is_etf, waarde_eur (aantal x koers), fracties (land_pct/sector_pct), holdings of None}.
-    Sleutels: aankoop, totaal {voor, na}, posities, etf_aandeel {voor, na}, land, sector, bedrijven (top_n op het
+    Sleutels: aankoop, totaal {voor, na}, posities, etf_aandeel {voor, na, verschil_pp}, land, sector, bedrijven (top_n op het
     ná-%), overlap (alleen bij een ETF), al_in_bezit (alleen bij een aandeel)."""
     na = _na_basis(basis, aankoop)
     land_sector_voor, land_sector_na = _land_sector(basis), _land_sector(na)
@@ -155,13 +160,21 @@ def simuleer_aankoop(basis, aankoop, top_n):
                     "bijkopen": aankoop["ticker"] in basis["waarde_per_ticker"]},
         "totaal": {"voor": round(totaal_voor, EUR_DECIMALEN), "na": round(totaal_na, EUR_DECIMALEN)},
         "posities": _posities(basis, na),
-        "etf_aandeel": {"voor": _etf_aandeel(basis), "na": _etf_aandeel(na)},
+        "etf_aandeel": _etf_aandeel_voor_na(_etf_aandeel(basis), _etf_aandeel(na)),
         "land": _verschil_rijen(land_sector_voor["land_totaal"], land_sector_na["land_totaal"]),
         "sector": _verschil_rijen(land_sector_voor["sector_totaal"], land_sector_na["sector_totaal"]),
         "bedrijven": _top_bedrijven(bedrijven_voor, bedrijven_na, totaal_voor, totaal_na, top_n),
         "overlap": _overlap(basis, aankoop, bedrijven_voor, totaal_voor) if aankoop["is_etf"] else None,
         "al_in_bezit": None if aankoop["is_etf"] else _al_in_bezit(basis, aankoop, bedrijven_voor),
     })
+
+
+def zelfde_fonds_als(isin_per_ticker, open_tickers, ticker, isin):
+    """Open posities met dezelfde ISIN als de aankoop maar een andere ticker (zelfde fonds, andere notering); [] zonder
+    ISIN. De berekening blijft de aankoop als nieuwe positie zien: dit is alleen een signaal."""
+    if not isin:
+        return []
+    return sorted(t for t in open_tickers if t != ticker and isin_per_ticker.get(t) == isin)
 
 
 def _is_getal(waarde):

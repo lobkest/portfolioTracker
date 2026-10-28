@@ -286,9 +286,16 @@ def etf_overlap_uit(gewichten_per_etf):
     return matrix
 
 
+def etf_tickers_voor_overlap(transacties_df, price_data, is_etf_map):
+    """Alle ETF's met een koerskolom, ook verkochte (aantal 0): bewust niet waarde_per_ticker_nu(), want het
+    overlap-tabblad heeft een knop "Verkochte ETF's meenemen" die rekent op verkochte ETF's in de matrix."""
+    tickers = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum().index
+    return [t for t in tickers if t in price_data.columns and is_etf_map.get(t, False)]
+
+
 def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
-    """Symmetrische matrix {a: {b: overlap}}; {} bij minder dan 2 ETF's. Zelfde selectie als de andere verdelingen:
-    open posities met een eindige waarde > 0."""
+    """Symmetrische matrix {a: {b: overlap}}; {} bij minder dan 2 ETF's. Telt ook verkochte ETF's mee, zie
+    etf_tickers_voor_overlap()."""
     invoer = bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, onderdelen={ONDERDEEL_OVERLAP})
     return etf_overlap_uit(invoer["gewichten_per_etf"])
 
@@ -483,13 +490,14 @@ VERDELING_ONDERDELEN = frozenset({ONDERDEEL_LAND_SECTOR, ONDERDEEL_BEDRIJVEN, ON
 
 def bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, land_proxies=None, onderdelen=VERDELING_ONDERDELEN):
     """De invoer van de pure kernen, opgehaald uit de transacties. Per onderdeel apart, zodat een wrapper niet meer
-    Yahoo/cache-calls doet dan hij nodig heeft. Altijd: waarde_per_ticker, is_etf_map. Sleutels per onderdeel:
+    Yahoo/cache-calls doet dan hij nodig heeft. Altijd: waarde_per_ticker (leeg als alleen de overlap wordt gevraagd:
+    die heeft een eigen selectie), is_etf_map. Sleutels per onderdeel:
       land_sector: fracties_per_ticker {ticker: land_sector_fracties()}, extra_aandelen {ticker: (land, sector)}
       bedrijven: holdings_per_etf, aandeel_namen, bron_namen
       overlap: gewichten_per_etf {ticker: {bedrijfssleutel: gewicht}} ({} bij minder dan 2 ETF's)
     """
     transacties_df = transacties_df.dropna(subset=["ticker"])
-    waarde_per_ticker = waarde_per_ticker_nu(transacties_df, price_data)
+    waarde_per_ticker = waarde_per_ticker_nu(transacties_df, price_data) if onderdelen - {ONDERDEEL_OVERLAP} else {}
     invoer = {"waarde_per_ticker": waarde_per_ticker, "is_etf_map": is_etf_map}
     etf_tickers = [t for t in waarde_per_ticker if is_etf_map.get(t, False)]
 
@@ -525,8 +533,9 @@ def bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, land_proxies=N
         invoer["aandeel_namen"] = aandeel_namen
 
     if ONDERDEEL_OVERLAP in onderdelen:
+        overlap_tickers = etf_tickers_voor_overlap(transacties_df, price_data, is_etf_map)
         invoer["gewichten_per_etf"] = (
-            {t: _holdings_gewicht_en_naam_per_bedrijf(t)[0] for t in etf_tickers} if len(etf_tickers) >= 2 else {})
+            {t: _holdings_gewicht_en_naam_per_bedrijf(t)[0] for t in overlap_tickers} if len(overlap_tickers) >= 2 else {})
     return invoer
 
 

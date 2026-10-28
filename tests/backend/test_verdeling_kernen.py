@@ -179,28 +179,28 @@ class TestWrappersGelijkAanKern(unittest.TestCase):
                                 for t in ("ETF_A", "ETF_B")})
         self.assertEqual(bereken_etf_overlap(TRANSACTIES, KOERSEN, IS_ETF), kern)
 
-    def test_overlap_telt_een_gesloten_etf_niet_mee(self):
-        # Bewuste wijziging (fase 4b): de overlap gebruikt dezelfde selectie als land/sector en bedrijven.
+    def test_overlap_telt_een_gesloten_etf_wel_mee(self):
+        # Bewust: het overlap-tabblad heeft een knop "Verkochte ETF's meenemen" die rekent op verkochte ETF's in de matrix
+        # (static/js/tabs/etf_overlap.js). Alleen de andere verdelingen laten een gesloten positie weg.
         transacties = pd.DataFrame({"ticker": ["ETF_A", "ETF_B", "ETF_B"], "aantal": [1.0, 1.0, -1.0]})
         with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=lambda t: HOLDINGS_PER_ETF[t]):
             matrix = bereken_etf_overlap(transacties, prijzen(["ETF_A", "ETF_B"]), {"ETF_A": True, "ETF_B": True})
-        self.assertEqual(matrix, {})
+        self.assertAlmostEqual(matrix["ETF_A"]["ETF_B"], 0.2)
         self.assertEqual(waarde_per_ticker_nu(transacties, prijzen(["ETF_A", "ETF_B"])), {"ETF_A": 100.0})
 
-    def test_overlap_met_twee_open_en_een_gesloten_etf_bevat_alleen_de_open(self):
+    def test_overlap_met_twee_open_en_een_gesloten_etf_bevat_alle_drie(self):
         transacties = pd.DataFrame({"ticker": ["ETF_A", "ETF_B", "ETF_C", "ETF_C"], "aantal": [1.0, 1.0, 2.0, -2.0]})
         holdings = {**HOLDINGS_PER_ETF, "ETF_C": [holding("Apple Inc", 1.0)]}
         with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=lambda t: holdings[t]):
             matrix = bereken_etf_overlap(transacties, prijzen(["ETF_A", "ETF_B", "ETF_C"]),
                                          {"ETF_A": True, "ETF_B": True, "ETF_C": True})
-        self.assertEqual(set(matrix), {"ETF_A", "ETF_B"})
-        self.assertAlmostEqual(matrix["ETF_A"]["ETF_B"], 0.2)
+        self.assertEqual(set(matrix), {"ETF_A", "ETF_B", "ETF_C"})
+        self.assertAlmostEqual(matrix["ETF_A"]["ETF_C"], 0.5)
 
-    def test_overlap_met_een_etf_zonder_koers_wordt_niet_meegeteld(self):
+    def test_overlap_slaat_een_etf_zonder_koerskolom_over(self):
         transacties = pd.DataFrame({"ticker": ["ETF_A", "ETF_B"], "aantal": [1.0, 1.0]})
-        koersen = pd.DataFrame({"ETF_A": [100.0], "ETF_B": [float("nan")]}, index=[pd.Timestamp("2024-01-02")])
         with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=lambda t: HOLDINGS_PER_ETF[t]):
-            self.assertEqual(bereken_etf_overlap(transacties, koersen, {"ETF_A": True, "ETF_B": True}), {})
+            self.assertEqual(bereken_etf_overlap(transacties, prijzen(["ETF_A"]), {"ETF_A": True, "ETF_B": True}), {})
 
 
 if __name__ == "__main__":

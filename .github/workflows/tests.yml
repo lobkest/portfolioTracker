@@ -48,7 +48,7 @@ jobs:
           node-version: "20"
 
       - name: JS unit tests draaien
-        run: node --test tests/test_prognose.js tests/test_periode.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js tests/test_navigatie.js tests/test_overdracht.js tests/test_dividend.js tests/test_statistieken.js tests/test_koersen.js tests/test_per_aandeel.js tests/test_land_sector.js tests/test_box3.js tests/test_etf_overlap.js tests/test_getallen.js tests/test_tabel.js tests/test_grafiek.js tests/test_bijnamen.js tests/test_verdeling_over_tijd.js tests/test_tegels.js tests/test_home_indeling.js tests/test_aansluitingskosten.js tests/test_bestandsmelding.js tests/test_voortgang.js tests/test_laadscherm.js tests/test_koersoverzicht.js tests/test_scripts.js tests/test_xss_sinks.js
+        run: node --test tests/test_prognose.js tests/test_periode.js tests/test_menu.js tests/test_transacties.js tests/test_bedrijven.js tests/test_bestandskeuze.js tests/test_diagnostiek.js tests/test_navigatie.js tests/test_overdracht.js tests/test_dividend.js tests/test_statistieken.js tests/test_koersen.js tests/test_per_aandeel.js tests/test_land_sector.js tests/test_box3.js tests/test_etf_overlap.js tests/test_getallen.js tests/test_tabel.js tests/test_grafiek.js tests/test_bijnamen.js tests/test_verdeling_over_tijd.js tests/test_tegels.js tests/test_home_indeling.js tests/test_aansluitingskosten.js tests/test_bestandsmelding.js tests/test_voortgang.js tests/test_laadscherm.js tests/test_koersoverzicht.js tests/test_wat_als.js tests/test_scripts.js tests/test_xss_sinks.js
 
   test-db:
     name: Python + Postgres (ubuntu-latest)

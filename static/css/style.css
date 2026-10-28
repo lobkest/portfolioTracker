@@ -2210,6 +2210,151 @@ button.diagnostiekChip:disabled:hover {
     color: #155724;
 }
 
+/* Zoeken & wat als */
+.watAlsZoekRij,
+.watAlsAantalRij,
+.watAlsKeuzeRij {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.watAlsZoekRij input,
+.watAlsAantalRij input {
+    flex: 1 1 200px;
+    width: auto;
+    min-width: 0;
+    margin-top: 0;
+}
+
+.watAlsZoekRij button,
+.watAlsAantalRij button {
+    margin-top: 0;
+}
+
+.watAlsResultaat {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+}
+
+.watAlsResultaat.gekozen {
+    border-color: #2c7a4b;
+    box-shadow: 0 0 0 1px #2c7a4b;
+}
+
+.watAlsResultaatKop {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.watAlsKeuzeRij select {
+    flex: 1 1 180px;
+    min-width: 0;
+    padding: 6px;
+}
+
+.watAlsBadge {
+    font-size: 0.75em;
+    padding: 1px 8px;
+    border-radius: 10px;
+    background: #eaf4ee;
+    color: #235f3b;
+}
+
+.watAlsIsinKeuzes {
+    margin-bottom: 8px;
+}
+
+.watAlsRadioLabel {
+    margin-top: 6px;
+    font-weight: normal;
+}
+
+input.watAlsRadio {
+    width: auto;
+    margin: 0 8px 0 0;
+}
+
+.watAlsProfielKaart,
+.watAlsSectie {
+    background: white;
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+}
+
+.watAlsProfielKaart h3,
+.watAlsSectie h3 {
+    margin-top: 0;
+}
+
+.watAlsLijstenRij {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 32px;
+}
+
+.watAlsLijstBlok h4 {
+    margin: 8px 0 4px;
+}
+
+.watAlsLijst {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.9em;
+}
+
+.watAlsVerschilCel {
+    white-space: nowrap;
+}
+
+.watAlsVerschilTekst {
+    display: inline-block;
+    min-width: 62px;
+    text-align: right;
+    margin-right: 8px;
+}
+
+/* Gedeeld in het midden: min groeit naar links, plus naar rechts. */
+.watAlsBalk {
+    display: inline-flex;
+    width: 100px;
+    height: 8px;
+    vertical-align: middle;
+    background: #f0f0f0;
+    border-radius: 4px;
+}
+
+.watAlsBalkHelft {
+    display: flex;
+    flex: 1;
+    height: 100%;
+}
+
+.watAlsBalkMin {
+    justify-content: flex-end;
+    border-right: 1px solid #bbb;
+}
+
+.watAlsBalkVulling {
+    height: 100%;
+}
+
+.watAlsBalkVulling.positief {
+    background: #2c7a4b;
+}
+
+.watAlsBalkVulling.negatief {
+    background: #9C0006;
+}
+
 /* --- 5. Hulpklassen die moeten winnen: kleuren en marges (daarom na 3 en 4) --- */
 
 /* Kleurklassen: onder de klassen hierboven, zodat ze hun kleur overschrijven. */

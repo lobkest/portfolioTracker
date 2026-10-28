@@ -69,7 +69,26 @@ class TestNieuweEtf(unittest.TestCase):
 
     def test_etf_aandeel(self):
         self.assertEqual(self.r["etf_aandeel"], {"voor": {"etf_pct": 60.0, "aandeel_pct": 40.0},
-                                                 "na": {"etf_pct": 80.0, "aandeel_pct": 20.0}})
+                                                 "na": {"etf_pct": 80.0, "aandeel_pct": 20.0},
+                                                 "verschil_pp": {"etf_pct": 20.0, "aandeel_pct": -20.0}})
+
+    def test_etf_aandeel_verschil_is_na_min_voor_zoals_geleverd(self):
+        # Voor: ETF 100 + aandeel 200 = 33,33% / 66,67%. Na: een ETF van 100 erbij = 200 van 400 = 50% / 50%.
+        basis = basis_met_een_etf_en_een_aandeel()
+        basis["waarde_per_ticker"] = {"ETF_A": 100.0, "AAPL": 200.0}
+        r = simuleer_aankoop(basis, nieuwe_etf(waarde=100.0), top_n=5)
+        etf_aandeel = r["etf_aandeel"]
+        self.assertEqual(etf_aandeel["voor"], {"etf_pct": 33.33, "aandeel_pct": 66.67})
+        self.assertEqual(etf_aandeel["na"], {"etf_pct": 50.0, "aandeel_pct": 50.0})
+        self.assertEqual(etf_aandeel["verschil_pp"], {"etf_pct": 16.67, "aandeel_pct": -16.67})
+
+    def test_etf_aandeel_verschil_is_negatief_voor_de_categorie_die_krimpt(self):
+        basis = basis_met_een_etf_en_een_aandeel()
+        basis["waarde_per_ticker"] = {"ETF_A": 100.0, "AAPL": 100.0}
+        aankoop = dict(nieuwe_etf(waarde=100.0), ticker="AAPL", is_etf=False, holdings=None)
+        r = simuleer_aankoop(basis, aankoop, top_n=5)
+        # ETF 100 + aandeel 100 (50/50), daarna een aandeel van 100 erbij: ETF 33,33%, aandeel 66,67%.
+        self.assertEqual(r["etf_aandeel"]["verschil_pp"], {"etf_pct": -16.67, "aandeel_pct": 16.67})
 
     def test_land_en_sector_verschillen_kloppen_met_handberekening(self):
         land = per_naam(self.r["land"])
@@ -148,6 +167,19 @@ class TestBijkopenOverlapMetAndereEtfs(unittest.TestCase):
         aankoop = dict(aandeel_aankoop("Heel Andere Naam"), ticker="AAPL")
         r = simuleer_aankoop(basis_voor_aandeel(), aankoop, top_n=5)
         self.assertEqual(r["al_in_bezit"]["direct_eur"], 300.0)
+
+
+class TestWatAlsOverlapOpenPosities(unittest.TestCase):
+    def test_per_etf_bevat_geen_gesloten_etf(self):
+        transacties = pd.DataFrame({"ticker": ["ETF_A", "ETF_C", "ETF_C"], "aantal": [1.0, 2.0, -2.0]})
+        koersen = pd.DataFrame({"ETF_A": [100.0], "ETF_C": [100.0]}, index=[pd.Timestamp("2024-01-02")])
+        holdings = {"ETF_A": [holding("Apple Inc", 1.0)], "ETF_C": [holding("Apple Inc", 1.0)]}
+        with patch.object(portfolio_verdeling, "get_etf_holdings", side_effect=lambda t: holdings[t]),                 patch.object(portfolio_verdeling, "get_etf_sector_verdeling", return_value={"Tech": 1.0}):
+            basis = bouw_verdeling_invoer(transacties, koersen, {"ETF_A": True, "ETF_C": True},
+                                          onderdelen={"land_sector", "bedrijven"})
+        aankoop = dict(nieuwe_etf(), holdings=[holding("Apple Inc", 1.0)])
+        r = simuleer_aankoop(basis, aankoop, top_n=5)
+        self.assertEqual(set(r["overlap"]["per_etf"]), {"ETF_A"})
 
 
 def basis_voor_aandeel():
