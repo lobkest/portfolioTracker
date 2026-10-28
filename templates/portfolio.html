@@ -277,6 +277,23 @@
                 </div>
             </div>
 
+            <div id="tab-koersoverzicht" data-views="koersoverzicht" style="display: none;">
+                <div class="tabSplit">
+                <div class="tabInfo">
+                <div class="knoppenRij margeOnder15">
+                    <div id="koersPeriodeKeuze" class="segmentKeuze" role="group" aria-label="Periode"></div>
+                    <div id="koersWeergaveKeuze" class="segmentKeuze" role="group" aria-label="Weergave">
+                        <button type="button" class="segmentKnop actief" data-weergave="pct">%</button>
+                        <button type="button" class="segmentKnop" data-weergave="eur">&euro;</button>
+                    </div>
+                </div>
+                <p id="koersMelding" class="kleineMelding" style="display: none;"></p>
+                <div id="koersRanglijst"></div>
+                </div>
+                <div class="tabGrafiek" data-grafiek-plek data-zoombaar></div>
+                </div>
+            </div>
+
             <div id="tab-verdeling" data-views="verdeling" style="display: none;">
                 <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
                 <div data-grafiek-plek></div>
@@ -656,6 +673,7 @@
     <script src="{{ url_for('static', filename='js/statistieken.js') }}"></script>
     <script src="{{ url_for('static', filename='js/koersen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/per_aandeel.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/koersoverzicht.js') }}"></script>
     <script src="{{ url_for('static', filename='js/land_sector.js') }}"></script>
     <script src="{{ url_for('static', filename='js/verdeling_over_tijd.js') }}"></script>
     <script src="{{ url_for('static', filename='js/box3.js') }}"></script>
@@ -673,6 +691,7 @@
     <script src="{{ url_for('static', filename='js/tabs/rendement.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/per_aandeel.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/per_aandeel_aankoop.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/koersoverzicht.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/verdeling_over_tijd.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/verdeling.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/land_sector.js') }}"></script>

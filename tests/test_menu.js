@@ -92,7 +92,7 @@ test("ontwikkelViews: box3 en verder alleen gemarkeerde views", () => {
 
 test("uitgeschakeldeViews: standaard uit, aangezet niet meer", () => {
     assert.ok(uitgeschakeldeViews([]).includes("box3"));
-    assert.deepEqual(uitgeschakeldeViews(["box3"]), []);
+    assert.deepEqual(uitgeschakeldeViews(["box3", "koersoverzicht"]), []);
 });
 
 test("leesAanGezet: lege of kapotte opslag leest als []", () => {
@@ -117,14 +117,14 @@ test("actieveOntwikkelIds: zonder ontwikkelaar-vlag geldt alles als uit, ook als
     for (const vlag of [false, undefined, null, "true", 1]) {
         assert.deepEqual(actieveOntwikkelIds(vlag, aan), [], String(vlag));
     }
-    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3"]);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3", "koersoverzicht"]);
     assert.equal(ontwikkelAan("rendement-pct", actieveOntwikkelIds(false, aan)), false);
 });
 
 test("actieveOntwikkelIds: met ontwikkelaar-vlag geldt wat localStorage zegt", () => {
     assert.deepEqual(actieveOntwikkelIds(true, ["box3"]), ["box3"]);
     assert.deepEqual(actieveOntwikkelIds(true, []), []);
-    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(true, ["box3"])), []);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(true, ["box3", "koersoverzicht"])), []);
 });
 
 test("eersteView: slaat een uitgeschakelde ontwikkel-view over", () => {
@@ -152,7 +152,7 @@ test("ONTWIKKEL_ONDERDELEN: geen id is ook een view-naam", () => {
 test("ontwikkelViews/uitgeschakeldeViews: onderdelen tellen niet mee", () => {
     assert.ok(!ontwikkelViews().some(v => v.view === "rendement-pct"));
     assert.ok(!uitgeschakeldeViews([]).includes("rendement-pct"));
-    assert.deepEqual(uitgeschakeldeViews(["box3", "rendement-pct"]), []);
+    assert.deepEqual(uitgeschakeldeViews(["box3", "koersoverzicht", "rendement-pct"]), []);
 });
 
 test("ontwikkelAan: alleen aan als het id in de lijst staat", () => {

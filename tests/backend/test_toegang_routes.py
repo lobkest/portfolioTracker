@@ -115,6 +115,7 @@ class TestFouteCodeLimiet(_MetApp):
             ("get", "/api/portfolio/ABC/verdeling-over-tijd?dimensie=land"),
             ("get", "/api/portfolio/ABC/benchmark-vergelijking"),
             ("get", "/api/portfolio/ABC/rendement-over-tijd"),
+            ("get", "/api/portfolio/ABC/koersoverzicht"),
             ("get", "/api/portfolio/ABC/box3"),
             ("get", "/api/portfolio/ABC/ticker-koers-bereik"),
             ("get", "/api/portfolio/ABC/ticker-zekerheid/lijst"),

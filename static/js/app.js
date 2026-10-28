@@ -23,13 +23,14 @@ const wisselView = maakTabWisselaar(
 );
 
 // Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
-const VIEWS_MET_CODE = ["instellingen-bestanden", "instellingen-bijnamen"];
+const VIEWS_MET_CODE = ["instellingen-bestanden", "instellingen-bijnamen", "koersoverzicht"];
 
 const TOON_PER_VIEW = {
     "portfolio": toonPortfolio,
     "rendement": toonRendement,
     "peraandeel": () => toonPerAandeel(document.getElementById("aandeelSelect").value),
     "peraandeelaankoop": () => toonPerAandeelAankoop(document.getElementById("aandeelSelect").value),
+    "koersoverzicht": toonKoersoverzicht,
     "verdeling": toonVerdeling,
     "land": toonLand,
     "sector": toonSector,
@@ -160,7 +161,7 @@ function pasViewToe(view) {
 }
 
 // Wist per tab-bestand de toestand van de vorige portfolio (zie CLAUDE.md: Frontend).
-const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetTransacties, resetEtfOverlap, resetPerAandeel, resetKorteNamen, resetBox3, resetBestandenBijwerken];
+const RESET_PER_TAB = [resetDiagnostiek, resetVerdelingOverTijd, resetPrognose, resetRendement, resetPerAandeelAankoop, resetKoersoverzicht, resetTransacties, resetEtfOverlap, resetPerAandeel, resetKorteNamen, resetBox3, resetBestandenBijwerken];
 
 function toonDashboard(data) {
     huidigeData = data;

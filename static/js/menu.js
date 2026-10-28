@@ -40,6 +40,7 @@
             views: [
                 { view: "peraandeel", label: "Per aandeel" },
                 { view: "peraandeelaankoop", label: "Aankopen" },
+                { view: "koersoverzicht", label: "Koersen", inOntwikkeling: true },
             ],
         },
         {

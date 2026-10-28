@@ -171,7 +171,7 @@ test("portfolio.html: de gedeelde grafiek heeft een plek op de tabbladen met een
     const plekken = leesPortfolioElementen().filter(e => heeft(e, "data-grafiek-plek"));
     assert.deepEqual(
         plekken.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "verdeling", "land", "sector", "valuta", "beurs", "prognose", "prognose-huidig", "dividend", "box3"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "koersoverzicht", "verdeling", "land", "sector", "valuta", "beurs", "prognose", "prognose-huidig", "dividend", "box3"],
     );
 });
 
@@ -181,7 +181,7 @@ test("portfolio.html: de zoomknop staat alleen op de tabbladen met een zoombare 
     for (const plek of zoombaar) assert.ok(heeft(plek, "data-grafiek-plek"), "data-zoombaar zonder data-grafiek-plek");
     assert.deepEqual(
         zoombaar.map(p => viewVanTabblad(tabbladVan(p))),
-        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "prognose", "prognose-huidig", "dividend"],
+        ["portfolio", "rendement", "peraandeel", "peraandeelaankoop", "koersoverzicht", "prognose", "prognose-huidig", "dividend"],
     );
     const zoomknop = elementen.find(e => e.attrs.id === "resetZoomBtn");
     assert.ok(zoomknop.voorouders.some(v => (v.attrs.class || "").split(" ").includes("subRij")), "de zoomknop staat in de rij met subtabs");

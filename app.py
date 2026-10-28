@@ -4,6 +4,7 @@ import os
 import re
 import threading
 import time
+from datetime import date
 
 from flask import (
     Flask, Response, copy_current_request_context, g, make_response, render_template, send_from_directory,
@@ -21,8 +22,9 @@ from db import (
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
     db_get_dividenden, db_get_upload_meldingen, db_markeer_portfolio_gebruikt, db_verbinding_teller_stand,
-    is_verbindingsfout,
+    is_verbindingsfout, db_get_koers_splits,
 )
+from koersoverzicht import bouw_koersoverzicht, PERIODES as KOERS_PERIODES, STANDAARD_PERIODE as STANDAARD_KOERS_PERIODE
 from bewaartermijn import ruim_verlopen_portfolios_op, BEWAARTERMIJN_MAANDEN
 from ticker_classificatie import haal_long_names, bewaar_long_names
 from prijzen import get_prices
@@ -760,6 +762,24 @@ def rendement_over_tijd(code):
         return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
 
     return jsonify(bereken_rendement_over_tijd(transacties_df, resultaat))
+
+
+@app.route("/api/portfolio/<code>/koersoverzicht")
+def koersoverzicht(code):
+    code = code.strip().upper()
+    periode = request.args.get("periode", STANDAARD_KOERS_PERIODE)
+    if periode not in KOERS_PERIODES:
+        return jsonify({"error": f"Onbekende periode '{periode}'."}), 400
+    _naam, transacties_df, price_data = haal_portfolio_basis(code)
+    if transacties_df is None:
+        return _geen_portfolio(code)
+    if price_data.empty:
+        return jsonify({"error": "Geen koersdata voor deze portfolio."}), 400
+
+    splits = transacties_df.attrs.get("koers_splits")
+    if splits is None:
+        splits = db_get_koers_splits(transacties_df["ticker"].dropna().unique().tolist())
+    return jsonify(bouw_koersoverzicht(transacties_df, price_data, splits, periode, date.today()))
 
 
 @app.route("/api/portfolio/<code>/box3")
