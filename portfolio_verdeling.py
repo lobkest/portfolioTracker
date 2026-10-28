@@ -677,8 +677,18 @@ def beurs_naam(code, euronext_samenvoegen):
 
 def gewichten_per_beurs(transacties_df, euronext_samenvoegen=False):
     """Een ticker op meerdere beursnamen naar verhouding van de gekochte stuks (zie CLAUDE.md: Data en rekenen)."""
+    return _gewichten_per_beurssleutel(
+        transacties_df, lambda codes: codes.map(lambda code: beurs_naam(code, euronext_samenvoegen)))
+
+
+def gewichten_per_beurscode(transacties_df):
+    """Zoals gewichten_per_beurs, maar op de beurscode (hoofdletters, zonder spaties)."""
+    return _gewichten_per_beurssleutel(transacties_df, lambda codes: codes.astype(str).str.strip().str.upper())
+
+
+def _gewichten_per_beurssleutel(transacties_df, sleutel_van_codes):
     df = transacties_df.dropna(subset=["ticker"]).reset_index(drop=True)
-    namen = _beurs_codes(df).map(lambda code: beurs_naam(code, euronext_samenvoegen))
+    namen = sleutel_van_codes(_beurs_codes(df))
     gekocht = df["aantal"].astype(float).clip(lower=0)
     # Splitboekingen (DEG) zijn geen aankoop; alleen als er niets anders is tellen ze mee.
     corporate_action = df.apply(_is_corporate_action_row, axis=1).astype(bool)

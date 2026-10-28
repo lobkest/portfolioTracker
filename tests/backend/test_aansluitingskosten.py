@@ -12,10 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import db
 import portfolio_orchestratie as po
-from aansluitingskosten import BEURS_ONBEKEND, bouw_aansluitingskosten_samenvatting, parse_aansluitingskosten
+from aansluitingskosten import (
+    BEURS_ONBEKEND, bouw_aansluitingskosten_samenvatting, parse_aansluitingskosten, voeg_beurs_resultaat_toe)
 from db import TRANSACTIE_KOLOMMEN
 from dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
 from rekening_regelsoorten import REGELSOORT_AANSLUITINGSKOSTEN, regelsoort
+from statistieken import bereken_totale_transactiekosten
 
 TEST_CODE = "test_aansluitingskosten"
 
@@ -128,6 +130,149 @@ class TestSamenvatting(unittest.TestCase):
         self.assertEqual(met["netto_gestort_eur"], zonder["netto_gestort_eur"])
 
 
+def _tx(datum, beurs, ticker, aantal, kosten=-2.0, product=None, korting=None):
+    rij = {"datum": pd.Timestamp(datum), "beurs": beurs, "ticker": ticker, "aantal": aantal,
+           "product": product or ticker, "transactiekosten": kosten}
+    if korting is not None:
+        rij["kostenkorting_eur"] = korting
+    return rij
+
+
+def _stat(posities=(), gesloten=(), periode=("2023-01-05", "2026-06-01")):
+    status = {"eerste_regel_datum": periode[0], "laatste_regel_datum": periode[1]} if periode else None
+    return {"posities": [{"ticker": t, "rendement_eur": w} for t, w in posities],
+            "gesloten_posities": [{"ticker": t, "rendement_eur": w} for t, w in gesloten],
+            "totalen": {"rekeningoverzicht_status": status}}
+
+
+def _samenvatting(*regels):
+    return bouw_aansluitingskosten_samenvatting(_regels(list(regels)))
+
+
+def _kosten(jaar, code, naam="Beurs"):
+    return (f"{jaar}-02-03", "09:00", _tekst(jaar, naam, code), "EUR", -2.5)
+
+
+def _resultaat(samenvatting, rijen, stat, huidig_jaar=2026):
+    voeg_beurs_resultaat_toe(samenvatting, pd.DataFrame(rijen), stat, huidig_jaar)
+    return {b["code"]: b for b in samenvatting["per_beurs"]}
+
+
+class TestBeursResultaat(unittest.TestCase):
+    def test_open_en_gesloten_positie_op_een_beurs(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2025, "XET"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-04-01", "XET", "BBB", 5),
+                 _tx("2025-01-10", "XET", "BBB", -5)]
+        xet = _resultaat(s, rijen, _stat(posities=[("AAA", 100.0)], gesloten=[("BBB", 40.5)]))["XET"]
+        self.assertEqual((xet["wv_eur"], xet["wv_na_aansluitingskosten_eur"], xet["wv_volledig"]), (140.5, 135.5, True))
+        self.assertEqual(xet["transacties_per_jaar"], [{"jaar": 2024, "aantal": 2}, {"jaar": 2025, "aantal": 1}])
+        self.assertEqual((s["totaal_wv_eur"], s["totaal_wv_na_aansluitingskosten_eur"]), (140.5, 135.5))
+
+    def test_deeluitvoeringen_van_een_order_tellen_als_een_transactie(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        rijen = [dict(_tx("2024-03-01", "XET", "AAA", 6), order_id="abc-0001-def"),
+                 dict(_tx("2024-03-01", "XET", "AAA", 4), order_id="abc-0001-def-1"),
+                 dict(_tx("2024-03-02", "XET", "AAA", 1), order_id="abc-0002-def"),
+                 dict(_tx("2024-03-03", "XET", "AAA", 1), order_id=None),
+                 dict(_tx("2024-03-03", "XET", "AAA", 1), order_id=float("nan")),
+                 dict(_tx("2024-03-04", "XET", "AAA", 1), order_id="SYN-123"),
+                 dict(_tx("2024-03-04", "XET", "AAA", 1), order_id="SYN-124")]
+        xet = _resultaat(s, rijen, _stat(posities=[("AAA", 1.0)]))["XET"]
+        self.assertEqual(xet["transacties_per_jaar"], [{"jaar": 2024, "aantal": 6}])
+
+    def test_deels_verkocht_geen_dubbeltelling(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-05-01", "XET", "AAA", -4)]
+        xet = _resultaat(s, rijen, _stat(posities=[("AAA", 100.0)], gesloten=[("AAA", 30.0)]))["XET"]
+        self.assertEqual(xet["wv_eur"], 130.0)
+
+    def test_ticker_op_twee_beurzen_naar_gekochte_stuks(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2024, "TDG"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-03-02", "TDG", "AAA", 30)]
+        per = _resultaat(s, rijen, _stat(posities=[("AAA", 80.0)]))
+        self.assertEqual((per["XET"]["wv_eur"], per["TDG"]["wv_eur"]), (20.0, 60.0))
+        self.assertEqual(s["totaal_wv_eur"], 80.0)
+
+    def test_corporate_action_telt_niet(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2024, "DEG"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-03-02", "DEG", "AAA", 40, kosten=None),
+                 _tx("2024-03-03", "XET", "BBB", 1, product="BBB NON TRADEABLE")]
+        per = _resultaat(s, rijen, _stat(posities=[("AAA", 50.0)]))
+        self.assertEqual(per["XET"]["transacties_per_jaar"], [{"jaar": 2024, "aantal": 1}])
+        self.assertEqual(per["XET"]["wv_eur"], 50.0)
+        self.assertIsNone(per["DEG"]["wv_eur"])
+        self.assertEqual(per["DEG"]["transacties_per_jaar"], [])
+
+    def test_open_ticker_zonder_koers_is_onvolledig(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-03-02", "XET", "BBB", 5)]
+        xet = _resultaat(s, rijen, _stat(posities=[("AAA", 100.0)]))["XET"]
+        self.assertFalse(xet["wv_volledig"])
+        self.assertEqual(xet["wv_eur"], 100.0)
+        self.assertFalse(s["totaal_wv_volledig"])
+
+    def test_beurs_met_kosten_zonder_transacties(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2024, "TDG"))
+        per = _resultaat(s, [_tx("2024-03-01", "XET", "AAA", 10)], _stat(posities=[("AAA", 10.0)]))
+        tdg = per["TDG"]
+        self.assertEqual((tdg["wv_eur"], tdg["wv_na_aansluitingskosten_eur"], tdg["transactiekosten_eur"]),
+                         (None, None, None))
+        self.assertEqual((tdg["kosten_zonder_transacties"], tdg["transacties_per_jaar"]), ([2024], []))
+        self.assertEqual(per["XET"]["kosten_zonder_transacties"], [])
+
+    def test_transacties_zonder_kosten_alleen_in_gedekte_jaren(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        rijen = [_tx(f"{j}-06-01", "XET", "AAA", 1) for j in (2022, 2023, 2024, 2025, 2026)]
+        # Periode 05-01-2023 .. 01-06-2026: 2022 en 2023 (beginjaar) buiten, 2026 is het huidige jaar.
+        xet = _resultaat(s, rijen, _stat(posities=[("AAA", 1.0)]))["XET"]
+        self.assertEqual(xet["transacties_zonder_kosten"], [2025])
+
+    def test_zonder_periode_geen_transacties_zonder_kosten(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        stat = _stat(posities=[("AAA", 1.0)], periode=None)
+        xet = _resultaat(s, [_tx("2025-06-01", "XET", "AAA", 1)], stat)["XET"]
+        self.assertEqual(xet["transacties_zonder_kosten"], [])
+
+    def test_betaald_dit_jaar(self):
+        s = _samenvatting(_kosten(2025, "XET"), _kosten(2026, "TDG"))
+        rijen = [_tx("2025-03-01", "XET", "AAA", 1), _tx("2026-03-01", "TDG", "BBB", 1)]
+        per = _resultaat(s, rijen, _stat(posities=[("AAA", 1.0), ("BBB", 1.0)]))
+        self.assertEqual((per["XET"]["betaald_dit_jaar"], per["TDG"]["betaald_dit_jaar"]), (False, True))
+
+    def test_transactiekosten_per_beurs_en_niet_van_wv_af(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2024, "TDG"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10, kosten=-2.0, korting=1.0),
+                 _tx("2024-03-02", "XET", "AAA", 5, kosten=-2.0, korting=0.0),
+                 _tx("2024-03-03", "TDG", "BBB", 5, kosten=-0.5, korting=0.0)]
+        per = _resultaat(s, rijen, _stat(posities=[("AAA", 50.0), ("BBB", 20.0)]))
+        verwacht = bereken_totale_transactiekosten(pd.DataFrame(rijen[:2]))["totaal"]
+        self.assertEqual(per["XET"]["transactiekosten_eur"], verwacht)
+        self.assertEqual((per["XET"]["transactiekosten_eur"], per["TDG"]["transactiekosten_eur"]), (4.0, 0.5))
+        self.assertEqual(per["XET"]["wv_na_aansluitingskosten_eur"], 47.5)
+        self.assertEqual(s["totaal_transactiekosten_eur"], 4.5)
+
+    def test_transactiekosten_niet_beschikbaar_is_none(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10, kosten=None)]
+        xet = _resultaat(s, rijen, _stat(posities=[("AAA", 5.0)]))["XET"]
+        self.assertIsNone(xet["transactiekosten_eur"])
+        self.assertIsNone(s["totaal_transactiekosten_eur"])
+
+    def test_onbekend_formaat_zonder_wv(self):
+        s = _samenvatting(("2024-02-04", "09:00", ONLEESBAAR, "EUR", -2.5))
+        onbekend = _resultaat(s, [_tx("2024-03-01", "XET", "AAA", 1)], _stat(posities=[("AAA", 5.0)]))[BEURS_ONBEKEND]
+        self.assertEqual((onbekend["wv_eur"], onbekend["wv_na_aansluitingskosten_eur"], onbekend["transactiekosten_eur"]),
+                         (None, None, None))
+        self.assertEqual((onbekend["transacties_per_jaar"], onbekend["kosten_zonder_transacties"],
+                          onbekend["transacties_zonder_kosten"], onbekend["betaald_dit_jaar"]), ([], [], [], False))
+        self.assertIsNone(s["totaal_wv_eur"])
+
+    def test_kleine_letters_en_spaties_in_beurscode(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        xet = _resultaat(s, [_tx("2024-03-01", " xet ", "AAA", 1)], _stat(posities=[("AAA", 5.0)]))["XET"]
+        self.assertEqual(xet["wv_eur"], 5.0)
+
+
 class TestRoutes(unittest.TestCase):
     def setUp(self):
         stack = ExitStack()
@@ -172,6 +317,17 @@ class TestRoutes(unittest.TestCase):
         self.assertEqual(opgeslagen["aansluitingskosten"], niet["aansluitingskosten"])
         self.assertEqual(niet["aansluitingskosten"]["totaal_eur"], 10.0)
         self.assertNotIn("onbekend_formaat", niet["aansluitingskosten"])
+
+    def test_wv_per_beurs_sluit_aan_op_statistieken(self):
+        antwoord = self.niet_opslaan(OVERIGE_REGELS + KOSTEN_REGELS)
+        xet = next(b for b in antwoord["aansluitingskosten"]["per_beurs"] if b["code"] == "XET")
+        totalen = antwoord["statistieken"]["totalen"]
+        # Het totaalrendement is na transactiekosten, de positie-W/V (GAK op kale waarde) ervoor.
+        self.assertEqual(xet["wv_eur"], round(totalen["rendement_eur"] + totalen["totale_transactiekosten"], 2))
+        self.assertEqual(xet["wv_na_aansluitingskosten_eur"], round(xet["wv_eur"] - 5.0, 2))
+        self.assertEqual(xet["transacties_per_jaar"], [{"jaar": 2024, "aantal": 2}])
+        zzz = next(b for b in antwoord["aansluitingskosten"]["per_beurs"] if b["code"] == "ZZZ")
+        self.assertIsNone(zzz["wv_eur"])
 
     def test_zonder_rekeningoverzicht_geen_veld(self):
         self.assertNotIn("aansluitingskosten", self.niet_opslaan(None))

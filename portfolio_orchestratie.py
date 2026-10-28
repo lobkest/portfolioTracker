@@ -1,4 +1,5 @@
 """Laag tussen routes en domeinmodules: basis ophalen (met korte cache) en de dashboard-respons bouwen."""
+import datetime
 import threading
 import time
 
@@ -44,7 +45,7 @@ from portfolio_calc import (
 from split_correctie import bepaal_effectieve_datums, continue_reeks
 from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
 from dividend import bouw_dividend_samenvatting, promotie_bedragen
-from aansluitingskosten import bouw_aansluitingskosten_samenvatting
+from aansluitingskosten import bouw_aansluitingskosten_samenvatting, voeg_beurs_resultaat_toe
 from statistieken import bereken_statistieken
 from transactiebestand_status import beoordeel_transactiebestand
 from portfolio_verdeling import (
@@ -789,14 +790,15 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     }
     # Zonder rekeningoverzicht geen veld: 0 zou "geen kosten" suggereren.
     if rekening_regels:
-        antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels)
+        antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels, transacties_df, statistieken)
     if box3:
         antwoord["box3_basis"] = bouw_box3_basis(transacties_df, resultaat, box3_dividenden)
     return antwoord
 
 
-def _aansluitingskosten(rekening_regels):
+def _aansluitingskosten(rekening_regels, transacties_df, statistieken):
     samenvatting = bouw_aansluitingskosten_samenvatting(rekening_regels)
+    voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, datetime.date.today().year, rekening_regels)
     onbekend = samenvatting.pop("onbekend_formaat")
     if onbekend:
         meld(CATEGORIE_REKENINGOVERZICHT, LET_OP,

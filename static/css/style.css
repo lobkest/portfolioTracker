@@ -1134,13 +1134,27 @@ input.schakelaar:focus-visible {
 }
 
 .compacteTabel .getalRechts,
-.aansluitingTabel th:nth-child(2) {
+.aansluitingTabel th:nth-child(n+2) {
     text-align: right;
     padding-right: 0;
 }
 
 .aansluitingTabel {
     width: 100%;
+}
+
+.aansluitingUitleg {
+    font-size: 0.9em;
+    margin: 6px 0 12px;
+}
+
+.aansluitingUitleg p,
+.aansluitingUitleg ul {
+    margin: 6px 0;
+}
+
+.aansluitingUitleg ul {
+    padding-left: 20px;
 }
 
 .aansluitingTabel tfoot td {
@@ -2426,17 +2440,19 @@ input.watAlsRadio {
     /* Verdeling → Beurs: taart links, aansluitingskosten rechts, bovenaan uitgelijnd. */
     .beursSplit {
         display: flex;
+        flex-wrap: wrap;
         align-items: flex-start;
         gap: 32px;
     }
 
     .beursGrafiek {
-        flex: 1 1 0;
+        flex: 1 1 320px;
         min-width: 0;
     }
 
     #aansluitingskostenSectie {
-        flex: 0 0 340px;
+        flex: 1 1 560px;
+        min-width: 0;
         margin-top: 0;
     }
 

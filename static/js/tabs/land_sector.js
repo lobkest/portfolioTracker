@@ -211,44 +211,78 @@ function maakBeursNaamCel(r) {
     return td;
 }
 
-function maakAansluitingskostenTabel(rijen, totaalTekst) {
+function maakGetalCel(tekst, klasse) {
+    const td = maakCel(tekst);
+    td.className = `getalRechts ${klasse || ""}`.trim();
+    return td;
+}
+
+function maakJaarRegelsCel(r) {
+    const td = maakBeursNaamCel(r);
+    r.jaarRegels.forEach(tekst => {
+        const regel = document.createElement("div");
+        regel.className = "kleineMelding";
+        regel.textContent = tekst;
+        td.appendChild(regel);
+    });
+    if (r.betaaldDitJaar) {
+        const regel = document.createElement("div");
+        regel.className = "kleineMelding";
+        regel.textContent = DIT_JAAR_BETAALD_TEKST;
+        td.appendChild(regel);
+    }
+    return td;
+}
+
+function maakAansluitingskostenTabel(rijen, totalen) {
     const kolommen = [
-        {
-            label: "Beurs",
-            alleenTabel: true,
-            renderTd: r => {
-                const td = maakBeursNaamCel(r);
-                const perJaar = document.createElement("div");
-                perJaar.className = "kleineMelding";
-                perJaar.textContent = r.perJaar;
-                td.appendChild(perJaar);
-                return td;
-            },
-        },
+        { label: "Beurs", alleenTabel: true, renderTd: maakJaarRegelsCel },
         { label: "Beurs", alleenMobiel: true, mobielRol: "titel", renderTd: maakBeursNaamCel },
         {
-            label: "Totaal betaald",
+            label: "W/V na aansluitingskosten",
             mobielRol: "waarde",
-            waarde: r => r.totaal_eur,
+            waarde: r => r.wv_na_eur,
+            renderTd: r => maakGetalCel(r.wvNaTekst, klasseVoorRendement(r.wv_na_eur)),
+        },
+        { label: "Aansluitingskosten (totaal)", waarde: r => r.totaal_eur, renderTd: r => maakGetalCel(r.totaalTekst) },
+        { label: "W/V posities", renderTd: r => maakGetalCel(r.wvTekst) },
+        { label: "Transactiekosten (ter info)", renderTd: r => maakGetalCel(r.transactiekostenTekst) },
+        {
+            label: "Per jaar",
+            alleenMobiel: true,
             renderTd: r => {
-                const td = maakCel(r.totaalTekst);
-                td.className = "getalRechts";
+                const td = document.createElement("td");
+                const regels = r.betaaldDitJaar ? [...r.jaarRegels, DIT_JAAR_BETAALD_TEKST] : r.jaarRegels;
+                regels.forEach(tekst => {
+                    const regel = document.createElement("div");
+                    regel.textContent = tekst;
+                    td.appendChild(regel);
+                });
                 return td;
             },
         },
-        { label: "Per jaar", alleenMobiel: true, renderTd: r => maakCel(r.perJaar) },
     ];
     const resultaat = maakSorteerbareTabel(kolommen, rijen, { klasse: "compacteTabel aansluitingTabel", compactOpMobiel: true });
-    if (totaalTekst) {
+    if (totalen) {
         const tfoot = document.createElement("tfoot");
         const tr = document.createElement("tr");
-        const totaalCel = maakCel(totaalTekst);
-        totaalCel.className = "getalRechts";
-        tr.append(maakCel("Totaal"), totaalCel);
+        tr.append(maakCel("Totaal"), maakGetalCel(totalen.wvNaTekst, klasseVoorRendement(totalen.wv_na_eur)),
+                  maakGetalCel(totalen.kostenTekst), maakGetalCel(totalen.wvTekst), maakGetalCel(totalen.transactiekostenTekst));
         tfoot.appendChild(tr);
         resultaat.querySelector("table").appendChild(tfoot);
     }
     return resultaat;
+}
+
+function maakAansluitingskostenMeldingen(rijen) {
+    const container = document.createElement("div");
+    rijen.flatMap(r => r.meldingen).forEach(tekst => {
+        const melding = document.createElement("p");
+        melding.className = "kleineMelding";
+        melding.textContent = tekst;
+        container.appendChild(melding);
+    });
+    return container;
 }
 
 // Kerndata: staat er ook als de verrijking (beurs_verdeling) nog laadt, dan zonder "geen positie".
@@ -258,7 +292,8 @@ function toonAansluitingskosten(samenvoegen) {
     sectie.style.display = rijen.length > 0 ? "block" : "none";
     if (rijen.length > 0) {
         document.getElementById("aansluitingskostenTabel").replaceChildren(
-            maakAansluitingskostenTabel(rijen, aansluitingskostenTotaalTekst(huidigeData.aansluitingskosten, rijen.length)));
+            maakAansluitingskostenTabel(rijen, aansluitingskostenTotalen(huidigeData.aansluitingskosten, rijen.length)),
+            maakAansluitingskostenMeldingen(rijen));
     }
 }
 
