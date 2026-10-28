@@ -62,7 +62,7 @@ def verifieer_isin_bij_ticker(ticker, isin):
     return ticker.upper() in {q["symbol"].upper() for q in quotes if q.get("symbol")}
 
 
-def _haal_koers(ticker):
+def haal_koers(ticker):
     try:
         koersen = get_prices([ticker], date.today() - timedelta(days=KOERS_TERUGKIJK_DAGEN))
         reeks = koersen[ticker].dropna() if ticker in koersen.columns else []
@@ -187,7 +187,7 @@ def _profiel_en_holdings(ticker, isin):
     """(profiel, volledige holdings of None bij een aandeel)."""
     waarschuwingen = []
     details = get_ticker_details(ticker)
-    koers_eur, koers_datum = _haal_koers(ticker)
+    koers_eur, koers_datum = haal_koers(ticker)
     if not details and koers_eur is None:
         raise OnbekendEffect(ticker)
     if koers_eur is None:

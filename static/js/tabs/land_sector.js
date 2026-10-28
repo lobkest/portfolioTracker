@@ -231,7 +231,47 @@ function maakJaarRegelsCel(r) {
         regel.textContent = DIT_JAAR_BETAALD_TEKST;
         td.appendChild(regel);
     }
+    if (r.positieRegel) td.appendChild(maakPositieRegel(r.positieRegel));
+    const knop = maakAlternatievenKnop(r);
+    if (knop) td.appendChild(knop);
     return td;
+}
+
+function maakPositieItem(item) {
+    const span = document.createElement("span");
+    span.textContent = item.tekst;
+    if (item.verkocht) span.className = "positieVerkocht";
+    return span;
+}
+
+function voegItemsToe(ouder, items, metKommaVoorAfsluiting) {
+    items.forEach((item, i) => {
+        if (i > 0 || metKommaVoorAfsluiting) ouder.append(", ");
+        ouder.appendChild(maakPositieItem(item));
+    });
+}
+
+function maakPositieRegel(regel) {
+    const div = document.createElement("div");
+    div.className = "kleineMelding";
+    div.append("Posities: ");
+    voegItemsToe(div, regel.zichtbaar, false);
+    if (regel.restLabel) {
+        const rest = document.createElement("span");
+        rest.hidden = true;
+        voegItemsToe(rest, regel.rest, true);
+        const knop = document.createElement("button");
+        knop.type = "button";
+        knop.className = "linkKnop";
+        knop.textContent = regel.restLabel;
+        knop.setAttribute("aria-expanded", "false");
+        knop.addEventListener("click", () => {
+            rest.hidden = !rest.hidden;
+            knop.setAttribute("aria-expanded", String(!rest.hidden));
+        });
+        div.append(" ", knop, rest);
+    }
+    return div;
 }
 
 function maakAansluitingskostenTabel(rijen, totalen) {
@@ -247,6 +287,25 @@ function maakAansluitingskostenTabel(rijen, totalen) {
         { label: "Aansluitingskosten (totaal)", waarde: r => r.totaal_eur, renderTd: r => maakGetalCel(r.totaalTekst) },
         { label: "W/V posities", renderTd: r => maakGetalCel(r.wvTekst) },
         { label: "Transactiekosten (ter info)", renderTd: r => maakGetalCel(r.transactiekostenTekst) },
+        {
+            label: "Posities",
+            alleenMobiel: true,
+            renderTd: r => {
+                const td = document.createElement("td");
+                if (r.positieRegel) td.textContent = r.positieRegel.volledigeTekst;
+                return td;
+            },
+        },
+        {
+            label: "Alternatieven",
+            alleenMobiel: true,
+            renderTd: r => {
+                const td = document.createElement("td");
+                const knop = maakAlternatievenKnop(r);
+                if (knop) td.appendChild(knop);
+                return td;
+            },
+        },
         {
             label: "Per jaar",
             alleenMobiel: true,

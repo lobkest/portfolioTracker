@@ -40,6 +40,8 @@
     const STREEPJE = "–";
     const ONVOLLEDIG_TEKST = "onvolledig (koers ontbreekt)";
     const DIT_JAAR_BETAALD_TEKST = "dit jaar al betaald";
+    const POSITIE_AANGEHOUDEN_TEKST = "positie aangehouden";
+    const POSITIES_ZICHTBAAR = 4;
 
     function jaarTekst(jaar) {
         return jaar === null || jaar === undefined ? "jaar onbekend" : String(jaar);
@@ -49,18 +51,46 @@
         return `${aantal} ${aantal === 1 ? "transactie" : "transacties"}`;
     }
 
-    // Een regel per jaar waarin kosten zijn betaald en/of getransacteerd is, oudste eerst: "2025 €2,50 · 3 transacties".
+    // Een regel per jaar met kosten en/of transacties, oudste eerst: "2025 €2,50 · 3 transacties". Zonder transacties
+    // maar met positie: "positie aangehouden".
     function jaarRegels(beurs) {
         const kosten = new Map((beurs.per_jaar || []).map(j => [j.jaar, j.bedrag_eur]));
         const transacties = new Map((beurs.transacties_per_jaar || []).map(j => [j.jaar, j.aantal]));
+        const positiejaren = new Set(beurs.jaren_met_positie || []);
         const jaren = [...new Set([...kosten.keys(), ...transacties.keys()])]
             .sort((a, b) => (a === null) - (b === null) || a - b);
         return jaren.map(jaar => {
             const delen = [`${jaarTekst(jaar)} ${kosten.has(jaar) ? formatteerEuro(kosten.get(jaar)) : "geen kosten"}`];
             if (transacties.has(jaar)) delen.push(aantalTekst(transacties.get(jaar)));
+            else if (positiejaren.has(jaar)) delen.push(POSITIE_AANGEHOUDEN_TEKST);
             else if (beurs.transacties_per_jaar) delen.push("geen transacties");
             return delen.join(" · ");
         });
+    }
+
+    // Eén item per positie: naam, met "(verkocht)" en/of "(deels)" als het gewicht onder 1 ligt.
+    function positieItems(beurs) {
+        return (beurs.posities || []).map(p => {
+            const toevoegingen = [];
+            if (p.nog_in_bezit === false) toevoegingen.push("verkocht");
+            if (p.gewicht < 1) toevoegingen.push("deels");
+            return {
+                tekst: toevoegingen.length ? `${p.naam} (${toevoegingen.join(", ")})` : p.naam,
+                verkocht: p.nog_in_bezit === false,
+            };
+        });
+    }
+
+    // Eerste POSITIES_ZICHTBAAR posities; de rest klapt uit achter "en N meer".
+    function positieRegel(beurs) {
+        const items = positieItems(beurs);
+        if (items.length === 0) return null;
+        return {
+            zichtbaar: items.slice(0, POSITIES_ZICHTBAAR),
+            rest: items.slice(POSITIES_ZICHTBAAR),
+            restLabel: items.length > POSITIES_ZICHTBAAR ? `en ${items.length - POSITIES_ZICHTBAAR} meer` : null,
+            volledigeTekst: items.map(i => i.tekst).join(", "),
+        };
     }
 
     function euroOfStreepje(bedrag) {
@@ -80,11 +110,11 @@
     function beursMeldingen(beurs) {
         const naam = beurs.verdeling_naam && beurs.verdeling_naam !== beurs.code ? beurs.verdeling_naam : beurs.naam;
         const meldingen = [];
-        if ((beurs.kosten_zonder_transacties || []).length > 0) {
-            meldingen.push(`${naam}: kosten in ${opsomming(beurs.kosten_zonder_transacties)} zonder transacties op deze beurs.`);
+        if ((beurs.kosten_zonder_positie_of_transacties || []).length > 0) {
+            meldingen.push(`${naam}: kosten in ${opsomming(beurs.kosten_zonder_positie_of_transacties)} zonder positie of transacties op deze beurs.`);
         }
-        if ((beurs.transacties_zonder_kosten || []).length > 0) {
-            meldingen.push(`${naam}: transacties in ${opsomming(beurs.transacties_zonder_kosten)} zonder aansluitingskosten.`);
+        if ((beurs.activiteit_zonder_kosten || []).length > 0) {
+            meldingen.push(`${naam}: positie of transacties in ${opsomming(beurs.activiteit_zonder_kosten)} zonder aansluitingskosten.`);
         }
         return meldingen;
     }
@@ -104,6 +134,9 @@
                 totaalTekst: formatteerEuro(beurs.totaal_eur),
                 perJaar: perJaarTekst(beurs.per_jaar),
                 jaarRegels: jaarRegels(beurs),
+                positieRegel: positieRegel(beurs),
+                heeftOpenPositie: beurs.heeft_open_positie === true,
+                alternatievenInvoer: beurs.alternatieven_invoer || null,
                 betaaldDitJaar: beurs.betaald_dit_jaar === true,
                 wv_na_eur: beurs.wv_na_aansluitingskosten_eur,
                 wvTekst: wvTekst(beurs.wv_eur, beurs.wv_volledig),
@@ -132,7 +165,7 @@
     }
 
     const exportsObj = {
-        UITLEG_AANSLUITINGSKOSTEN, ONVOLLEDIG_TEKST, DIT_JAAR_BETAALD_TEKST, heeftAansluitingskosten,
+        UITLEG_AANSLUITINGSKOSTEN, ONVOLLEDIG_TEKST, DIT_JAAR_BETAALD_TEKST, POSITIE_AANGEHOUDEN_TEKST, heeftAansluitingskosten,
         aansluitingskostenTegel, aansluitingskostenRijen, aansluitingskostenTotalen,
     };
 

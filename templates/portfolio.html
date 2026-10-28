@@ -345,16 +345,17 @@
                         <div class="sectieTitel">Aansluitingskosten per beurs</div>
                         <div class="aansluitingUitleg">
                             <strong>Wanneer betaal je aansluitingskosten?</strong>
-                            <p>DEGIRO rekent €2,50 per beurs per kalenderjaar, alleen in jaren waarin je op die beurs koopt of verkoopt.</p>
+                            <p>DEGIRO rekent €2,50 per beurs per kalenderjaar (maximaal 0,25% van je hoogste accountwaarde in dat jaar). Euronext Amsterdam en Euronext Brussel zijn gratis.</p>
                             <ul>
-                                <li>Alleen aanhouden kost niets.</li>
-                                <li>Verkopen is ook een transactie: verkoop je in een jaar waarin je daar nog niet gehandeld hebt, dan betaal je voor dat jaar ook €2,50.</li>
-                                <li>Heb je dit jaar al betaald, dan kost nog een transactie daar dit jaar niets extra.</li>
-                                <li>Op je thuisbeurs (bij DEGIRO.nl: Euronext Amsterdam en Euronext Brussel) betaal je geen aansluitingskosten. Bijkopen op een thuisbeurs voorkomt deze kosten.</li>
+                                <li>Je betaalt in elk jaar waarin je op die beurs koopt, verkoopt <strong>of alleen een positie aanhoudt</strong>.</li>
+                                <li>Zolang er nog één positie op een beurs staat, betaal je dus elk jaar €2,50 voor die beurs.</li>
+                                <li>Verkoop je alles op die beurs, dan betaal je voor dat jaar nog wel, en vanaf het jaar erna niet meer (zolang je daar niet opnieuw koopt).</li>
+                                <li>Bijkopen op Euronext Amsterdam of Brussel voorkomt nieuwe kosten.</li>
                             </ul>
-                            <p>W/V is exclusief dividend en transactiekosten. Aansluitingskosten tellen niet mee in je rendement elders in de app.</p>
+                            <p>DEGIRO zegt in het tarievenoverzicht niet precies wanneer de kosten gelden; dit volgt uit de kosten in rekeningoverzichten. W/V is exclusief dividend en transactiekosten. Aansluitingskosten tellen niet mee in je rendement elders in de app.</p>
                         </div>
                         <div id="aansluitingskostenTabel"></div>
+                        <div id="aansluitingskostenAlternatieven" class="alternatievenPaneel" hidden></div>
                     </div>
                 </div>
             </div>
@@ -716,6 +717,7 @@
     <script src="{{ url_for('static', filename='js/wat_als.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bijnamen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/aansluitingskosten.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/beurs_alternatieven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bestandsmelding.js') }}"></script>
     <script src="{{ url_for('static', filename='js/periode.js') }}"></script>
     <script src="{{ url_for('static', filename='js/gedeeld/opmaak.js') }}"></script>
@@ -731,6 +733,7 @@
     <script src="{{ url_for('static', filename='js/tabs/verdeling_over_tijd.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/verdeling.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/land_sector.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/tabs/beurs_alternatieven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/bedrijven.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/etf_overlap.js') }}"></script>
     <script src="{{ url_for('static', filename='js/tabs/wat_als.js') }}"></script>

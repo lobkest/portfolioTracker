@@ -14,6 +14,12 @@ from transactie_utils import _is_corporate_action_row
 AANSLUITINGSKOSTEN_PATROON = re.compile(
     r"aansluitingskosten\s+(\d{4})\s*\(\s*(.+?)\s+-\s+([A-Za-z0-9]+)\s*\)\s*$", re.IGNORECASE)
 BEURS_ONBEKEND = "onbekend"
+POSITIE_MARGE = 1e-9
+# Beurzen zonder aansluitingskosten: DEGIRO-codes, Yahoo-beurscode en naam. Volgorde = voorkeur bij het kiezen.
+THUISBEURZEN = (
+    {"code": "EAM", "codes": ("EAM", "XAMS"), "yahoo": "AMS", "naam": "Euronext Amsterdam"},
+    {"code": "EBR", "codes": ("EBR",), "yahoo": "BRU", "naam": "Euronext Brussel"},
+)
 
 
 def parse_aansluitingskosten(omschrijving):
@@ -132,15 +138,122 @@ def _som_of_none(waarden):
     return round(sum(waarden), 2) if waarden else None
 
 
-def voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, huidig_jaar, rekening_regels=None):
-    """Vult elk item van samenvatting["per_beurs"] aan met transacties_per_jaar, wv_eur, wv_volledig,
-    wv_na_aansluitingskosten_eur, transactiekosten_eur, betaald_dit_jaar, kosten_zonder_transacties en
-    transacties_zonder_kosten, en de samenvatting met totaal_wv_eur, totaal_wv_na_aansluitingskosten_eur,
+def _jaren_met_positie_per_beurs(transacties_df, gewichten, huidig_jaar):
+    """{beurscode: {jaren}} waarin een positie openstond: stand per ticker aan het begin van het jaar > 0 (alle rijen,
+    dus incl. splitboekingen), of een aankoop in dat jaar. De positie hoort bij de beurzen waar per code netto stuks
+    staan (aankopen min verkopen, zonder corporate actions), anders bij elke beurs met een gewicht."""
+    resultaat = {}
+    df = transacties_df.dropna(subset=["ticker"])
+    for ticker, groep in df.groupby("ticker"):
+        per_jaar = {}
+        for rij in groep.to_dict("records"):
+            jaar = pd.Timestamp(rij["datum"]).year
+            aantal = float(rij["aantal"])
+            stand = per_jaar.setdefault(jaar, {"totaal": 0.0, "netto": {}, "gekocht": set()})
+            stand["totaal"] += aantal
+            if _is_corporate_action_row(rij):
+                continue
+            code = BEURS_ONBEKEND if pd.isna(rij.get("beurs")) else str(rij["beurs"]).strip().upper()
+            stand["netto"][code] = stand["netto"].get(code, 0.0) + aantal
+            if aantal > 0:
+                stand["gekocht"].add(code)
+        totaal, netto = 0.0, {}
+        for jaar in range(min(per_jaar), max(max(per_jaar), huidig_jaar) + 1):
+            codes = set(per_jaar.get(jaar, {}).get("gekocht", ()))
+            if totaal > POSITIE_MARGE:
+                codes |= {c for c, n in netto.items() if n > POSITIE_MARGE} or set(gewichten.get(ticker, {}))
+            for code in codes:
+                resultaat.setdefault(code, set()).add(jaar)
+            stand = per_jaar.get(jaar)
+            if stand:
+                totaal += stand["totaal"]
+                for code, n in stand["netto"].items():
+                    netto[code] = netto.get(code, 0.0) + n
+    return resultaat
+
+
+def _open_tickers(transacties_df):
+    stuks = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
+    return {t for t, n in stuks.items() if float(n) > POSITIE_MARGE}
+
+
+def _posities_van_beurs(code, gewichten, wv_ticker, open_tickers, ticker_namen):
+    posities = [{
+        "ticker": ticker,
+        "naam": ticker_namen.get(ticker, ticker),
+        "nog_in_bezit": ticker in open_tickers,
+        "wv_eur": round(wv_ticker.get(ticker, 0.0) * verdeling[code], 2),
+        "gewicht": round(verdeling[code], 4),
+    } for ticker, verdeling in gewichten.items() if verdeling.get(code, 0.0) > 0]
+    posities.sort(key=lambda p: (not p["nog_in_bezit"], str(p["naam"]).casefold()))
+    return posities
+
+
+def _gemiddelde_kosten_per_transactie(transacties_df, codes_in_scope, codes, echte_rij):
+    """Transactiekosten (zelfde definitie als bereken_totale_transactiekosten) gedeeld door het aantal transacties op
+    de beurzen `codes_in_scope`; None zonder transacties of zonder kostenkolom."""
+    rijen = transacties_df[codes.isin(codes_in_scope) & echte_rij]
+    aantal = sum(sum(per_jaar.values()) for per_jaar in _transacties_per_beurs(rijen).values())
+    kosten = bereken_totale_transactiekosten(rijen)
+    if not aantal or not kosten["beschikbaar"]:
+        return None
+    return round(kosten["totaal"] / aantal, 2)
+
+
+def _isin_per_ticker_laatste(transacties_df):
+    df = transacties_df.dropna(subset=["ticker", "isin"])
+    return df.drop_duplicates(subset=["ticker"], keep="last").set_index("ticker")["isin"].to_dict()
+
+
+def _bouw_alternatieven_invoer(beurs, code, transacties_df, codes, echte_rij, waarde_per_ticker, isin_per_ticker):
+    """Alles wat beurs_alternatieven.py nodig heeft, uit de eigen transacties: open posities (naar gewicht), gemiddelde
+    transactiekosten per transactie op deze en op de thuisbeurzen, en ISIN's die al op een thuisbeurs zijn gehandeld."""
+    aantallen = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
+    posities = []
+    for p in beurs["posities"]:
+        if not p["nog_in_bezit"]:
+            continue
+        waarde = waarde_per_ticker.get(p["ticker"])
+        posities.append({
+            "ticker": p["ticker"], "naam": p["naam"], "isin": isin_per_ticker.get(p["ticker"]),
+            "aantal": round(float(aantallen[p["ticker"]]) * p["gewicht"], 4),
+            "waarde_eur": round(float(waarde) * p["gewicht"], 2) if waarde is not None else None,
+        })
+    thuis_codes = {c for thuis in THUISBEURZEN for c in thuis["codes"]}
+    thuis_rijen = transacties_df[codes.isin(thuis_codes) & echte_rij]
+    jaarkosten = [j["bedrag_eur"] for j in sorted(
+        (j for j in beurs["per_jaar"] if j["jaar"] is not None), key=lambda j: j["jaar"])]
+    return {
+        "beurs": code,
+        "beurs_naam": beurs["verdeling_naam"] or beurs["naam"],
+        "posities": posities,
+        "jaarkosten_eur": jaarkosten[-1] if jaarkosten else None,
+        "betaald_dit_jaar": beurs["betaald_dit_jaar"],
+        "gemiddelde_kosten_per_transactie_eur": _gemiddelde_kosten_per_transactie(
+            transacties_df, {code}, codes, echte_rij),
+        "thuisbeurs_kosten_per_transactie_eur": {
+            thuis["code"]: _gemiddelde_kosten_per_transactie(transacties_df, set(thuis["codes"]), codes, echte_rij)
+            for thuis in THUISBEURZEN},
+        "isins_op_thuisbeurs": sorted({str(i) for i in thuis_rijen["isin"].dropna()}) if "isin" in thuis_rijen else [],
+    }
+
+
+def voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, huidig_jaar, rekening_regels=None,
+                             ticker_namen=None):
+    """Vult elk item van samenvatting["per_beurs"] aan met transacties_per_jaar, jaren_met_positie, posities
+    ({ticker, naam, nog_in_bezit, wv_eur, gewicht}), heeft_open_positie, alternatieven_invoer (voor beurs_alternatieven.py; None zonder open positie), wv_eur, wv_volledig,
+    wv_na_aansluitingskosten_eur, transactiekosten_eur, betaald_dit_jaar, kosten_zonder_positie_of_transacties en
+    activiteit_zonder_kosten, en de samenvatting met totaal_wv_eur, totaal_wv_na_aansluitingskosten_eur,
     totaal_transactiekosten_eur. W/V = open + gerealiseerd per ticker (statistieken), exclusief dividend en
     transactiekosten, per beurs verdeeld naar gekochte stuks. Wijzigt `samenvatting` en geeft hem terug."""
+    ticker_namen = ticker_namen or {}
     transacties_per_beurs = _transacties_per_beurs(transacties_df)
     gewichten = gewichten_per_beurscode(transacties_df)
+    positiejaren = _jaren_met_positie_per_beurs(transacties_df, gewichten, huidig_jaar)
+    open_tickers = _open_tickers(transacties_df)
     wv_ticker = _wv_per_ticker(statistieken)
+    waarde_per_ticker = {p["ticker"]: p.get("huidige_waarde") for p in statistieken["posities"]}
+    isin_per_ticker = _isin_per_ticker_laatste(transacties_df) if "isin" in transacties_df.columns else {}
     zonder_koers = _open_tickers_zonder_koers(transacties_df, statistieken)
     periode = _gedekte_periode(statistieken, rekening_regels)
     codes = transacties_df["beurs"].map(lambda c: BEURS_ONBEKEND if pd.isna(c) else str(c).strip().upper())
@@ -150,12 +263,22 @@ def voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, huidig_
     for beurs in samenvatting["per_beurs"]:
         code = beurs["code"]
         kostenjaren = {j["jaar"]: j["bedrag_eur"] for j in beurs["per_jaar"] if j["jaar"] is not None}
-        tellers = {} if code == BEURS_ONBEKEND else transacties_per_beurs.get(code, {})
+        onbekend = code == BEURS_ONBEKEND
+        tellers = {} if onbekend else transacties_per_beurs.get(code, {})
+        jaren_positie = set() if onbekend else positiejaren.get(code, set())
         beurs["transacties_per_jaar"] = [{"jaar": j, "aantal": n} for j, n in sorted(tellers.items())]
+        beurs["jaren_met_positie"] = sorted(jaren_positie)
+        beurs["posities"] = [] if onbekend else _posities_van_beurs(code, gewichten, wv_ticker, open_tickers, ticker_namen)
+        beurs["heeft_open_positie"] = any(p["nog_in_bezit"] for p in beurs["posities"])
         beurs["betaald_dit_jaar"] = kostenjaren.get(huidig_jaar, 0) > 0
-        beurs["kosten_zonder_transacties"] = sorted(j for j in kostenjaren if j not in tellers)
-        beurs["transacties_zonder_kosten"] = sorted(
-            j for j in tellers if j != huidig_jaar and j not in kostenjaren and _jaar_volledig_gedekt(j, periode))
+        beurs["alternatieven_invoer"] = (
+            _bouw_alternatieven_invoer(beurs, code, transacties_df, codes, echte_rij, waarde_per_ticker, isin_per_ticker)
+            if beurs["heeft_open_positie"] else None)
+        beurs["kosten_zonder_positie_of_transacties"] = sorted(
+            j for j in kostenjaren if j not in tellers and j not in jaren_positie)
+        beurs["activiteit_zonder_kosten"] = sorted(
+            j for j in set(tellers) | jaren_positie
+            if j != huidig_jaar and j not in kostenjaren and _jaar_volledig_gedekt(j, periode))
 
         beurs["wv_volledig"] = True
         beurs["wv_eur"] = beurs["wv_na_aansluitingskosten_eur"] = beurs["transactiekosten_eur"] = None

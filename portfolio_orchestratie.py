@@ -790,15 +790,16 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     }
     # Zonder rekeningoverzicht geen veld: 0 zou "geen kosten" suggereren.
     if rekening_regels:
-        antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels, transacties_df, statistieken)
+        antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels, transacties_df, statistieken, ticker_namen)
     if box3:
         antwoord["box3_basis"] = bouw_box3_basis(transacties_df, resultaat, box3_dividenden)
     return antwoord
 
 
-def _aansluitingskosten(rekening_regels, transacties_df, statistieken):
+def _aansluitingskosten(rekening_regels, transacties_df, statistieken, ticker_namen):
     samenvatting = bouw_aansluitingskosten_samenvatting(rekening_regels)
-    voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, datetime.date.today().year, rekening_regels)
+    voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, datetime.date.today().year, rekening_regels,
+                             ticker_namen)
     onbekend = samenvatting.pop("onbekend_formaat")
     if onbekend:
         meld(CATEGORIE_REKENINGOVERZICHT, LET_OP,
@@ -806,6 +807,30 @@ def _aansluitingskosten(rekening_regels, transacties_df, statistieken):
              f"'onbekend': {', '.join(sorted(set(onbekend)))}.",
              sleutel="aansluitingskosten_onbekend_formaat")
     return samenvatting
+
+
+class OnbekendeBeurs(Exception):
+    pass
+
+
+def bouw_beurs_alternatieven_invoer(code, beurs):
+    """`alternatieven_invoer` van één beurs van een opgeslagen portfolio (dezelfde als in het kernantwoord, maar vers uit
+    de database); None bij een onbekende code, OnbekendeBeurs als die beurs geen aansluitingskosten of open positie heeft."""
+    naam, transacties_df, price_data = haal_portfolio_basis(code)
+    if naam is None:
+        return None
+    rekening_regels = db_get_rekening_regels_eur(code)
+    laatste = price_data.iloc[-1] if not price_data.empty else pd.Series(dtype=float)
+    aantallen = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
+    posities = [{"ticker": t, "huidige_waarde": float(n) * float(laatste[t])}
+                for t, n in aantallen.items() if t in laatste.index and pd.notna(laatste[t])]
+    samenvatting = bouw_aansluitingskosten_samenvatting(rekening_regels or [])
+    voeg_beurs_resultaat_toe(samenvatting, transacties_df, {"posities": posities, "gesloten_posities": [], "totalen": {}},
+                             datetime.date.today().year, rekening_regels, _ticker_namen(transacties_df))
+    invoer = next((b["alternatieven_invoer"] for b in samenvatting["per_beurs"] if b["code"] == beurs), None)
+    if invoer is None:
+        raise OnbekendeBeurs(beurs)
+    return invoer
 
 
 def _classificeer_en_verwarm(transacties_df, gebruik_proxy):

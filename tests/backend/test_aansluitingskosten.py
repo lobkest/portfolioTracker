@@ -180,6 +180,59 @@ class TestBeursResultaat(unittest.TestCase):
         xet = _resultaat(s, rijen, _stat(posities=[("AAA", 1.0)]))["XET"]
         self.assertEqual(xet["transacties_per_jaar"], [{"jaar": 2024, "aantal": 6}])
 
+    def test_positie_zonder_transacties_betaalt_wel_kosten(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2025, "XET"), _kosten(2026, "XET"))
+        xet = _resultaat(s, [_tx("2024-03-01", "XET", "AAA", 10)], _stat(posities=[("AAA", 5.0)]))["XET"]
+        self.assertEqual(xet["jaren_met_positie"], [2024, 2025, 2026])
+        self.assertEqual(xet["kosten_zonder_positie_of_transacties"], [])
+        self.assertTrue(xet["heeft_open_positie"])
+
+    def test_alles_verkocht_daarna_nog_kosten(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2025, "XET"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-06-01", "XET", "AAA", -10)]
+        xet = _resultaat(s, rijen, _stat(gesloten=[("AAA", 5.0)]))["XET"]
+        self.assertEqual(xet["jaren_met_positie"], [2024])
+        self.assertEqual(xet["kosten_zonder_positie_of_transacties"], [2025])
+        self.assertFalse(xet["heeft_open_positie"])
+
+    def test_positie_over_twee_beurzen_met_gewicht_en_wv(self):
+        s = _samenvatting(_kosten(2024, "XET"), _kosten(2024, "TDG"))
+        rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-03-02", "TDG", "AAA", 30)]
+        per = _resultaat(s, rijen, _stat(posities=[("AAA", 80.0)]))
+        self.assertEqual(per["XET"]["posities"], [
+            {"ticker": "AAA", "naam": "AAA", "nog_in_bezit": True, "wv_eur": 20.0, "gewicht": 0.25}])
+        self.assertEqual(per["TDG"]["posities"][0]["gewicht"], 0.75)
+        self.assertEqual(per["TDG"]["posities"][0]["wv_eur"], 60.0)
+
+    def test_positie_verkocht_op_een_beurs_telt_niet_op_de_andere(self):
+        s = _samenvatting(_kosten(2024, "TDG"), _kosten(2025, "XET"))
+        rijen = [_tx("2022-03-01", "TDG", "AAA", 10), _tx("2022-06-01", "TDG", "AAA", -10),
+                 _tx("2023-03-01", "XET", "AAA", 5)]
+        per = _resultaat(s, rijen, _stat(posities=[("AAA", 1.0)]))
+        self.assertEqual(per["TDG"]["jaren_met_positie"], [2022])
+        self.assertEqual(per["XET"]["jaren_met_positie"], [2023, 2024, 2025, 2026])
+
+    def test_posities_volgorde_open_eerst_dan_naam(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        rijen = [_tx("2024-01-01", "XET", "ZZ", 1), _tx("2024-01-02", "XET", "AA", 1), _tx("2024-01-03", "XET", "MM", 1),
+                 _tx("2024-02-01", "XET", "AA", -1)]
+        xet = _resultaat(s, rijen, _stat(posities=[("ZZ", 1.0), ("MM", 2.0)], gesloten=[("AA", 3.0)]))["XET"]
+        self.assertEqual([(p["naam"], p["nog_in_bezit"]) for p in xet["posities"]],
+                         
+                         [("MM", True), ("ZZ", True), ("AA", False)])
+
+    def test_posities_gebruiken_bijnamen(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        voeg_beurs_resultaat_toe(s, pd.DataFrame([_tx("2024-01-01", "XET", "AAA", 1)]), _stat(posities=[("AAA", 1.0)]),
+                                 2026, ticker_namen={"AAA": "Mijn fonds"})
+        self.assertEqual(s["per_beurs"][0]["posities"][0]["naam"], "Mijn fonds")
+
+    def test_activiteit_zonder_kosten_met_alleen_een_positie(self):
+        s = _samenvatting(_kosten(2024, "XET"))
+        xet = _resultaat(s, [_tx("2024-03-01", "XET", "AAA", 1)], _stat(posities=[("AAA", 1.0)]))["XET"]
+        # 2025 gedekt zonder kosten en zonder transacties, maar met positie; 2026 is het huidige jaar.
+        self.assertEqual(xet["activiteit_zonder_kosten"], [2025])
+
     def test_deels_verkocht_geen_dubbeltelling(self):
         s = _samenvatting(_kosten(2024, "XET"))
         rijen = [_tx("2024-03-01", "XET", "AAA", 10), _tx("2024-05-01", "XET", "AAA", -4)]
@@ -217,21 +270,21 @@ class TestBeursResultaat(unittest.TestCase):
         tdg = per["TDG"]
         self.assertEqual((tdg["wv_eur"], tdg["wv_na_aansluitingskosten_eur"], tdg["transactiekosten_eur"]),
                          (None, None, None))
-        self.assertEqual((tdg["kosten_zonder_transacties"], tdg["transacties_per_jaar"]), ([2024], []))
-        self.assertEqual(per["XET"]["kosten_zonder_transacties"], [])
+        self.assertEqual((tdg["kosten_zonder_positie_of_transacties"], tdg["transacties_per_jaar"]), ([2024], []))
+        self.assertEqual(per["XET"]["kosten_zonder_positie_of_transacties"], [])
 
     def test_transacties_zonder_kosten_alleen_in_gedekte_jaren(self):
         s = _samenvatting(_kosten(2024, "XET"))
         rijen = [_tx(f"{j}-06-01", "XET", "AAA", 1) for j in (2022, 2023, 2024, 2025, 2026)]
         # Periode 05-01-2023 .. 01-06-2026: 2022 en 2023 (beginjaar) buiten, 2026 is het huidige jaar.
         xet = _resultaat(s, rijen, _stat(posities=[("AAA", 1.0)]))["XET"]
-        self.assertEqual(xet["transacties_zonder_kosten"], [2025])
+        self.assertEqual(xet["activiteit_zonder_kosten"], [2025])
 
     def test_zonder_periode_geen_transacties_zonder_kosten(self):
         s = _samenvatting(_kosten(2024, "XET"))
         stat = _stat(posities=[("AAA", 1.0)], periode=None)
         xet = _resultaat(s, [_tx("2025-06-01", "XET", "AAA", 1)], stat)["XET"]
-        self.assertEqual(xet["transacties_zonder_kosten"], [])
+        self.assertEqual(xet["activiteit_zonder_kosten"], [])
 
     def test_betaald_dit_jaar(self):
         s = _samenvatting(_kosten(2025, "XET"), _kosten(2026, "TDG"))
@@ -263,8 +316,8 @@ class TestBeursResultaat(unittest.TestCase):
         onbekend = _resultaat(s, [_tx("2024-03-01", "XET", "AAA", 1)], _stat(posities=[("AAA", 5.0)]))[BEURS_ONBEKEND]
         self.assertEqual((onbekend["wv_eur"], onbekend["wv_na_aansluitingskosten_eur"], onbekend["transactiekosten_eur"]),
                          (None, None, None))
-        self.assertEqual((onbekend["transacties_per_jaar"], onbekend["kosten_zonder_transacties"],
-                          onbekend["transacties_zonder_kosten"], onbekend["betaald_dit_jaar"]), ([], [], [], False))
+        self.assertEqual((onbekend["transacties_per_jaar"], onbekend["kosten_zonder_positie_of_transacties"],
+                          onbekend["activiteit_zonder_kosten"], onbekend["betaald_dit_jaar"]), ([], [], [], False))
         self.assertIsNone(s["totaal_wv_eur"])
 
     def test_kleine_letters_en_spaties_in_beurscode(self):
