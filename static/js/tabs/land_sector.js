@@ -65,34 +65,86 @@ function toonPlatteVerdeling(verdelingObj) {
     });
 }
 
+let regioCharts = [];
+
+function toonRegioTaarten(regioVerdeling, europa, azie) {
+    regioCharts.forEach(c => c.destroy());
+    regioCharts = [];
+    const regios = [
+        { aan: europa, sleutel: "Europe", blok: "regioTaartEuropa", canvas: "regioChartEuropa" },
+        { aan: azie, sleutel: "Asia", blok: "regioTaartAzie", canvas: "regioChartAzie" },
+    ];
+    let ietsGetoond = false;
+    regios.forEach(({ aan, sleutel, blok, canvas }) => {
+        const entries = Object.entries((regioVerdeling && regioVerdeling[sleutel]) || {}).filter(([, bedrag]) => bedrag > 0);
+        const tonen = aan && entries.length > 0;
+        document.getElementById(blok).style.display = tonen ? "block" : "none";
+        if (!tonen) return;
+        ietsGetoond = true;
+        entries.sort((a, b) => ((a[0] === "Overig") - (b[0] === "Overig")) || (b[1] - a[1]));
+        const totaal = entries.reduce((som, [, bedrag]) => som + bedrag, 0);
+        let kleurIdx = 0;
+        regioCharts.push(new Chart(document.getElementById(canvas), {
+            type: "pie",
+            data: {
+                labels: entries.map(([naam]) => naam),
+                datasets: [{
+                    data: entries.map(([, bedrag]) => bedrag),
+                    backgroundColor: entries.map(([naam]) => naam === "Overig" ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++)),
+                    borderColor: "#fcfcfb",
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: "right", labels: { boxWidth: 12, font: { size: 11 } } },
+                    datalabels: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${formatPct(ctx.parsed / totaal * 100, 1)})`
+                        }
+                    }
+                }
+            }
+        }));
+    });
+    document.getElementById("landRegioTaarten").style.display = ietsGetoond ? "block" : "none";
+}
+
 function toonLand() {
     if (chart) chart.destroy();
     document.getElementById("geenData").style.display = "none";
-    const europaCheckbox = document.getElementById("europaCheckbox");
-    if (toonOverTijdIndienGekozen("land", europaCheckbox.checked)) {
+    const europa = document.getElementById("europaCheckbox").checked;
+    const azie = document.getElementById("azieCheckbox").checked;
+    const regioWrappers = ["europaCheckboxWrapper", "azieCheckboxWrapper"].map(id => document.getElementById(id));
+    toonRegioTaarten(null, false, false);
+    if (toonOverTijdIndienGekozen("land", europa, azie)) {
         document.getElementById("landDekkingTekst").style.display = "none";
-        document.getElementById("europaCheckboxWrapper").style.display = "flex";
+        regioWrappers.forEach(w => { w.style.display = "flex"; });
         return;
     }
     if (toonVerrijkingWachtstatusIndienNodig()) {
-        document.getElementById("europaCheckboxWrapper").style.display = "none";
+        regioWrappers.forEach(w => { w.style.display = "none"; });
         return;
     }
 
     const lsv = huidigeData.land_sector_verdeling;
-    document.getElementById("europaCheckboxWrapper").style.display = "flex";
+    regioWrappers.forEach(w => { w.style.display = "flex"; });
+    toonRegioTaarten(lsv && lsv.regio_verdeling, europa, azie);
+    const regioSuffix = europa && azie ? "europa_azie" : europa ? "europa" : azie ? "azie" : "";
 
     if (landSectorWeergave === "staaf") {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values((lsv && lsv.land) || {}).reduce((s, w) => s + w, 0);
         // Top 10 + "Overig" komt al uit de backend (bewust anders dan de taart).
-        const perBron = europaCheckbox.checked ? (lsv && lsv.land_per_bron_europa_top) : (lsv && lsv.land_per_bron_top);
+        const perBron = lsv && lsv[regioSuffix ? `land_per_bron_${regioSuffix}_top` : "land_per_bron_top"];
         chart = renderGestapeldeStaafgrafiek("rendementChart", perBron, tickerNamen, { totaal });
     } else {
-        // land_europa komt al uit de backend; de toggle kost geen request.
-        const bron = europaCheckbox.checked ? (lsv && lsv.land_europa) : (lsv && lsv.land);
-        toonPlatteVerdeling(bron);
+        // De samengevoegde varianten komen al uit de backend; de toggle kost geen request.
+        toonPlatteVerdeling(lsv && lsv[regioSuffix ? `land_${regioSuffix}` : "land"]);
     }
 
     // Verklaart een deel van "Unknown", en waar het land via een proxy-ETF benaderd is.
@@ -237,8 +289,10 @@ function toonBeurs() {
     }
 }
 
-document.getElementById("europaCheckbox").addEventListener("change", () => {
-    toonLand();
+["europaCheckbox", "azieCheckbox"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+        toonLand();
+    });
 });
 
 document.getElementById("euronextCheckbox").addEventListener("change", () => {

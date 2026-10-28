@@ -654,9 +654,10 @@ def verdeling_over_tijd(code):
     if dimensie not in VERDELING_OVER_TIJD_DIMENSIES:
         return jsonify({"error": f"Onbekende dimensie '{dimensie}'."}), 400
     samenvoegen = request.args.get("samenvoegen") == "1"
+    azie_samenvoegen = request.args.get("azie") == "1"
     try:
         with db_deel_verbinding():
-            result = bouw_verdeling_over_tijd(code, dimensie, samenvoegen)
+            result = bouw_verdeling_over_tijd(code, dimensie, samenvoegen, azie_samenvoegen)
     except Exception as e:
         print(f"[over-tijd] WARN {dimensie} mislukt: {type(e).__name__}: {maskeer_codes(e)!a}")
         return jsonify({

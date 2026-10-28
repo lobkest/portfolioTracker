@@ -31,6 +31,14 @@ EUROPESE_LANDEN = frozenset({
     "Montenegro", "North Macedonia", "Albania", "Kosovo", "Moldova",
 })
 
+# Oost-, Zuid- en Zuidoost-Azië plus Centraal-Azië; Midden-Oosten, Rusland en Turkije bewust niet.
+ASIATISCHE_LANDEN = frozenset({
+    "China", "Hong Kong", "Macau", "Taiwan", "Taiwan, Province of China", "Japan", "South Korea",
+    "Korea", "Korea, Republic of", "Mongolia", "India", "Pakistan", "Bangladesh", "Sri Lanka", "Nepal",
+    "Singapore", "Thailand", "Malaysia", "Indonesia", "Philippines", "Vietnam", "Viet Nam", "Cambodia",
+    "Myanmar", "Laos", "Brunei", "Kazakhstan", "Uzbekistan",
+})
+
 # Voor namen die de normalisatie niet samenbrengt; sleutel en waarde al genormaliseerd.
 # Aanvullen bij een dubbele rij in Top-N bedrijven of ETF-overlap.
 BEDRIJF_NAAM_OVERRIDES = {
@@ -303,33 +311,54 @@ def _beperk_tot_top_n_per_bron(per_bron_dict, top_n=LAND_STAAF_TOP_N):
     return resultaat
 
 
-def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
+def _groepeer_regios_samen(land_dict, regios):
+    """regios: {naam: landenverzameling}; een land in geen enkele regio blijft staan."""
     resultaat = {}
-    europa_totaal = 0.0
+    totalen = {}
     for land, bedrag in land_dict.items():
-        if land in europese_landen:
-            europa_totaal += bedrag
+        regio = next((naam for naam, landen in regios.items() if land in landen), None)
+        if regio:
+            totalen[regio] = totalen.get(regio, 0.0) + bedrag
         else:
             resultaat[land] = bedrag
 
-    if europa_totaal > 0:
-        resultaat["Europe"] = resultaat.get("Europe", 0.0) + europa_totaal
+    for regio, totaal in totalen.items():
+        if totaal > 0:
+            resultaat[regio] = resultaat.get(regio, 0.0) + totaal
     return resultaat
 
 
-def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE_LANDEN):
+def _groepeer_regios_samen_per_bron(land_per_bron_dict, regios):
     resultaat = {}
-    europa_per_bron = {}
+    per_regio = {}
     for land, per_bron in land_per_bron_dict.items():
-        if land in europese_landen:
+        regio = next((naam for naam, landen in regios.items() if land in landen), None)
+        if regio:
+            rij = per_regio.setdefault(regio, {})
             for bron, bedrag in per_bron.items():
-                europa_per_bron[bron] = europa_per_bron.get(bron, 0.0) + bedrag
+                rij[bron] = rij.get(bron, 0.0) + bedrag
         else:
             resultaat[land] = dict(per_bron)
 
-    if europa_per_bron:
-        resultaat["Europe"] = europa_per_bron
+    resultaat.update(per_regio)
     return resultaat
+
+
+def _gekozen_regios(europa, azie):
+    regios = {}
+    if europa:
+        regios["Europe"] = EUROPESE_LANDEN
+    if azie:
+        regios["Asia"] = ASIATISCHE_LANDEN
+    return regios
+
+
+def _groepeer_europa_samen(land_dict, europese_landen=EUROPESE_LANDEN):
+    return _groepeer_regios_samen(land_dict, {"Europe": europese_landen})
+
+
+def _groepeer_europa_samen_per_bron(land_per_bron_dict, europese_landen=EUROPESE_LANDEN):
+    return _groepeer_regios_samen_per_bron(land_per_bron_dict, {"Europe": europese_landen})
 
 
 def _is_bekend(waarde):
@@ -399,11 +428,12 @@ def _aandeel_land_sector(ticker):
 def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_proxies=None):
     """Bedragen in €. land_proxies: {ticker: etf_proxy-rij} (etf_proxy.py); met een proxy_isin komt het
     land van de ETF uit de proxy (land_bron 'proxy'), sector blijft van Yahoo. Sleutels:
-      land, land_europa (Europa samengevoegd): {land: €}, kleine landen in 'Overig' (taart)
+      land, land_europa, land_azie, land_europa_azie (regio's samengevoegd): {land: €}, kleine landen in 'Overig' (taart)
+      regio_verdeling: {"Europe": {land: €}, "Asia": {land: €}}, onderverdeling binnen de regio (kleine taarten)
       sector: {sector: €}
       per_etf: {ticker: {land, sector (fracties 0-1), land_bron, land_proxy: {naam, max_afwijking_pp} of None}}
       per_aandeel: {ticker: {land, sector}}, alle niet-ETF-tickers, ook gesloten posities
-      land_per_bron_top, land_per_bron_europa_top: {land: {bron: €}}, top 10 + 'Overig' (staaf)
+      land_per_bron_top, land_per_bron_{europa,azie,europa_azie}_top: {land: {bron: €}}, top 10 + 'Overig' (staaf)
       sector_per_bron: {sector: {bron: €}}
     """
     def optellen(dct, key, bedrag):
@@ -457,19 +487,31 @@ def compute_land_sector_verdeling(transacties_df, price_data, is_etf_map, land_p
             aandeel_land, aandeel_sector = _aandeel_land_sector(ticker)
             per_aandeel[ticker] = {"land": aandeel_land, "sector": aandeel_sector}
 
-    land_europa_gegroepeerd = _groepeer_europa_samen(land)
-    land_per_bron_europa = _groepeer_europa_samen_per_bron(land_per_bron)
+    def samengevoegd(europa, azie):
+        regios = _gekozen_regios(europa, azie)
+        gegroepeerd = _groepeer_regios_samen(land, regios)
+        return _voeg_kleine_landen_samen(gegroepeerd, uitgezonderd=set(regios) & set(gegroepeerd))
+
+    def samengevoegd_per_bron(europa, azie):
+        return _beperk_tot_top_n_per_bron(
+            _groepeer_regios_samen_per_bron(land_per_bron, _gekozen_regios(europa, azie)))
+
+    def binnen_regio(landen):
+        return _voeg_kleine_landen_samen({l: b for l, b in land.items() if l in landen and b > 0})
+
     return {
         "land": _voeg_kleine_landen_samen(land),
-        "land_europa": _voeg_kleine_landen_samen(
-            land_europa_gegroepeerd,
-            uitgezonderd={"Europe"} if "Europe" in land_europa_gegroepeerd else frozenset(),
-        ),
+        "regio_verdeling": {"Europe": binnen_regio(EUROPESE_LANDEN), "Asia": binnen_regio(ASIATISCHE_LANDEN)},
+        "land_europa": samengevoegd(True, False),
+        "land_azie": samengevoegd(False, True),
+        "land_europa_azie": samengevoegd(True, True),
         "sector": sector,
         "per_etf": per_etf,
         "per_aandeel": per_aandeel,
         "land_per_bron_top": _beperk_tot_top_n_per_bron(land_per_bron),
-        "land_per_bron_europa_top": _beperk_tot_top_n_per_bron(land_per_bron_europa),
+        "land_per_bron_europa_top": samengevoegd_per_bron(True, False),
+        "land_per_bron_azie_top": samengevoegd_per_bron(False, True),
+        "land_per_bron_europa_azie_top": samengevoegd_per_bron(True, True),
         "sector_per_bron": sector_per_bron,
     }
 
@@ -494,10 +536,11 @@ def _als_gewichten(pct):
     return {naam: f / som for naam, f in gewichten.items()} if som > 1 else gewichten
 
 
-def gewichten_per_land(fracties_per_ticker, europa_samenvoegen=False):
-    """fracties_per_ticker: {ticker: land_sector_fracties()}; Europa met dezelfde landenlijst als de taart."""
+def gewichten_per_land(fracties_per_ticker, europa_samenvoegen=False, azie_samenvoegen=False):
+    """fracties_per_ticker: {ticker: land_sector_fracties()}; regio's met dezelfde landenlijsten als de taart."""
+    regios = _gekozen_regios(europa_samenvoegen, azie_samenvoegen)
     return {
-        ticker: _als_gewichten(_groepeer_europa_samen(f["land_pct"]) if europa_samenvoegen else f["land_pct"])
+        ticker: _als_gewichten(_groepeer_regios_samen(f["land_pct"], regios) if regios else f["land_pct"])
         for ticker, f in fracties_per_ticker.items()
     }
 

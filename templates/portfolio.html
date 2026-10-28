@@ -285,10 +285,27 @@
 
             <div id="tab-land" data-views="land" style="display: none;">
                 <p id="landDekkingTekst" class="kleineMelding" data-verberg-buiten="land" style="display: none;"></p>
-                <div data-grafiek-plek></div>
-                <label id="europaCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel margeBoven10" style="display: none;">
-                    <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
-                </label>
+                <div class="landSplit">
+                    <div class="landGrafiek">
+                        <div data-grafiek-plek></div>
+                        <label id="europaCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel margeBoven10" style="display: none;">
+                            <input type="checkbox" id="europaCheckbox"> Europese landen samenvoegen
+                        </label>
+                        <label id="azieCheckboxWrapper" data-verberg-buiten="land" class="checkboxLabel margeBoven10" style="display: none;">
+                            <input type="checkbox" id="azieCheckbox"> Aziatische landen samenvoegen
+                        </label>
+                    </div>
+                    <div id="landRegioTaarten" data-verberg-buiten="land" style="display: none;">
+                        <div id="regioTaartEuropa" class="regioTaart" style="display: none;">
+                            <div class="sectieTitel">Verdeling binnen Europa</div>
+                            <div class="regioTaartCanvas"><canvas id="regioChartEuropa"></canvas></div>
+                        </div>
+                        <div id="regioTaartAzie" class="regioTaart" style="display: none;">
+                            <div class="sectieTitel">Verdeling binnen Azië</div>
+                            <div class="regioTaartCanvas"><canvas id="regioChartAzie"></canvas></div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             <div id="tab-sector" data-views="sector" style="display: none;">

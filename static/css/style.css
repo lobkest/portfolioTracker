@@ -1038,6 +1038,15 @@ input.schakelaar:focus-visible {
     touch-action: none;
 }
 
+.regioTaart {
+    margin-top: 20px;
+}
+
+.regioTaartCanvas {
+    position: relative;
+    height: 260px;
+}
+
 /* Brede tabellen (o.a. Posities, Rendement per jaar) scrollen zelf horizontaal
    i.p.v. de hele pagina breder te maken op smalle schermen. */
 .tabelWrapper {
@@ -2280,6 +2289,22 @@ button.diagnostiekChip:disabled:hover {
     #aansluitingskostenSectie {
         flex: 0 0 340px;
         margin-top: 0;
+    }
+
+    /* Verdeling → Land: hoofdtaart links, kleine taarten per samengevoegde regio rechts. */
+    .landSplit {
+        display: flex;
+        align-items: flex-start;
+        gap: 32px;
+    }
+
+    .landGrafiek {
+        flex: 1 1 0;
+        min-width: 0;
+    }
+
+    #landRegioTaarten {
+        flex: 0 0 300px;
     }
 
     .tabInfo select {

@@ -161,6 +161,17 @@ class TestComputeLandSectorVerdelingTopVelden(unittest.TestCase):
         self.assertNotIn("Overig", europa_top)
         self.assertAlmostEqual(europa_top["Europe"]["ETF_A"], 170.0)
 
+        # Azie = 1000 x (0.15 + 0.10 + 0.06) = 310; samen met Europa blijft de rest ongewijzigd.
+        self.assertAlmostEqual(resultaat["land_azie"]["Asia"], 310.0)
+        self.assertAlmostEqual(resultaat["land_europa_azie"]["Asia"], 310.0)
+        self.assertAlmostEqual(resultaat["land_europa_azie"]["Europe"], 170.0)
+        self.assertAlmostEqual(resultaat["land_per_bron_europa_azie_top"]["Asia"]["ETF_A"], 310.0)
+
+        regio = resultaat["regio_verdeling"]
+        self.assertEqual(regio["Asia"], {"Japan": 150.0, "China": 100.0, "India": 60.0})
+        self.assertEqual(sorted(regio["Europe"]), ["France", "Germany", "Netherlands", "Spain"])
+        self.assertAlmostEqual(sum(regio["Europe"].values()), 170.0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -12,7 +12,7 @@ const OVER_TIJD_UITLEG = {
 const OVER_TIJD_NA_VERRIJKING = ["land", "sector"];
 let overTijdModus = "nu";
 let overTijdWeergave = "euro";
-// Per "dimensie|samenvoegen" het antwoord van /verdeling-over-tijd.
+// Per "dimensie|samenvoegen|azie" het antwoord van /verdeling-over-tijd.
 let overTijdDataPerSleutel = {};
 
 function resetVerdelingOverTijd() {
@@ -22,7 +22,7 @@ function resetVerdelingOverTijd() {
 }
 
 // Zet de knoppen en de uitleg voor dit tabblad; true als "Over tijd" gekozen is (de aanroeper tekent dan niets zelf).
-function toonOverTijdIndienGekozen(dimensie, samenvoegen = false) {
+function toonOverTijdIndienGekozen(dimensie, samenvoegen = false, azieSamenvoegen = false) {
     const mogelijk = Boolean(huidigeData.code);
     if (!mogelijk) overTijdModus = "nu";
     const overTijd = overTijdModus === "tijd";
@@ -51,7 +51,7 @@ function toonOverTijdIndienGekozen(dimensie, samenvoegen = false) {
     } else {
         ["verrijkingLaadt", "verrijkingFout"].forEach(id => { document.getElementById(id).style.display = "none"; });
     }
-    toonVerdelingOverTijd(dimensie, samenvoegen);
+    toonVerdelingOverTijd(dimensie, samenvoegen, azieSamenvoegen);
     return true;
 }
 
@@ -67,8 +67,8 @@ function overTijdKleurVoor(dimensie) {
 }
 
 // Eén keer per portfolio en sleutel ophalen; een fout wordt niet bewaard, zodat opnieuw kiezen opnieuw probeert.
-async function toonVerdelingOverTijd(dimensie, samenvoegen) {
-    const sleutel = `${dimensie}|${samenvoegen ? 1 : 0}`;
+async function toonVerdelingOverTijd(dimensie, samenvoegen, azieSamenvoegen) {
+    const sleutel = `${dimensie}|${samenvoegen ? 1 : 0}|${azieSamenvoegen ? 1 : 0}`;
     const data = overTijdDataPerSleutel[sleutel];
     if (!data) {
         const code = huidigeData.code;
@@ -77,7 +77,7 @@ async function toonVerdelingOverTijd(dimensie, samenvoegen) {
             : "Verdeling over tijd berekenen...");
         let res, antwoord;
         try {
-            res = await fetchMetTimeout(`/api/portfolio/${code}/verdeling-over-tijd?dimensie=${dimensie}${samenvoegen ? "&samenvoegen=1" : ""}`);
+            res = await fetchMetTimeout(`/api/portfolio/${code}/verdeling-over-tijd?dimensie=${dimensie}${samenvoegen ? "&samenvoegen=1" : ""}${azieSamenvoegen ? "&azie=1" : ""}`);
             antwoord = await res.json();
         } catch (e) {
             toonOverTijdMelding(e.message === "TIMEOUT"
