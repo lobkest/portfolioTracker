@@ -9,8 +9,17 @@ const {
     formatteerWachttijd,
     voortgang,
     kiesVolgendWeetje,
-    isPingOk
+    isPingOk,
+    doorlaatUrl
 } = require("../static/js/laadscherm.js");
+
+test("doorlaatUrl: voegt de param toe, behoudt query en hash, geen dubbele", () => {
+    assert.equal(doorlaatUrl("/", "", "", "_wakker"), "/?_wakker=1");
+    assert.equal(doorlaatUrl("/p/ABC", "?x=1", "", "_wakker"), "/p/ABC?x=1&_wakker=1");
+    assert.equal(doorlaatUrl("/p/ABC", "", "#rendement", "_wakker"), "/p/ABC?_wakker=1#rendement");
+    assert.equal(doorlaatUrl("/p/ABC", "?x=1", "#rendement", "_wakker"), "/p/ABC?x=1&_wakker=1#rendement");
+    assert.equal(doorlaatUrl("/", "?_wakker=1", "", "_wakker"), "/?_wakker=1");
+});
 
 test("formatteerWachttijd: enkelvoud, meervoud en minuten", () => {
     assert.equal(formatteerWachttijd(0), "0 seconden");

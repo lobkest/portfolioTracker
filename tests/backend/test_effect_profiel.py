@@ -251,6 +251,19 @@ class TestProfielEtf(_Profiel):
         p = self.profiel("VWRL.AS", ISIN)
         self.assertEqual((p["land_bron"], p["land_proxy"]), ("yfinance_top10", None))
 
+    def test_holdings_voor_effect_geeft_de_volledige_lijst_en_het_profiel_de_top_n(self):
+        veel = [{"holding_naam": f"H{i}", "holding_ticker": None, "gewicht": 0.001, "land": "NL", "bron": "provider_csv"}
+                for i in range(effect_profiel.MAX_TOP_HOLDINGS + 5)]
+        self.m["db_get_isins_voor_ticker"].return_value = [ISIN]
+        self.m["get_etf_holdings_voor_isin"].return_value = veel + [dict(veel[0], holding_naam="NaN", gewicht=float("nan"))]
+        hv = effect_profiel.holdings_voor_effect("SXR8.DE", ISIN)
+        self.assertEqual((len(hv["holdings"]), hv["route"], hv["isin_geverifieerd"], hv["waarschuwingen"]),
+                         (len(veel), "isin", True, []))
+        self.assertEqual(hv["fonds"], {"isin": ISIN, "naam": None})
+        profiel = self.profiel("SXR8.DE", ISIN)
+        self.assertEqual(len(profiel["holdings"]["top"]), effect_profiel.MAX_TOP_HOLDINGS)
+        self.assertEqual(profiel["holdings"]["aantal"], len(veel))
+
     def test_top_van_holdings_is_begrensd_maar_aantal_blijft_volledig(self):
         veel = [{"holding_naam": f"H{i}", "holding_ticker": None, "gewicht": 0.001, "land": "NL", "bron": "provider_csv"}
                 for i in range(effect_profiel.MAX_TOP_HOLDINGS + 5)]

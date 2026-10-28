@@ -1,5 +1,13 @@
 // DOM-helpers die de startpagina en de portfolio-pagina delen.
 
+// De service worker laat de pagina met deze param door (zie laden.html); hier uit de adresbalk, zodat hij niet in bladwijzers komt.
+(function verwijderWakkerParam() {
+    const url = new URL(location.href);
+    if (!url.searchParams.has("_wakker")) return;
+    url.searchParams.delete("_wakker");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+})();
+
 // Iets ruimer dan de standaard van fetchMetTimeout().
 const UPLOAD_TIMEOUT_MS = 60000;
 

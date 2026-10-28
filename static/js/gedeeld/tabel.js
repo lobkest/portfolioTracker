@@ -175,11 +175,18 @@ function maakSorteerbareTabel(kolommen, rijen, opts) {
 
     function tekenPaginaNavigatie(totPag) {
         const knoppen = [maakPaginaKnop("Vorige", staat.pagina - 1, staat.pagina === 1)];
-        for (let p = 1; p <= totPag; p++) {
+        paginaKnoppen(staat.pagina, totPag).forEach((p) => {
+            if (p === "…") {
+                const weglating = document.createElement("span");
+                weglating.className = "paginaWeglating";
+                weglating.textContent = p;
+                knoppen.push(weglating);
+                return;
+            }
             const btn = maakPaginaKnop(String(p), p, p === staat.pagina);
             if (p === staat.pagina) btn.className = "actief";
             knoppen.push(btn);
-        }
+        });
         knoppen.push(maakPaginaKnop("Volgende", staat.pagina + 1, staat.pagina === totPag));
         nav.replaceChildren(...knoppen);
     }

@@ -74,9 +74,11 @@ from portfolio_orchestratie import (
     bouw_verdeling_over_tijd, VERDELING_OVER_TIJD_DIMENSIES,
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
     meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden, isin_ticker_product_rijen,
+    bouw_wat_als_basis, bouw_wat_als_basis_uit_posities, bereken_wat_als,
 )
 from portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
-from effect_profiel import bouw_effect_profiel, OnbekendEffect
+from effect_profiel import bouw_effect_profiel, OnbekendEffect, GeenKoers
+from wat_als import valideer_aankoop_invoer, valideer_posities
 from effect_zoeken import zoek_effecten_gecachet, herken_isin, bepaal_isin_kandidaten
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
@@ -115,6 +117,8 @@ CATEGORIE_PER_ZWAAR_ENDPOINT = {
     "api_zoek": CATEGORIE_ZOEKEN,
     "api_isin_kandidaten": CATEGORIE_ZOEKEN,
     "api_effect_profiel": CATEGORIE_EXTERNE_BRON,
+    "portfolio_wat_als": CATEGORIE_EXTERNE_BRON,
+    "wat_als_zonder_opslaan": CATEGORIE_EXTERNE_BRON,
 }
 LIMIET_MELDING_PER_CATEGORIE = {
     CATEGORIE_FOUTE_CODE: "Te veel foute pogingen met een code.",
@@ -741,6 +745,44 @@ def api_effect_profiel():
         return jsonify(bouw_effect_profiel(ticker, isin))
     except OnbekendEffect:
         return jsonify({"error": f"Geen gegevens gevonden voor '{ticker}'."}), 404
+
+
+def _wat_als_response(maak_basis, ticker, isin, aantal):
+    """maak_basis() geeft de basis, of None bij een onbekende code (de aanroeper beantwoordt die)."""
+    try:
+        basis = maak_basis()
+        if basis is None:
+            return None
+        return jsonify(bereken_wat_als(basis, ticker, isin, aantal))
+    except OnbekendEffect:
+        return jsonify({"error": f"Geen gegevens gevonden voor '{ticker}'."}), 404
+    except GeenKoers:
+        return jsonify({"error": f"Geen koers beschikbaar voor '{ticker}', dus geen wat-als."}), 422
+    except Exception:
+        print_traceback()
+        return jsonify({"error": "Wat-als berekenen is mislukt of duurde te lang. Probeer het opnieuw."}), 500
+
+
+@app.route("/api/portfolio/<code>/wat-als", methods=["POST"])
+def portfolio_wat_als(code):
+    code = code.strip().upper()
+    ticker, isin, aantal, fout = valideer_aankoop_invoer(request.get_json(silent=True))
+    if fout:
+        return jsonify({"error": fout}), 400
+    with db_deel_verbinding():
+        antwoord = _wat_als_response(lambda: bouw_wat_als_basis(code), ticker, isin, aantal)
+    return _geen_portfolio(code) if antwoord is None else antwoord
+
+
+@app.route("/api/wat-als", methods=["POST"])
+def wat_als_zonder_opslaan():
+    """Voor 'niet opslaan': geen code en geen database; de posities komen uit het verrijkingsantwoord."""
+    data = request.get_json(silent=True)
+    ticker, isin, aantal, fout = valideer_aankoop_invoer(data)
+    posities, fout_posities = valideer_posities(data.get("posities") if isinstance(data, dict) else None)
+    if fout or fout_posities:
+        return jsonify({"error": fout or fout_posities}), 400
+    return _wat_als_response(lambda: bouw_wat_als_basis_uit_posities(posities), ticker, isin, aantal)
 
 
 @app.route("/api/etf-holdings")

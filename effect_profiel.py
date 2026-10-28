@@ -42,6 +42,10 @@ class OnbekendEffect(Exception):
     pass
 
 
+class GeenKoers(Exception):
+    pass
+
+
 def verifieer_isin_bij_ticker(ticker, isin):
     """Op de server vastgesteld, nooit uit een vlag van de client: de ISIN staat bij die ticker in de eigen
     transacties, of de ticker is een exacte notering van die ISIN."""
@@ -129,12 +133,12 @@ def _zonder_nan(waarde):
     return waarde
 
 
-def _etf_onderdelen(ticker, isin, geverifieerd, waarschuwingen):
-    """(land, land_bron, land_proxy, sector, holdings, holdings_route, holdings_fonds)."""
-    sector = _haal_sector(ticker)
-    if sector is None:
-        waarschuwingen.append(WAARSCHUWING_GEEN_SECTOR)
-
+def holdings_voor_effect(ticker, isin=None):
+    """Volledige holdings van een ETF: {holdings (alleen geldige gewichten), bron, route, fonds, isin_geverifieerd,
+    waarschuwingen}. Gedeeld door het profiel (dat de top-N toont) en wat-als (dat de hele lijst nodig heeft)."""
+    waarschuwingen = []
+    # Alleen "hoort deze ISIN bij deze ticker", los van welke holdings-route gebruikt is.
+    geverifieerd = verifieer_isin_bij_ticker(ticker, isin) if isin else None
     holdings, route = _haal_holdings(ticker, isin, geverifieerd, waarschuwingen)
     geldig = [h for h in holdings if pd.notna(h["gewicht"])]
     bron = geldig[0]["bron"] if geldig else None
@@ -142,6 +146,22 @@ def _etf_onderdelen(ticker, isin, geverifieerd, waarschuwingen):
         waarschuwingen.append(WAARSCHUWING_GEEN_HOLDINGS)
     elif bron == BRON_TOP10:
         waarschuwingen.append(WAARSCHUWING_ALLEEN_TOP10)
+    return {
+        "holdings": geldig, "bron": bron, "route": route,
+        "fonds": _holdings_fonds(isin) if route == ROUTE_ISIN else None,
+        "isin_geverifieerd": geverifieerd, "waarschuwingen": waarschuwingen,
+    }
+
+
+def _etf_onderdelen(ticker, isin, waarschuwingen):
+    """(land, land_bron, land_proxy, sector, samenvatting, route, fonds, isin_geverifieerd, volledige holdings)."""
+    sector = _haal_sector(ticker)
+    if sector is None:
+        waarschuwingen.append(WAARSCHUWING_GEEN_SECTOR)
+
+    hv = holdings_voor_effect(ticker, isin)
+    waarschuwingen.extend(hv["waarschuwingen"])
+    geldig, bron, geverifieerd = hv["holdings"], hv["bron"], hv["isin_geverifieerd"]
 
     land = land_pct_uit_holdings(geldig)
     land_bron = bron or BRON_TOP10
@@ -160,12 +180,11 @@ def _etf_onderdelen(ticker, isin, geverifieerd, waarschuwingen):
             "bron": lijst["bron"], "aantal": lijst["aantal"], "gedekt_gewicht": lijst["gedekt_gewicht"],
             "top": [{"naam": r["naam"], "gewicht": r["gewicht"]} for r in lijst["holdings"][:MAX_TOP_HOLDINGS]],
         }
-    fonds = _holdings_fonds(isin) if route == ROUTE_ISIN else None
-    return land, land_bron, land_proxy, sector or {}, samenvatting, route, fonds
+    return land, land_bron, land_proxy, sector or {}, samenvatting, hv["route"], hv["fonds"], geverifieerd, geldig
 
 
-def bouw_effect_profiel(ticker, isin=None):
-    """Raises OnbekendEffect bij een ticker zonder gegevens en zonder koers; elke andere bronfout wordt een waarschuwing."""
+def _profiel_en_holdings(ticker, isin):
+    """(profiel, volledige holdings of None bij een aandeel)."""
     waarschuwingen = []
     details = get_ticker_details(ticker)
     koers_eur, koers_datum = _haal_koers(ticker)
@@ -174,18 +193,18 @@ def bouw_effect_profiel(ticker, isin=None):
     if koers_eur is None:
         waarschuwingen.append(WAARSCHUWING_GEEN_KOERS)
 
-    # Alleen "hoort deze ISIN bij deze ticker", los van welke holdings-route gebruikt is.
-    geverifieerd = verifieer_isin_bij_ticker(ticker, isin) if isin else None
     is_etf = bool(details.get("is_etf"))
     if is_etf:
-        land, land_bron, land_proxy, sector, holdings, route, fonds = _etf_onderdelen(
-            ticker, isin, geverifieerd, waarschuwingen)
+        land, land_bron, land_proxy, sector, holdings, route, fonds, geverifieerd, volledig = _etf_onderdelen(
+            ticker, isin, waarschuwingen)
     else:
         aandeel_land, aandeel_sector = get_land_sector(ticker)
+        geverifieerd = verifieer_isin_bij_ticker(ticker, isin) if isin else None
+        volledig = None
         land, sector, land_bron, land_proxy, holdings, route, fonds = (
             {aandeel_land: 1.0}, {aandeel_sector: 1.0}, LAND_BRON_AANDEEL, None, None, None, None)
 
-    return _zonder_nan({
+    profiel = _zonder_nan({
         "ticker": ticker,
         "naam": details.get("long_name") or ticker,
         "type": TYPE_ETF if is_etf else TYPE_AANDEEL,
@@ -202,3 +221,33 @@ def bouw_effect_profiel(ticker, isin=None):
         "isin_geverifieerd": geverifieerd,
         "waarschuwingen": waarschuwingen,
     })
+    return profiel, volledig
+
+
+def bouw_effect_profiel(ticker, isin=None):
+    """Raises OnbekendEffect bij een ticker zonder gegevens en zonder koers; elke andere bronfout wordt een waarschuwing."""
+    return _profiel_en_holdings(ticker, isin)[0]
+
+
+def bouw_aankoop(ticker, isin, aantal):
+    """(aankoop voor simuleer_aankoop, samenvatting voor het antwoord). Hergebruikt het profiel: dezelfde regels voor
+    proxy en ISIN-verificatie. Raises OnbekendEffect, GeenKoers."""
+    profiel, holdings = _profiel_en_holdings(ticker, isin)
+    koers_eur = profiel["koers_eur"]
+    if koers_eur is None:
+        raise GeenKoers(ticker)
+    waarde_eur = aantal * koers_eur
+    is_etf = profiel["type"] == TYPE_ETF
+    aankoop = {
+        "ticker": ticker, "naam": profiel["naam"], "is_etf": is_etf, "waarde_eur": waarde_eur,
+        # Een ontbrekend sectorblok blijft hier gewoon "Unknown", zodat de totalen kloppen.
+        "fracties": {"land_pct": profiel["land"], "sector_pct": profiel["sector"] or {"Unknown": 1.0},
+                     "land_bron": profiel["land_bron"], "land_proxy": profiel["land_proxy"]},
+        "holdings": holdings if is_etf else None,
+    }
+    samenvatting = {
+        "ticker": ticker, "naam": profiel["naam"], "aantal": aantal, "koers_eur": koers_eur, "waarde_eur": waarde_eur,
+        "isin_geverifieerd": profiel["isin_geverifieerd"], "holdings_route": profiel["holdings_route"],
+        "holdings_fonds": profiel["holdings_fonds"], "waarschuwingen": profiel["waarschuwingen"],
+    }
+    return aankoop, samenvatting

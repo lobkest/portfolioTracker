@@ -84,13 +84,15 @@ function toonRegioTaarten(regioVerdeling, europa, azie) {
         entries.sort((a, b) => ((a[0] === "Overig") - (b[0] === "Overig")) || (b[1] - a[1]));
         const totaal = entries.reduce((som, [, bedrag]) => som + bedrag, 0);
         let kleurIdx = 0;
+        const kleuren = entries.map(([naam]) => naam === "Overig" ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++));
+        const labelMinPct = taartLabelMinPct();
         regioCharts.push(new Chart(document.getElementById(canvas), {
             type: "pie",
             data: {
                 labels: entries.map(([naam]) => naam),
                 datasets: [{
                     data: entries.map(([, bedrag]) => bedrag),
-                    backgroundColor: entries.map(([naam]) => naam === "Overig" ? ONBEKEND_GRIJS : kleurVoorIndex(kleurIdx++)),
+                    backgroundColor: kleuren,
                     borderColor: "#fcfcfb",
                     borderWidth: 1
                 }]
@@ -100,7 +102,15 @@ function toonRegioTaarten(regioVerdeling, europa, azie) {
                 maintainAspectRatio: false,
                 plugins: {
                     legend: { position: "right", labels: { boxWidth: 12, font: { size: 11 } } },
-                    datalabels: { display: false },
+                    datalabels: {
+                        color: (ctx) => tekstKleurVoorVlak(kleuren[ctx.dataIndex]),
+                        font: { weight: "bold", size: 11 },
+                        formatter: (value, ctx) => {
+                            const pct = totaal ? (value / totaal * 100) : 0;
+                            if (pct < labelMinPct) return null;
+                            return [kortNaam(entries[ctx.dataIndex][0]), formatPct(pct, 1)];
+                        }
+                    },
                     tooltip: {
                         callbacks: {
                             label: (ctx) => `${ctx.label}: ${formatteerEuro(ctx.parsed)} (${formatPct(ctx.parsed / totaal * 100, 1)})`

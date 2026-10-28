@@ -53,6 +53,13 @@
         return typeof data === "object" && data !== null && data.ok === true;
     }
 
+    function doorlaatUrl(pathname, search, hash, param) {
+        const query = new URLSearchParams(search || "").has(param)
+            ? (search || "")
+            : `${search && search !== "?" ? `${search}&` : "?"}${param}=1`;
+        return `${pathname}${query}${hash || ""}`;
+    }
+
     const exportsObj = {
         VERWACHTE_WACHTTIJD_S,
         MAX_WACHTTIJD_S,
@@ -62,7 +69,8 @@
         formatteerWachttijd,
         voortgang,
         kiesVolgendWeetje,
-        isPingOk
+        isPingOk,
+        doorlaatUrl
     };
 
     if (typeof module !== "undefined" && module.exports) {

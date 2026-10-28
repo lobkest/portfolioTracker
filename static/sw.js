@@ -1,7 +1,9 @@
-const CACHE_NAAM = 'laadscherm-v2';
+const CACHE_NAAM = 'laadscherm-v4';
 const LAADSCHERM = '/static/laden.html';
 const BESTANDEN = [LAADSCHERM, '/static/js/laadscherm.js'];
-const PING_TIMEOUT_MS = 3000;
+const DOORLAAT_PARAM = '_wakker';
+const APP_PADEN = ['/'];
+const APP_PAD_VOORVOEGSELS = ['/p/'];
 
 self.addEventListener('install', (event) => {
     event.waitUntil(caches.open(CACHE_NAAM).then((cache) => cache.addAll(BESTANDEN)).then(() => self.skipWaiting()));
@@ -15,31 +17,19 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-async function serverIsWakker() {
-    const stop = new AbortController();
-    const timer = setTimeout(() => stop.abort(), PING_TIMEOUT_MS);
-    try {
-        const antwoord = await fetch('/ping', { cache: 'no-store', signal: stop.signal });
-        const data = await antwoord.json();
-        return !!data && data.ok === true;
-    } catch (fout) {
-        return false;
-    } finally {
-        clearTimeout(timer);
-    }
+function isAppPad(pad) {
+    return APP_PADEN.includes(pad) || APP_PAD_VOORVOEGSELS.some((voorvoegsel) => pad.startsWith(voorvoegsel));
 }
 
 self.addEventListener('fetch', (event) => {
+    const url = new URL(event.request.url);
     // Deze bestanden altijd uit de cache: de server kan slapen.
-    const pad = new URL(event.request.url).pathname;
-    if (BESTANDEN.includes(pad)) {
-        event.respondWith(caches.match(pad).then((antwoord) => antwoord || fetch(event.request)));
+    if (BESTANDEN.includes(url.pathname)) {
+        event.respondWith(caches.match(url.pathname).then((antwoord) => antwoord || fetch(event.request)));
         return;
     }
     if (event.request.mode !== 'navigate') return;
-    event.respondWith((async () => {
-        if (await serverIsWakker()) return fetch(event.request);
-        const cache = await caches.open(CACHE_NAAM);
-        return (await cache.match(LAADSCHERM)) || fetch(event.request);
-    })());
+    if (url.searchParams.has(DOORLAAT_PARAM) || !isAppPad(url.pathname)) return;
+    // Direct het laadscherm: de pagina pollt zelf /ping en stuurt door met DOORLAAT_PARAM.
+    event.respondWith(caches.match(LAADSCHERM).then((antwoord) => antwoord || fetch(event.request)));
 });

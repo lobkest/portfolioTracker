@@ -112,8 +112,17 @@
         return tekst;
     }
 
+    // Eerste, laatste en huidige ± 1 met "…" ertussen; vanaf 8 pagina's altijd 7 plekken, zodat de knoppen niet verspringen.
+    function paginaKnoppen(huidig, totaal) {
+        const reeks = (van, tot) => Array.from({ length: tot - van + 1 }, (_, i) => van + i);
+        if (totaal <= 7) return reeks(1, totaal);
+        if (huidig <= 4) return [...reeks(1, 5), "…", totaal];
+        if (huidig >= totaal - 3) return [1, "…", ...reeks(totaal - 4, totaal)];
+        return [1, "…", huidig - 1, huidig, huidig + 1, "…", totaal];
+    }
+
     const exportsObj = {
-        sorteerTransacties, totaalPaginas, pagineer, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
+        sorteerTransacties, totaalPaginas, pagineer, paginaKnoppen, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
         transactieMobielRol, datumTijdTekst, aantalStuksTekst, promotieTekenTekst,
     };
 

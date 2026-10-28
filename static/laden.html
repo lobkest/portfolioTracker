@@ -15,16 +15,6 @@
             --balkspoor: #e5e5e5;
             --accent: #2c7a4b;
         }
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --achtergrond: #1b1d1f;
-                --kaart: #26292c;
-                --tekst: #eee;
-                --gedempt: #aaa;
-                --balkspoor: #3a3e42;
-                --accent: #4cae78;
-            }
-        }
         * { box-sizing: border-box; }
         body {
             margin: 0;
@@ -45,7 +35,10 @@
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
             text-align: center;
+            opacity: 0;
+            animation: verschijn 0.3s ease 0.5s forwards;
         }
+        @keyframes verschijn { to { opacity: 1; } }
         h1 { margin: 0 0 8px; font-size: 1.3em; }
         .uitleg { margin: 0 0 20px; color: var(--gedempt); }
         .teller { font-weight: bold; margin-bottom: 10px; }
@@ -97,12 +90,15 @@
                 var timer = setTimeout(function () { stop.abort(); }, 3000);
                 fetch("/ping", { cache: "no-store", signal: stop.signal })
                     .then(function (antwoord) { return antwoord.json(); })
-                    .then(function (data) { if (isPingOk(data)) location.reload(); })
+                    .then(function (data) {
+                        if (isPingOk(data)) location.replace(doorlaatUrl(location.pathname, location.search, location.hash, "_wakker"));
+                    })
                     .catch(function () {})
                     .then(function () { clearTimeout(timer); });
             }
 
             ververs();
+            ping();
             setInterval(ververs, 1000);
             setInterval(function () {
                 weetjeIndex = kiesVolgendWeetje(weetjeIndex, WEETJES.length, Math.random);

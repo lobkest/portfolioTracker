@@ -6,7 +6,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-    sorteerTransacties, totaalPaginas, pagineer, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
+    sorteerTransacties, totaalPaginas, pagineer, paginaKnoppen, leesTransactiesAntwoord, promotieLabelTekst, promotieUitlegTekst, promotieSamenvattingTekst,
     transactieMobielRol, datumTijdTekst, aantalStuksTekst, promotieTekenTekst,
 } = require("../static/js/transacties.js");
 
@@ -110,6 +110,31 @@ test("totaalPaginas: rond af naar boven", () => {
 
 test("totaalPaginas: minimaal 1 pagina, ook bij 0 rijen", () => {
     assert.equal(totaalPaginas(0, 25), 1);
+});
+
+test("paginaKnoppen: één pagina", () => {
+    assert.deepEqual(paginaKnoppen(1, 1), [1]);
+});
+
+test("paginaKnoppen: tot en met 7 pagina's alle nummers", () => {
+    assert.deepEqual(paginaKnoppen(3, 7), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(paginaKnoppen(1, 2), [1, 2]);
+});
+
+test("paginaKnoppen: begin", () => {
+    assert.deepEqual(paginaKnoppen(1, 120), [1, 2, 3, 4, 5, "…", 120]);
+    assert.deepEqual(paginaKnoppen(4, 120), [1, 2, 3, 4, 5, "…", 120]);
+});
+
+test("paginaKnoppen: midden", () => {
+    assert.deepEqual(paginaKnoppen(5, 120), [1, "…", 4, 5, 6, "…", 120]);
+    assert.deepEqual(paginaKnoppen(7, 120), [1, "…", 6, 7, 8, "…", 120]);
+});
+
+test("paginaKnoppen: eind", () => {
+    assert.deepEqual(paginaKnoppen(117, 120), [1, "…", 116, 117, 118, 119, 120]);
+    assert.deepEqual(paginaKnoppen(120, 120), [1, "…", 116, 117, 118, 119, 120]);
+    assert.deepEqual(paginaKnoppen(116, 120), [1, "…", 115, 116, 117, "…", 120]);
 });
 
 test("pagineer: knipt de juiste rijen per pagina", () => {

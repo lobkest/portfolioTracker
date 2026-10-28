@@ -1100,6 +1100,10 @@ input.schakelaar:focus-visible {
     font-weight: bold;
 }
 
+.paginaNavigatie .paginaWeglating {
+    padding: 0 2px;
+}
+
 /* Tabel met compactOpMobiel: "Sorteer op" en de compacte rijen alleen op mobiel, zie sectie 6. */
 .sorteerKeuze,
 .mobieleLijst {

@@ -52,7 +52,8 @@ from portfolio_verdeling import (
     _sorteer_verdeling_groot_naar_klein, _sorteer_tickers_voor_dropdown,
     bereken_verdeling_samenvatting, BEDRIJVEN_TOP_N_MAX, bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT,
     bereken_verdeling_over_tijd, gewichten_per_positie, gewichten_per_valuta, gewichten_per_beurs,
-    gewichten_per_land, gewichten_per_sector, land_sector_fracties,
+    gewichten_per_land, gewichten_per_sector, land_sector_fracties, bouw_verdeling_invoer, ONDERDEEL_LAND_SECTOR,
+    ONDERDEEL_BEDRIJVEN,
 )
 from ticker_classificatie import (
     classify_tickers, _verwarm_land_sector_cache_parallel, haal_long_names, bewaar_long_names, vul_ontbrekende_long_names,
@@ -63,6 +64,8 @@ from portfolio_admin import is_ontwikkel_code
 from etf_holdings_provider import aanbieder_naam
 from dividend import ORDER_ID_KOLOM_REKENING
 from etf_proxy import land_proxies_voor_etfs
+from effect_profiel import bouw_aankoop
+from wat_als import simuleer_aankoop
 
 
 class YahooNamenOnbeschikbaar(Exception):
@@ -803,6 +806,24 @@ def _aansluitingskosten(rekening_regels):
     return samenvatting
 
 
+def _classificeer_en_verwarm(transacties_df, gebruik_proxy):
+    """(is_etf_map, land_proxies): classificeren, de land/sector/holdings-caches opwarmen en de land-proxy bepalen.
+    Gedeeld door de verrijking en wat-als, zodat beide met dezelfde invoer rekenen."""
+    tickers = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum().index.tolist()
+    with meet_tijd("verrijking_classificatie_en_cache_warm"):
+        with meet_tijd("verrijking_classify_tickers"):
+            is_etf_map = classify_tickers(tickers)
+        # Na classify_tickers(): db_save_long_names() werkt alleen bestaande rijen bij.
+        with meet_tijd("verrijking_long_names_aanvullen"):
+            vul_ontbrekende_long_names(tickers)
+        with meet_tijd("verrijking_verwarm_land_sector_cache"):
+            _verwarm_land_sector_cache_parallel(tickers, is_etf_map, _isin_per_ticker(transacties_df))
+
+    with meet_tijd("verrijking_land_proxy"):
+        land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map) if gebruik_proxy else {}
+    return is_etf_map, land_proxies
+
+
 def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=None, gebruik_proxy=True):
     """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. Zonder `gebruik_proxy` geen
     land-proxy (geen screener/CSV's, geen etf_proxy-cache): land dan uit de eigen top-10."""
@@ -830,18 +851,7 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
     laatste_prijzen = price_data.iloc[-1]
 
     with meet_tijd("verrijking_totaal"):
-        with meet_tijd("verrijking_classificatie_en_cache_warm"):
-            with meet_tijd("verrijking_classify_tickers"):
-                is_etf_map = classify_tickers(list(huidige_holdings.index))
-            # Na classify_tickers(): db_save_long_names() werkt alleen bestaande rijen bij.
-            with meet_tijd("verrijking_long_names_aanvullen"):
-                vul_ontbrekende_long_names(list(huidige_holdings.index))
-            with meet_tijd("verrijking_verwarm_land_sector_cache"):
-                _verwarm_land_sector_cache_parallel(
-                    list(huidige_holdings.index), is_etf_map, _isin_per_ticker(transacties_df))
-
-        with meet_tijd("verrijking_land_proxy"):
-            land_proxies = _bepaal_land_proxies(transacties_df, is_etf_map) if gebruik_proxy else {}
+        is_etf_map, land_proxies = _classificeer_en_verwarm(transacties_df, gebruik_proxy)
 
         with meet_tijd("verrijking_land_sector"):
             land_sector_verdeling = compute_land_sector_verdeling(
@@ -911,3 +921,45 @@ def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, b
         return resultaat
     resultaat.update(analyze_transacties_verrijking(transacties_df, code, gebruik_proxy=False))
     return resultaat
+
+
+# Wat-als rekent met land/sector en bedrijven; de overlap heeft het niet nodig.
+WAT_ALS_ONDERDELEN = {ONDERDEEL_LAND_SECTOR, ONDERDEEL_BEDRIJVEN}
+WAT_ALS_TOP_N = BEDRIJVEN_TOP_N_MAX
+
+
+def bouw_wat_als_basis(code):
+    """De basis voor wat-als van een opgeslagen portfolio, met exact de stappen van de verrijking (dus met proxy);
+    None bij een onbekende code."""
+    naam, transacties_df, price_data = haal_portfolio_basis(code)
+    if naam is None:
+        return None
+    if price_data.empty:
+        return _lege_wat_als_basis()
+    is_etf_map, land_proxies = _classificeer_en_verwarm(transacties_df, gebruik_proxy=True)
+    return bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, land_proxies, WAT_ALS_ONDERDELEN)
+
+
+def _lege_wat_als_basis():
+    return {"waarde_per_ticker": {}, "is_etf_map": {}, "fracties_per_ticker": {}, "extra_aandelen": {},
+            "holdings_per_etf": {}, "aandeel_namen": {}, "bron_namen": {}}
+
+
+def bouw_wat_als_basis_uit_posities(posities):
+    """De basis voor 'niet opslaan': posities = [{ticker, naam, waarde}] uit het verrijkingsantwoord. is_etf komt uit de
+    classificatie (niet van de client) en er is geen land-proxy, net als de verrijking daar. De posities worden als
+    transacties van 1 stuk tegen hun waarde ingevuld, zodat bouw_verdeling_invoer() ze op de gewone manier verwerkt.
+    Aandeelnamen zijn de meegestuurde namen i.p.v. echte_naam; dat kan alleen het matchen op bedrijfsnaam raken."""
+    tickers = [p["ticker"] for p in posities]
+    namen = [p["naam"] for p in posities]
+    is_etf_map = classify_tickers(tickers)
+    _verwarm_land_sector_cache_parallel(tickers, is_etf_map)
+    transacties_df = pd.DataFrame({"ticker": tickers, "aantal": 1.0, "product": namen, "echte_naam": namen})
+    price_data = pd.DataFrame({p["ticker"]: [p["waarde"]] for p in posities}, index=[pd.Timestamp.today().normalize()])
+    return bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, onderdelen=WAT_ALS_ONDERDELEN)
+
+
+def bereken_wat_als(basis, ticker, isin, aantal):
+    """{wat_als, aankoop} voor het bijkopen van `aantal` stuks. Raises OnbekendEffect, GeenKoers."""
+    aankoop, samenvatting = bouw_aankoop(ticker, isin, aantal)
+    return {"wat_als": simuleer_aankoop(basis, aankoop, WAT_ALS_TOP_N), "aankoop": samenvatting}
