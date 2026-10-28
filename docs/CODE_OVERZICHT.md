@@ -1122,7 +1122,7 @@ heeft (staat dan niet in `posities`). Beurs zonder transacties of rij `onbekend`
 ### `beurs_alternatieven.py` — fase A van "Alternatieven op een thuisbeurs"
 
 `THUISBEURZEN` (in `aansluitingskosten.py`): DEGIRO-codes, Yahoo-beurscode en naam van Euronext Amsterdam (EAM/XAMS, AMS) en Brussel (EBR, BRU);
-de volgorde is de voorkeur. `voeg_beurs_resultaat_toe()` zet bij elke beurs met een open positie `alternatieven_invoer`: open posities (aantal
+de volgorde is de voorkeur. `bouw_alternatieven_invoer(beurs, transacties_df, waarde_per_ticker, ticker_namen, huidig_jaar)` (puur, zonder statistieken; aangeroepen door `voeg_beurs_resultaat_toe()` en door `bouw_beurs_alternatieven_invoer()` voor de opgeslagen route) geeft bij elke beurs met een open positie `alternatieven_invoer` (anders `None`): open posities (aantal
 en waarde naar gewicht, ISIN), `jaarkosten_eur` (laatste jaar met kosten), `betaald_dit_jaar`, `gemiddelde_kosten_per_transactie_eur` (op die
 beurs, = `bereken_totale_transactiekosten()` gedeeld door het aantal orders) en dezelfde per thuisbeurs, en `isins_op_thuisbeurs` (eigen
 transacties). `thuisnoteringen()` houdt uit de Yahoo-quotes van een ISIN (ISIN-zoekopdracht + aanvulling op longname, `noteringen_voor_isin_zoekopdracht()`)

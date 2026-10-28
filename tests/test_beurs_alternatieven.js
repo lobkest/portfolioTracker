@@ -5,7 +5,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-    KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, alternatievenPaneel, alternatievenFoutTekst,
+    KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, FOUT_TEKST, ONGEVAL_TEKST, TE_LANG_TEKST, alternatievenPaneel,
+    alternatievenFoutTekst,
 } = require("../static/js/beurs_alternatieven.js");
 
 const VOORKEUR = { ticker: "IWDA.AS", beurs: "AMS", beurs_code: "EAM", beurs_naam: "Euronext Amsterdam", koers_eur: 100, afwijking_pct: 0.5 };
@@ -101,8 +102,13 @@ test("dit jaar al betaald en de vaste regels", () => {
     assert.equal(KNOP_TEKST, "Alternatieven op een thuisbeurs");
 });
 
-test("foutteksten", () => {
+test("foutteksten per soort fout", () => {
     assert.equal(alternatievenFoutTekst(400, { error: "Geef een geldige beurscode." }), "Geef een geldige beurscode.");
-    assert.match(alternatievenFoutTekst(504, null), /duurde te lang/);
-    assert.match(alternatievenFoutTekst(0, null), /niet gelukt/);
+    assert.equal(alternatievenFoutTekst(500, { error: "Alternatieven opzoeken is mislukt." }), ONGEVAL_TEKST);
+    assert.equal(ONGEVAL_TEKST, "Er ging iets mis bij het opzoeken van alternatieven.");
+    assert.equal(alternatievenFoutTekst(500, null), ONGEVAL_TEKST);
+    for (const status of [504, 0]) assert.equal(alternatievenFoutTekst(status, null), TE_LANG_TEKST);
+    assert.match(TE_LANG_TEKST, /duurde te lang/);
+    assert.equal(alternatievenFoutTekst(404, null), FOUT_TEKST);
+    assert.equal(alternatievenFoutTekst(404, { error: "Geen portfolio." }), "Geen portfolio.");
 });

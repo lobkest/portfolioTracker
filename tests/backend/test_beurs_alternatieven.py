@@ -11,7 +11,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 import beurs_alternatieven as ba
 import db
-from aansluitingskosten import THUISBEURZEN, bouw_aansluitingskosten_samenvatting, voeg_beurs_resultaat_toe
+import portfolio_orchestratie as po
+from aansluitingskosten import (
+    THUISBEURZEN, bouw_aansluitingskosten_samenvatting, bouw_alternatieven_invoer, voeg_beurs_resultaat_toe)
+from contextlib import ExitStack
+from dividend import ORDER_ID_KOLOM_REKENING, bouw_rekening_regels
 from beurs_alternatieven import (
     FOUT_ALGEMEEN, STATUS_FOUT, STATUS_GEVONDEN, STATUS_NIET_GEVONDEN, STATUS_WAARSCHUWING, beoordeel_positie,
     bouw_beurs_alternatieven, haal_alternatieven, onderzoek_isin, thuisnoteringen, valideer_alternatieven_invoer,
@@ -226,6 +230,87 @@ class TestInvoerUitTransacties(unittest.TestCase):
         rijen = [_tx("2025-01-02", "TDG", "IWDA.DE", ISIN_A, 10), _tx("2025-02-02", "XET", "IWDA.DE", ISIN_A, 30)]
         i = self.maak(rijen, {"IWDA.DE": 4000.0})
         self.assertEqual((i["posities"][0]["aantal"], i["posities"][0]["waarde_eur"]), (10.0, 1000.0))
+
+
+class TestBouwAlternatievenInvoer(unittest.TestCase):
+    def beurs(self, code="TDG"):
+        return bouw_aansluitingskosten_samenvatting(_kostenregels(2025, 2026, code=code))["per_beurs"][0]
+
+    def test_open_positie(self):
+        rijen = [_tx("2025-01-02", "TDG", "IWDA.DE", ISIN_A, 10, -4.0)]
+        i = bouw_alternatieven_invoer(self.beurs(), pd.DataFrame(rijen), {"IWDA.DE": 1000.0}, {"IWDA.DE": "World"}, 2026)
+        self.assertEqual(i["posities"], [
+            {"ticker": "IWDA.DE", "naam": "World", "isin": ISIN_A, "aantal": 10.0, "waarde_eur": 1000.0}])
+        self.assertEqual((i["beurs"], i["jaarkosten_eur"], i["betaald_dit_jaar"]), ("TDG", 2.5, True))
+        self.assertEqual(i["gemiddelde_kosten_per_transactie_eur"], 4.0)
+
+    def test_gesloten_positie_geen_invoer(self):
+        rijen = [_tx("2025-01-02", "TDG", "IWDA.DE", ISIN_A, 10), _tx("2025-02-02", "TDG", "IWDA.DE", ISIN_A, -10)]
+        self.assertIsNone(bouw_alternatieven_invoer(self.beurs(), pd.DataFrame(rijen), {}, {}, 2026))
+
+    def test_beurs_zonder_open_positie_geen_invoer(self):
+        rijen = [_tx("2025-01-02", "XET", "IWDA.DE", ISIN_A, 10)]
+        self.assertIsNone(bouw_alternatieven_invoer(self.beurs(), pd.DataFrame(rijen), {"IWDA.DE": 1.0}, {}, 2026))
+
+    def test_onbekende_beurs_geen_invoer(self):
+        beurs = bouw_aansluitingskosten_samenvatting([{
+            "omschrijving": "DEGIRO Aansluitingskosten Voorbeeldbeurs", "mutatie_valuta": "EUR", "mutatie": -2.5}])["per_beurs"][0]
+        rijen = [_tx("2025-01-02", "XET", "IWDA.DE", ISIN_A, 10)]
+        self.assertIsNone(bouw_alternatieven_invoer(beurs, pd.DataFrame(rijen), {"IWDA.DE": 1.0}, {}, 2026))
+
+    def test_positie_zonder_koers_heeft_waarde_none(self):
+        rijen = [_tx("2025-01-02", "TDG", "IWDA.DE", ISIN_A, 10)]
+        i = bouw_alternatieven_invoer(self.beurs(), pd.DataFrame(rijen), {}, {}, 2026)
+        self.assertIsNone(i["posities"][0]["waarde_eur"])
+
+
+class TestInvoerEndpointGelijkAanKern(unittest.TestCase):
+    """bouw_beurs_alternatieven_invoer() echt uitgevoerd; alleen haal_portfolio_basis en de rekeningregels zijn gemockt."""
+
+    REGELS = [
+        ("2024-01-02", "09:00", "iDEAL storting", "EUR", 1000.0),
+        ("2024-02-03", "09:00", "DEGIRO Aansluitingskosten 2024 (Tradegate AG - TDG)", "EUR", -2.5),
+        ("2025-02-03", "09:00", "DEGIRO Aansluitingskosten 2025 (Tradegate AG - TDG)", "EUR", -2.5),
+    ]
+
+    def setUp(self):
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        dagen = pd.bdate_range("2024-01-02", "2025-06-02")
+        self.price_data = pd.DataFrame({"AAA": [50.0 + 0.01 * i for i in range(len(dagen))]}, index=dagen)
+        for naam, waarde in [("get_prices", self.price_data), ("db_get_koers_splits", {}),
+                             ("db_get_laatste_koers_update", (None, None)),
+                             ("ticker_waarschuwingen_voor_transacties", ([], {})), ("analyze_transacties_verrijking", {}),
+                             ("db_get_ticker_details", {}), ("db_get_cached_openfigi_voor_isins", {})]:
+            stack.enter_context(patch.object(po, naam, return_value=waarde))
+        po.wis_portfolio_basis_cache("TESTALT")
+        self.addCleanup(po.wis_portfolio_basis_cache, "TESTALT")
+        rekening = pd.DataFrame([{
+            "Datum": pd.Timestamp(d), "Tijd": t, "Valutadatum": pd.Timestamp(d), "Product": None, "ISIN": None,
+            "Omschrijving": o, "FX": None, "valuta_mutatie": v, "mutatie": m, "valuta_saldo": "EUR", "saldo": None,
+            ORDER_ID_KOLOM_REKENING: None} for d, t, o, v, m in self.REGELS])
+        self.regels = [r for r in bouw_rekening_regels(rekening) if r["mutatie_valuta"] == "EUR" and r["mutatie"] is not None]
+        rijen = [dict(_tx("2024-01-02", "TDG", "AAA", ISIN_A, 10.0, -4.0), koers=50.0, totaal_eur=-504.0, echte_naam="AAA",
+                      waarde_eur=-500.0, tijd="10:00", wisselkoers=None, autofx_kosten=None),
+                 dict(_tx("2024-03-01", "TDG", "AAA", ISIN_A, 2.0, -2.0), koers=55.0, totaal_eur=-112.0, echte_naam="AAA",
+                      waarde_eur=-110.0, tijd="10:00", wisselkoers=None, autofx_kosten=None),
+                 dict(_tx("2024-04-01", "EAM", "AAA", ISIN_A, 1.0, -1.0), koers=55.0, totaal_eur=-56.0, echte_naam="AAA",
+                      waarde_eur=-55.0, tijd="10:00", wisselkoers=None, autofx_kosten=None)]
+        self.df = pd.DataFrame(rijen, columns=db.TRANSACTIE_KOLOMMEN)
+
+    def test_zelfde_invoer_als_in_het_kernantwoord(self):
+        kern = po.analyze_transacties(self.df.copy(), code=None, naam="Test", rekening_regels=self.regels)
+        verwacht = next(b for b in kern["aansluitingskosten"]["per_beurs"] if b["code"] == "TDG")["alternatieven_invoer"]
+        self.assertIsNotNone(verwacht)
+        with patch.object(po, "haal_portfolio_basis", return_value=("Test", self.df.copy(), self.price_data)),                 patch.object(po, "db_get_rekening_regels_eur", return_value=self.regels):
+            self.assertEqual(po.bouw_beurs_alternatieven_invoer("TESTALT", "TDG"), verwacht)
+
+    def test_onbekende_code_en_beurs_zonder_kosten(self):
+        with patch.object(po, "haal_portfolio_basis", return_value=(None, None, None)):
+            self.assertIsNone(po.bouw_beurs_alternatieven_invoer("TESTALT", "TDG"))
+        with patch.object(po, "haal_portfolio_basis", return_value=("Test", self.df.copy(), self.price_data)),                 patch.object(po, "db_get_rekening_regels_eur", return_value=self.regels):
+            with self.assertRaises(po.OnbekendeBeurs):
+                po.bouw_beurs_alternatieven_invoer("TESTALT", "XET")
 
 
 class TestValidatie(unittest.TestCase):

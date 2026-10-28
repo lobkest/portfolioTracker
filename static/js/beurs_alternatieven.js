@@ -17,6 +17,8 @@
     const DIT_JAAR_AL_BETAALD = "De kosten voor dit jaar zijn al betaald; vanaf het jaar na je laatste transactie of positie "
         + "op deze beurs betaal je niet meer.";
     const FOUT_TEKST = "Alternatieven ophalen is niet gelukt. Probeer het later opnieuw.";
+    const ONGEVAL_TEKST = "Er ging iets mis bij het opzoeken van alternatieven.";
+    const TE_LANG_TEKST = "Het ophalen duurde te lang. Probeer het later opnieuw.";
 
     function bedragOfOnbekend(bedrag) {
         return bedrag === null || bedrag === undefined ? ONBEKEND : formatteerEuro(bedrag);
@@ -89,14 +91,17 @@
         };
     }
 
-    // Zo kunnen we de bodytekst ook zonder netwerk testen: de foutmelding van de server of een standaardtekst.
+    // 500: algemene tekst; 400 (en andere antwoorden met een melding): de melding uit de JSON; time-out of netwerkfout
+    // (status 504 of 0): "duurde te lang".
     function alternatievenFoutTekst(status, data) {
+        if (status === 500) return ONGEVAL_TEKST;
+        if (status === 0 || status === 504) return TE_LANG_TEKST;
         if (data && typeof data.error === "string" && data.error) return data.error;
-        return status === 504 ? "Het ophalen duurde te lang. Probeer het later opnieuw." : FOUT_TEKST;
+        return FOUT_TEKST;
     }
 
     const exportsObj = {
-        KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, SCHATTING_TOELICHTING, FOUT_TEKST,
+        KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, SCHATTING_TOELICHTING, FOUT_TEKST, ONGEVAL_TEKST, TE_LANG_TEKST,
         alternatievenPaneel, alternatievenFoutTekst,
     };
 

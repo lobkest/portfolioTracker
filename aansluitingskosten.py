@@ -205,14 +205,25 @@ def _isin_per_ticker_laatste(transacties_df):
     return df.drop_duplicates(subset=["ticker"], keep="last").set_index("ticker")["isin"].to_dict()
 
 
-def _bouw_alternatieven_invoer(beurs, code, transacties_df, codes, echte_rij, waarde_per_ticker, isin_per_ticker):
+def bouw_alternatieven_invoer(beurs, transacties_df, waarde_per_ticker, ticker_namen, huidig_jaar):
     """Alles wat beurs_alternatieven.py nodig heeft, uit de eigen transacties: open posities (naar gewicht), gemiddelde
-    transactiekosten per transactie op deze en op de thuisbeurzen, en ISIN's die al op een thuisbeurs zijn gehandeld."""
+    transactiekosten per transactie op deze en op de thuisbeurzen, en ISIN's die al op een thuisbeurs zijn gehandeld.
+    `beurs`: een item van samenvatting["per_beurs"]; `waarde_per_ticker`: {open ticker: huidige waarde}. None zonder open positie."""
+    code = beurs["code"]
+    if code == BEURS_ONBEKEND:
+        return None
+    codes = transacties_df["beurs"].map(lambda c: BEURS_ONBEKEND if pd.isna(c) else str(c).strip().upper())
+    echte_rij = pd.Series([not _is_corporate_action_row(r) for r in transacties_df.to_dict("records")],
+                          index=transacties_df.index)
+    gewichten = gewichten_per_beurscode(transacties_df)
+    open_posities = [p for p in _posities_van_beurs(code, gewichten, {}, _open_tickers(transacties_df), ticker_namen)
+                     if p["nog_in_bezit"]]
+    if not open_posities:
+        return None
+    isin_per_ticker = _isin_per_ticker_laatste(transacties_df) if "isin" in transacties_df.columns else {}
     aantallen = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     posities = []
-    for p in beurs["posities"]:
-        if not p["nog_in_bezit"]:
-            continue
+    for p in open_posities:
         waarde = waarde_per_ticker.get(p["ticker"])
         posities.append({
             "ticker": p["ticker"], "naam": p["naam"], "isin": isin_per_ticker.get(p["ticker"]),
@@ -221,14 +232,13 @@ def _bouw_alternatieven_invoer(beurs, code, transacties_df, codes, echte_rij, wa
         })
     thuis_codes = {c for thuis in THUISBEURZEN for c in thuis["codes"]}
     thuis_rijen = transacties_df[codes.isin(thuis_codes) & echte_rij]
-    jaarkosten = [j["bedrag_eur"] for j in sorted(
-        (j for j in beurs["per_jaar"] if j["jaar"] is not None), key=lambda j: j["jaar"])]
+    kosten_per_jaar = {j["jaar"]: j["bedrag_eur"] for j in beurs["per_jaar"] if j["jaar"] is not None}
     return {
         "beurs": code,
         "beurs_naam": beurs["verdeling_naam"] or beurs["naam"],
         "posities": posities,
-        "jaarkosten_eur": jaarkosten[-1] if jaarkosten else None,
-        "betaald_dit_jaar": beurs["betaald_dit_jaar"],
+        "jaarkosten_eur": kosten_per_jaar[max(kosten_per_jaar)] if kosten_per_jaar else None,
+        "betaald_dit_jaar": kosten_per_jaar.get(huidig_jaar, 0) > 0,
         "gemiddelde_kosten_per_transactie_eur": _gemiddelde_kosten_per_transactie(
             transacties_df, {code}, codes, echte_rij),
         "thuisbeurs_kosten_per_transactie_eur": {
@@ -253,7 +263,6 @@ def voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, huidig_
     open_tickers = _open_tickers(transacties_df)
     wv_ticker = _wv_per_ticker(statistieken)
     waarde_per_ticker = {p["ticker"]: p.get("huidige_waarde") for p in statistieken["posities"]}
-    isin_per_ticker = _isin_per_ticker_laatste(transacties_df) if "isin" in transacties_df.columns else {}
     zonder_koers = _open_tickers_zonder_koers(transacties_df, statistieken)
     periode = _gedekte_periode(statistieken, rekening_regels)
     codes = transacties_df["beurs"].map(lambda c: BEURS_ONBEKEND if pd.isna(c) else str(c).strip().upper())
@@ -271,9 +280,8 @@ def voeg_beurs_resultaat_toe(samenvatting, transacties_df, statistieken, huidig_
         beurs["posities"] = [] if onbekend else _posities_van_beurs(code, gewichten, wv_ticker, open_tickers, ticker_namen)
         beurs["heeft_open_positie"] = any(p["nog_in_bezit"] for p in beurs["posities"])
         beurs["betaald_dit_jaar"] = kostenjaren.get(huidig_jaar, 0) > 0
-        beurs["alternatieven_invoer"] = (
-            _bouw_alternatieven_invoer(beurs, code, transacties_df, codes, echte_rij, waarde_per_ticker, isin_per_ticker)
-            if beurs["heeft_open_positie"] else None)
+        beurs["alternatieven_invoer"] = bouw_alternatieven_invoer(
+            beurs, transacties_df, waarde_per_ticker, ticker_namen, huidig_jaar)
         beurs["kosten_zonder_positie_of_transacties"] = sorted(
             j for j in kostenjaren if j not in tellers and j not in jaren_positie)
         beurs["activiteit_zonder_kosten"] = sorted(

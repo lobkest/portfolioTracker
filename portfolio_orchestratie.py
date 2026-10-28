@@ -45,7 +45,7 @@ from portfolio_calc import (
 from split_correctie import bepaal_effectieve_datums, continue_reeks
 from ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
 from dividend import bouw_dividend_samenvatting, promotie_bedragen
-from aansluitingskosten import bouw_aansluitingskosten_samenvatting, voeg_beurs_resultaat_toe
+from aansluitingskosten import bouw_aansluitingskosten_samenvatting, bouw_alternatieven_invoer, voeg_beurs_resultaat_toe
 from statistieken import bereken_statistieken
 from transactiebestand_status import beoordeel_transactiebestand
 from portfolio_verdeling import (
@@ -822,12 +822,12 @@ def bouw_beurs_alternatieven_invoer(code, beurs):
     rekening_regels = db_get_rekening_regels_eur(code)
     laatste = price_data.iloc[-1] if not price_data.empty else pd.Series(dtype=float)
     aantallen = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
-    posities = [{"ticker": t, "huidige_waarde": float(n) * float(laatste[t])}
-                for t, n in aantallen.items() if t in laatste.index and pd.notna(laatste[t])]
+    waarde_per_ticker = {t: round(float(n) * float(laatste[t]), 2)
+                         for t, n in aantallen.items() if t in laatste.index and pd.notna(laatste[t])}
     samenvatting = bouw_aansluitingskosten_samenvatting(rekening_regels or [])
-    voeg_beurs_resultaat_toe(samenvatting, transacties_df, {"posities": posities, "gesloten_posities": [], "totalen": {}},
-                             datetime.date.today().year, rekening_regels, _ticker_namen(transacties_df))
-    invoer = next((b["alternatieven_invoer"] for b in samenvatting["per_beurs"] if b["code"] == beurs), None)
+    beurs_item = next((b for b in samenvatting["per_beurs"] if b["code"] == beurs), None)
+    invoer = beurs_item and bouw_alternatieven_invoer(
+        beurs_item, transacties_df, waarde_per_ticker, _ticker_namen(transacties_df), datetime.date.today().year)
     if invoer is None:
         raise OnbekendeBeurs(beurs)
     return invoer
