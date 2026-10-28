@@ -13,6 +13,7 @@ from debug_utils import dprint
 from effect_profiel import haal_koers
 from effect_zoeken import TOEGESTANE_TYPES, herken_isin, noteringen_voor_isin_zoekopdracht, zoek_gecachet
 from wat_als import MAX_NAAM_TEKENS, MAX_POSITIES_WAT_ALS, MAX_TICKER_TEKENS
+from yahoo_client import yahoo_teller_stand
 
 KOERS_AFWIJKING_DREMPEL = 0.05
 MAX_PARALLEL = 4
@@ -141,11 +142,23 @@ def _terugverdientijd(besparing, overstapkosten):
     return round(overstapkosten / besparing, 1)
 
 
+def _gelogd_zoeken(query):
+    quotes = zoek_gecachet(query)
+    dprint(f"[alternatieven] zoekopdracht {query!a}: {len(quotes)} quote(s)")
+    for q in quotes:
+        dprint(f"[alternatieven]   symbol={q.get('symbol')!a} exchange={q.get('exchange')!a} "
+               f"quoteType={q.get('quoteType')!a} longname={q.get('longname')!a}")
+    return quotes
+
+
 def _haal_onderzoek_op(isin):
-    quotes = zoek_gecachet(isin)
+    quotes = _gelogd_zoeken(isin)
     if not quotes:
         return {"fout": FOUT_GEEN_ZOEKRESULTAAT}
-    is_etf, noteringen = thuisnoteringen(noteringen_voor_isin_zoekopdracht(quotes, zoek_gecachet))
+    alle_quotes = noteringen_voor_isin_zoekopdracht(quotes, _gelogd_zoeken)
+    is_etf, noteringen = thuisnoteringen(alle_quotes)
+    dprint(f"[alternatieven] {isin}: {len(alle_quotes)} quote(s) totaal, is_etf={is_etf}, na thuisbeurs-filter: "
+           f"{[(n['ticker'], n['beurs']) for n in noteringen]}")
     for notering in noteringen:
         notering["koers_eur"], _datum = haal_koers(notering["ticker"])
     return {"is_etf": is_etf, "noteringen": noteringen}
@@ -179,11 +192,14 @@ def wis_onderzoek_cache():
 def haal_alternatieven(invoer, onderzoeker=onderzoek_isin):
     """Zoekt alle ISIN's parallel op (maximaal MAX_PARALLEL tegelijk) en bouwt het antwoord."""
     isins = sorted({p["isin"] for p in invoer["posities"] if p.get("isin")})
+    calls_voor = yahoo_teller_stand()[0]
     onderzoek = {}
     if isins:
         with ThreadPoolExecutor(max_workers=min(MAX_PARALLEL, len(isins))) as pool:
             for isin, resultaat in zip(isins, pool.map(onderzoeker, isins)):
                 onderzoek[isin] = resultaat
+    # De teller is globaal per proces: gelijktijdige requests tellen mee.
+    dprint(f"[alternatieven] {len(isins)} ISIN(s), Yahoo-calls sinds start van deze klik: {yahoo_teller_stand()[0] - calls_voor}")
     return bouw_beurs_alternatieven(invoer, onderzoek)
 
 
