@@ -146,3 +146,5 @@ document.getElementById("codeForm").addEventListener("submit", async (e) => {
         if (!navigeert) verbergLaadOverlay();
     }
 });
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js');

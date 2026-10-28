@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <title>Portfolio Dashboard wordt gestart</title>
+    <meta name="theme-color" content="#2c7a4b">
+    <meta name="robots" content="noindex">
+    <style>
+        :root {
+            --achtergrond: #f4f4f4;
+            --kaart: #fff;
+            --tekst: #222;
+            --gedempt: #666;
+            --balkspoor: #e5e5e5;
+            --accent: #2c7a4b;
+        }
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --achtergrond: #1b1d1f;
+                --kaart: #26292c;
+                --tekst: #eee;
+                --gedempt: #aaa;
+                --balkspoor: #3a3e42;
+                --accent: #4cae78;
+            }
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            font-family: Arial, sans-serif;
+            background-color: var(--achtergrond);
+            color: var(--tekst);
+        }
+        .kaart {
+            width: 100%;
+            max-width: 480px;
+            padding: 28px 24px;
+            background-color: var(--kaart);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+            text-align: center;
+        }
+        h1 { margin: 0 0 8px; font-size: 1.3em; }
+        .uitleg { margin: 0 0 20px; color: var(--gedempt); }
+        .teller { font-weight: bold; margin-bottom: 10px; }
+        .spoor { height: 10px; background-color: var(--balkspoor); border-radius: 5px; overflow: hidden; }
+        .balk { height: 100%; width: 0; background-color: var(--accent); transition: width 0.5s linear; }
+        .status { min-height: 1.4em; margin-top: 8px; color: var(--gedempt); font-size: 0.9em; }
+        .weetje { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--balkspoor); color: var(--gedempt); line-height: 1.45; }
+        .waarschuwing { margin-top: 16px; color: #c0392b; font-weight: bold; }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <main class="kaart">
+        <h1>De server wordt wakker</h1>
+        <p class="uitleg">Het dashboard draait op een gratis server die na een tijd slapen even moet opstarten. Dit duurt meestal zo'n 50 seconden.</p>
+        <div id="teller" class="teller">Je wacht nu 0 seconden</div>
+        <div id="spoor" class="spoor" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="balk" class="balk"></div>
+        </div>
+        <div id="status" class="status"></div>
+        <p id="weetje" class="weetje"></p>
+        <p id="waarschuwing" class="waarschuwing" hidden>Duurt het lang? Controleer je internetverbinding.</p>
+    </main>
+    <script src="/static/js/laadscherm.js"></script>
+    <script>
+        (function () {
+            var begin = Date.now();
+            var weetjeIndex = Math.floor(Math.random() * WEETJES.length);
+            var teller = document.getElementById("teller");
+            var balk = document.getElementById("balk");
+            var spoor = document.getElementById("spoor");
+            var status = document.getElementById("status");
+            var weetje = document.getElementById("weetje");
+            var waarschuwing = document.getElementById("waarschuwing");
+            weetje.textContent = WEETJES[weetjeIndex];
+
+            function ververs() {
+                var seconden = (Date.now() - begin) / 1000;
+                var deel = voortgang(seconden, VERWACHTE_WACHTTIJD_S);
+                teller.textContent = "Je wacht nu " + formatteerWachttijd(seconden);
+                balk.style.width = (deel * 100) + "%";
+                spoor.setAttribute("aria-valuenow", String(Math.round(deel * 100)));
+                status.textContent = deel >= 1 ? "Bijna klaar…" : "";
+                waarschuwing.hidden = seconden < MAX_WACHTTIJD_S;
+            }
+
+            function ping() {
+                var stop = new AbortController();
+                var timer = setTimeout(function () { stop.abort(); }, 3000);
+                fetch("/ping", { cache: "no-store", signal: stop.signal })
+                    .then(function (antwoord) { return antwoord.json(); })
+                    .then(function (data) { if (isPingOk(data)) location.reload(); })
+                    .catch(function () {})
+                    .then(function () { clearTimeout(timer); });
+            }
+
+            ververs();
+            setInterval(ververs, 1000);
+            setInterval(function () {
+                weetjeIndex = kiesVolgendWeetje(weetjeIndex, WEETJES.length, Math.random);
+                weetje.textContent = WEETJES[weetjeIndex];
+            }, WEETJE_INTERVAL_MS);
+            setInterval(ping, PING_INTERVAL_MS);
+        })();
+    </script>
+</body>
+</html>

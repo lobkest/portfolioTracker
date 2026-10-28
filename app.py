@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import threading
@@ -71,7 +72,7 @@ from portfolio_orchestratie import (
     bepaal_korte_naam_voorstellen, YahooNamenOnbeschikbaar, meld_valuta_consistentie, ticker_per_isin_beurs_uit_basis,
     meld_order_ids_rekening, meld_order_ids_rekening_uit_bestanden, isin_ticker_product_rijen,
 )
-from portfolio_verdeling import bereken_etf_overlap_detail
+from portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
 from portfolio_calc import holdings_op_datums
 from static_versie import registreer_static_versies
@@ -252,6 +253,21 @@ FAVICON_BESTAND = "favicon/favicon.ico"
 def favicon():
     """Browsers vragen het icoon op de root, los van de link in de head."""
     return send_from_directory(app.static_folder, FAVICON_BESTAND)
+
+
+@app.route("/ping")
+def ping():
+    response = jsonify({"ok": True})
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.route("/sw.js")
+def service_worker():
+    """Op de root geserveerd, zodat de scope de hele site is."""
+    response = send_from_directory(app.static_folder, "sw.js", mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 @app.route("/robots.txt")
@@ -677,6 +693,23 @@ def etf_overlap_detail():
     if not etf_a or not etf_b:
         return jsonify({"error": "Query-parameters 'a' en 'b' (ETF-tickers) zijn verplicht."}), 400
     return jsonify({"holdings": bereken_etf_overlap_detail(etf_a, etf_b)})
+
+
+@app.route("/api/etf-holdings")
+def etf_holdings():
+    """Zonder portfolio-code, zodat het ook bij 'niet opslaan' werkt. 'waarde' = huidige waarde van de positie in EUR."""
+    ticker = request.args.get("ticker", "").strip()
+    if not ticker:
+        return jsonify({"error": "Query-parameter 'ticker' is verplicht."}), 400
+    waarde = None
+    if request.args.get("waarde", "").strip():
+        try:
+            waarde = float(request.args["waarde"])
+        except ValueError:
+            waarde = None
+        if waarde is None or not math.isfinite(waarde):
+            return jsonify({"error": "Query-parameter 'waarde' moet een getal zijn."}), 400
+    return jsonify(bereken_etf_holdings_lijst(ticker, waarde))
 
 
 @app.route("/api/portfolio/<code>/benchmark-vergelijking")

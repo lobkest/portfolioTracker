@@ -1,5 +1,14 @@
 // Tabblad Per aandeel: waarde en geinvesteerd van een positie, met land en sector (bij een ETF de verdeling).
 
+const ETF_HOLDINGS_PAGINA_GROOTTE = 25;
+
+// Per ticker het antwoord van /api/etf-holdings; weg bij een nieuwe portfolio.
+const etfHoldingsCache = new Map();
+
+function resetPerAandeel() {
+    etfHoldingsCache.clear();
+}
+
 function ververAandeelSelect() {
     const select = document.getElementById("aandeelSelect");
     const huidigeKeuze = select.value;
@@ -132,6 +141,101 @@ function toonEtfDrilldown(ticker) {
     );
 
     container.style.display = "block";
+    toonEtfHoldings(ticker);
+}
+
+async function toonEtfHoldings(ticker) {
+    const tabelPlek = document.getElementById("etfHoldingsTabel");
+    const bijschrift = document.getElementById("etfHoldingsBijschrift");
+    const toonFout = tekst => {
+        bijschrift.textContent = "";
+        const p = document.createElement("p");
+        p.className = "foutTekst";
+        p.textContent = tekst;
+        tabelPlek.replaceChildren(p);
+    };
+
+    if (!etfHoldingsCache.has(ticker)) {
+        bijschrift.textContent = "";
+        const laadTekst = document.createElement("p");
+        laadTekst.className = "grijsTekst";
+        laadTekst.textContent = "Bedrijven ophalen...";
+        tabelPlek.replaceChildren(laadTekst);
+
+        const waarde = etfPositieWaarde(huidigeData.statistieken, ticker);
+        const query = `ticker=${encodeURIComponent(ticker)}` + (waarde !== null ? `&waarde=${waarde}` : "");
+        let data;
+        try {
+            const res = await fetch(`/api/etf-holdings?${query}`);
+            data = await res.json();
+            if (!res.ok) {
+                if (document.getElementById("aandeelSelect").value === ticker) toonFout(data.error || "Bedrijven ophalen is mislukt.");
+                return;
+            }
+        } catch (e) {
+            if (document.getElementById("aandeelSelect").value === ticker) toonFout("Bedrijven ophalen is mislukt.");
+            return;
+        }
+        etfHoldingsCache.set(ticker, data);
+    }
+
+    if (document.getElementById("aandeelSelect").value !== ticker) return;
+    renderEtfHoldings(etfHoldingsCache.get(ticker));
+}
+
+function renderEtfHoldings(data) {
+    const tabelPlek = document.getElementById("etfHoldingsTabel");
+    const bijschrift = document.getElementById("etfHoldingsBijschrift");
+    const tekst = etfHoldingsBijschrift(data);
+    if (!tekst) {
+        bijschrift.textContent = "";
+        const p = document.createElement("p");
+        p.className = "grijsTekst";
+        p.textContent = "Geen holdings gevonden voor deze ETF.";
+        tabelPlek.replaceChildren(p);
+        return;
+    }
+    bijschrift.className = tekst.grijs ? "drilldownBron grijsTekst" : "drilldownBron";
+    bijschrift.textContent = `${tekst.tekst}.`;
+
+    const weergaveNamen = maakUniekeWeergaveNamen(data.holdings.map(h => h.naam));
+    const weergaveNaamPerRuw = {};
+    data.holdings.forEach((h, i) => { weergaveNaamPerRuw[h.naam] = weergaveNamen[i]; });
+
+    const kolommen = [
+        {
+            label: "Bedrijf",
+            mobielRol: "titel",
+            mobielTekst: h => weergaveNaamPerRuw[h.naam],
+            renderTd: h => {
+                const td = maakCel(weergaveNaamPerRuw[h.naam]);
+                td.title = h.naam;
+                return td;
+            },
+        },
+        {
+            label: "Weging (%)",
+            mobielRol: "subregel",
+            mobielTekst: h => formatPct(h.gewicht * 100, 2),
+            waarde: h => h.gewicht,
+            renderTd: h => maakCel(formatPct(h.gewicht * 100, 2)),
+        },
+    ];
+    if (data.holdings.some(h => h.bedrag_eur !== null)) {
+        kolommen.push({
+            label: "Jouw deel (€)",
+            mobielRol: "waarde",
+            waarde: h => h.bedrag_eur,
+            renderTd: h => maakCel(formatteerEuro(h.bedrag_eur)),
+        });
+    }
+
+    const staat = { sorteerKolom: null, sorteerRichting: "desc", pagina: 1, paginaGrootte: ETF_HOLDINGS_PAGINA_GROOTTE };
+    tabelPlek.replaceChildren(maakSorteerbareTabel(kolommen, data.holdings, {
+        legeTekst: "Geen holdings gevonden.",
+        compactOpMobiel: true,
+        staat,
+    }));
 }
 
 document.getElementById("aandeelSelect").addEventListener("change", (e) => {

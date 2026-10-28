@@ -211,17 +211,45 @@ def bereken_bedrijven_verdeling(transacties_df, price_data, is_etf_map, top_n=BE
     }
 
 
-def _holdings_gewicht_en_naam_per_bedrijf(ticker):
-    """({key: gewicht}, {key: weergavenaam}); de gedeelde 'zelfde bedrijf'-definitie voor de overlap."""
+def _groepeer_holdings_per_bedrijf(holdings):
+    """({key: gewicht}, {key: weergavenaam}); de gedeelde 'zelfde bedrijf'-definitie voor overlap en holdingslijst."""
     gewichten = {}
     namen = {}
-    for h in get_etf_holdings(ticker):
+    for h in holdings:
         key = _normaliseer_bedrijfsnaam(h["holding_naam"])
         if not key:
             continue
         gewichten[key] = gewichten.get(key, 0.0) + h["gewicht"]
         namen.setdefault(key, h["holding_naam"])
     return gewichten, namen
+
+
+def _holdings_gewicht_en_naam_per_bedrijf(ticker):
+    return _groepeer_holdings_per_bedrijf(get_etf_holdings(ticker))
+
+
+def bereken_etf_holdings_lijst(ticker, positie_waarde=None):
+    """{bron, aantal, gedekt_gewicht, holdings: [{naam, gewicht, bedrag_eur}]}, aflopend op gewicht."""
+    holdings = get_etf_holdings(ticker)
+    # NaN overslaan: vergiftigt de som en breekt res.json().
+    geldig = [h for h in holdings if pd.notna(h["gewicht"])]
+    gewichten, namen = _groepeer_holdings_per_bedrijf(geldig)
+
+    rijen = [
+        {
+            "naam": namen[key],
+            "gewicht": gewicht,
+            "bedrag_eur": round(gewicht * float(positie_waarde), 2) if positie_waarde else None,
+        }
+        for key, gewicht in gewichten.items()
+    ]
+    rijen.sort(key=lambda r: r["gewicht"], reverse=True)
+    return {
+        "bron": holdings[0]["bron"] if holdings else None,
+        "aantal": len(rijen),
+        "gedekt_gewicht": sum(gewichten.values()),
+        "holdings": rijen,
+    }
 
 
 def bereken_etf_overlap(transacties_df, price_data, is_etf_map):
