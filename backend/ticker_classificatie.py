@@ -2,6 +2,7 @@
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import pandas as pd
 import yfinance as yf
 from yahooquery import Ticker as YahooqueryTicker
 
@@ -82,6 +83,49 @@ def vul_ontbrekende_long_names(tickers):
         print(f"[classify] WARN long_names aanvullen mislukt ({e!a})")
 
 
+def _yq_fonds_data(ticker, eigenschap, teller):
+    """Eigenschap van yahooquery.Ticker met retry; None bij een fout, ook als yahooquery een string of dict
+    teruggeeft i.p.v. een exceptie te gooien."""
+    def _actie():
+        _tel_yahoo_call(teller)
+        return getattr(YahooqueryTicker(ticker), eigenschap)
+
+    data, fout = _met_rate_limit_retry(_actie, pogingen=1)
+    if fout is not None:
+        dprint(f"[yahooquery] '{ticker}': {eigenschap} mislukt: {fout}")
+        return None
+    return data
+
+
+def _yq_sector_verdeling(ticker):
+    """{sector_key: fractie} uit yahooquery; leeg bij een foutstring of lege respons."""
+    df = _yq_fonds_data(ticker, "fund_sector_weightings", "yahooquery.Ticker.fund_sector_weightings")
+    if not isinstance(df, pd.DataFrame) or df.empty or ticker not in df.columns:
+        dprint(f"[yahooquery] '{ticker}': geen sector_weightings ({df!r:.80})")
+        return {}
+    return {sector_key: float(gewicht) for sector_key, gewicht in df[ticker].items() if pd.notna(gewicht)}
+
+
+def _yq_top_holdings(ticker):
+    """[(holding_ticker, naam, fractie)] uit yahooquery; leeg bij een foutstring of lege respons."""
+    df = _yq_fonds_data(ticker, "fund_top_holdings", "yahooquery.Ticker.fund_top_holdings")
+    if not isinstance(df, pd.DataFrame) or df.empty or not {"symbol", "holdingName", "holdingPercent"} <= set(df.columns):
+        dprint(f"[yahooquery] '{ticker}': geen top_holdings ({df!r:.80})")
+        return []
+    return [(r["symbol"], r["holdingName"], float(r["holdingPercent"])) for _, r in df.iterrows()
+            if pd.notna(r["holdingPercent"])]
+
+
+def _yq_categorie(ticker):
+    """categoryName uit fund_profile; None bij een foutstring of ontbrekend veld."""
+    profiel = _yq_fonds_data(ticker, "fund_profile", "yahooquery.Ticker.fund_profile")
+    regel = profiel.get(ticker) if isinstance(profiel, dict) else None
+    naam = regel.get("categoryName") if isinstance(regel, dict) else None
+    if not naam:
+        dprint(f"[yahooquery] '{ticker}': geen categoryName in fund_profile")
+    return naam or None
+
+
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """{is_etf, quote_type, valuta, yahoo_beurs, fund_family, category, long_name}, of None bij een fout.
     Land en sector gaan alleen naar de ticker_land_sector-cache."""
@@ -112,7 +156,7 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
     # Scheelt get_land_sector() later een identieke Yahoo-call.
     db_save_land_sector(ticker, country, sector)
 
-    # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; fund_overview is de fallback.
+    # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; fund_overview is de fallback, daarna yahooquery.
     if not category and (is_etf or quote_type == "MUTUALFUND"):
         try:
             _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
@@ -120,6 +164,8 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
         except Exception as e:
             dprint(f"[classify] kon funds_data.fund_overview niet ophalen voor '{ticker}' "
                    f"(category-fallback): {e}")
+        if not category:
+            category = _yq_categorie(ticker)
 
     return {
         "is_etf": is_etf,
@@ -188,7 +234,8 @@ def _sector_naam(sector_key):
 
 
 def get_etf_sector_verdeling(ticker):
-    """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet)."""
+    """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet).
+    Terugval op yahooquery: yfinance's funds_data faalt op Render met 401 Invalid Crumb."""
     cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
         return {_sector_naam(sector): gewicht for sector, gewicht in cached.items()}
@@ -196,10 +243,14 @@ def get_etf_sector_verdeling(ticker):
     try:
         _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")
         weightings = yf.Ticker(ticker).funds_data.sector_weightings
-    except Exception:
-        return {}
+    except Exception as e:
+        dprint(f"[etf-sector] '{ticker}': yfinance sector_weightings mislukt: {e}")
+        weightings = None
 
     if not weightings:
+        weightings = _yq_sector_verdeling(ticker)
+    if not weightings:
+        dprint(f"[etf-sector] '{ticker}': geen sectorverdeling gevonden")
         return {}
 
     sector_dict = {_sector_naam(sector_key): float(gewicht) for sector_key, gewicht in weightings.items()}
@@ -250,7 +301,8 @@ def _haal_provider_holdings(ticker, ishares_fonds):
 def get_etf_holdings(ticker, isin=None):
     """[{holding_naam, holding_ticker, gewicht (0-1), land, bron}]: eerst de provider, anders yfinance's top 10.
     Provider = ETF_HOLDINGS_BRON, of met isin elk iShares-fonds uit de screener (exacte ISIN).
-    Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider bekend is."""
+    Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider bekend is.
+    De top 10 valt terug op yahooquery als yfinance faalt (401 Invalid Crumb op Render)."""
     cached = db_get_cached_etf_holdings(ticker)
     if cached and cached[0]["bron"] == "provider_csv":
         return cached
@@ -270,22 +322,29 @@ def get_etf_holdings(ticker, isin=None):
             db_save_etf_holdings(ticker, holdings)
             return holdings
 
+    top10 = []
     try:
         _tel_yahoo_call("yf.Ticker.funds_data.top_holdings")
         top_holdings = yf.Ticker(ticker).funds_data.top_holdings
-    except Exception:
+        if top_holdings is not None and not top_holdings.empty:
+            top10 = [(t, row["Name"], float(row["Holding Percent"])) for t, row in top_holdings.iterrows()]
+    except Exception as e:
+        dprint(f"[etf-holdings] '{ticker}': yfinance top_holdings mislukt: {e}")
+
+    if not top10:
+        top10 = _yq_top_holdings(ticker)
+    if not top10:
+        dprint(f"[etf-holdings] '{ticker}': geen top 10 gevonden")
         return cached or []
 
-    if top_holdings is None or top_holdings.empty:
-        return cached or []
-
+    # Bron blijft yfinance_top10 (ook bij yahooquery): proxy- en waarschuwingslogica kijken alleen naar die waarde.
     holdings = []
-    for holding_ticker, row in top_holdings.iterrows():
+    for holding_ticker, naam, gewicht in top10:
         land, _ = get_land_sector(holding_ticker)
         holdings.append({
-            "holding_naam": row["Name"],
+            "holding_naam": naam,
             "holding_ticker": holding_ticker,
-            "gewicht": float(row["Holding Percent"]),
+            "gewicht": gewicht,
             "land": land,
             "bron": "yfinance_top10",
         })
