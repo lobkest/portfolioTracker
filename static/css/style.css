@@ -1090,7 +1090,7 @@ input.schakelaar:focus-visible {
 
 .paginaNavigatie {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: 6px;
     margin-top: 10px;

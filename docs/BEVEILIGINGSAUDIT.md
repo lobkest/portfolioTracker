@@ -8,6 +8,8 @@ Fixes in deze ronde (4):
 3. `permissions: contents: read` in `.github/workflows/tests.yml`. De push vraagt daarom een token met `workflow`-scope.
 4. Tests: `tests/python/test_beveiligingsaudit.py` (7 tests, incl. een waakhond op `permissions` in alle workflows).
 
+Vervolgronde (2026-10-29): dependencies gefixt (K), `defusedxml` toegevoegd (B), HSTS toegevoegd (G). Bewust ongewijzigd: `herbepaal_alle_tickers` via GET (H) en `/box3` alleen in de interface verborgen (A). CSP komt later, samen met het zelf hosten van de cdnjs-scripts (G).
+
 ## A. Toegang aan serverkant: OK, met voorstellen
 
 "Bestaat" = de server controleert het bestaan voordat er data wordt gelezen of gewijzigd. Onbekend geeft 404 via `_geen_portfolio()` en telt als foute poging.
@@ -41,7 +43,7 @@ Fixes in deze ronde (4):
 - `MAX_UPLOAD_BYTES = 5 MB` is `MAX_CONTENT_LENGTH`; een 413 geeft JSON met een nette melding (`te_groot`). Al getest.
 - `bestand_controle.controleer_excel_bestand()` controleert extensie (`.xlsx`/`.xls`), inhoud (zip met `[Content_Types].xml` en `xl/workbook.xml`), geen macro's, ≤200 zip-onderdelen, ≤50 MB uitgepakt en ≤50.000 rijen (`MAX_RIJEN`). Een leeg, kapot of niet-Excel-bestand geeft 400 met een melding (`OngeldigExcelBestand`), geen 500.
 - Er wordt niets naar schijf geschreven (alles in `BytesIO`, `_lees_bestanden()`), dus `secure_filename` is niet nodig.
-- `defusedxml` is **niet** geïnstalleerd via `requirements.txt`. Lokaal staat het er wel (als afhankelijkheid van andere pakketten), op Render dus waarschijnlijk niet. Voorstel: `defusedxml==0.7.1` toevoegen; openpyxl gebruikt het dan automatisch (1 regel). Nu bieden de zip-grenzen de mitigatie.
+- `defusedxml==0.7.1` staat nu in `requirements.txt` (**gefixt**); openpyxl gebruikt het dan automatisch (`openpyxl.xml.DEFUSEDXML`). `test_beveiligingsaudit.py` faalt als dat niet zo is. De zip-grenzen blijven als extra laag.
 
 ## C. XSS: OK
 
@@ -66,17 +68,18 @@ Fixes in deze ronde (4):
 - Onverwachte fouten geven een generieke melding (soms met foutcode); details gaan naar de log via `maskeer_codes()`/`print_traceback()`. `str(e)` gaat alleen naar de client voor `OngeldigExcelBestand` en `UploadHoortBijBestaandePortfolio`: bewuste gebruikersmeldingen.
 - Twijfelgeval, niet gewijzigd: `ticker_matching.py` (`"OpenFIGI niet bereikbaar: {e}"`) komt via `openfigi_kandidaten_debug` in het Ticker-zekerheid-antwoord (bewust blok, zie CLAUDE.md). Een `requests`-uitzondering bevat de URL maar niet de API-sleutel (die zit in een header). Risico laag; voorstel: alleen `type(e).__name__` tonen (1 regel).
 
-## G. Security-headers: OK (bestond al); voorstel voor CSP en HSTS
+## G. Security-headers: OK; HSTS gefixt, CSP later
 
 - `na_request()` zet `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` en `Referrer-Policy: same-origin`. Dat laatste is strenger dan het gevraagde `strict-origin-when-cross-origin`, dus niet aangepast. Getest in `test_toegang_routes.py`.
 - Voorstel CSP (niet gebouwd): `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'`. Alle scripts zijn zelf gehost (`static/vendor/`, bewaakt door `test_privacy_pagina.py`). Eerst controleren op inline `<script>` en `style="..."` in templates en op `data:`/`blob:` bij Chart.js; starten met `Content-Security-Policy-Report-Only`. Omvang: ±1 dag.
-- Voorstel HSTS: `Strict-Transport-Security: max-age=31536000` alleen wanneer `request.is_secure` (via ProxyFix en `X-Forwarded-Proto`); eerst een korte `max-age` proberen. Omvang: ±5 regels.
+- CSP komt later, samen met het zelf hosten van de cdnjs-scripts.
+- HSTS **gefixt**: `Strict-Transport-Security: max-age=31536000` (`HSTS_MAX_AGE_SECONDEN`, 1 jaar) in `na_request()`, zonder `includeSubDomains` en zonder `preload`. Altijd meegestuurd: browsers negeren HSTS over http, dus lokaal blijft werken. Getest in `test_beveiligingsaudit.py`.
 
 ## H. CSRF en methodes: voorstel
 
 - Wijzigende routes zijn POST/DELETE. De JSON-routes lezen `request.get_json(silent=True)`; zonder `Content-Type: application/json` geeft dat `None`, dus een cross-site formulier (urlencoded/`text/plain`) wijzigt niets. Een JSON-fetch vanaf een andere origin vraagt een CORS-preflight, en er is geen CORS ingesteld. Er zijn geen cookies of sessies (en dus geen `SECRET_KEY`): de code in het pad is het geheim, er is geen ambient authority.
 - Resterend (laag): de multipart-routes (`/upload`, `.../bijwerken`) accepteren formulieren van elke origin; bijwerken vereist de code.
-- GET-routes die iets wijzigen: `GET /api/portfolio/<code>?herbepaal_alle_tickers=true` herbepaalt tickers en wist caches, en elke ophaal-GET zet `laatst_gebruikt`. Voorstel: de herbepaal-variant naar een POST verplaatsen (±20 regels, frontend + test). Bestaand ontwerp, niet aangepast.
+- GET-routes die iets wijzigen: `GET /api/portfolio/<code>?herbepaal_alle_tickers=true` herbepaalt tickers en wist caches, en elke ophaal-GET zet `laatst_gebruikt`. Bewust zo gelaten (bestaand ontwerp).
 - Voorstel bij toekomstige cookies/sessies: `SameSite=Lax` plus een CSRF-token of een `Origin`-controle in `before_request`.
 
 ## I. Geheimen: OK
@@ -91,11 +94,11 @@ Fixes in deze ronde (4):
 
 ## K. Dependencies en CI
 
-- `pip_audit -r requirements.txt --no-deps`: 6 bevindingen in 3 pakketten. Geen upgrades uitgevoerd.
-  - `certifi 2026.7.22`: PYSEC-2026-4320, fix in 2026.10.18/19
-  - `urllib3 2.7.0`: PYSEC-2026-4175/4176/4177, fix in 2.8.0
-  - `werkzeug 3.1.8`: PYSEC-2026-4312, fix in 3.1.9
-  Voorstel: deze drie bumpen en de hele suite draaien (±1 uur; urllib3 2.8 kan `requests`/`yfinance` raken).
+- **Gefixt**: `pip_audit -r requirements.txt` gaf 6 bevindingen in 3 pakketten, nu 0.
+  - `certifi` 2026.7.22 → 2026.10.19 (PYSEC-2026-4320)
+  - `urllib3` 2.7.0 → 2.8.0 (PYSEC-2026-4175/4176/4177)
+  - `Werkzeug` 3.1.8 → 3.1.9 (PYSEC-2026-4312; Flask 3.1.3 eist `werkzeug>=3.1.0`, dus geen Flask-upgrade nodig)
+  Volledige Python- en JS-suite groen na de upgrades.
 - Geen `package.json`, dus geen `npm audit`. Alle versies in `requirements.txt` zijn exact gepind (`==`), inclusief transitieve pakketten.
 - `tests.yml` had geen `permissions`: **gefixt** (`permissions: contents: read`, top-level). Pushen vraagt een token met `workflow`-scope. De Python-matrixjob in dat bestand staat uitgecommentarieerd en is niet aangeraakt.
 

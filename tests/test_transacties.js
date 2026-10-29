@@ -122,19 +122,23 @@ test("paginaKnoppen: tot en met 7 pagina's alle nummers", () => {
 });
 
 test("paginaKnoppen: begin", () => {
-    assert.deepEqual(paginaKnoppen(1, 120), [1, 2, 3, 4, 5, "…", 120]);
-    assert.deepEqual(paginaKnoppen(4, 120), [1, 2, 3, 4, 5, "…", 120]);
+    assert.deepEqual(paginaKnoppen(1, 120), [1, 2, "…", 120]);
+    assert.deepEqual(paginaKnoppen(3, 120), [1, 2, 3, 4, "…", 120]);
 });
 
 test("paginaKnoppen: midden", () => {
-    assert.deepEqual(paginaKnoppen(5, 120), [1, "…", 4, 5, 6, "…", 120]);
     assert.deepEqual(paginaKnoppen(7, 120), [1, "…", 6, 7, 8, "…", 120]);
+    assert.deepEqual(paginaKnoppen(4, 120), [1, 2, 3, 4, 5, "…", 120]);
 });
 
 test("paginaKnoppen: eind", () => {
-    assert.deepEqual(paginaKnoppen(117, 120), [1, "…", 116, 117, 118, 119, 120]);
-    assert.deepEqual(paginaKnoppen(120, 120), [1, "…", 116, 117, 118, 119, 120]);
-    assert.deepEqual(paginaKnoppen(116, 120), [1, "…", 115, 116, 117, "…", 120]);
+    assert.deepEqual(paginaKnoppen(120, 120), [1, "…", 119, 120]);
+    assert.deepEqual(paginaKnoppen(118, 120), [1, "…", 117, 118, 119, 120]);
+});
+
+test("paginaKnoppen: 7 pagina's zonder ellips, 8 pagina's met gat", () => {
+    assert.deepEqual(paginaKnoppen(4, 7), [1, 2, 3, 4, 5, 6, 7]);
+    assert.deepEqual(paginaKnoppen(1, 8), [1, 2, "…", 8]);
 });
 
 test("pagineer: knipt de juiste rijen per pagina", () => {

@@ -77,3 +77,17 @@ class TestWorkflowRechten(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestHsts(unittest.TestCase):
+    def test_response_heeft_hsts_van_een_jaar_zonder_subdomeinen_of_preload(self):
+        import app as app_module
+        antwoord = app_module.app.test_client().get("/ping")
+        self.assertEqual(antwoord.headers["Strict-Transport-Security"], "max-age=31536000")
+        self.assertEqual(app_module.HSTS_MAX_AGE_SECONDEN, 31536000)
+
+
+class TestDefusedxml(unittest.TestCase):
+    def test_openpyxl_gebruikt_defusedxml(self):
+        import openpyxl.xml
+        self.assertTrue(openpyxl.xml.DEFUSEDXML, "defusedxml ontbreekt: openpyxl is niet beschermd tegen XML-aanvallen")

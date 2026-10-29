@@ -91,6 +91,7 @@ from backend.static_versie import registreer_static_versies
 from backend.yahoo_client import init_yfinance_cache
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
+HSTS_MAX_AGE_SECONDEN = 31536000
 # X-Forwarded-For is "bezoeker, Cloudflare, Render-proxy": drie hops. Elke proxy voegt achteraan toe, dus een
 # bezoeker kan adressen vóóraan meesturen maar de derde positie van achteren niet vervalsen.
 PROXY_AANTAL_X_FOR = 3
@@ -260,6 +261,7 @@ def na_request(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "same-origin"
+    response.headers["Strict-Transport-Security"] = f"max-age={HSTS_MAX_AGE_SECONDEN}"
     return response
 
 

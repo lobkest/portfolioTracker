@@ -112,13 +112,20 @@
         return tekst;
     }
 
-    // Eerste, laatste en huidige ± 1 met "…" ertussen; vanaf 8 pagina's altijd 7 plekken, zodat de knoppen niet verspringen.
+    // Eerste, laatste en huidige ± 1; een gat van precies één pagina wordt met dat nummer gevuld i.p.v. "…".
     function paginaKnoppen(huidig, totaal) {
-        const reeks = (van, tot) => Array.from({ length: tot - van + 1 }, (_, i) => van + i);
-        if (totaal <= 7) return reeks(1, totaal);
-        if (huidig <= 4) return [...reeks(1, 5), "…", totaal];
-        if (huidig >= totaal - 3) return [1, "…", ...reeks(totaal - 4, totaal)];
-        return [1, "…", huidig - 1, huidig, huidig + 1, "…", totaal];
+        if (totaal <= 7) return Array.from({ length: totaal }, (_, i) => i + 1);
+        const zichtbaar = [...new Set([1, huidig - 1, huidig, huidig + 1, totaal])]
+            .filter(p => p >= 1 && p <= totaal)
+            .sort((a, b) => a - b);
+        const uit = [];
+        zichtbaar.forEach((p, i) => {
+            const vorige = zichtbaar[i - 1];
+            if (i > 0 && p - vorige === 2) uit.push(vorige + 1);
+            else if (i > 0 && p - vorige > 2) uit.push("…");
+            uit.push(p);
+        });
+        return uit;
     }
 
     const exportsObj = {
