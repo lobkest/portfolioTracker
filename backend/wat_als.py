@@ -15,6 +15,11 @@ MAX_POSITIES_WAT_ALS = 300
 MAX_TICKER_TEKENS = 20
 MAX_NAAM_TEKENS = 200
 
+HOLDINGS_ONBEKEND = "onbekend"
+HOLDINGS_TOP10 = "top10"
+HOLDINGS_VOLLEDIG = "volledig"
+BRON_TOP10 = "yfinance_top10"
+
 
 def _pct(deel, totaal):
     return deel / totaal * 100 if totaal > 0 else 0.0
@@ -106,23 +111,42 @@ def _top_bedrijven(bedrijven_voor, bedrijven_na, totaal_voor, totaal_na, top_n):
                  _pct(entry["waarde"], totaal_na)) for key, entry in top]
 
 
+def _effectieve_holdings(basis, aankoop):
+    """Bijkopen: de holdings van de bestaande positie gelden (één bron per ticker), niet die van de aankoop."""
+    return basis["holdings_per_etf"].get(aankoop["ticker"], aankoop["holdings"]) or []
+
+
+def _holdings_dekking(holdings):
+    """(status, gedekt_pct): onbekend zonder holdings, top10 bij de yfinance-terugval, anders volledig."""
+    if not holdings:
+        return HOLDINGS_ONBEKEND, None
+    gedekt = min(sum(h["gewicht"] for h in holdings if math.isfinite(h["gewicht"])), 1.0) * 100
+    status = HOLDINGS_TOP10 if holdings[0].get("bron") == BRON_TOP10 else HOLDINGS_VOLLEDIG
+    return status, round(gedekt, PCT_DECIMALEN)
+
+
 def _overlap(basis, aankoop, bedrijven_voor, totaal_voor):
     """per_etf: overlap-% van de aankoop met elke huidige ETF; al_in_portfolio_pct: hoeveel van de aankoop (in %) al
-    als bedrijf in de huidige portfolio zit, via ETF's of direct."""
-    # Bijkopen: de holdings van de bestaande positie gelden (één bron per ticker), niet die van de aankoop.
-    holdings_nieuw = basis["holdings_per_etf"].get(aankoop["ticker"], aankoop["holdings"]) or []
+    als bedrijf in de huidige portfolio zit, via ETF's of direct. Zijn de holdings onbekend, dan zijn beide None
+    (geen 0: dat zou 'geen overlap' beweren)."""
+    holdings_nieuw = _effectieve_holdings(basis, aankoop)
+    status, gedekt_pct = _holdings_dekking(holdings_nieuw)
     gewichten_nieuw = _groepeer_holdings_per_bedrijf(holdings_nieuw)[0]
     per_etf = {}
     for ticker in basis["waarde_per_ticker"]:
         if ticker == aankoop["ticker"] or not basis["is_etf_map"].get(ticker, False):
             continue
+        if status == HOLDINGS_ONBEKEND:
+            per_etf[ticker] = None
+            continue
         gewichten = _groepeer_holdings_per_bedrijf(basis["holdings_per_etf"][ticker])[0]
         matrix = etf_overlap_uit({aankoop["ticker"]: gewichten_nieuw, ticker: gewichten})
         per_etf[ticker] = round(matrix[aankoop["ticker"]][ticker] * 100, PCT_DECIMALEN)
-    al_in_portfolio = sum(
+    al_in_portfolio = None if status == HOLDINGS_ONBEKEND else round(sum(
         min(gewicht * 100, _pct(bedrijven_voor[key]["waarde"], totaal_voor))
-        for key, gewicht in gewichten_nieuw.items() if key in bedrijven_voor)
-    return {"per_etf": per_etf, "al_in_portfolio_pct": round(al_in_portfolio, PCT_DECIMALEN)}
+        for key, gewicht in gewichten_nieuw.items() if key in bedrijven_voor), PCT_DECIMALEN)
+    return {"per_etf": per_etf, "al_in_portfolio_pct": al_in_portfolio,
+            "holdings_status": status, "gedekt_pct": gedekt_pct}
 
 
 def _al_in_bezit(basis, aankoop, bedrijven_voor):
@@ -157,7 +181,9 @@ def simuleer_aankoop(basis, aankoop, top_n):
     return _schoon({
         "aankoop": {"ticker": aankoop["ticker"], "naam": aankoop["naam"], "is_etf": aankoop["is_etf"],
                     "waarde_eur": round(aankoop["waarde_eur"], EUR_DECIMALEN),
-                    "bijkopen": aankoop["ticker"] in basis["waarde_per_ticker"]},
+                    "bijkopen": aankoop["ticker"] in basis["waarde_per_ticker"],
+                    "bedrijven_onvolledig": aankoop["is_etf"]
+                    and _holdings_dekking(_effectieve_holdings(basis, aankoop))[0] == HOLDINGS_ONBEKEND},
         "totaal": {"voor": round(totaal_voor, EUR_DECIMALEN), "na": round(totaal_na, EUR_DECIMALEN)},
         "posities": _posities(basis, na),
         "etf_aandeel": _etf_aandeel_voor_na(_etf_aandeel(basis), _etf_aandeel(na)),

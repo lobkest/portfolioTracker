@@ -282,7 +282,7 @@ async function laadWatAlsProfiel(isin) {
     const t = watAlsToestand;
     wisWatAlsMeldingen();
     wisWatAlsProfielEnUitkomst();
-    const parameters = new URLSearchParams({ ticker: t.gekozen.ticker });
+    const parameters = new URLSearchParams({ ticker: t.gekozen.ticker, naam: t.gekozen.naam });
     if (isin) parameters.set("isin", isin);
     const antwoord = await watAlsVraag("profiel", "Profiel ophalen...", `/api/effect-profiel?${parameters}`);
     if (!antwoord) return;
@@ -444,7 +444,14 @@ function renderWatAlsProfiel() {
         maakWatAlsLijst(`Landen (top ${WAT_ALS_TOP_LANDEN})`, watAlsTopRijen(profiel.land, WAT_ALS_TOP_LANDEN)),
         maakWatAlsLijst(`Sectoren (top ${WAT_ALS_TOP_SECTOREN})`, watAlsTopRijen(profiel.sector, WAT_ALS_TOP_SECTOREN)),
     );
+    let bedrijvenBronTekst = null;
+    if (profiel.type === "ETF") {
+        const bedrijven = watAlsProfielBedrijven(profiel.holdings);
+        bedrijvenBronTekst = bedrijven.bronTekst;
+        kolommen.append(maakWatAlsLijst(`Bedrijven (top ${WAT_ALS_TOP_PROFIEL_BEDRIJVEN})`, bedrijven.rijen));
+    }
     kaart.append(kolommen);
+    if (bedrijvenBronTekst) kaart.append(watAlsMaak("p", "kleineMelding", bedrijvenBronTekst));
 
     if (profiel.holdings) {
         const holdings = profiel.holdings.top.slice(0, WAT_ALS_TOP_HOLDINGS)
@@ -479,7 +486,7 @@ async function berekenWatAls() {
     if (!t.profiel || !aantal.geldig) return;
     wisWatAlsMeldingen();
     watAlsEl("watAlsUitkomst").replaceChildren();
-    const body = { ticker: t.profiel.ticker, aantal: aantal.aantal };
+    const body = { ticker: t.profiel.ticker, aantal: aantal.aantal, naam: t.gekozen.naam };
     if (t.gekozenIsin) body.isin = t.gekozenIsin;
     let url;
     if (huidigeData.code) {
@@ -557,13 +564,16 @@ function watAlsEtfNaam(ticker) {
 }
 
 function maakWatAlsOverlapSectie(overlap) {
-    const regels = [watAlsMaak("p", "vet", watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct))];
+    const regels = [watAlsMaak("p", "vet", watAlsOverlapRegel(overlap))];
     const rijen = Object.entries(overlap.per_etf).map(([ticker, pct]) => ({ ticker, pct }));
     const kolommen = [
         { label: "Je ETF", renderTd: r => maakCel(watAlsEtfNaam(r.ticker)) },
-        { label: "Overlap met de aankoop", waarde: r => r.pct, renderTd: r => maakCel(formatPct(r.pct, 1)) },
+        {
+            label: "Overlap met de aankoop", waarde: r => (Number.isFinite(r.pct) ? r.pct : -1),
+            renderTd: r => maakCel(watAlsOverlapEtfTekst(r.pct, overlap.holdings_status)),
+        },
     ];
-    rijen.sort((a, b) => b.pct - a.pct);
+    rijen.sort((a, b) => (Number.isFinite(b.pct) ? b.pct : -1) - (Number.isFinite(a.pct) ? a.pct : -1));
     const wrapper = watAlsMaak("div", "tabelWrapper");
     wrapper.append(maakSorteerbareTabel(kolommen, rijen, { legeTekst: "Je hebt geen andere ETF's om mee te vergelijken." }));
     return maakWatAlsSectie("Overlap met je portfolio", [...regels, wrapper], {
@@ -588,6 +598,7 @@ function renderWatAlsUitkomst(data) {
     if (zelfdeFonds) samenvatting.push(watAlsMaak("p", "melding", zelfdeFonds));
     plek.append(maakWatAlsSectie("Resultaat", samenvatting));
 
+    const onvolledig = watAlsBedrijvenOnvolledigTekst(w.aankoop);
     if (w.overlap) plek.append(maakWatAlsOverlapSectie(w.overlap));
     if (w.al_in_bezit) {
         plek.append(maakWatAlsSectie("Heb je dit bedrijf al?", watAlsAlInBezitRegels(w.al_in_bezit).map(tekst => watAlsMaak("p", null, tekst))));
@@ -604,8 +615,10 @@ function renderWatAlsUitkomst(data) {
             label: "Percentages bij sector",
             tekst: "Percentages ten opzichte van de som van de bedragen per sector, niet van je portfoliowaarde. Het verschil is in procentpunten.",
         }),
-        maakWatAlsSectie(`Top ${WAT_ALS_TOP_BEDRIJVEN} bedrijven (na de aankoop)`,
-            [maakWatAlsVoorNaTabel("Bedrijf", w.bedrijven.slice(0, WAT_ALS_TOP_BEDRIJVEN))]),
+        maakWatAlsSectie(`Top ${WAT_ALS_TOP_BEDRIJVEN} bedrijven (na de aankoop)`, [
+            ...(onvolledig ? [watAlsMaak("p", "melding", onvolledig)] : []),
+            maakWatAlsVoorNaTabel("Bedrijf", w.bedrijven.slice(0, WAT_ALS_TOP_BEDRIJVEN)),
+        ]),
     );
     plek.scrollIntoView({ behavior: "smooth", block: "start" });
 }

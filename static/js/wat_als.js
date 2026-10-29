@@ -15,6 +15,8 @@
     const WAT_ALS_TOP_SECTOREN = 5;
     const WAT_ALS_TOP_HOLDINGS = 10;
     const WAT_ALS_TOP_BEDRIJVEN = 10;
+    const WAT_ALS_TOP_PROFIEL_BEDRIJVEN = 5;
+    const WAT_ALS_OVERLAP_ONBEKEND = "Overlap onbekend: de bedrijven in dit fonds zijn niet beschikbaar";
 
     // Een verschil van dit aantal procentpunten (of meer) vult het balkje helemaal.
     const WAT_ALS_BALK_MAX_PP = 20;
@@ -175,6 +177,37 @@
         return `${formatPct(pct, 1)} van deze aankoop zit al in je portfolio`;
     }
 
+    // Hoofdregel van de overlapsectie; status en getallen komen uit de backend.
+    function watAlsOverlapRegel(overlap) {
+        if (overlap.holdings_status === "onbekend") return WAT_ALS_OVERLAP_ONBEKEND;
+        if (overlap.holdings_status === "top10") {
+            return `Minstens ${watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct)} `
+                + `(op basis van de top 10, ${formatPct(overlap.gedekt_pct, 1)} van het fonds)`;
+        }
+        return watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct);
+    }
+
+    function watAlsOverlapEtfTekst(pct, holdingsStatus) {
+        if (!Number.isFinite(pct)) return "onbekend";
+        return holdingsStatus === "top10" ? `minstens ${formatPct(pct, 1)}` : formatPct(pct, 1);
+    }
+
+    function watAlsBedrijvenOnvolledigTekst(aankoop) {
+        if (!aankoop || !aankoop.bedrijven_onvolledig) return null;
+        return `${aankoop.ticker} is hier niet meegeteld: de bedrijven in dit fonds zijn onbekend`;
+    }
+
+    // Top-5-bedrijven van het profiel: {rijen: [{naam, pct}], bronTekst of null}. Zonder holdings zijn de rijen leeg.
+    function watAlsProfielBedrijven(holdings) {
+        if (!holdings || !Array.isArray(holdings.top5)) return { rijen: [], bronTekst: null };
+        const rijen = holdings.top5.slice(0, WAT_ALS_TOP_PROFIEL_BEDRIJVEN)
+            .filter(h => Number.isFinite(h.gewicht))
+            .map(h => ({ naam: h.naam, pct: h.gewicht * 100 }));
+        const bronTekst = holdings.bron === "yfinance_top10" && Number.isFinite(holdings.gedekt_gewicht)
+            ? `op basis van de 10 grootste holdings (${formatPct(holdings.gedekt_gewicht * 100, 1)} van het fonds)` : null;
+        return { rijen, bronTekst };
+    }
+
     // al_in_bezit van een aandeel: direct, via ETF's en per ETF.
     function watAlsAlInBezitRegels(alInBezit) {
         if (!alInBezit || !alInBezit.gematchte_naam) {
@@ -202,7 +235,8 @@
         WAT_ALS_TOP_HOLDINGS, WAT_ALS_TOP_BEDRIJVEN, WAT_ALS_BALK_MAX_PP, WAT_ALS_WAARSCHUWING_TEKSTEN, WAT_ALS_ONBEKENDE_WAARSCHUWING,
         isWatAlsIsin, watAlsAantal, watAlsGeschatteWaarde, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst,
         watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
-        watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst,
+        watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst, WAT_ALS_TOP_PROFIEL_BEDRIJVEN,
+        watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsBedrijvenOnvolledigTekst, watAlsProfielBedrijven,
         watAlsDividendRegel, watAlsDividendResultaatTekst,
     };
 

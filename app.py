@@ -729,6 +729,15 @@ TICKER_MAX_TEKENS = 20
 NAAM_MAX_TEKENS = 200
 
 
+def _weergavenaam(waarde):
+    """(naam of None, fout): de optionele fondsnaam uit het zoekresultaat; alleen weergave."""
+    if waarde is None:
+        return None, None
+    if not isinstance(waarde, str) or len(waarde.strip()) > NAAM_MAX_TEKENS:
+        return None, f"Een naam is maximaal {NAAM_MAX_TEKENS} tekens."
+    return waarde.strip() or None, None
+
+
 @app.route("/api/zoek")
 def api_zoek():
     """Zonder portfolio-code. Een Yahoo-fout geeft een lege lijst."""
@@ -756,8 +765,11 @@ def api_effect_profiel():
     isin = herken_isin(isin_param) if isin_param else None
     if isin_param and not isin:
         return jsonify({"error": "Dit is geen geldige ISIN."}), 400
+    naam, fout = _weergavenaam(request.args.get("naam"))
+    if fout:
+        return jsonify({"error": fout}), 400
     try:
-        return jsonify(bouw_effect_profiel(ticker, isin))
+        return jsonify(bouw_effect_profiel(ticker, isin, naam))
     except OnbekendEffect:
         return jsonify({"error": f"Geen gegevens gevonden voor '{ticker}'."}), 404
 
@@ -782,13 +794,13 @@ def api_effect_koers():
         return jsonify({"error": "De koersgrafiek ophalen is mislukt. Probeer het opnieuw."}), 500
 
 
-def _wat_als_response(maak_basis, ticker, isin, aantal):
+def _wat_als_response(maak_basis, ticker, isin, aantal, naam=None):
     """maak_basis() geeft de basis, of None bij een onbekende code (de aanroeper beantwoordt die)."""
     try:
         basis = maak_basis()
         if basis is None:
             return None
-        return jsonify(bereken_wat_als(basis, ticker, isin, aantal))
+        return jsonify(bereken_wat_als(basis, ticker, isin, aantal, naam))
     except OnbekendEffect:
         return jsonify({"error": f"Geen gegevens gevonden voor '{ticker}'."}), 404
     except GeenKoers:
@@ -801,11 +813,13 @@ def _wat_als_response(maak_basis, ticker, isin, aantal):
 @app.route("/api/portfolio/<code>/wat-als", methods=["POST"])
 def portfolio_wat_als(code):
     code = code.strip().upper()
-    ticker, isin, aantal, fout = valideer_aankoop_invoer(request.get_json(silent=True))
-    if fout:
-        return jsonify({"error": fout}), 400
+    data = request.get_json(silent=True)
+    ticker, isin, aantal, fout = valideer_aankoop_invoer(data)
+    naam, fout_naam = _weergavenaam(data.get("naam") if isinstance(data, dict) else None)
+    if fout or fout_naam:
+        return jsonify({"error": fout or fout_naam}), 400
     with db_deel_verbinding():
-        antwoord = _wat_als_response(lambda: bouw_wat_als_basis(code), ticker, isin, aantal)
+        antwoord = _wat_als_response(lambda: bouw_wat_als_basis(code), ticker, isin, aantal, naam)
     return _geen_portfolio(code) if antwoord is None else antwoord
 
 
@@ -815,9 +829,10 @@ def wat_als_zonder_opslaan():
     data = request.get_json(silent=True)
     ticker, isin, aantal, fout = valideer_aankoop_invoer(data)
     posities, fout_posities = valideer_posities(data.get("posities") if isinstance(data, dict) else None)
-    if fout or fout_posities:
-        return jsonify({"error": fout or fout_posities}), 400
-    return _wat_als_response(lambda: bouw_wat_als_basis_uit_posities(posities), ticker, isin, aantal)
+    naam, fout_naam = _weergavenaam(data.get("naam") if isinstance(data, dict) else None)
+    if fout or fout_posities or fout_naam:
+        return jsonify({"error": fout or fout_posities or fout_naam}), 400
+    return _wat_als_response(lambda: bouw_wat_als_basis_uit_posities(posities), ticker, isin, aantal, naam)
 
 
 def _beurs_alternatieven_response(maak_invoer):

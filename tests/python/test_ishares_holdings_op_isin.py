@@ -38,6 +38,7 @@ class TestIsharesHoldingsOpIsin(unittest.TestCase):
                           return_value=productpagina) as mock_pagina, \
              patch.object(ticker_classificatie, "_tel_yahoo_call"), \
              patch.object(ticker_classificatie, "get_land_sector", return_value=("United States", "IT")), \
+             patch.object(ticker_classificatie, "_yq_top_holdings", return_value=None), \
              patch.object(ticker_classificatie.yf, "Ticker", _yahoo_top10()), \
              patch("builtins.print"):
             return get_etf_holdings(ticker, isin), mock_save, mock_pagina

@@ -9,6 +9,7 @@ const {
     isWatAlsIsin, watAlsAantal, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst, watAlsTypeLabel, watAlsNoteringLabel,
     watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk, watAlsRij, watAlsAlInPortfolioTekst,
     watAlsAlInBezitRegels, watAlsFoutTekst, watAlsDividendRegel, watAlsDividendResultaatTekst,
+    watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsBedrijvenOnvolledigTekst, watAlsProfielBedrijven,
 } = require("../static/js/wat_als.js");
 
 // De codes die effect_profiel.py kan teruggeven.
@@ -158,6 +159,37 @@ test("al in je portfolio en al in bezit", () => {
     const nergens = watAlsAlInBezitRegels({ direct_eur: 0, via_etf_eur: 0, per_etf: {}, gematchte_naam: null });
     assert.equal(nergens.length, 1);
     assert.match(nergens[0], /niet in je portfolio/);
+});
+
+test("overlapregel: onbekend, top10 met ondergrens en volledig", () => {
+    assert.equal(watAlsOverlapRegel({ holdings_status: "onbekend", al_in_portfolio_pct: null, gedekt_pct: null }),
+        "Overlap onbekend: de bedrijven in dit fonds zijn niet beschikbaar");
+    assert.equal(watAlsOverlapRegel({ holdings_status: "top10", al_in_portfolio_pct: 12.34, gedekt_pct: 25 }),
+        "Minstens 12,3% van deze aankoop zit al in je portfolio (op basis van de top 10, 25,0% van het fonds)");
+    assert.equal(watAlsOverlapRegel({ holdings_status: "volledig", al_in_portfolio_pct: 44.74, gedekt_pct: 99 }),
+        "44,7% van deze aankoop zit al in je portfolio");
+});
+
+test("overlap per ETF: null is onbekend, geen 0, en top10 is een ondergrens", () => {
+    assert.equal(watAlsOverlapEtfTekst(null, "onbekend"), "onbekend");
+    assert.equal(watAlsOverlapEtfTekst(12.34, "top10"), "minstens 12,3%");
+    assert.equal(watAlsOverlapEtfTekst(0, "volledig"), "0,0%");
+});
+
+test("bedrijven ná de aankoop: melding alleen bij een ETF zonder holdings", () => {
+    assert.equal(watAlsBedrijvenOnvolledigTekst({ ticker: "TDIV.AS", bedrijven_onvolledig: true }),
+        "TDIV.AS is hier niet meegeteld: de bedrijven in dit fonds zijn onbekend");
+    assert.equal(watAlsBedrijvenOnvolledigTekst({ ticker: "AAPL", bedrijven_onvolledig: false }), null);
+});
+
+test("profiel: top-5-bedrijven met percentage, bronregel bij top10, leeg zonder holdings", () => {
+    const top5 = [["A", 0.3], ["B", 0.2], ["C", 0.1], ["D", 0.05], ["E", 0.04]].map(([naam, gewicht]) => ({ naam, gewicht }));
+    const volledig = watAlsProfielBedrijven({ bron: "provider_csv", gedekt_gewicht: 1, top5 });
+    assert.deepEqual(volledig.rijen.map(r => `${r.naam} ${r.pct}`), ["A 30", "B 20", "C 10", "D 5", "E 4"]);
+    assert.equal(volledig.bronTekst, null);
+    const top10 = watAlsProfielBedrijven({ bron: "yfinance_top10", gedekt_gewicht: 0.254, top5 });
+    assert.equal(top10.bronTekst, "op basis van de 10 grootste holdings (25,4% van het fonds)");
+    assert.deepEqual(watAlsProfielBedrijven(null), { rijen: [], bronTekst: null });
 });
 
 test("foutteksten per statuscode", () => {

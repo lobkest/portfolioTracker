@@ -296,6 +296,30 @@ class TestProfielEtf(_Profiel):
         self.assertEqual(p["holdings"]["aantal"], len(veel))
 
 
+class TestProfielTopBedrijven(_Profiel):
+    def test_twaalf_holdings_geven_de_top_5_gesorteerd(self):
+        twaalf = [{"holding_naam": f"H{i}", "holding_ticker": None, "gewicht": 0.01 * (i + 1), "land": "NL", "bron": "provider_csv"}
+                  for i in range(12)]
+        self.m["get_etf_holdings"].return_value = twaalf
+        top5 = self.profiel("VWRL.AS")["holdings"]["top5"]
+        self.assertEqual([h["naam"] for h in top5], ["H11", "H10", "H9", "H8", "H7"])
+        self.assertAlmostEqual(top5[0]["gewicht"], 0.12)
+
+    def test_zonder_holdings_is_er_geen_top_5(self):
+        self.m["get_etf_holdings"].return_value = []
+        self.assertIsNone(self.profiel("VWRL.AS")["holdings"])
+
+    def test_yfinance_top10_geeft_het_gedekte_gewicht_mee(self):
+        holdings = self.profiel("VWRL.AS")["holdings"]
+        self.assertEqual((holdings["bron"], holdings["gedekt_gewicht"]), ("yfinance_top10", 0.2))
+
+    def test_naam_geldt_alleen_zonder_long_name(self):
+        self.assertEqual(self.profiel()["naam"], "Fonds")
+        self.m["get_ticker_details"].return_value = {"is_etf": True, "valuta": "EUR"}
+        self.assertEqual(bouw_effect_profiel("SXR8.DE", None, "Zoeknaam")["naam"], "Zoeknaam")
+        self.assertEqual(bouw_effect_profiel("SXR8.DE")["naam"], "SXR8.DE")
+
+
 class TestProfielFouten(_Profiel):
     def test_geen_koers_geeft_profiel_met_waarschuwing(self):
         self.m["get_prices"].side_effect = lambda *a: pd.DataFrame()
@@ -366,12 +390,12 @@ class TestRoute(unittest.TestCase):
         with patch.object(self.m, "bouw_effect_profiel", return_value={"ticker": "SXR8.DE"}) as bouw:
             res = self.client.get("/api/effect-profiel", query_string={"ticker": "SXR8.DE", "isin": ISIN.lower()})
         self.assertEqual(res.status_code, 200)
-        bouw.assert_called_once_with("SXR8.DE", ISIN)
+        bouw.assert_called_once_with("SXR8.DE", ISIN, None)
 
     def test_zonder_isin_wordt_none_doorgegeven(self):
         with patch.object(self.m, "bouw_effect_profiel", return_value={}) as bouw:
             self.client.get("/api/effect-profiel", query_string={"ticker": "ASML.AS"})
-        bouw.assert_called_once_with("ASML.AS", None)
+        bouw.assert_called_once_with("ASML.AS", None, None)
 
     def test_onbekende_ticker_geeft_404_json(self):
         with patch.object(self.m, "bouw_effect_profiel", side_effect=OnbekendEffect("X")):

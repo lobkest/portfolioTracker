@@ -83,12 +83,18 @@ def _schone_tekst(waarde):
     return str(waarde).strip() if waarde is not None and pd.notna(waarde) and str(waarde).strip() else None
 
 
+def normaliseer_land(land):
+    """De enige plek die bepaalt wat 'geen land' is: None, leeg of '-' wordt 'Unknown' (zodat bv. een Cash-rij
+    zichtbaar blijft in de landverdeling en niet als apart land '-' telt)."""
+    tekst = _schone_tekst(land)
+    return tekst if tekst and tekst != "-" else "Unknown"
+
+
 def _holding_rij(naam, gewicht, land, sector, ticker=None):
-    """Leeg land wordt 'Unknown', zodat bv. een Cash-rij zichtbaar blijft in de landverdeling."""
     return {
         "naam": str(naam).strip(),
         "gewicht": float(gewicht),
-        "land": _schone_tekst(land) or "Unknown",
+        "land": normaliseer_land(land),
         "sector": _schone_tekst(sector),
         "ticker": _schone_tekst(ticker),
     }

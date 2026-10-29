@@ -1,4 +1,5 @@
 """ETF of aandeel, plus land/sector/holdings per ticker (met database-cache)."""
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -98,18 +99,24 @@ def _yq_fonds_data(ticker, eigenschap, teller):
 
 
 def _yq_sector_verdeling(ticker):
-    """{sector_key: fractie} uit yahooquery; leeg bij een foutstring of lege respons."""
+    """{sector_key: fractie} uit yahooquery; {} bij een lege respons, None bij een fout of foutstring."""
     df = _yq_fonds_data(ticker, "fund_sector_weightings", "yahooquery.Ticker.fund_sector_weightings")
-    if not isinstance(df, pd.DataFrame) or df.empty or ticker not in df.columns:
+    if not isinstance(df, pd.DataFrame):
+        dprint(f"[yahooquery] '{ticker}': geen sector_weightings ({df!r:.80})")
+        return None
+    if df.empty or ticker not in df.columns:
         dprint(f"[yahooquery] '{ticker}': geen sector_weightings ({df!r:.80})")
         return {}
     return {sector_key: float(gewicht) for sector_key, gewicht in df[ticker].items() if pd.notna(gewicht)}
 
 
 def _yq_top_holdings(ticker):
-    """[(holding_ticker, naam, fractie)] uit yahooquery; leeg bij een foutstring of lege respons."""
+    """[(holding_ticker, naam, fractie)] uit yahooquery; [] bij een lege respons, None bij een fout of foutstring."""
     df = _yq_fonds_data(ticker, "fund_top_holdings", "yahooquery.Ticker.fund_top_holdings")
-    if not isinstance(df, pd.DataFrame) or df.empty or not {"symbol", "holdingName", "holdingPercent"} <= set(df.columns):
+    if not isinstance(df, pd.DataFrame):
+        dprint(f"[yahooquery] '{ticker}': geen top_holdings ({df!r:.80})")
+        return None
+    if df.empty or not {"symbol", "holdingName", "holdingPercent"} <= set(df.columns):
         dprint(f"[yahooquery] '{ticker}': geen top_holdings ({df!r:.80})")
         return []
     return [(r["symbol"], r["holdingName"], float(r["holdingPercent"])) for _, r in df.iterrows()
@@ -117,13 +124,53 @@ def _yq_top_holdings(ticker):
 
 
 def _yq_categorie(ticker):
-    """categoryName uit fund_profile; None bij een foutstring of ontbrekend veld."""
+    """categoryName uit fund_profile; "" als het profiel er geen heeft, None bij een fout of foutstring."""
     profiel = _yq_fonds_data(ticker, "fund_profile", "yahooquery.Ticker.fund_profile")
     regel = profiel.get(ticker) if isinstance(profiel, dict) else None
-    naam = regel.get("categoryName") if isinstance(regel, dict) else None
+    if not isinstance(regel, dict):
+        dprint(f"[yahooquery] '{ticker}': geen categoryName in fund_profile")
+        return None
+    naam = regel.get("categoryName")
     if not naam:
         dprint(f"[yahooquery] '{ticker}': geen categoryName in fund_profile")
-    return naam or None
+    return naam or ""
+
+
+ONDERDEEL_SECTOR = "sector"
+ONDERDEEL_HOLDINGS = "holdings"
+ONDERDEEL_CATEGORIE = "categorie"
+GEEN_FONDSDATA_CACHE_SECONDEN = 3600
+GEEN_FONDSDATA_CACHE_MAX_ITEMS = 500
+_geen_fondsdata_cache = {}
+_geen_fondsdata_lock = threading.Lock()
+
+
+def _geen_fondsdata_bekend(ticker, onderdeel):
+    """True als yahooquery en yfinance voor dit onderdeel net nog geen data gaven (alleen geheugen, geen Neon)."""
+    with _geen_fondsdata_lock:
+        sinds = _geen_fondsdata_cache.get((ticker, onderdeel))
+    if sinds is None or time.monotonic() - sinds >= GEEN_FONDSDATA_CACHE_SECONDEN:
+        return False
+    dprint(f"[fondsdata] '{ticker}': {onderdeel} recent leeg bevonden, Yahoo overgeslagen")
+    return True
+
+
+def _onthoud_geen_fondsdata(ticker, onderdeel):
+    sleutel = (ticker, onderdeel)
+    with _geen_fondsdata_lock:
+        if sleutel not in _geen_fondsdata_cache and len(_geen_fondsdata_cache) >= GEEN_FONDSDATA_CACHE_MAX_ITEMS:
+            del _geen_fondsdata_cache[min(_geen_fondsdata_cache, key=_geen_fondsdata_cache.get)]
+        _geen_fondsdata_cache[sleutel] = time.monotonic()
+
+
+def wis_geen_fondsdata_cache():
+    with _geen_fondsdata_lock:
+        _geen_fondsdata_cache.clear()
+
+
+def _yq_was_leeg(resultaat):
+    """Een lege uitkomst van yahooquery, anders dan een fout (None): alleen die mag onthouden worden."""
+    return resultaat is not None and not resultaat
 
 
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
@@ -156,16 +203,21 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
     # Scheelt get_land_sector() later een identieke Yahoo-call.
     db_save_land_sector(ticker, country, sector)
 
-    # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; fund_overview is de fallback, daarna yahooquery.
-    if not category and (is_etf or quote_type == "MUTUALFUND"):
-        try:
-            _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
-            category = yf.Ticker(ticker).funds_data.fund_overview.get("categoryName")
-        except Exception as e:
-            dprint(f"[classify] kon funds_data.fund_overview niet ophalen voor '{ticker}' "
-                   f"(category-fallback): {e}")
+    # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; yahooquery is de fallback, daarna fund_overview
+    # (yfinance's funds_data faalt op Render met 401).
+    if not category and (is_etf or quote_type == "MUTUALFUND") and not _geen_fondsdata_bekend(ticker, ONDERDEEL_CATEGORIE):
+        yq_categorie = _yq_categorie(ticker)
+        category = yq_categorie
         if not category:
-            category = _yq_categorie(ticker)
+            try:
+                _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
+                category = yf.Ticker(ticker).funds_data.fund_overview.get("categoryName")
+            except Exception as e:
+                dprint(f"[classify] kon funds_data.fund_overview niet ophalen voor '{ticker}' "
+                       f"(category-fallback): {e}")
+        if not category and _yq_was_leeg(yq_categorie):
+            _onthoud_geen_fondsdata(ticker, ONDERDEEL_CATEGORIE)
+        category = category or None
 
     return {
         "is_etf": is_etf,
@@ -235,22 +287,27 @@ def _sector_naam(sector_key):
 
 def get_etf_sector_verdeling(ticker):
     """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet).
-    Terugval op yahooquery: yfinance's funds_data faalt op Render met 401 Invalid Crumb."""
+    Eerst yahooquery, daarna yfinance: yfinance's funds_data faalt op Render met 401 Invalid Crumb.
+    Een lege uitkomst van beide wordt kort in het geheugen onthouden."""
     cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
         return {_sector_naam(sector): gewicht for sector, gewicht in cached.items()}
+    if _geen_fondsdata_bekend(ticker, ONDERDEEL_SECTOR):
+        return {}
 
-    try:
-        _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")
-        weightings = yf.Ticker(ticker).funds_data.sector_weightings
-    except Exception as e:
-        dprint(f"[etf-sector] '{ticker}': yfinance sector_weightings mislukt: {e}")
-        weightings = None
-
+    weightings = _yq_sector_verdeling(ticker)
+    yq_leeg = _yq_was_leeg(weightings)
     if not weightings:
-        weightings = _yq_sector_verdeling(ticker)
+        try:
+            _tel_yahoo_call("yf.Ticker.funds_data.sector_weightings")
+            weightings = yf.Ticker(ticker).funds_data.sector_weightings
+        except Exception as e:
+            dprint(f"[etf-sector] '{ticker}': yfinance sector_weightings mislukt: {e}")
+            weightings = None
     if not weightings:
         dprint(f"[etf-sector] '{ticker}': geen sectorverdeling gevonden")
+        if yq_leeg:
+            _onthoud_geen_fondsdata(ticker, ONDERDEEL_SECTOR)
         return {}
 
     sector_dict = {_sector_naam(sector_key): float(gewicht) for sector_key, gewicht in weightings.items()}
@@ -302,7 +359,8 @@ def get_etf_holdings(ticker, isin=None):
     """[{holding_naam, holding_ticker, gewicht (0-1), land, bron}]: eerst de provider, anders yfinance's top 10.
     Provider = ETF_HOLDINGS_BRON, of met isin elk iShares-fonds uit de screener (exacte ISIN).
     Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider bekend is.
-    De top 10 valt terug op yahooquery als yfinance faalt (401 Invalid Crumb op Render)."""
+    De top 10 komt eerst van yahooquery, met yfinance als terugval (die geeft op Render 401 Invalid Crumb).
+    Een lege uitkomst van beide wordt kort in het geheugen onthouden."""
     cached = db_get_cached_etf_holdings(ticker)
     if cached and cached[0]["bron"] == "provider_csv":
         return cached
@@ -322,19 +380,24 @@ def get_etf_holdings(ticker, isin=None):
             db_save_etf_holdings(ticker, holdings)
             return holdings
 
-    top10 = []
-    try:
-        _tel_yahoo_call("yf.Ticker.funds_data.top_holdings")
-        top_holdings = yf.Ticker(ticker).funds_data.top_holdings
-        if top_holdings is not None and not top_holdings.empty:
-            top10 = [(t, row["Name"], float(row["Holding Percent"])) for t, row in top_holdings.iterrows()]
-    except Exception as e:
-        dprint(f"[etf-holdings] '{ticker}': yfinance top_holdings mislukt: {e}")
+    if _geen_fondsdata_bekend(ticker, ONDERDEEL_HOLDINGS):
+        return cached or []
 
+    top10 = _yq_top_holdings(ticker)
+    yq_leeg = _yq_was_leeg(top10)
     if not top10:
-        top10 = _yq_top_holdings(ticker)
+        top10 = []
+        try:
+            _tel_yahoo_call("yf.Ticker.funds_data.top_holdings")
+            top_holdings = yf.Ticker(ticker).funds_data.top_holdings
+            if top_holdings is not None and not top_holdings.empty:
+                top10 = [(t, row["Name"], float(row["Holding Percent"])) for t, row in top_holdings.iterrows()]
+        except Exception as e:
+            dprint(f"[etf-holdings] '{ticker}': yfinance top_holdings mislukt: {e}")
     if not top10:
         dprint(f"[etf-holdings] '{ticker}': geen top 10 gevonden")
+        if yq_leeg:
+            _onthoud_geen_fondsdata(ticker, ONDERDEEL_HOLDINGS)
         return cached or []
 
     # Bron blijft yfinance_top10 (ook bij yahooquery): proxy- en waarschuwingslogica kijken alleen naar die waarde.

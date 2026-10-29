@@ -4,6 +4,7 @@ import re
 
 import pandas as pd
 
+from backend.etf_holdings_provider import normaliseer_land
 from backend.ticker_classificatie import get_etf_holdings, get_etf_sector_verdeling, get_land_sector, get_valutas
 from backend.transactie_utils import _is_corporate_action_row
 
@@ -422,7 +423,7 @@ def bereken_land_dekking(holdings):
     bekend_pct = 0.0
     for h in gesorteerd:
         gewicht_pct = float(h.get("gewicht") or 0.0) * 100
-        land = h.get("land") if _is_bekend(h.get("land")) else "Unknown"
+        land = normaliseer_land(h.get("land"))
         sector = h.get("sector") if _is_bekend(h.get("sector")) else "Unknown"
         rijen.append([h.get("naam"), gewicht_pct, land, sector])
         dekking_pct += gewicht_pct
@@ -446,7 +447,8 @@ def sector_pct_met_restant(sector_verdeling):
 def land_pct_uit_holdings(holdings):
     land_pct = {}
     for h in holdings:
-        land_pct[h["land"] or "Unknown"] = land_pct.get(h["land"] or "Unknown", 0.0) + h["gewicht"]
+        land = normaliseer_land(h["land"])
+        land_pct[land] = land_pct.get(land, 0.0) + h["gewicht"]
     restant_land = max(0.0, 1.0 - sum(h["gewicht"] for h in holdings))
     if restant_land > 1e-9:
         land_pct["Unknown"] = land_pct.get("Unknown", 0.0) + restant_land

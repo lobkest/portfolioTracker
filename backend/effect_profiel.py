@@ -18,6 +18,7 @@ from backend.ticker_classificatie import (
 
 KOERS_TERUGKIJK_DAGEN = 10
 MAX_TOP_HOLDINGS = 25
+PROFIEL_TOP_BEDRIJVEN = 5
 TYPE_ETF = "ETF"
 TYPE_AANDEEL = "EQUITY"
 
@@ -179,12 +180,14 @@ def _etf_onderdelen(ticker, isin, waarschuwingen):
         samenvatting = {
             "bron": lijst["bron"], "aantal": lijst["aantal"], "gedekt_gewicht": lijst["gedekt_gewicht"],
             "top": [{"naam": r["naam"], "gewicht": r["gewicht"]} for r in lijst["holdings"][:MAX_TOP_HOLDINGS]],
+            "top5": [{"naam": r["naam"], "gewicht": r["gewicht"]} for r in lijst["holdings"][:PROFIEL_TOP_BEDRIJVEN]],
         }
     return land, land_bron, land_proxy, sector or {}, samenvatting, hv["route"], hv["fonds"], geverifieerd, geldig
 
 
-def _profiel_en_holdings(ticker, isin):
-    """(profiel, volledige holdings of None bij een aandeel)."""
+def _profiel_en_holdings(ticker, isin, naam=None):
+    """(profiel, volledige holdings of None bij een aandeel). `naam` (uit het zoekresultaat) is alleen weergave en
+    geldt alleen zonder long_name."""
     waarschuwingen = []
     details = get_ticker_details(ticker)
     koers_eur, koers_datum = haal_koers(ticker)
@@ -210,7 +213,7 @@ def _profiel_en_holdings(ticker, isin):
 
     profiel = _zonder_nan({
         "ticker": ticker,
-        "naam": details.get("long_name") or ticker,
+        "naam": details.get("long_name") or naam or ticker,
         "type": TYPE_ETF if is_etf else TYPE_AANDEEL,
         "valuta": details.get("valuta"),
         "koers_eur": koers_eur,
@@ -229,15 +232,15 @@ def _profiel_en_holdings(ticker, isin):
     return profiel, volledig
 
 
-def bouw_effect_profiel(ticker, isin=None):
+def bouw_effect_profiel(ticker, isin=None, naam=None):
     """Raises OnbekendEffect bij een ticker zonder gegevens en zonder koers; elke andere bronfout wordt een waarschuwing."""
-    return _profiel_en_holdings(ticker, isin)[0]
+    return _profiel_en_holdings(ticker, isin, naam)[0]
 
 
-def bouw_aankoop(ticker, isin, aantal):
+def bouw_aankoop(ticker, isin, aantal, naam=None):
     """(aankoop voor simuleer_aankoop, samenvatting voor het antwoord). Hergebruikt het profiel: dezelfde regels voor
     proxy en ISIN-verificatie. Raises OnbekendEffect, GeenKoers."""
-    profiel, holdings = _profiel_en_holdings(ticker, isin)
+    profiel, holdings = _profiel_en_holdings(ticker, isin, naam)
     koers_eur = profiel["koers_eur"]
     if koers_eur is None:
         raise GeenKoers(ticker)

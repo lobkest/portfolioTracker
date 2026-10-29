@@ -988,10 +988,10 @@ def bouw_wat_als_basis_uit_posities(posities):
     return bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, onderdelen=WAT_ALS_ONDERDELEN)
 
 
-def bereken_wat_als(basis, ticker, isin, aantal):
+def bereken_wat_als(basis, ticker, isin, aantal, naam=None):
     """{wat_als, aankoop} voor het bijkopen van `aantal` stuks. aankoop.zelfde_fonds_als: open posities met dezelfde
     ISIN en een andere ticker, of None als de basis geen ISIN's kent ('niet opslaan'). Raises OnbekendEffect, GeenKoers."""
-    aankoop, samenvatting = bouw_aankoop(ticker, isin, aantal)
+    aankoop, samenvatting = bouw_aankoop(ticker, isin, aantal, naam)
     isin_per_ticker = basis.get("isin_per_ticker")
     if isin_per_ticker is None:
         samenvatting["zelfde_fonds_als"] = None

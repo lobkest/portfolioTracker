@@ -5,7 +5,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 from backend.db import db_get_etf_proxies, db_save_etf_proxy, db_get_ticker_details
-from backend.etf_holdings_provider import fetch_ishares_holdings_via_productpagina
+from backend.etf_holdings_provider import fetch_ishares_holdings_via_productpagina, normaliseer_land
 from backend.portfolio_verdeling import bereken_land_dekking, DREMPEL_ONBEKEND_LAND_PCT, EUROPESE_LANDEN
 from backend.ticker_classificatie import get_etf_holdings, ishares_fondsen
 
@@ -193,7 +193,7 @@ def land_uit_holdings(holdings):
     """[{gewicht (%), land}] -> {land: fractie 0-1}; het niet-gedekte restant als 'Unknown'."""
     land = {}
     for h in holdings:
-        naam = h.get("land") or "Unknown"
+        naam = normaliseer_land(h.get("land"))
         land[naam] = land.get(naam, 0.0) + h["gewicht"] / 100.0
     restant = 1.0 - sum(land.values())
     if restant > 1e-9:

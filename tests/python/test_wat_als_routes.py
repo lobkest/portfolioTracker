@@ -324,6 +324,26 @@ class TestRoutes(_MetApp):
         self.assertEqual(res.status_code, 400)
         zonder.assert_not_called()
 
+    def test_te_lange_naam_geeft_400_zonder_iets_aan_te_roepen(self):
+        basis = self.patch_app("bouw_wat_als_basis")
+        profiel = self.patch_app("bouw_effect_profiel")
+        lang = "n" * (self.m.NAAM_MAX_TEKENS + 1)
+        self.assertEqual(self.post("/api/portfolio/ABC/wat-als", dict(self.GELDIG, naam=lang)).status_code, 400)
+        self.assertEqual(self.post("/api/wat-als", dict(self.GELDIG, naam=lang, posities=self.POSITIES)).status_code, 400)
+        self.assertEqual(self.post("/api/portfolio/ABC/wat-als", dict(self.GELDIG, naam=5)).status_code, 400)
+        self.assertEqual(self.client.get("/api/effect-profiel", query_string={"ticker": "A", "naam": lang}).status_code, 400)
+        basis.assert_not_called()
+        profiel.assert_not_called()
+
+    def test_naam_gaat_door_naar_het_profiel_en_de_berekening(self):
+        profiel = self.patch_app("bouw_effect_profiel", return_value={"ticker": "A"})
+        self.client.get("/api/effect-profiel", query_string={"ticker": "A", "naam": " Fonds X "})
+        profiel.assert_called_once_with("A", None, "Fonds X")
+        bereken = self.patch_app("bereken_wat_als", return_value={"wat_als": {}, "aankoop": {}})
+        self.patch_app("bouw_wat_als_basis", return_value={"x": 1})
+        self.post("/api/portfolio/ABC/wat-als", dict(self.GELDIG, naam="Fonds X"))
+        self.assertEqual(bereken.call_args.args[-1], "Fonds X")
+
     def test_geen_json_body_geeft_400(self):
         self.assertEqual(self.client.post("/api/portfolio/ABC/wat-als", data="geen json").status_code, 400)
 
