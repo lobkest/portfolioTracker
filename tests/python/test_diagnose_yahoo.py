@@ -9,7 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend import db, diagnose_yahoo
+from backend import db, diagnose_yahoo, ticker_classificatie as tc
 from backend.accesslog import accesslog_regel
 
 TOKEN = "geheim-token-123"
@@ -110,7 +110,7 @@ class TestDiagnose(_MetApp):
         data = res.get_json()
         self.assertIs(data["tijdelijk"], True)
         stappen = data["tickers"]["SPY"]
-        self.assertEqual(set(stappen), {"info", "funds_data", "history", "yahooquery_price",
+        self.assertEqual(set(stappen), {"info", "funds_data", "history", "classify_via_chart", "yahooquery_price",
                                         "yahooquery_fund_top_holdings"})
         for stap in stappen.values():
             self.assertEqual(set(stap), {"ok", "duur_s", "type_fout", "fout", "samenvatting"})
@@ -125,6 +125,37 @@ class TestDiagnose(_MetApp):
                          {"type": "dict", "ruwe_tekst": "Unauthorized: Invalid Crumb"})
         self.assertEqual(stappen["yahooquery_fund_top_holdings"]["samenvatting"],
                          {"type": "DataFrame", "aantal_rijen": 2})
+
+    def test_classify_via_chart_geeft_de_velden_zonder_database_of_categorie(self):
+        with patch.object(tc, "_zoek_categorie") as categorie, \
+                patch.object(tc, "db_save_classification") as opslaan, patch.object(tc, "db_save_land_sector") as land:
+            stap = self.client.get(f"/api/diagnose/yahoo?token={TOKEN}&tickers=SPY").get_json()[
+                "tickers"]["SPY"]["classify_via_chart"]
+        samenvatting = stap["samenvatting"]
+        self.assertTrue(stap["ok"] and samenvatting["bruikbaar"])
+        self.assertEqual(samenvatting["metadata"], {"aantal_sleutels": 2, "currency": "USD",
+                                                    "instrumentType": None, "exchangeName": None})
+        self.assertEqual(samenvatting["classificatie"]["valuta"], "USD")
+        for niet_aangeroepen in (categorie, opslaan, land):
+            niet_aangeroepen.assert_not_called()
+
+    def test_classify_via_chart_zonder_bruikbare_metadata_is_ok_maar_niet_bruikbaar(self):
+        def leeg(*args):
+            t = nep_yf_ticker()
+            t.history_metadata = {}
+            return t
+        with patch.object(diagnose_yahoo.yf, "Ticker", side_effect=leeg):
+            stap = self.client.get(f"/api/diagnose/yahoo?token={TOKEN}&tickers=SPY").get_json()[
+                "tickers"]["SPY"]["classify_via_chart"]
+        self.assertTrue(stap["ok"])
+        self.assertEqual((stap["samenvatting"]["metadata"], stap["samenvatting"]["bruikbaar"]), (None, False))
+
+    def test_classify_via_chart_exceptie_geeft_ok_false(self):
+        with patch.object(diagnose_yahoo, "_chart_metadata", side_effect=RuntimeError("boem")):
+            stap = self.client.get(f"/api/diagnose/yahoo?token={TOKEN}&tickers=SPY").get_json()[
+                "tickers"]["SPY"]["classify_via_chart"]
+        self.assertFalse(stap["ok"])
+        self.assertEqual(stap["type_fout"], "RuntimeError")
 
     def test_standaard_zijn_twee_tickers(self):
         data = self.client.get(f"/api/diagnose/yahoo?token={TOKEN}").get_json()

@@ -9,6 +9,7 @@ import yfinance as yf
 import yahooquery
 from yahooquery.session_management import initialize_session
 
+from backend.ticker_classificatie import _chart_metadata, _classify_via_chart as _classify_via_chart_app
 from backend.yahoo_client import _tel_yahoo_call
 
 MAX_TICKERS = 3
@@ -70,6 +71,19 @@ def _history(t):
     return {"aantal_rijen": rijen, "metadata_sleutels": list(ticker.history_metadata)}
 
 
+def _classify_via_chart(t):
+    """De echte terugval uit de app, zonder categorie (die zou geheugen-cache en extra Yahoo-calls geven); geen DB."""
+    metadata = _chart_metadata(t)
+    classificatie = _classify_via_chart_app(t, met_categorie=False)
+    return {
+        "metadata": None if metadata is None else {
+            "aantal_sleutels": len(metadata), "currency": metadata.get("currency"),
+            "instrumentType": metadata.get("instrumentType"), "exchangeName": metadata.get("exchangeName")},
+        "classificatie": classificatie,
+        "bruikbaar": classificatie is not None,
+    }
+
+
 def _ruwe_tekst(antwoord, t):
     """Bij een string of een dict met een fout: de ruwe tekst, afgekapt."""
     if isinstance(antwoord, dict):
@@ -106,6 +120,7 @@ STAPPEN = (
     ("info", _info),
     ("funds_data", _top_holdings),
     ("history", _history),
+    ("classify_via_chart", _classify_via_chart),
     ("yahooquery_price", _yq_price),
     ("yahooquery_fund_top_holdings", _yq_top_holdings),
 )

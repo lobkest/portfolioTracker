@@ -147,6 +147,11 @@ class TestGetEtfHoldingsVaneck(_EtfHoldings):
         self.m["fetch_vaneck_holdings_via_ticker"].assert_not_called()
         self.assertEqual(holdings, [])
 
+    def test_vaneck_zonder_ucits_probeert_de_route_niet(self):
+        holdings = self.draai(details={"long_name": "VanEck Semiconductor ETF"})
+        self.m["fetch_vaneck_holdings_via_ticker"].assert_not_called()
+        self.assertEqual(holdings, [])
+
     def test_ticker_in_de_lijst_gebruikt_de_lijst_en_niet_de_route(self):
         with patch.object(tc, "fetch_provider_holdings",
                           return_value=[{"naam": "X", "gewicht": 100.0, "land": "Japan"}]) as lijst:

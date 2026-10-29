@@ -2,7 +2,9 @@
 import os
 import sys
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, PropertyMock, patch
+
+import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
@@ -107,6 +109,52 @@ class TestClassifyViaChart(unittest.TestCase):
         self.assertIsNone(self.via_chart({}))
         self.assertIsNone(self.via_chart({"symbol": "X"}))
         self.assertIsNone(self.via_chart(fout=RuntimeError("boem")))
+
+
+class TestChartMetadataRetry(unittest.TestCase):
+    def chart(self, geschiedenis, metadata_per_poging, locked):
+        yf = MagicMock()
+        yf.return_value.history.side_effect = geschiedenis
+        metadata = PropertyMock(side_effect=metadata_per_poging)
+        type(yf.return_value).history_metadata = metadata
+        with patch.object(tc.yf, "Ticker", yf), patch.object(tc, "_database_locked_sinds", side_effect=locked), \
+                patch.object(tc.time, "sleep") as slaap, patch.object(tc, "dprint") as log:
+            uit = tc._chart_metadata("X")
+        return uit, yf, slaap, log
+
+    def test_lege_history_zonder_melding_geeft_none_met_logregel_en_zonder_retry(self):
+        uit, yf, slaap, log = self.chart([pd.DataFrame()], [{}], [False])
+        self.assertIsNone(uit)
+        self.assertEqual(yf.return_value.history.call_count, 1)
+        slaap.assert_not_called()
+        regel = log.call_args.args[0]
+        self.assertIn("history 0 rijen", regel)
+        self.assertIn("met 0 sleutels", regel)
+        self.assertIn("database locked: False", regel)
+
+    def test_metadata_zonder_currency_en_type_wordt_gelogd_en_niet_opnieuw_geprobeerd(self):
+        uit, yf, slaap, log = self.chart([pd.DataFrame({"Close": [1.0]})], [{"symbol": "X"}], [False])
+        self.assertEqual(uit, {"symbol": "X"})
+        self.assertIn("met 1 sleutels", log.call_args.args[0])
+        slaap.assert_not_called()
+
+    def test_lege_history_met_melding_wordt_een_keer_opnieuw_geprobeerd(self):
+        rijen = pd.DataFrame({"Close": [1.0]})
+        uit, yf, slaap, _log = self.chart([pd.DataFrame(), rijen], [{}, CHART_ETF], [True, False])
+        self.assertEqual(uit, CHART_ETF)
+        self.assertEqual(yf.return_value.history.call_count, 2)
+        slaap.assert_called_once_with(tc.BULK_DOWNLOAD_WACHTTIJD)
+
+    def test_blijft_de_melding_komen_dan_blijft_het_bij_een_retry(self):
+        uit, yf, slaap, _log = self.chart([pd.DataFrame()] * 3, [{}] * 3, [True] * 3)
+        self.assertIsNone(uit)
+        self.assertEqual(yf.return_value.history.call_count, 2)
+        self.assertEqual(slaap.call_count, 1)
+
+    def test_melding_met_gevulde_history_geeft_geen_retry(self):
+        uit, yf, slaap, _log = self.chart([pd.DataFrame({"Close": [1.0]})], [CHART_ETF], [True])
+        self.assertEqual(uit, CHART_ETF)
+        slaap.assert_not_called()
 
 
 class TestVolgordeInfoChartPrice(unittest.TestCase):

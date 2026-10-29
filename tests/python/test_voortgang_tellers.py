@@ -164,7 +164,7 @@ class TestBijwerkenEnOphalenStroom(unittest.TestCase):
     def test_bijwerken_onbekende_code_telt_ook_met_stroom_als_foute_poging(self):
         with patch.object(self.m, "db_portfolio_bestaat", return_value=False), \
                 patch.object(self.m.toegangslimiet, "registreer") as registreer:
-            self._bijwerken()
+            _regels(self._bijwerken())
         self.assertEqual(registreer.call_count, 2)
 
     def test_bijwerken_exception_geeft_500_in_de_klaar_regel(self):

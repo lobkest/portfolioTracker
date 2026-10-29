@@ -13,7 +13,10 @@ from backend.db import (
     db_get_ticker_details, db_save_long_names, db_get_ishares_fondsen, db_save_ishares_fondsen,
 )
 from backend.debug_utils import dprint
-from backend.yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
+from backend.yahoo_client import (
+    BULK_DOWNLOAD_WACHTTIJD, RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS,
+    _database_locked_sinds, _met_rate_limit_retry, _tel_yahoo_call, _tel_yahoo_retry,
+)
 from backend.etf_holdings_provider import (
     ETF_HOLDINGS_BRON, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
     fetch_vaneck_holdings_via_ticker, is_vaneck_naam, ticker_root,
@@ -215,29 +218,43 @@ def _zoek_categorie(ticker, categorie_uit_info):
 
 # Sleutels in yfinance 1.7.0 history_metadata (beurscodes als .info: AMS, GER, LSE): currency, exchangeName,
 # instrumentType, longName, shortName, symbol, fullExchangeName, firstTradeDate, regularMarketPrice, ...
-def _chart_metadata(ticker):
-    """De chart-metadata-dict van één ticker; None bij een fout of lege uitkomst."""
-    def _actie():
-        _tel_yahoo_call("yf.Ticker.history_metadata")
-        t = yf.Ticker(ticker)
-        t.history(period="5d")
-        return t.history_metadata
+def _chart_metadata(ticker, wachttijd=BULK_DOWNLOAD_WACHTTIJD):
+    """De chart-metadata-dict van één ticker; None bij een fout of lege uitkomst. yfinance gooit bij een mislukte history
+    niets (zie _DatabaseLockedOpvanger): een lege history mét 'database is locked' wordt één keer opnieuw geprobeerd."""
+    for poging in (1, 2):
+        def _actie():
+            _tel_yahoo_call("yf.Ticker.history_metadata")
+            t = yf.Ticker(ticker)
+            return len(t.history(period="5d")), t.history_metadata
 
-    metadata, fout = _met_rate_limit_retry(_actie, pogingen=1)
-    if fout is not None:
-        dprint(f"[chart] '{ticker}': metadata mislukt: {fout}")
-        return None
-    return metadata if isinstance(metadata, dict) and metadata else None
+        begin = time.monotonic()
+        uitkomst, fout = _met_rate_limit_retry(_actie, pogingen=1)
+        if fout is not None:
+            dprint(f"[chart] '{ticker}': metadata mislukt: {fout}")
+            return None
+        rijen, metadata = uitkomst
+        bruikbaar = isinstance(metadata, dict) and bool(metadata.get("currency") or metadata.get("instrumentType"))
+        locked = _database_locked_sinds(begin, [ticker])
+        if not bruikbaar:
+            sleutels = len(metadata) if isinstance(metadata, (dict, list)) else None
+            waarden = (metadata.get("currency"), metadata.get("instrumentType")) if isinstance(metadata, dict) else None
+            dprint(f"[chart] '{ticker}': onbruikbaar, history {rijen} rijen, metadata {type(metadata).__name__} "
+                   f"met {sleutels} sleutels, (currency, instrumentType)={waarden}, database locked: {locked}")
+        if rijen == 0 and locked and poging == 1:
+            _tel_yahoo_retry("retries", wachttijd)
+            time.sleep(wachttijd)
+            continue
+        return metadata if isinstance(metadata, dict) and metadata else None
 
 
-def _classify_via_chart(ticker):
+def _classify_via_chart(ticker, met_categorie=True):
     """Terugval als .info onbruikbaar is: chart-metadata (het chart-endpoint werkt op Render, quoteSummary niet)."""
     metadata = _chart_metadata(ticker)
     if metadata is None or not (metadata.get("currency") or metadata.get("instrumentType")):
         return None
     instrument_type = metadata.get("instrumentType") or ""
     is_etf = instrument_type == "ETF"
-    category = _zoek_categorie(ticker, None) if is_etf or instrument_type == "MUTUALFUND" else None
+    category = _zoek_categorie(ticker, None) if met_categorie and (is_etf or instrument_type == "MUTUALFUND") else None
     return {
         "is_etf": is_etf,
         "quote_type": instrument_type or None,
@@ -465,7 +482,10 @@ def _haal_vaneck_holdings(ticker):
     if _geen_fondsdata_bekend(ticker, ONDERDEEL_VANECK):
         return None
     naam = get_ticker_details(ticker).get("long_name")
-    if not is_vaneck_naam(naam):
+    # Lokaal: effect_zoeken importeert dit module.
+    from backend.effect_zoeken import is_ucits_naam
+    # De Europese VanEck-site heeft alleen UCITS-fondsen; een Amerikaanse ETF met dezelfde ticker-root zou verkeerd koppelen.
+    if not (is_vaneck_naam(naam) and is_ucits_naam(naam)):
         return None
     eigen_root = ticker_root(ticker)
     gevonden = fetch_vaneck_holdings_via_ticker([eigen_root])
