@@ -18,6 +18,9 @@ from backend.yahoo_client import (
     BULK_DOWNLOAD_WACHTTIJD, RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS,
     _database_locked_sinds, _met_rate_limit_retry, _tel_yahoo_call, _tel_yahoo_retry,
 )
+from backend.sector_referentie import (
+    SECTOR_REFERENTIE_ISINS, SECTOR_REFERENTIE_NAAM, maak_sector_opzoektabel, sector_verdeling_via_referentie,
+)
 from backend.etf_holdings_provider import (
     ETF_HOLDINGS_BRON, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
     fetch_vaneck_holdings_via_ticker, is_vaneck_naam, sector_verdeling_uit_holdings, ticker_root,
@@ -160,9 +163,19 @@ ONDERDEEL_HOLDINGS = "holdings"
 ONDERDEEL_CATEGORIE = "categorie"
 ONDERDEEL_VANECK = "vaneck"
 ONDERDEEL_SECTOR_PROVIDER = "sector_provider"
+ONDERDEEL_SECTOR_REFERENTIE = "sector_referentie"
 GEEN_FONDSDATA_CACHE_SECONDEN = 3600
 GEEN_FONDSDATA_CACHE_MAX_ITEMS = 500
 _geen_fondsdata_cache = {}
+
+SECTOR_OPZOEKTABEL_SECONDEN = 24 * 3600
+_sector_opzoektabel_lock = threading.Lock()
+_sector_opzoektabel_cache = [None, 0.0]
+# Markerrij in etf_sector_verdeling (gewicht 0): zo blijft zichtbaar waar de sectoren vandaan komen, zonder extra kolom.
+BRON_MARKER = "_bron:"
+SECTOR_BRON_YAHOO = "yahoo"
+SECTOR_BRON_PROVIDER = "provider"
+SECTOR_BRON_REFERENTIE = "referentie"
 _geen_fondsdata_lock = threading.Lock()
 
 
@@ -415,7 +428,7 @@ def get_etf_sector_verdeling(ticker, isin=None):
     Een lege uitkomst wordt kort in het geheugen onthouden."""
     cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
-        return {_sector_naam(sector): gewicht for sector, gewicht in cached.items()}
+        return {_sector_naam(sector): gewicht for sector, gewicht in cached.items() if not sector.startswith(BRON_MARKER)}
     if not _geen_fondsdata_bekend(ticker, ONDERDEEL_SECTOR):
         van_yahoo = _sector_verdeling_van_yahoo(ticker)
         if van_yahoo:
@@ -423,8 +436,54 @@ def get_etf_sector_verdeling(ticker, isin=None):
     return _sector_uit_provider(ticker, isin)
 
 
+def get_etf_sector_bron(ticker):
+    """'yahoo', 'provider' of 'referentie' (naar de markerrij bij de gecachete verdeling); None zonder cache."""
+    cached = db_get_cached_etf_sector_verdeling(ticker)
+    if cached is None:
+        return None
+    return next((sector[len(BRON_MARKER):] for sector in cached if sector.startswith(BRON_MARKER)), SECTOR_BRON_YAHOO)
+
+
+def _sla_sector_op(ticker, verdeling, bron):
+    db_save_etf_sector_verdeling(ticker, {**verdeling, f"{BRON_MARKER}{bron}": 0.0})
+
+
+def _sector_opzoektabel():
+    """De referentietabel uit het geheugen (24 uur), anders opnieuw gebouwd uit de iShares-referentiefondsen; None bij
+    een mislukking (kort onthouden)."""
+    with _sector_opzoektabel_lock:
+        tabel, sinds = _sector_opzoektabel_cache
+    if tabel is not None and time.monotonic() - sinds < SECTOR_OPZOEKTABEL_SECONDEN:
+        return tabel
+    if _geen_fondsdata_bekend(SECTOR_REFERENTIE_NAAM, ONDERDEEL_SECTOR_REFERENTIE):
+        return None
+    referentie = []
+    for isin in SECTOR_REFERENTIE_ISINS:
+        fonds = _ishares_fonds_voor_isin(isin)
+        referentie += (fetch_ishares_holdings_via_productpagina(fonds["product_url"]) if fonds else None) or []
+    tabel = maak_sector_opzoektabel(referentie)
+    if not any(tabel.values()):
+        dprint(f"[etf-sector] WARN referentiefonds {SECTOR_REFERENTIE_NAAM} niet opgehaald")
+        _onthoud_geen_fondsdata(SECTOR_REFERENTIE_NAAM, ONDERDEEL_SECTOR_REFERENTIE)
+        return None
+    with _sector_opzoektabel_lock:
+        _sector_opzoektabel_cache[:] = [tabel, time.monotonic()]
+    return tabel
+
+
+def _sector_via_referentie(ticker, provider_holdings):
+    """(verdeling, dekking in %) voor provider-holdings zonder sectorkolom; ({}, 0.0) zonder referentietabel."""
+    tabel = _sector_opzoektabel()
+    if tabel is None:
+        return {}, 0.0
+    verdeling, dekking = sector_verdeling_via_referentie(provider_holdings, tabel)
+    dprint(f"[etf-sector] '{ticker}': {dekking:.1f}% van het gewicht gevonden in {SECTOR_REFERENTIE_NAAM}")
+    return verdeling, dekking
+
+
 def _sector_uit_provider(ticker, isin):
-    """Terugval voor holdings die al gecachet zijn zonder sector: de provider-holdings één keer opnieuw ophalen."""
+    """Terugval voor holdings die al gecachet zijn zonder sector: de provider-holdings één keer opnieuw ophalen
+    (de cache bewaart geen ticker of ISIN). Heeft het bestand geen sectorkolom, dan de iShares-referentie."""
     if _geen_fondsdata_bekend(ticker, ONDERDEEL_SECTOR_PROVIDER):
         return {}
     ishares_fonds = None if ticker in ETF_HOLDINGS_BRON else _ishares_fonds_voor_isin(isin)
@@ -432,12 +491,15 @@ def _sector_uit_provider(ticker, isin):
         provider_holdings = _haal_provider_holdings(ticker, ishares_fonds)
     else:
         provider_holdings = _haal_vaneck_holdings(ticker)
-    verdeling = sector_verdeling_uit_holdings(provider_holdings or [])
+    provider_holdings = provider_holdings or []
+    verdeling, bron = sector_verdeling_uit_holdings(provider_holdings), SECTOR_BRON_PROVIDER
+    if not verdeling and provider_holdings and not any(h.get("sector") for h in provider_holdings):
+        verdeling, bron = _sector_via_referentie(ticker, provider_holdings)[0], SECTOR_BRON_REFERENTIE
     if not verdeling:
         dprint(f"[etf-sector] '{ticker}': geen sectorverdeling uit provider-holdings")
         _onthoud_geen_fondsdata(ticker, ONDERDEEL_SECTOR_PROVIDER)
         return {}
-    db_save_etf_sector_verdeling(ticker, verdeling)
+    _sla_sector_op(ticker, verdeling, bron)
     return verdeling
 
 
@@ -445,7 +507,7 @@ def _bewaar_provider_sector(ticker, provider_holdings):
     """Bij het ophalen van provider-holdings: sectoren erbij opslaan, nooit over een Yahoo-verdeling heen."""
     verdeling = sector_verdeling_uit_holdings(provider_holdings)
     if verdeling and db_get_cached_etf_sector_verdeling(ticker) is None:
-        db_save_etf_sector_verdeling(ticker, verdeling)
+        _sla_sector_op(ticker, verdeling, SECTOR_BRON_PROVIDER)
 
 
 def _sector_verdeling_van_yahoo(ticker):

@@ -214,6 +214,7 @@ class TestProfielTdiv(_EtfHoldings):
             "get_prices": dict(return_value=koersen),
             "get_ticker_details": dict(return_value={"is_etf": True, "long_name": VANECK_NAAM, "valuta": "EUR"}),
             "get_etf_sector_verdeling": dict(return_value={"Technology": 0.7}),
+            "get_etf_sector_bron": dict(return_value="yahoo"),
             "get_etf_holdings": dict(side_effect=tc.get_etf_holdings),
             "get_etf_holdings_voor_isin": dict(return_value=None),
             "db_get_isins_voor_ticker": dict(return_value=[]),

@@ -10,12 +10,74 @@ const {
     watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk, watAlsRij, watAlsAlInPortfolioTekst,
     watAlsAlInBezitRegels, watAlsFoutTekst, watAlsDividendRegel, watAlsDividendResultaatTekst,
     watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOnbekendTekst, watAlsOverlapToontLijst, watAlsProfielBedrijven,
-    watAlsOrderkostenRegels, watAlsSectorBronTekst,
+    watAlsOrderkostenRegels, watAlsSectorBronTekst, watAlsGeenIsinTekst, watAlsWaarschuwingTeksten, watAlsBedrijvenKop,
+    watAlsVerdelingRijen, WAT_ALS_GEEN_FONDSDATA, watAlsDividendResultaatUitleg, watAlsRendementUitleg,
 } = require("../static/js/wat_als.js");
+
+const UITKEREND = {
+    aantal: 10, dividend_status: "keert_uit", dividend_jaar_bruto_eur: 16.9, dividend_jaar_netto_eur: 14.37,
+    dividend_per_stuk_bruto_eur: 1.69, dividend_per_stuk_netto_eur: 1.4365, dividend_bron: "yahoo_reeks",
+    dividend_uitkeringen_12m: 4, dividend_belasting_fractie: 0.15, dividend_belasting_bron: "standaard",
+};
+
+test("dividenduitleg: getallen, bron en belasting", () => {
+    const tekst = watAlsDividendResultaatUitleg(UITKEREND);
+    assert.match(tekst, /^10 stuks × €1,69 per stuk = €16,90 bruto\. /);
+    assert.match(tekst, /Som van de uitkeringen van de afgelopen 12 maanden volgens Yahoo\./);
+    assert.match(tekst, /Aantal uitkeringen in 12 maanden: 4\./);
+    assert.match(tekst, /Netto = bruto min 15% bronbelasting \(een standaardaanname/);
+    assert.match(tekst, /Niet herbelegd; geen garantie voor de toekomst\.$/);
+});
+
+test("dividenduitleg: geen uitleg bij keert_niet_uit of onbekend", () => {
+    assert.equal(watAlsDividendResultaatUitleg({ ...UITKEREND, dividend_status: "keert_niet_uit" }), null);
+    assert.equal(watAlsDividendResultaatUitleg({ ...UITKEREND, dividend_status: "onbekend", dividend_per_stuk_bruto_eur: null }), null);
+    assert.equal(watAlsDividendResultaatUitleg(undefined), null);
+});
+
+test("rendementsuitleg: met en zonder dividend", () => {
+    const uitleg = { begin_datum: "2025-10-30", eind_datum: "2026-10-29", koers_begin_eur: 45.23, koers_eind_eur: 55.58, dividend_som_eur: 2.05 };
+    assert.equal(watAlsRendementUitleg(uitleg, 22.88, 26.62),
+        "Koers: +22,88%, van €45,23 (30-10-2025) naar €55,58 (29-10-2026). Totaal: +26,62%, koers plus €2,05 aan bruto dividend "
+        + "in die periode (ex-datums), niet herbelegd, gedeeld door de beginkoers. In EUR.");
+    assert.equal(watAlsRendementUitleg({ ...uitleg, dividend_som_eur: 0 }, 22.88, 22.88),
+        "Koers: +22,88%, van €45,23 (30-10-2025) naar €55,58 (29-10-2026). In EUR.");
+    assert.equal(watAlsRendementUitleg(null, 1, 1), null);
+});
+
+test("ISIN-melding zonder ISIN alleen bij holdings uit de yfinance-top 10", () => {
+    assert.match(watAlsGeenIsinTekst("geen", { bron: "yfinance_top10" }), /10 grootste holdings/);
+    assert.equal(watAlsGeenIsinTekst("geen", { bron: "provider_csv" }), null);
+    assert.equal(watAlsGeenIsinTekst("geen", null), null);
+    assert.equal(watAlsGeenIsinTekst("zeker", { bron: "yfinance_top10" }), null);
+});
+
+test("waarschuwingen: geen_sector en geen_holdings samen worden één regel", () => {
+    assert.deepEqual(watAlsWaarschuwingTeksten(["geen_sector", "geen_holdings"]), [WAT_ALS_GEEN_FONDSDATA]);
+    assert.deepEqual(watAlsWaarschuwingTeksten(["geen_koers", "geen_holdings", "geen_sector"]),
+        [watAlsWaarschuwingTekst("geen_koers"), WAT_ALS_GEEN_FONDSDATA]);
+    assert.deepEqual(watAlsWaarschuwingTeksten(["geen_sector"]), [watAlsWaarschuwingTekst("geen_sector")]);
+    assert.deepEqual(watAlsWaarschuwingTeksten(["geen_holdings"]), [watAlsWaarschuwingTekst("geen_holdings")]);
+    assert.deepEqual(watAlsWaarschuwingTeksten(undefined), []);
+});
+
+test("kop bedrijven: top 5 van N bij meer holdings", () => {
+    assert.equal(watAlsBedrijvenKop({ aantal: 101 }), "Bedrijven (top 5 van 101)");
+    assert.equal(watAlsBedrijvenKop({ aantal: 4 }), "Bedrijven (top 5)");
+    assert.equal(watAlsBedrijvenKop(null), "Bedrijven (top 5)");
+});
+
+test("een volledig onbekend land toont geen rijen (onbekend), een gedeeltelijk onbekend wel", () => {
+    assert.deepEqual(watAlsVerdelingRijen({ Unknown: 1 }, true, 5), []);
+    assert.deepEqual(watAlsVerdelingRijen({ Unknown: 0.4, NL: 0.6 }, false, 5).map(r => r.naam), ["NL", "Unknown"]);
+});
 
 test("sectorbron: alleen een regel bij sectoren van de fondsmaker", () => {
     assert.equal(watAlsSectorBronTekst({ sector_bron: "provider", sector_aanbieder: "VanEck" }),
         "Sectoren volgens VanEck (vertaald naar Morningstar-indeling)");
+    assert.equal(watAlsSectorBronTekst({ sector_bron: "referentie", sector_aanbieder: "iShares MSCI World", sector_dekking: 91.6 }),
+        "Sectoren per bedrijf opgezocht in iShares MSCI World (91,6% van het fonds gevonden); de rest telt als onbekend.");
+    assert.equal(watAlsSectorBronTekst({ sector_bron: "referentie", sector_aanbieder: "iShares MSCI World" }), null);
     assert.equal(watAlsSectorBronTekst({ sector_bron: "yahoo", sector_aanbieder: null }), null);
     assert.equal(watAlsSectorBronTekst({ sector_bron: null }), null);
     assert.equal(watAlsSectorBronTekst(undefined), null);

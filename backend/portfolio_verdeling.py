@@ -435,6 +435,14 @@ def bereken_land_dekking(holdings):
     return {"onbekend_pct": max(0.0, 100 - bekend_pct), "dekking_pct": dekking_pct, "rijen": rijen}
 
 
+ONBEKEND_DREMPEL = 0.999
+
+
+def verdeling_is_onbekend(verdeling):
+    """True bij een lege verdeling of als (vrijwel) alles Unknown is; een gedeeltelijk Unknown blijft gewoon een rij."""
+    return not verdeling or verdeling.get("Unknown", 0.0) >= ONBEKEND_DREMPEL
+
+
 def sector_pct_met_restant(sector_verdeling):
     """Niet-gedekt restant naar Unknown, zodat de totalen kloppen."""
     sector_pct = dict(sector_verdeling)

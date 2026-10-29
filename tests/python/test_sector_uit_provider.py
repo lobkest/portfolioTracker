@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend import effect_profiel, etf_holdings_provider as ehp, ticker_classificatie as tc, wat_als
+from backend import effect_profiel, etf_holdings_provider as ehp, ticker_classificatie as tc
 from backend.etf_holdings_provider import sector_verdeling_uit_holdings
-from backend.portfolio_verdeling import sector_pct_met_restant
+from backend.portfolio_verdeling import sector_pct_met_restant, verdeling_is_onbekend
 
 # Uittreksels uit echte iShares-bestanden (CSPX.AS in het Engels, IWDA.AS in het Nederlands).
 ISHARES_EN = (
@@ -112,6 +112,7 @@ class TestTerugval(unittest.TestCase):
         with patch.object(tc, "db_get_cached_etf_sector_verdeling", side_effect=lees), \
                 patch.object(tc, "db_save_etf_sector_verdeling", side_effect=sla_op) as bewaar, \
                 patch.object(tc, "_yq_sector_verdeling", return_value={}), \
+                patch.object(tc, "_sector_via_referentie", return_value=({}, 0.0)), \
                 patch.object(tc.yf, "Ticker", side_effect=RuntimeError("401")), \
                 patch.object(tc, "ETF_HOLDINGS_BRON", {"TDT.AS": {}} if bron is None else bron), \
                 patch.object(tc, "fetch_provider_holdings", return_value=provider_holdings) as haal, \
@@ -135,13 +136,14 @@ class TestTerugval(unittest.TestCase):
 
 
 class TestProfielEnWatAls(unittest.TestCase):
-    def profiel(self, holdings_bron):
-        holdings = [{"holding_naam": "Pfizer", "holding_ticker": None, "gewicht": 1.0, "land": "United States",
+    def profiel(self, sector_bron, land="United States", holdings_bron="provider_csv"):
+        holdings = [{"holding_naam": "Pfizer", "holding_ticker": None, "gewicht": 1.0, "land": land,
                      "bron": holdings_bron}]
         patches = {
             "get_ticker_details": dict(return_value={"is_etf": True, "long_name": "VanEck Morningstar Dev Mkts Div Leaders UCITS ETF",
                                                      "valuta": "EUR"}),
             "get_etf_sector_verdeling": dict(return_value={"Technology": 0.6}),
+            "get_etf_sector_bron": dict(return_value=sector_bron),
             "get_etf_holdings": dict(return_value=holdings),
             "get_etf_holdings_voor_isin": dict(return_value=None),
             "land_proxies_voor_etfs": dict(return_value={}),
@@ -163,19 +165,29 @@ class TestProfielEnWatAls(unittest.TestCase):
                 p.stop()
 
     def test_provider_holdings_geven_sector_bron_provider_zonder_waarschuwing(self):
-        p = self.profiel("provider_csv")
+        p = self.profiel("provider")
         self.assertEqual((p["sector_bron"], p["sector_aanbieder"]), ("provider", "VanEck"))
         self.assertNotIn("geen_sector", p["waarschuwingen"])
         self.assertAlmostEqual(p["sector"]["Technology"], 0.6)
 
     def test_yahoo_top10_geeft_sector_bron_yahoo(self):
-        p = self.profiel("yfinance_top10")
+        p = self.profiel("yahoo", holdings_bron="yfinance_top10")
         self.assertEqual((p["sector_bron"], p["sector_aanbieder"]), ("yahoo", None))
+
+    def test_onbekend_vlag_volledig_gedeeltelijk_en_bekend(self):
+        self.assertTrue(verdeling_is_onbekend({"Unknown": 1.0}))
+        self.assertFalse(verdeling_is_onbekend({"Unknown": 0.6, "Energy": 0.4}))
+        self.assertFalse(verdeling_is_onbekend({"Energy": 1.0}))
+
+    def test_profiel_zet_de_onbekend_vlag_per_onderdeel(self):
+        p = self.profiel("provider")
+        self.assertEqual(p["onbekend"], {"land": False, "sector": False})
+        self.assertEqual(self.profiel("provider", land="Unknown")["onbekend"], {"land": True, "sector": False})
 
     def test_wat_als_sector_is_niet_meer_volledig_onbekend(self):
         sector = sector_pct_met_restant({"Technology": 0.6})
-        self.assertFalse(wat_als._volledig_onbekend(sector))
-        self.assertTrue(wat_als._volledig_onbekend(sector_pct_met_restant({})))
+        self.assertFalse(verdeling_is_onbekend(sector))
+        self.assertTrue(verdeling_is_onbekend(sector_pct_met_restant({})))
 
 
 if __name__ == "__main__":

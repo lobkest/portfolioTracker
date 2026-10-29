@@ -5,7 +5,7 @@ import pandas as pd
 
 from backend import db, effect_koers
 from backend.effect_koers import (
-    beschikbaar_sinds, dagpunten, dividenden_in_eur, rendementen, weekpunten,
+    beschikbaar_sinds, dagpunten, dividenden_in_eur, rendementen, uitleg_uit_dagkoersen, weekpunten,
 )
 from backend.split_correctie import continue_reeks, ruwe_koers
 
@@ -100,6 +100,27 @@ class TestRendementen(unittest.TestCase):
         self.assertEqual(rendementen(pd.Series(dtype=float), None, START), (None, None))
 
 
+class TestUitleg(unittest.TestCase):
+    def test_begin_en_eind_uit_de_dagkoersen_en_dividendsom_alleen_in_de_periode(self):
+        koersen = reeks([100, 101, 102, 103, 104, 105, 106, 107, 108, 109])
+        divs = dividend(d2023_12_01=5.0, d2024_01_01=2.0, d2024_01_04=1.0, d2024_01_10=0.5, d2024_02_01=7.0)
+        self.assertEqual(uitleg_uit_dagkoersen(koersen, divs, START), {
+            "begin_datum": "2024-01-01", "eind_datum": "2024-01-12", "koers_begin_eur": 100.0, "koers_eind_eur": 109.0,
+            "dividend_som_eur": 1.5})
+
+    def test_klopt_met_de_rendementen(self):
+        koersen = reeks([100, 101, 102, 103, 104, 105, 106, 107, 108, 109])
+        divs = dividend(d2024_01_04=1.0)
+        u = uitleg_uit_dagkoersen(koersen, divs, START)
+        koers, totaal = rendementen(koersen, divs, START)
+        self.assertAlmostEqual((u["koers_eind_eur"] / u["koers_begin_eur"] - 1) * 100, koers)
+        self.assertAlmostEqual(((u["koers_eind_eur"] + u["dividend_som_eur"]) / u["koers_begin_eur"] - 1) * 100, totaal)
+
+    def test_zonder_koersen_none_en_zonder_dividend_nul(self):
+        self.assertIsNone(uitleg_uit_dagkoersen(pd.Series(dtype=float), None, START))
+        self.assertEqual(uitleg_uit_dagkoersen(reeks([100, 110]), None, START)["dividend_som_eur"], 0.0)
+
+
 class TestBeschikbaarSinds(unittest.TestCase):
     def test_none_als_de_data_vanaf_de_start_beschikbaar_is(self):
         self.assertIsNone(beschikbaar_sinds(reeks([1, 2]), START))
@@ -174,12 +195,19 @@ class TestRoute(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
         self.assertEqual(set(data), {"periode", "per", "punten", "koers_rendement", "totaal_rendement",
-                                     "beschikbaar_sinds", "heeft_dividend"})
+                                     "beschikbaar_sinds", "heeft_dividend", "uitleg"})
         self.assertEqual(data["per"], "week")
         self.assertEqual(len(data["punten"]), 2)
         self.assertEqual(set(data["punten"][0]), {"datum", "koers_eur", "koers_index", "totaal_index"})
         self.assertTrue(data["heeft_dividend"])
         self.assertEqual(data["koers_rendement"], 9.0)
+
+    def test_uitleg_is_bij_week_gelijk_aan_de_daguitkomst(self):
+        dag = self.vraag(periode="3j", per="dag").get_json()["uitleg"]
+        week = self.vraag(periode="3j", per="week").get_json()["uitleg"]
+        self.assertEqual(dag, week)
+        self.assertEqual(dag, {"begin_datum": "2024-01-01", "eind_datum": "2024-01-12", "koers_begin_eur": 100.0,
+                               "koers_eind_eur": 109.0, "dividend_som_eur": 1.0})
 
     def test_1j_is_altijd_per_dag(self):
         data = self.vraag(periode="1j", per="week").get_json()

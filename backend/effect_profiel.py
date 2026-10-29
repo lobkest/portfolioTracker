@@ -9,10 +9,14 @@ from backend.debug_utils import dprint
 from backend.effect_zoeken import noteringen_voor_isin_zoekopdracht, zoek_gecachet
 from backend.etf_holdings_provider import ETF_HOLDINGS_BRON, aanbieder_naam
 from backend.etf_proxy import land_proxies_voor_etfs
-from backend.portfolio_verdeling import holdings_lijst_uit, land_pct_uit_holdings, sector_pct_met_restant
+from backend.portfolio_verdeling import (
+    holdings_lijst_uit, land_pct_uit_holdings, sector_pct_met_restant, verdeling_is_onbekend,
+)
 from backend.prijzen import get_prices
+from backend.sector_referentie import SECTOR_REFERENTIE_NAAM
 from backend.ticker_classificatie import (
-    get_etf_holdings, get_etf_holdings_voor_isin, get_etf_sector_verdeling, get_land_sector, get_ticker_details,
+    SECTOR_BRON_PROVIDER, SECTOR_BRON_REFERENTIE, SECTOR_BRON_YAHOO,
+    get_etf_holdings, get_etf_holdings_voor_isin, get_etf_sector_bron, get_etf_sector_verdeling, get_land_sector, get_ticker_details,
     ishares_fondsen,
 )
 
@@ -27,8 +31,6 @@ LAND_BRON_PROXY = "proxy"
 BRON_TOP10 = "yfinance_top10"
 BRON_PROVIDER = "provider_csv"
 
-SECTOR_BRON_YAHOO = "yahoo"
-SECTOR_BRON_PROVIDER = "provider"
 
 ROUTE_PROVIDER_TICKER ="provider_ticker"
 ROUTE_ISIN = "isin"
@@ -79,12 +81,17 @@ def haal_koers(ticker):
 
 
 def _haal_sector(ticker, isin=None):
+    """(sector met Unknown-restant, bron, dekking in %); (None, None, None) zonder verdeling. De dekking is het
+    gevonden deel; bij een referentie-opzoeking is dat het getal dat de gebruiker moet zien."""
     try:
         verdeling = get_etf_sector_verdeling(ticker, isin)
+        bron = (get_etf_sector_bron(ticker) or SECTOR_BRON_YAHOO) if verdeling else None
     except Exception as e:
         dprint(f"[profiel] WARN sectorverdeling niet opgehaald ({e!a})")
-        return None
-    return sector_pct_met_restant(verdeling) if verdeling else None
+        return None, None, None
+    if not verdeling:
+        return None, None, None
+    return sector_pct_met_restant(verdeling), bron, round(min(sum(verdeling.values()), 1.0) * 100, 1)
 
 
 def _haal_holdings(ticker, isin, geverifieerd, waarschuwingen):
@@ -157,15 +164,20 @@ def holdings_voor_effect(ticker, isin=None):
     }
 
 
+def _sector_aanbieder(ticker, fondsnaam, sector_bron):
+    if sector_bron == SECTOR_BRON_REFERENTIE:
+        return SECTOR_REFERENTIE_NAAM
+    return aanbieder_naam(ticker, fondsnaam) if sector_bron == SECTOR_BRON_PROVIDER else None
+
+
 def _etf_onderdelen(ticker, isin, waarschuwingen):
     """(land, land_bron, land_proxy, sector, samenvatting, route, fonds, isin_geverifieerd, volledige holdings,
-    sector_bron). Provider-holdings bij de sectoren: die zijn dan uit het fondsbestand afgeleid (zie get_etf_sector_verdeling)."""
-    sector = _haal_sector(ticker, isin)
+    sector_bron, sector_dekking). sector_bron: yahoo, provider of referentie (zie get_etf_sector_verdeling)."""
+    sector, sector_bron, sector_dekking = _haal_sector(ticker, isin)
     if sector is None:
         waarschuwingen.append(WAARSCHUWING_GEEN_SECTOR)
 
     hv = holdings_voor_effect(ticker, isin)
-    sector_bron = None if sector is None else SECTOR_BRON_PROVIDER if hv["bron"] == BRON_PROVIDER else SECTOR_BRON_YAHOO
     waarschuwingen.extend(hv["waarschuwingen"])
     geldig, bron, geverifieerd = hv["holdings"], hv["bron"], hv["isin_geverifieerd"]
 
@@ -188,7 +200,7 @@ def _etf_onderdelen(ticker, isin, waarschuwingen):
             "top5": [{"naam": r["naam"], "gewicht": r["gewicht"]} for r in lijst["holdings"][:PROFIEL_TOP_BEDRIJVEN]],
         }
     return (land, land_bron, land_proxy, sector or {}, samenvatting, hv["route"], hv["fonds"], geverifieerd, geldig,
-            sector_bron)
+            sector_bron, sector_dekking)
 
 
 def _profiel_en_holdings(ticker, isin, naam=None):
@@ -204,10 +216,10 @@ def _profiel_en_holdings(ticker, isin, naam=None):
 
     is_etf = bool(details.get("is_etf"))
     if is_etf:
-        land, land_bron, land_proxy, sector, holdings, route, fonds, geverifieerd, volledig, sector_bron = (
+        land, land_bron, land_proxy, sector, holdings, route, fonds, geverifieerd, volledig, sector_bron, sector_dekking = (
             _etf_onderdelen(ticker, isin, waarschuwingen))
     else:
-        sector_bron = None
+        sector_bron, sector_dekking = None, None
         aandeel_land, aandeel_sector = get_land_sector(ticker)
         geverifieerd = verifieer_isin_bij_ticker(ticker, isin) if isin else None
         volledig = None
@@ -227,8 +239,10 @@ def _profiel_en_holdings(ticker, isin, naam=None):
         "koers_datum": koers_datum,
         "land": land,
         "sector": sector,
+        "onbekend": {"land": verdeling_is_onbekend(land), "sector": verdeling_is_onbekend(sector)},
         "sector_bron": sector_bron,
-        "sector_aanbieder": aanbieder_naam(ticker, details.get("long_name")) if sector_bron == SECTOR_BRON_PROVIDER else None,
+        "sector_dekking": sector_dekking if sector_bron == SECTOR_BRON_REFERENTIE else None,
+        "sector_aanbieder": _sector_aanbieder(ticker, details.get("long_name"), sector_bron),
         "land_bron": land_bron,
         "land_proxy": land_proxy,
         "holdings": holdings,
@@ -262,12 +276,12 @@ def bouw_aankoop(ticker, isin, aantal, naam=None):
                      "land_bron": profiel["land_bron"], "land_proxy": profiel["land_proxy"]},
         "holdings": holdings if is_etf else None,
     }
-    from backend.effect_dividend import dividend_voor_aantal
+    from backend.effect_dividend import dividend_uitleg_velden, dividend_voor_aantal
     dividend_bruto, dividend_netto = dividend_voor_aantal(profiel["dividend"], aantal)
     samenvatting = {
         "ticker": ticker, "naam": profiel["naam"], "aantal": aantal, "koers_eur": koers_eur, "waarde_eur": waarde_eur,
         "dividend_jaar_bruto_eur": dividend_bruto, "dividend_jaar_netto_eur": dividend_netto,
-        "dividend_status": profiel["dividend"]["status"],
+        "dividend_status": profiel["dividend"]["status"], **dividend_uitleg_velden(profiel["dividend"]),
         "isin_geverifieerd": profiel["isin_geverifieerd"], "holdings_route": profiel["holdings_route"],
         "holdings_fonds": profiel["holdings_fonds"], "waarschuwingen": profiel["waarschuwingen"],
     }

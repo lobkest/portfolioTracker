@@ -87,6 +87,21 @@ def _fx_actueel(valuta, peildatum):
         return None
 
 
+def dividend_uitleg_velden(dividend):
+    """De velden voor de (i)-uitleg bij het wat-als-resultaat, overgenomen uit het profiel (niet opnieuw berekend);
+    allemaal None als het dividend onbekend is."""
+    if not dividend or dividend["status"] == STATUS_ONBEKEND:
+        return {sleutel: None for sleutel in _UITLEG_SLEUTELS.values()}
+    return {sleutel: dividend[bron] for bron, sleutel in _UITLEG_SLEUTELS.items()}
+
+
+_UITLEG_SLEUTELS = {
+    "per_stuk_bruto_eur": "dividend_per_stuk_bruto_eur", "per_stuk_netto_eur": "dividend_per_stuk_netto_eur",
+    "bron": "dividend_bron", "uitkeringen_12m": "dividend_uitkeringen_12m",
+    "belasting_fractie": "dividend_belasting_fractie", "belasting_bron": "dividend_belasting_bron",
+}
+
+
 def dividend_voor_aantal(dividend, aantal):
     """(bruto, netto) per jaar in EUR voor `aantal` stuks; (None, None) bij een onbekend bedrag."""
     if not dividend or dividend["per_stuk_bruto_eur"] is None or dividend["per_stuk_netto_eur"] is None:

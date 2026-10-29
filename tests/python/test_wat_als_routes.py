@@ -172,7 +172,8 @@ def profiel(koers=12.5, type_="ETF"):
     return {"ticker": "EMIM.AS", "naam": "EM IMI", "type": type_, "koers_eur": koers, "land": {"Taiwan": 0.6, "Unknown": 0.4},
             "sector": {"Technology": 1.0}, "land_bron": "provider_csv", "land_proxy": None, "isin_geverifieerd": True,
             "holdings_route": "provider_ticker", "holdings_fonds": None, "waarschuwingen": [],
-            "dividend": {"status": "keert_uit", "per_stuk_bruto_eur": 0.5, "per_stuk_netto_eur": 0.425}}
+            "dividend": {"status": "keert_uit", "per_stuk_bruto_eur": 0.5, "per_stuk_netto_eur": 0.425, "bron": "yahoo_reeks",
+                         "uitkeringen_12m": 4, "belasting_fractie": 0.15, "belasting_bron": "standaard"}}
 
 
 class TestBouwAankoop(unittest.TestCase):
@@ -186,8 +187,28 @@ class TestBouwAankoop(unittest.TestCase):
         self.assertEqual((samenvatting["aantal"], samenvatting["koers_eur"], samenvatting["waarde_eur"]), (4, 12.5, 50.0))
         self.assertEqual(set(samenvatting), {"ticker", "naam", "aantal", "koers_eur", "waarde_eur", "isin_geverifieerd",
                                              "holdings_route", "holdings_fonds", "waarschuwingen",
-                                             "dividend_jaar_bruto_eur", "dividend_jaar_netto_eur", "dividend_status"})
+                                             "dividend_jaar_bruto_eur", "dividend_jaar_netto_eur", "dividend_status",
+                                             "dividend_per_stuk_bruto_eur", "dividend_per_stuk_netto_eur", "dividend_bron",
+                                             "dividend_uitkeringen_12m", "dividend_belasting_fractie",
+                                             "dividend_belasting_bron"})
         self.assertEqual((samenvatting["dividend_jaar_bruto_eur"], samenvatting["dividend_jaar_netto_eur"]), (2.0, 1.7))
+
+    def test_dividenduitleg_velden_komen_uit_het_profiel(self):
+        with patch.object(effect_profiel, "_profiel_en_holdings", return_value=(profiel(), [])):
+            _, samenvatting = bouw_aankoop("EMIM.AS", None, 4)
+        self.assertEqual(
+            (samenvatting["dividend_per_stuk_bruto_eur"], samenvatting["dividend_per_stuk_netto_eur"], samenvatting["dividend_bron"],
+             samenvatting["dividend_uitkeringen_12m"], samenvatting["dividend_belasting_fractie"],
+             samenvatting["dividend_belasting_bron"]),
+            (0.5, 0.425, "yahoo_reeks", 4, 0.15, "standaard"))
+
+    def test_dividenduitleg_velden_zijn_none_bij_onbekend(self):
+        onbekend = dict(profiel()["dividend"], status="onbekend", per_stuk_bruto_eur=None, per_stuk_netto_eur=None)
+        with patch.object(effect_profiel, "_profiel_en_holdings", return_value=(dict(profiel(), dividend=onbekend), [])):
+            _, samenvatting = bouw_aankoop("EMIM.AS", None, 4)
+        velden = [k for k in samenvatting if k.startswith("dividend_") and k not in ("dividend_jaar_bruto_eur", "dividend_jaar_netto_eur", "dividend_status")]
+        self.assertEqual(len(velden), 6)
+        self.assertTrue(all(samenvatting[k] is None for k in velden))
 
     def test_aandeel_heeft_geen_holdings_en_ontbrekende_sector_wordt_unknown(self):
         p = dict(profiel(type_="EQUITY"), sector={})

@@ -13,7 +13,6 @@
 
     const WAT_ALS_TOP_LANDEN = 5;
     const WAT_ALS_TOP_SECTOREN = 5;
-    const WAT_ALS_TOP_HOLDINGS = 10;
     const WAT_ALS_TOP_BEDRIJVEN = 10;
     const WAT_ALS_TOP_PROFIEL_BEDRIJVEN = 5;
     const WAT_ALS_OVERLAP_ONBEKEND = "Overlap onbekend: de bedrijven in dit fonds zijn niet beschikbaar";
@@ -33,6 +32,8 @@
         geen_dividend_data: "De dividendgegevens van dit effect konden niet worden opgehaald.",
         valuta_onbekend: "De valuta van dit effect is onbekend, dus het dividend is niet om te rekenen naar euro's.",
     };
+
+    const WAT_ALS_GEEN_FONDSDATA = "Van dit fonds zijn land, sector en bedrijven niet beschikbaar.";
 
     const WAT_ALS_DIVIDEND_BRONNEN = {
         yahoo_reeks: "Som van de uitkeringen van de afgelopen 12 maanden volgens Yahoo.",
@@ -76,9 +77,47 @@
         return Object.hasOwn(WAT_ALS_WAARSCHUWING_TEKSTEN, code) ? WAT_ALS_WAARSCHUWING_TEKSTEN[code] : WAT_ALS_ONBEKENDE_WAARSCHUWING;
     }
 
+    // Alleen als de profielholdings echt de top 10 zijn; bij provider-holdings of zonder holdings valt de zin weg.
+    function watAlsGeenIsinTekst(zekerheid, holdings) {
+        if (zekerheid !== "geen" || !holdings || holdings.bron !== "yfinance_top10") return null;
+        return watAlsIsinTekst("geen", null);
+    }
+
+    // Waarschuwingsteksten van het profiel; geen_sector en geen_holdings samen wordt één regel.
+    function watAlsWaarschuwingTeksten(codes) {
+        const lijst = codes || [];
+        const samen = lijst.includes("geen_sector") && lijst.includes("geen_holdings");
+        const teksten = [];
+        lijst.forEach(code => {
+            if (!samen || (code !== "geen_sector" && code !== "geen_holdings")) teksten.push(watAlsWaarschuwingTekst(code));
+            else if (!teksten.includes(WAT_ALS_GEEN_FONDSDATA)) teksten.push(WAT_ALS_GEEN_FONDSDATA);
+        });
+        return teksten;
+    }
+
+    // Kop van de bedrijvenlijst: bij een bekend totaalaantal "top 5 van 101".
+    function watAlsBedrijvenKop(holdings) {
+        const aantal = holdings && Number.isFinite(holdings.aantal) ? holdings.aantal : null;
+        return aantal === null || aantal <= WAT_ALS_TOP_PROFIEL_BEDRIJVEN
+            ? `Bedrijven (top ${WAT_ALS_TOP_PROFIEL_BEDRIJVEN})`
+            : `Bedrijven (top ${WAT_ALS_TOP_PROFIEL_BEDRIJVEN} van ${aantal})`;
+    }
+
+    // Een volledig onbekende verdeling (bepaald door de backend) toont geen rijen: de lijst zegt dan "onbekend".
+    function watAlsVerdelingRijen(verdeling, onbekend, n) {
+        return onbekend ? [] : watAlsTopRijen(verdeling, n);
+    }
+
     function watAlsSectorBronTekst(profiel) {
-        if (!profiel || profiel.sector_bron !== "provider" || !profiel.sector_aanbieder) return null;
-        return `Sectoren volgens ${profiel.sector_aanbieder} (vertaald naar Morningstar-indeling)`;
+        if (!profiel || !profiel.sector_aanbieder) return null;
+        if (profiel.sector_bron === "provider") {
+            return `Sectoren volgens ${profiel.sector_aanbieder} (vertaald naar Morningstar-indeling)`;
+        }
+        if (profiel.sector_bron === "referentie" && Number.isFinite(profiel.sector_dekking)) {
+            return `Sectoren per bedrijf opgezocht in ${profiel.sector_aanbieder} (${formatPct(profiel.sector_dekking, 1)} van het fonds gevonden); `
+                + "de rest telt als onbekend.";
+        }
+        return null;
     }
 
     function watAlsTypeLabel(type) {
@@ -120,13 +159,19 @@
         return formatteerEuro(bedrag, Math.abs(bedrag) < 1 ? 4 : 2);
     }
 
+    function watAlsDividendHerkomst(bronCode, belastingBronCode) {
+        return {
+            bron: Object.hasOwn(WAT_ALS_DIVIDEND_BRONNEN, bronCode) ? WAT_ALS_DIVIDEND_BRONNEN[bronCode] : "",
+            belastingBron: Object.hasOwn(WAT_ALS_BELASTING_BRONNEN, belastingBronCode)
+                ? WAT_ALS_BELASTING_BRONNEN[belastingBronCode] : "een aanname",
+        };
+    }
+
     // Profielregel van dividend: {tekst, tip: {label, tekst} of null}; alle bedragen komen kant-en-klaar van de backend.
     function watAlsDividendRegel(dividend) {
         if (!dividend || dividend.status === "onbekend") return { tekst: WAT_ALS_DIVIDEND_ONBEKEND, tip: null };
         if (dividend.status === "keert_niet_uit") return { tekst: WAT_ALS_DIVIDEND_NIET_UIT, tip: null };
-        const belastingBron = Object.hasOwn(WAT_ALS_BELASTING_BRONNEN, dividend.belasting_bron)
-            ? WAT_ALS_BELASTING_BRONNEN[dividend.belasting_bron] : "een aanname";
-        const bron = Object.hasOwn(WAT_ALS_DIVIDEND_BRONNEN, dividend.bron) ? WAT_ALS_DIVIDEND_BRONNEN[dividend.bron] : "";
+        const { bron, belastingBron } = watAlsDividendHerkomst(dividend.bron, dividend.belasting_bron);
         const yieldTekst = Number.isFinite(dividend.yield_bruto) ? ` (bruto ${formatPct(dividend.yield_bruto * 100, 2)})` : "";
         return {
             tekst: `Verwacht dividend: ${watAlsDividendBedrag(dividend.per_stuk_bruto_eur)} bruto / `
@@ -147,6 +192,36 @@
         }
         return `Verwacht dividend per jaar: ${formatteerEuro(aankoop.dividend_jaar_bruto_eur)} bruto / `
             + `${formatteerEuro(aankoop.dividend_jaar_netto_eur)} netto`;
+    }
+
+    // Uitleg bij de resultaatregel; alleen bij een bekend uitkerend dividend. "aantal × per stuk" komt kant-en-klaar uit de backend.
+    function watAlsDividendResultaatUitleg(aankoop) {
+        if (!aankoop || aankoop.dividend_status !== "keert_uit") return null;
+        const { aantal, dividend_per_stuk_bruto_eur: perStuk, dividend_jaar_bruto_eur: bruto } = aankoop;
+        if (!Number.isFinite(aantal) || !Number.isFinite(perStuk) || !Number.isFinite(bruto)
+            || !Number.isFinite(aankoop.dividend_belasting_fractie)) return null;
+        const { bron, belastingBron } = watAlsDividendHerkomst(aankoop.dividend_bron, aankoop.dividend_belasting_bron);
+        const uitkeringen = Number.isFinite(aankoop.dividend_uitkeringen_12m)
+            ? ` Aantal uitkeringen in 12 maanden: ${aankoop.dividend_uitkeringen_12m}.` : "";
+        return `${aantal} ${aantal === 1 ? "stuk" : "stuks"} × ${watAlsDividendBedrag(perStuk)} per stuk = ${formatteerEuro(bruto)} bruto. `
+            + `${bron}${uitkeringen} Omgerekend tegen de huidige wisselkoers. `
+            + `Netto = bruto min ${formatPct(aankoop.dividend_belasting_fractie * 100, 0)} bronbelasting (${belastingBron}). `
+            + "Niet herbelegd; geen garantie voor de toekomst.";
+    }
+
+    function watAlsDatum(iso) {
+        const delen = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso || ""));
+        return delen ? `${delen[3]}-${delen[2]}-${delen[1]}` : "onbekende datum";
+    }
+
+    // Uitleg bij de koerssamenvatting boven de grafiek; noemt het dividend alleen als er in de periode dividend was.
+    function watAlsRendementUitleg(uitleg, koersRendement, totaalRendement) {
+        if (!uitleg || !Number.isFinite(uitleg.koers_begin_eur) || !Number.isFinite(uitleg.koers_eind_eur)) return null;
+        const koers = `Koers: ${formatPct(koersRendement, 2, true)}, van ${formatteerEuro(uitleg.koers_begin_eur)} `
+            + `(${watAlsDatum(uitleg.begin_datum)}) naar ${formatteerEuro(uitleg.koers_eind_eur)} (${watAlsDatum(uitleg.eind_datum)}).`;
+        if (!(uitleg.dividend_som_eur > 0)) return `${koers} In EUR.`;
+        return `${koers} Totaal: ${formatPct(totaalRendement, 2, true)}, koers plus ${formatteerEuro(uitleg.dividend_som_eur)} aan `
+            + "bruto dividend in die periode (ex-datums), niet herbelegd, gedeeld door de beginkoers. In EUR.";
     }
 
     function watAlsMeldingZelfdeFonds(tickers) {
@@ -270,12 +345,13 @@
 
     const exportsObj = {
         WAT_ALS_MAX_AANTAL, WAT_ALS_MIN_ZOEKTEKENS, WAT_ALS_MAX_ZOEKTEKENS, WAT_ALS_TOP_LANDEN, WAT_ALS_TOP_SECTOREN,
-        WAT_ALS_TOP_HOLDINGS, WAT_ALS_TOP_BEDRIJVEN, WAT_ALS_BALK_MAX_PP, WAT_ALS_WAARSCHUWING_TEKSTEN, WAT_ALS_ONBEKENDE_WAARSCHUWING,
+        WAT_ALS_TOP_BEDRIJVEN, WAT_ALS_BALK_MAX_PP, WAT_ALS_WAARSCHUWING_TEKSTEN, WAT_ALS_ONBEKENDE_WAARSCHUWING,
         isWatAlsIsin, watAlsAantal, watAlsGeschatteWaarde, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst,
+        watAlsGeenIsinTekst, watAlsWaarschuwingTeksten, watAlsBedrijvenKop, watAlsVerdelingRijen, WAT_ALS_GEEN_FONDSDATA,
         watAlsSectorBronTekst, watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
         watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst, WAT_ALS_TOP_PROFIEL_BEDRIJVEN,
         watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOverlapToontLijst, watAlsOnbekendTekst, watAlsProfielBedrijven,
-        watAlsDividendRegel, watAlsDividendResultaatTekst, watAlsOrderkostenRegels,
+        watAlsDividendRegel, watAlsDividendResultaatTekst, watAlsDividendResultaatUitleg, watAlsRendementUitleg, watAlsOrderkostenRegels,
     };
 
     if (typeof module !== "undefined" && module.exports) {

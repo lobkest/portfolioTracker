@@ -90,14 +90,17 @@ def normaliseer_land(land):
     return tekst if tekst and tekst != "-" else "Unknown"
 
 
-def _holding_rij(naam, gewicht, land, sector, ticker=None):
-    return {
+def _holding_rij(naam, gewicht, land, sector, ticker=None, isin=None):
+    rij = {
         "naam": str(naam).strip(),
         "gewicht": float(gewicht),
         "land": normaliseer_land(land),
         "sector": _schone_tekst(sector),
         "ticker": _schone_tekst(ticker),
     }
+    if _schone_tekst(isin):
+        rij["isin"] = _schone_tekst(isin)
+    return rij
 
 
 # GICS-namen van de fondsmakers (Engels en Nederlands, gecontroleerd op echte iShares-bestanden) naar de
@@ -126,17 +129,17 @@ SECTOR_MIN_HERKEND_PCT = 50.0
 _gelogde_onbekende_sectoren = set()
 
 
-def _app_sector(provider_sector):
+def app_sector(provider_sector):
     sleutel = (provider_sector or "").strip().lower()
     if sleutel in PROVIDER_SECTOR_GEEN or not sleutel:
         return SECTOR_ONBEKEND
-    app_sector = PROVIDER_SECTOR_NAAR_APP.get(sleutel)
-    if app_sector is None:
+    vertaald = PROVIDER_SECTOR_NAAR_APP.get(sleutel)
+    if vertaald is None:
         if sleutel not in _gelogde_onbekende_sectoren:
             _gelogde_onbekende_sectoren.add(sleutel)
             dprint(f"[etf-holdings-provider] onbekende sectornaam '{provider_sector}', geteld als Unknown")
         return SECTOR_ONBEKEND
-    return app_sector
+    return vertaald
 
 
 def sector_verdeling_uit_holdings(holdings):
@@ -144,9 +147,9 @@ def sector_verdeling_uit_holdings(holdings):
     SECTOR_MIN_HERKEND_PCT van het gewicht een herkende sector heeft. Unknown blijft eruit (restant vult de aanroeper)."""
     per_sector = {}
     for h in holdings:
-        app_sector = _app_sector(h.get("sector"))
-        if app_sector != SECTOR_ONBEKEND:
-            per_sector[app_sector] = per_sector.get(app_sector, 0.0) + h["gewicht"]
+        vertaald = app_sector(h.get("sector"))
+        if vertaald != SECTOR_ONBEKEND:
+            per_sector[vertaald] = per_sector.get(vertaald, 0.0) + h["gewicht"]
     if sum(per_sector.values()) < SECTOR_MIN_HERKEND_PCT:
         return {}
     return {sector: gewicht / 100.0 for sector, gewicht in per_sector.items()}
@@ -184,7 +187,7 @@ def _parse_ishares_holdings(content, locale="en"):
         if locale == "nl" and pd.notna(land) and str(land).strip():
             land = _vertaal_land_nl(str(land).strip())
         holdings.append(_holding_rij(
-            naam, gewicht, land, row.get(sector_kolom) if sector_kolom else None, row.get("Ticker"),
+            naam, gewicht, land, row.get(sector_kolom) if sector_kolom else None, row.get("Ticker"), row.get("ISIN"),
         ))
     return holdings
 
@@ -297,7 +300,7 @@ def _parse_vaneck_holdings(content, locale="en"):
         else:
             land = None
         holdings.append(_holding_rij(
-            naam, gewicht, land, row.get("Sector"),
+            naam, gewicht, land, row.get("Sector"), row.get("Ticker"), row.get(isin_kolom) if isin_kolom else None,
         ))
     return holdings
 

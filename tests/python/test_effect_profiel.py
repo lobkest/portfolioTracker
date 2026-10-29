@@ -105,6 +105,7 @@ class _Profiel(unittest.TestCase):
             "get_ticker_details": dict(return_value={"is_etf": True, "long_name": "Fonds", "valuta": "EUR"}),
             "get_land_sector": dict(return_value=("Netherlands", "Technology")),
             "get_etf_sector_verdeling": dict(return_value={"Technology": 0.7}),
+            "get_etf_sector_bron": dict(return_value="yahoo"),
             "get_etf_holdings": dict(return_value=TOP10),
             "get_etf_holdings_voor_isin": dict(return_value=None),
             "land_proxies_voor_etfs": dict(return_value={}),

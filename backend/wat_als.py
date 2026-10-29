@@ -5,7 +5,7 @@ import math
 from backend.effect_zoeken import herken_isin
 from backend.portfolio_verdeling import (
     _groepeer_holdings_per_bedrijf, _normaliseer_bedrijfsnaam, bedrijf_waarden, bereken_verdeling_samenvatting,
-    etf_overlap_uit, land_sector_verdeling_uit,
+    etf_overlap_uit, land_sector_verdeling_uit, verdeling_is_onbekend,
 )
 
 PCT_DECIMALEN = 4
@@ -19,7 +19,6 @@ HOLDINGS_ONBEKEND = "onbekend"
 HOLDINGS_TOP10 = "top10"
 HOLDINGS_VOLLEDIG = "volledig"
 BRON_TOP10 = "yfinance_top10"
-ONBEKEND_DREMPEL = 0.999
 
 
 def _pct(deel, totaal):
@@ -126,16 +125,12 @@ def _holdings_dekking(holdings):
     return status, round(gedekt, PCT_DECIMALEN)
 
 
-def _volledig_onbekend(verdeling):
-    return not verdeling or verdeling.get("Unknown", 0.0) >= ONBEKEND_DREMPEL
-
-
 def _onbekend(basis, aankoop):
     """Per onderdeel True als het voor deze ETF helemaal onbekend is; bijkopen gebruikt de bestaande positie."""
     if not aankoop["is_etf"]:
         return {"land": False, "sector": False, "bedrijven": False}
     fracties = basis["fracties_per_ticker"].get(aankoop["ticker"], aankoop["fracties"]) or {}
-    return {"land": _volledig_onbekend(fracties.get("land_pct")), "sector": _volledig_onbekend(fracties.get("sector_pct")),
+    return {"land": verdeling_is_onbekend(fracties.get("land_pct")), "sector": verdeling_is_onbekend(fracties.get("sector_pct")),
             "bedrijven": _holdings_dekking(_effectieve_holdings(basis, aankoop))[0] == HOLDINGS_ONBEKEND}
 
 

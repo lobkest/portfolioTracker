@@ -246,7 +246,8 @@ function renderWatAlsIsin() {
     const plek = watAlsEl("watAlsIsin");
     plek.replaceChildren();
     const { zekerheid, bron, kandidaten } = t.kandidaten;
-    plek.append(watAlsMaak("p", zekerheid === "kiezen" ? "melding" : "kleineMelding", watAlsIsinTekst(zekerheid, bron)));
+    // Bij "geen" hoort de zin over de top 10 pas bij het profiel (alleen als dat echt de top 10 gebruikt).
+    if (zekerheid !== "geen") plek.append(watAlsMaak("p", zekerheid === "kiezen" ? "melding" : "kleineMelding", watAlsIsinTekst(zekerheid, bron)));
     if (zekerheid === "zeker") {
         plek.append(watAlsMaak("p", "kleineMelding", `${kandidaten[0].naam} · ${kandidaten[0].isin}`));
     } else if (zekerheid === "kiezen") {
@@ -384,7 +385,11 @@ function watAlsKoersSamenvatting(d) {
 }
 
 function renderWatAlsKoers(d) {
-    watAlsEl("watAlsKoersSamenvatting").textContent = watAlsKoersSamenvatting(d);
+    const samenvattingRegel = watAlsEl("watAlsKoersSamenvatting");
+    samenvattingRegel.textContent = watAlsKoersSamenvatting(d);
+    samenvattingRegel.classList.add("watAlsTipRegel");
+    const rendementUitleg = watAlsRendementUitleg(d.uitleg, d.koers_rendement, d.totaal_rendement);
+    if (rendementUitleg) samenvattingRegel.append(" ", watAlsInfoTip("Rendement", rendementUitleg));
     watAlsEl("watAlsKoersGrafiekPlek").hidden = false;
     if (watAlsKoersGrafiek) watAlsKoersGrafiek.destroy();
 
@@ -442,25 +447,22 @@ function renderWatAlsProfiel() {
 
     const kolommen = watAlsMaak("div", "watAlsLijstenRij");
     kolommen.append(
-        maakWatAlsLijst(`Landen (top ${WAT_ALS_TOP_LANDEN})`, watAlsTopRijen(profiel.land, WAT_ALS_TOP_LANDEN)),
-        maakWatAlsLijst(`Sectoren (top ${WAT_ALS_TOP_SECTOREN})`, watAlsTopRijen(profiel.sector, WAT_ALS_TOP_SECTOREN)),
+        maakWatAlsLijst(`Landen (top ${WAT_ALS_TOP_LANDEN})`,
+            watAlsVerdelingRijen(profiel.land, (profiel.onbekend || {}).land, WAT_ALS_TOP_LANDEN)),
+        maakWatAlsLijst(`Sectoren (top ${WAT_ALS_TOP_SECTOREN})`,
+            watAlsVerdelingRijen(profiel.sector, (profiel.onbekend || {}).sector, WAT_ALS_TOP_SECTOREN)),
     );
     let bedrijvenBronTekst = null;
     if (profiel.type === "ETF") {
         const bedrijven = watAlsProfielBedrijven(profiel.holdings);
         bedrijvenBronTekst = bedrijven.bronTekst;
-        kolommen.append(maakWatAlsLijst(`Bedrijven (top ${WAT_ALS_TOP_PROFIEL_BEDRIJVEN})`, bedrijven.rijen));
+        kolommen.append(maakWatAlsLijst(watAlsBedrijvenKop(profiel.holdings), bedrijven.rijen));
     }
     kaart.append(kolommen);
     const sectorBronTekst = watAlsSectorBronTekst(profiel);
     if (sectorBronTekst) kaart.append(watAlsMaak("p", "kleineMelding", sectorBronTekst));
     if (bedrijvenBronTekst) kaart.append(watAlsMaak("p", "kleineMelding", bedrijvenBronTekst));
 
-    if (profiel.holdings) {
-        const holdings = profiel.holdings.top.slice(0, WAT_ALS_TOP_HOLDINGS)
-            .map(h => ({ naam: h.naam, pct: h.gewicht * 100 }));
-        kaart.append(maakWatAlsLijst(`Grootste holdings (${profiel.holdings.aantal} bekend)`, holdings));
-    }
     const dividend = watAlsDividendRegel(profiel.dividend);
     const dividendRegel = watAlsMaak("p", "watAlsTipRegel", dividend.tekst);
     if (dividend.tip) dividendRegel.append(" ", watAlsInfoTip(dividend.tip.label, dividend.tip.tekst));
@@ -469,7 +471,9 @@ function renderWatAlsProfiel() {
         const fonds = profiel.holdings_fonds;
         kaart.append(watAlsMaak("p", "kleineMelding", `Holdings van: ${fonds.naam || "onbekend fonds"} (${fonds.isin})`));
     }
-    (profiel.waarschuwingen || []).forEach(code => kaart.append(watAlsMaak("p", "melding", watAlsWaarschuwingTekst(code))));
+    const geenIsinTekst = watAlsGeenIsinTekst((watAlsToestand.kandidaten || {}).zekerheid, profiel.holdings);
+    if (geenIsinTekst) kaart.append(watAlsMaak("p", "kleineMelding", geenIsinTekst));
+    watAlsWaarschuwingTeksten(profiel.waarschuwingen).forEach(tekst => kaart.append(watAlsMaak("p", "melding", tekst)));
     plek.append(kaart);
 }
 
@@ -589,6 +593,13 @@ function maakWatAlsOverlapSectie(overlap) {
     return maakWatAlsSectie("Overlap met je portfolio", [...regels, wrapper], WAT_ALS_OVERLAP_TIP);
 }
 
+function maakWatAlsDividendResultaatRegel(aankoop) {
+    const uitleg = watAlsDividendResultaatUitleg(aankoop);
+    const regel = watAlsMaak("p", uitleg ? "watAlsTipRegel" : null, watAlsDividendResultaatTekst(aankoop));
+    if (uitleg) regel.append(" ", watAlsInfoTip("Verwacht dividend per jaar", uitleg));
+    return regel;
+}
+
 function renderWatAlsUitkomst(data) {
     const { wat_als: w, aankoop } = data;
     const plek = watAlsEl("watAlsUitkomst");
@@ -597,7 +608,7 @@ function renderWatAlsUitkomst(data) {
     const samenvatting = [
         watAlsMaak("p", "vet", `${aankoop.aantal} × ${aankoop.naam} = ${formatteerEuro(aankoop.waarde_eur)}`),
         watAlsMaak("p", null, `Portfolio: ${formatteerEuro(w.totaal.voor)} → ${formatteerEuro(w.totaal.na)}`),
-        watAlsMaak("p", null, watAlsDividendResultaatTekst(aankoop)),
+        maakWatAlsDividendResultaatRegel(aankoop),
     ];
     const orderkosten = watAlsOrderkostenRegels(data.orderkosten);
     const orderkostenRegel = watAlsMaak("p", "watAlsTipRegel", orderkosten.tekst);

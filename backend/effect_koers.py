@@ -105,6 +105,21 @@ def rendementen(koersen_eur, dividenden_eur, start):
     return punten["koers_index"].iloc[-1] - 100, punten["totaal_index"].iloc[-1] - 100
 
 
+def uitleg_uit_dagkoersen(koersen_eur, dividenden_eur, start):
+    """{begin_datum, eind_datum, koers_begin_eur, koers_eind_eur, dividend_som_eur} uit dezelfde dagkoersen als
+    rendementen(), ook bij de weekweergave; None zonder koersen. De dividendsom telt de ex-datums in (begin, eind]."""
+    koersen = _vanaf(koersen_eur, start)
+    if koersen.empty:
+        return None
+    dividenden = _dividend_reeks(dividenden_eur)
+    som = dividenden[(dividenden.index > koersen.index[0]) & (dividenden.index <= koersen.index[-1])].sum()
+    return {
+        "begin_datum": koersen.index[0].strftime("%Y-%m-%d"), "eind_datum": koersen.index[-1].strftime("%Y-%m-%d"),
+        "koers_begin_eur": _afgerond(koersen.iloc[0], EUR_DECIMALEN), "koers_eind_eur": _afgerond(koersen.iloc[-1], EUR_DECIMALEN),
+        "dividend_som_eur": _afgerond(som, EUR_DECIMALEN),
+    }
+
+
 def beschikbaar_sinds(koersen_eur, start):
     koersen = _vanaf(koersen_eur, start)
     if koersen.empty:
@@ -167,7 +182,7 @@ def _afgerond(waarde, decimalen):
 
 def bouw_effect_koers(ticker, periode, per, vandaag=None):
     """{periode, per, punten: [{datum, koers_eur, koers_index, totaal_index}], koers_rendement, totaal_rendement,
-    beschikbaar_sinds, heeft_dividend}. Bij periode 1j altijd per dag.
+    beschikbaar_sinds, heeft_dividend, uitleg}. Bij periode 1j altijd per dag.
     Raises ValutaOnbekend (vóór de download) en GeenKoers."""
     vandaag = vandaag or date.today()
     start = periode_start(periode, vandaag)
@@ -198,4 +213,5 @@ def bouw_effect_koers(ticker, periode, per, vandaag=None):
         "totaal_rendement": _afgerond(totaal_rendement, RENDEMENT_DECIMALEN),
         "beschikbaar_sinds": sinds.isoformat() if sinds else None,
         "heeft_dividend": heeft_dividend(koersen, dividenden, start),
+        "uitleg": uitleg_uit_dagkoersen(koersen, dividenden, start),
     }
