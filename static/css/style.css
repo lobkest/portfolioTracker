@@ -1160,6 +1160,55 @@ input.schakelaar:focus-visible {
     padding-left: 20px;
 }
 
+.alternatievenPaneel .vergelijkKnop {
+    display: block;
+    background: transparent;
+    border: none;
+    margin: 6px 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.vergelijkKaart {
+    margin: 8px 0;
+    padding: 8px 10px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.vergelijkKop {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+}
+
+.vergelijkOverlap {
+    font-size: 1.2em;
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.vergelijkTop10 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.vergelijkTop10 ol {
+    margin: 4px 0;
+    padding-left: 22px;
+}
+
+@media (max-width: 600px) {
+    .vergelijkTop10 {
+        grid-template-columns: 1fr;
+    }
+}
+
 .aansluitingTabel .linkKnop {
     display: block;
     background: transparent;

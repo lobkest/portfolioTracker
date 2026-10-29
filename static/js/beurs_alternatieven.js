@@ -16,6 +16,8 @@
     const SCHATTING_TOELICHTING = "schatting op basis van je eigen transactiekosten";
     const DIT_JAAR_AL_BETAALD = "De kosten voor dit jaar zijn al betaald; vanaf het jaar na je laatste transactie of positie "
         + "op deze beurs betaal je niet meer.";
+    const NIET_OP_ISIN_TEKST = "Gevonden op naam, niet op ISIN. Controleer in DEGIRO of de ISIN gelijk is aan die van je positie "
+        + "(bijv. niet Acc i.p.v. Dist).";
     const FOUT_TEKST = "Alternatieven ophalen is niet gelukt. Probeer het later opnieuw.";
     const ONGEVAL_TEKST = "Er ging iets mis bij het opzoeken van alternatieven.";
     const TE_LANG_TEKST = "Het ophalen duurde te lang. Probeer het later opnieuw.";
@@ -43,7 +45,11 @@
     function positieTeksten(p) {
         const extra = p.al_in_bezit_op_thuisbeurs ? "Je hebt dit product al op een thuisbeurs." : null;
         if (p.status === "gevonden") {
-            return { naam: p.naam, tekst: `Gevonden op een thuisbeurs: ${notering(p.voorkeur)}.`, waarschuwing: null, extra };
+            const nietOpIsin = p.voorkeur.waarschuwing === "niet_op_isin_bevestigd";
+            return {
+                naam: p.naam, tekst: `Gevonden op een thuisbeurs: ${notering(p.voorkeur)}.`,
+                waarschuwing: nietOpIsin ? NIET_OP_ISIN_TEKST : null, extra,
+            };
         }
         if (p.status === "waarschuwing") {
             const eerste = p.noteringen[0];
@@ -75,7 +81,10 @@
     function alternatievenPaneel(antwoord) {
         return {
             samenvatting: samenvattingTekst(antwoord),
-            posities: antwoord.posities.map(positieTeksten),
+            posities: antwoord.posities.map(p => ({
+                ...positieTeksten(p), ticker: p.ticker, isin: p.isin || null, echteNaam: p.echte_naam || null,
+                faseB: Boolean(p.fase_b_mogelijk), alGevonden: p.status === "gevonden",
+            })),
             blijftBetalen: blijftBetalenTekst(antwoord),
             regels: [
                 { label: "Besparing per jaar", tekst: bedragOfOnbekend(antwoord.besparing_per_jaar_eur) },
@@ -101,7 +110,7 @@
     }
 
     const exportsObj = {
-        KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, SCHATTING_TOELICHTING, FOUT_TEKST, ONGEVAL_TEKST, TE_LANG_TEKST,
+        KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, SCHATTING_TOELICHTING, FOUT_TEKST, ONGEVAL_TEKST, TE_LANG_TEKST, NIET_OP_ISIN_TEKST,
         alternatievenPaneel, alternatievenFoutTekst,
     };
 

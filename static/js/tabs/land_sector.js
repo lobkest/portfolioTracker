@@ -280,11 +280,15 @@ function maakAansluitingskostenTabel(rijen, totalen) {
         { label: "Beurs", alleenMobiel: true, mobielRol: "titel", renderTd: maakBeursNaamCel },
         {
             label: "W/V na aansluitingskosten",
-            mobielRol: "waarde",
             waarde: r => r.wv_na_eur,
             renderTd: r => maakGetalCel(r.wvNaTekst, klasseVoorRendement(r.wv_na_eur)),
         },
-        { label: "Aansluitingskosten (totaal)", waarde: r => r.totaal_eur, renderTd: r => maakGetalCel(r.totaalTekst) },
+        {
+            label: "Aansluitingskosten (totaal)",
+            mobielRol: "waarde",
+            waarde: r => r.totaal_eur,
+            renderTd: r => maakGetalCel(r.totaalTekst),
+        },
         { label: "W/V posities", renderTd: r => maakGetalCel(r.wvTekst) },
         { label: "Transactiekosten (ter info)", renderTd: r => maakGetalCel(r.transactiekostenTekst) },
         {

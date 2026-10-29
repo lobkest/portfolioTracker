@@ -80,6 +80,9 @@ from portfolio_orchestratie import (
 from portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
 from effect_profiel import bouw_effect_profiel, OnbekendEffect, GeenKoers
 from beurs_alternatieven import haal_alternatieven, valideer_alternatieven_invoer, valideer_beurscode
+from vergelijkbare_etfs import (
+    FOUT_ALGEMEEN as VERGELIJK_FOUT_ALGEMEEN, FOUT_NIET_ETF, OnbekendeTicker, bron_uit_portfolio,
+    is_etf_volgens_classificatie, valideer_vergelijk_invoer, zoek_vergelijkbare_etfs)
 from wat_als import valideer_aankoop_invoer, valideer_posities
 from effect_zoeken import zoek_effecten_gecachet, herken_isin, bepaal_isin_kandidaten
 from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
@@ -123,6 +126,8 @@ CATEGORIE_PER_ZWAAR_ENDPOINT = {
     "wat_als_zonder_opslaan": CATEGORIE_EXTERNE_BRON,
     "portfolio_beurs_alternatieven": CATEGORIE_EXTERNE_BRON,
     "beurs_alternatieven_zonder_opslaan": CATEGORIE_EXTERNE_BRON,
+    "portfolio_vergelijkbare_etfs": CATEGORIE_EXTERNE_BRON,
+    "vergelijkbare_etfs_zonder_opslaan": CATEGORIE_EXTERNE_BRON,
 }
 LIMIET_MELDING_PER_CATEGORIE = {
     CATEGORIE_FOUTE_CODE: "Te veel foute pogingen met een code.",
@@ -822,6 +827,40 @@ def beurs_alternatieven_zonder_opslaan():
     if fout:
         return jsonify({"error": fout}), 400
     return _beurs_alternatieven_response(lambda: invoer)
+
+
+def _vergelijkbare_etfs_response(ticker, isin, naam):
+    try:
+        if is_etf_volgens_classificatie(ticker) is False:
+            return jsonify({"error": FOUT_NIET_ETF}), 400
+        return jsonify(zoek_vergelijkbare_etfs(ticker, isin, naam))
+    except Exception:
+        print_traceback()
+        return jsonify({"error": VERGELIJK_FOUT_ALGEMEEN}), 500
+
+
+@app.route("/api/portfolio/<code>/vergelijkbare-etfs")
+def portfolio_vergelijkbare_etfs(code):
+    code = code.strip().upper()
+    ticker = request.args.get("ticker", "").strip()
+    if not ticker or len(ticker) > TICKER_MAX_TEKENS:
+        return jsonify({"error": "Geef een ticker van normale lengte."}), 400
+    try:
+        bron = bron_uit_portfolio(ticker, code)
+    except OnbekendeTicker:
+        return jsonify({"error": f"'{ticker}' staat niet in deze portfolio."}), 404
+    if bron is None:
+        return _geen_portfolio(code)
+    return _vergelijkbare_etfs_response(ticker, bron[0], bron[1])
+
+
+@app.route("/api/vergelijkbare-etfs", methods=["POST"])
+def vergelijkbare_etfs_zonder_opslaan():
+    """Voor 'niet opslaan': geen code en geen database-portfolio; de client stuurt ticker, ISIN en naam van de positie."""
+    ticker, isin, naam, fout = valideer_vergelijk_invoer(request.get_json(silent=True))
+    if fout:
+        return jsonify({"error": fout}), 400
+    return _vergelijkbare_etfs_response(ticker, isin, naam)
 
 
 @app.route("/api/etf-holdings")

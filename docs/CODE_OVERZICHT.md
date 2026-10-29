@@ -1131,8 +1131,30 @@ alleen thuisbeurs-noteringen. `beoordeel_positie()`: status `gevonden` (voorkeur
 of een uitzondering; een lege ISIN-zoekuitslag telt als fout omdat `_yahoo_search()` fouten niet van "niets" onderscheidt). `bouw_beurs_alternatieven()`
 voegt per beurs `blijft_betalen`, `besparing_per_jaar_eur` (alleen als alle open posities kunnen overstappen, anders 0), `overstapkosten_schatting_eur`
 en `terugverdientijd_jaren` toe. Schatting Yahoo-calls per klik: per ISIN 2 zoekopdrachten + 0 tot 2 koersen (`haal_koers()` uit `effect_profiel.py`,
-via `get_prices()`), dus 2 tot 4; bij N posities maximaal 4 ISIN's tegelijk. Routes: zie CLAUDE.md. Frontend: `static/js/beurs_alternatieven.js`
+via `get_prices()`), dus 2 tot 4; bij N posities maximaal 4 ISIN's tegelijk. Zonder quote met longname uit de ISIN-zoekopdracht volgt een zoekopdracht op `echte_naam` (`quotes_via_productnaam()`). `is_etf` komt uit `ticker_info` via `db_get_ticker_details()` (`_is_etf_per_ticker()`), anders uit de zoekuitslag. Per ISIN één samenvattingsregel `[alternatieven]` in de log plus de Yahoo-calls per klik. Routes: zie CLAUDE.md. Frontend: `static/js/beurs_alternatieven.js`
 (`alternatievenPaneel()`, getest in `tests/test_beurs_alternatieven.js`) en `static/js/tabs/beurs_alternatieven.js` (DOM, `#aansluitingskostenAlternatieven`).
+
+### `vergelijkbare_etfs.py` — fase B van "Alternatieven op een thuisbeurs"
+
+**Verantwoordelijkheid:** voor een ETF-positie andere iShares/VanEck-ETF's zoeken die op een thuisbeurs (EAM/AMS, EBR/BRU) noteren en
+qua inhoud lijken. Eén klik = één positie = één request (`GET /api/portfolio/<code>/vergelijkbare-etfs?ticker=` en
+`POST /api/vergelijkbare-etfs` met `{ticker, isin?, naam?}` voor "niet opslaan"; beide `CATEGORIE_EXTERNE_BRON`, 400 voor een niet-ETF).
+**Kandidaten** (`kies_kandidaten_voor_bron()`, puur): staat de ISIN van het bronfonds in `ishares_fondsen()`, dan dezelfde
+`asset_class` + `regio` + `markt_type` (zelfde `sub_asset_class` krijgt voorrang als er meer dan `MAX_KANDIDATEN` = 10 zijn); anders
+iShares-fondsen met minstens één betekenisvol gedeeld naamwoord (aanbiedernamen tellen niet) plus de VanEck-groepen uit
+`ETF_HOLDINGS_BRON` (één per URL). Share classes met dezelfde genormaliseerde naam tellen één keer; het bronfonds zelf (zelfde ISIN) valt af;
+resultaat op `fondsgrootte` aflopend. **Per kandidaat** (`onderzoek_kandidaat()`, parallel, `MAX_PARALLEL` = 4, tijdbudget
+`TIJDBUDGET_SECONDEN` = 40 s met `onvolledig: true` als het raakt): (1) thuisnotering via `onderzoek_isin()` van fase A (alleen op ISIN bevestigde
+noteringen) of, bij VanEck, een eigen ticker op `.AS`/`.BR`; (2) volledige provider-holdings (`get_etf_holdings_voor_isin()` resp.
+`get_etf_holdings()`; een yfinance-top-10 telt voor een kandidaat niet); (3) `overlap_pct` met `etf_overlap_uit()` (zelfde bedrijfsgroepering als de
+overlapmatrix); (4) alleen bij overlap >= `MIN_OVERLAP_PCT` (70) de sectorverdeling (`get_etf_sector_verdeling()`). Land- en
+sectorgelijkenis = 100 - de helft van de som van de absolute verschillen in procentpunten. `selecteer_alternatieven()`: drempel, sorteren,
+maximaal `MAX_ALTERNATIEVEN` = 5. Het bronfonds gebruikt `holdings_voor_effect()`; alleen een top-10 geeft `waarschuwing: "bron_alleen_top10"`.
+Statussen: `ok`, `geen_kandidaten`, `geen_alternatieven` (kandidaten, maar geen >= 70%), `fout` (bron zonder holdings). TER ontbreekt: geen bestaande bron.
+Meting (gemockte vertraging, 10 kandidaten, 4 parallel): koude cache ca. 19 s bij 3 s zoeken + 2 s holdings + 1 s sector per kandidaat,
+warm 0,5 s; gunicorn-timeout 120 s, frontend 55 s. Frontend: `static/js/vergelijkbare_etfs.js` (`vergelijkbaarPaneel()`, getest in
+`tests/test_vergelijkbare_etfs.js`) en de knop/kaarten in `static/js/tabs/beurs_alternatieven.js`; knop bij elke positie met `fase_b_mogelijk`
+(ETF volgens `ticker_info`, anders de zoekuitslag), ook als fase A al een notering vond.
 
 ### `dividend_verwachting.py` — verwacht dividend voor de Prognose
 

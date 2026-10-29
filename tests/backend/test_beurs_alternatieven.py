@@ -87,6 +87,25 @@ class TestBeoordeelPositie(unittest.TestCase):
         r = beoordeel_positie(positie(), onderzoek([notering("X.AS", "EAM", 104.9)]), set())
         self.assertEqual(r["status"], STATUS_GEVONDEN)
 
+    def test_notering_alleen_via_naam_krijgt_waarschuwing_maar_blijft_bruikbaar(self):
+        r = beoordeel_positie(positie(), onderzoek([dict(notering("X.AS", "EAM", 100.0), via_naam=True)]), set())
+        self.assertEqual(r["status"], STATUS_GEVONDEN)
+        self.assertEqual(r["voorkeur"]["waarschuwing"], "niet_op_isin_bevestigd")
+
+    def test_notering_via_isin_krijgt_die_waarschuwing_niet(self):
+        r = beoordeel_positie(positie(), onderzoek([dict(notering("X.AS", "EAM", 100.0), via_naam=False)]), set())
+        self.assertIsNone(r["voorkeur"]["waarschuwing"])
+
+    def test_isin_route_wint_van_naam_route(self):
+        naam_ams = dict(notering("X.AS", "EAM", 100.0), via_naam=True)
+        isin_bru = dict(notering("Y.BR", "EBR", 100.0, "BRU"), via_naam=False)
+        r = beoordeel_positie(positie(), onderzoek([naam_ams, isin_bru]), set())
+        self.assertEqual(r["voorkeur"]["ticker"], "Y.BR")
+
+    def test_naam_route_met_koersafwijking_is_geen_voorkeur(self):
+        r = beoordeel_positie(positie(), onderzoek([dict(notering("X.AS", "EAM", 130.0), via_naam=True)]), set())
+        self.assertEqual((r["status"], r["waarschuwing"]), (STATUS_WAARSCHUWING, "koers wijkt af"))
+
     def test_afwijkende_ams_dan_goede_bru(self):
         r = beoordeel_positie(positie(), onderzoek([notering("X.AS", "EAM", 120.0), notering("X.BR", "EBR", 100.0, "BRU")]),
                               set())
@@ -103,6 +122,12 @@ class TestBeoordeelPositie(unittest.TestCase):
     def test_etf_zonder_thuisnotering_fase_b_mogelijk(self):
         r = beoordeel_positie(positie(), onderzoek([], is_etf=True), set())
         self.assertEqual((r["status"], r["fase_b_mogelijk"]), (STATUS_NIET_GEVONDEN, True))
+
+    def test_etf_met_thuisnotering_heeft_ook_fase_b(self):
+        r = beoordeel_positie(positie(), onderzoek([notering("X.AS", "EAM", 100.0)], is_etf=True), set())
+        self.assertEqual((r["status"], r["fase_b_mogelijk"]), (STATUS_GEVONDEN, True))
+        r = beoordeel_positie(positie("AAPL", ISIN_B), onderzoek([notering("X.AS", "EAM", 100.0)], is_etf=False), set())
+        self.assertFalse(r["fase_b_mogelijk"])
 
     def test_al_in_bezit_op_thuisbeurs(self):
         n = onderzoek([notering("X.AS", "EAM", 100.0)])
@@ -161,6 +186,9 @@ class TestNetwerklaag(unittest.TestCase):
     def setUp(self):
         wis_onderzoek_cache()
         self.addCleanup(wis_onderzoek_cache)
+        p = patch.object(ba, "db_get_ticker_details", return_value={})
+        self.details = p.start()
+        self.addCleanup(p.stop)
 
     def test_onderzoek_haalt_noteringen_en_koersen_en_onthoudt_per_isin(self):
         quotes = [quote("X.DE", "GER"), quote("X.AS", "AMS")]
@@ -180,11 +208,95 @@ class TestNetwerklaag(unittest.TestCase):
         self.assertEqual(zoek.call_count, 2)
 
     def test_yahoo_fout_bij_een_positie_laat_de_rest_werken(self):
-        def onderzoeker(isin):
+        def onderzoeker(isin, naam=None):
             return {"fout": FOUT_ALGEMEEN} if isin == ISIN_B else onderzoek([notering("X.AS", "EAM", 100.0)])
         antwoord = haal_alternatieven(invoer([positie("A", ISIN_A), positie("B", ISIN_B)]), onderzoeker=onderzoeker)
         self.assertEqual([p["status"] for p in antwoord["posities"]], [STATUS_GEVONDEN, STATUS_FOUT])
         self.assertTrue(antwoord["blijft_betalen"])
+
+    def test_alleen_mutualfund_zonder_longname_zoekt_op_productnaam(self):
+        stuttgart = [{"symbol": "IE0005B8WVT6.SG", "exchange": "STU", "quoteType": "MUTUALFUND", "shortname": "VanEck"}]
+        op_naam = [dict(quote("TRET.AS", "AMS"), longname="VanEck Global Real Estate UCITS ETF"),
+                   dict(quote("TRET.L", "LSE"), longname="VanEck Global Real Estate UCITS ETF"),
+                   dict(quote("ANDER.AS", "AMS"), longname="Heel Ander Fonds Europe"),
+                   dict(quote("AAPL", "NMS", "EQUITY"), longname="VanEck Global Real Estate Inc")]
+        zoekopdrachten = []
+
+        def zoek(query):
+            zoekopdrachten.append(query)
+            return stuttgart if query == ISIN_A else op_naam
+        with patch.object(ba, "zoek_gecachet", side_effect=zoek), \
+                patch.object(ba, "haal_koers", return_value=(100.0, "2026-10-27")):
+            resultaat = onderzoek_isin(ISIN_A, "VANECK GLOBAL REAL ESTATE UCITS ETF")
+        self.assertEqual(zoekopdrachten, [ISIN_A, "VANECK GLOBAL REAL ESTATE UCITS ETF"])
+        self.assertEqual([n["ticker"] for n in resultaat["noteringen"]], ["TRET.AS"])
+        self.assertTrue(resultaat["noteringen"][0]["via_naam"])
+
+    def test_isin_route_markeert_niet_als_via_naam(self):
+        quotes = [quote("X.DE", "GER"), quote("X.AS", "AMS")]
+        with patch.object(ba, "zoek_gecachet", return_value=quotes), \
+                patch.object(ba, "noteringen_voor_isin_zoekopdracht", side_effect=lambda q, z: q), \
+                patch.object(ba, "haal_koers", return_value=(100.0, "2026-10-27")):
+            resultaat = onderzoek_isin(ISIN_A, "Fonds")
+        self.assertFalse(resultaat["noteringen"][0]["via_naam"])
+
+    def test_zonder_productnaam_geen_tweede_zoekopdracht(self):
+        stuttgart = [{"symbol": "X.SG", "exchange": "STU", "quoteType": "MUTUALFUND"}]
+        with patch.object(ba, "zoek_gecachet", return_value=stuttgart) as zoek:
+            resultaat = onderzoek_isin(ISIN_A)
+        self.assertEqual(zoek.call_count, 1)
+        self.assertEqual(resultaat["noteringen"], [])
+
+    def test_naamzoekopdracht_houdt_alleen_dezelfde_familie_en_naam(self):
+        naam_quotes = [dict(quote("A.AS", "AMS", "EQUITY"), longname="Global Real Estate Corp"),
+                       dict(quote("B.AS", "AMS"), longname="Global Real Estate UCITS ETF"),
+                       dict(quote("B.BR", "BRU"), longname="Global Real Estate UCITS ETF"),
+                       dict(quote("C.AS", "AMS"), longname="Real Estate Dividend UCITS ETF")]
+        isin_quotes = [{"symbol": "X.SG", "exchange": "STU", "quoteType": "MUTUALFUND"}]
+        gevonden = ba.quotes_via_productnaam(isin_quotes, naam_quotes, "Global Real Estate UCITS ETF")
+        self.assertEqual([q["symbol"] for q in gevonden], ["B.AS", "B.BR"])
+        self.assertEqual(ba.quotes_via_productnaam(isin_quotes, naam_quotes, "Enkel"), [])
+
+    def test_is_etf_uit_classificatie_gaat_voor_op_zoekuitslag(self):
+        zoek_zegt_etf = {"is_etf": True, "noteringen": []}
+        self.details.return_value = {"IWDA.DE": {"is_etf": False}}
+        antwoord = haal_alternatieven(invoer(), onderzoeker=lambda isin, naam=None: zoek_zegt_etf)
+        self.assertFalse(antwoord["posities"][0]["fase_b_mogelijk"])
+        self.details.return_value = {"IWDA.DE": {"is_etf": True}}
+        antwoord = haal_alternatieven(invoer(), onderzoeker=lambda isin, naam=None: {"is_etf": False, "noteringen": []})
+        self.assertTrue(antwoord["posities"][0]["fase_b_mogelijk"])
+
+    def test_is_etf_valt_terug_op_zoekuitslag_zonder_classificatie(self):
+        antwoord = haal_alternatieven(invoer(), onderzoeker=lambda isin, naam=None: {"is_etf": True, "noteringen": []})
+        self.assertTrue(antwoord["posities"][0]["fase_b_mogelijk"])
+        self.details.side_effect = RuntimeError("geen database")
+        antwoord = haal_alternatieven(invoer(), onderzoeker=lambda isin, naam=None: {"is_etf": True, "noteringen": []})
+        self.assertTrue(antwoord["posities"][0]["fase_b_mogelijk"])
+
+    def test_gevulde_uitslag_wordt_onthouden_lege_niet(self):
+        quotes = [quote("X.AS", "AMS")]
+        with patch.object(ba, "zoek_gecachet", return_value=quotes) as zoek, \
+                patch.object(ba, "haal_koers", return_value=(1.0, "2026-10-27")):
+            onderzoek_isin(ISIN_A)
+            onderzoek_isin(ISIN_A)
+        self.assertEqual(zoek.call_count, 2)  # ISIN en longname, de tweede keer uit de cache
+        with patch.object(ba, "zoek_gecachet", return_value=[]) as zoek:
+            onderzoek_isin(ISIN_B)
+            onderzoek_isin(ISIN_B)
+        self.assertEqual(zoek.call_count, 2)
+
+    def test_zoekcache_bewaart_alleen_gevulde_uitslagen(self):
+        import effect_zoeken
+        effect_zoeken.wis_zoek_cache()
+        self.addCleanup(effect_zoeken.wis_zoek_cache)
+        with patch.object(effect_zoeken, "_yahoo_search", return_value=[]) as zoek:
+            effect_zoeken.zoek_gecachet("leeg")
+            effect_zoeken.zoek_gecachet("leeg")
+        self.assertEqual(zoek.call_count, 2)
+        with patch.object(effect_zoeken, "_yahoo_search", return_value=[quote("X.AS", "AMS")]) as zoek:
+            effect_zoeken.zoek_gecachet("gevuld")
+            effect_zoeken.zoek_gecachet("gevuld")
+        self.assertEqual(zoek.call_count, 1)
 
     def test_uitzondering_in_zoeklaag_wordt_een_nette_fout(self):
         with patch.object(ba, "zoek_gecachet", side_effect=RuntimeError("rate limit")):
@@ -218,7 +330,7 @@ class TestInvoerUitTransacties(unittest.TestCase):
         self.assertEqual(i["isins_op_thuisbeurs"], [ISIN_B])
         self.assertEqual(i["jaarkosten_eur"], 2.5)
         self.assertEqual(i["posities"], [
-            {"ticker": "IWDA.DE", "naam": "IWDA.DE", "isin": ISIN_A, "aantal": 15.0, "waarde_eur": 1500.0}])
+            {"ticker": "IWDA.DE", "naam": "IWDA.DE", "echte_naam": None, "isin": ISIN_A, "aantal": 15.0, "waarde_eur": 1500.0}])
 
     def test_geen_open_positie_geen_invoer(self):
         rijen = [_tx("2025-01-02", "TDG", "IWDA.DE", ISIN_A, 10), _tx("2025-02-02", "TDG", "IWDA.DE", ISIN_A, -10)]
@@ -240,7 +352,7 @@ class TestBouwAlternatievenInvoer(unittest.TestCase):
         rijen = [_tx("2025-01-02", "TDG", "IWDA.DE", ISIN_A, 10, -4.0)]
         i = bouw_alternatieven_invoer(self.beurs(), pd.DataFrame(rijen), {"IWDA.DE": 1000.0}, {"IWDA.DE": "World"}, 2026)
         self.assertEqual(i["posities"], [
-            {"ticker": "IWDA.DE", "naam": "World", "isin": ISIN_A, "aantal": 10.0, "waarde_eur": 1000.0}])
+            {"ticker": "IWDA.DE", "naam": "World", "echte_naam": None, "isin": ISIN_A, "aantal": 10.0, "waarde_eur": 1000.0}])
         self.assertEqual((i["beurs"], i["jaarkosten_eur"], i["betaald_dit_jaar"]), ("TDG", 2.5, True))
         self.assertEqual(i["gemiddelde_kosten_per_transactie_eur"], 4.0)
 
@@ -352,6 +464,9 @@ class TestEndpoints(unittest.TestCase):
         p = patch.object(db, "db_connect", side_effect=AssertionError("geen database in deze test"))
         p.start()
         self.addCleanup(p.stop)
+        p = patch.object(ba, "db_get_ticker_details", return_value={})
+        p.start()
+        self.addCleanup(p.stop)
 
     def patch_app(self, naam, **kwargs):
         p = patch.object(self.m, naam, **kwargs)
@@ -379,7 +494,7 @@ class TestEndpoints(unittest.TestCase):
     def test_antwoord_met_code(self):
         self.patch_app("bouw_beurs_alternatieven_invoer", return_value=invoer())
         self.patch_app("haal_alternatieven", side_effect=lambda i: haal_alternatieven(
-            i, onderzoeker=lambda isin: onderzoek([notering("X.AS", "EAM", 100.0)])))
+            i, onderzoeker=lambda isin, naam=None: onderzoek([notering("X.AS", "EAM", 100.0)])))
         res = self.client.get("/api/portfolio/ABC/beurs-alternatieven?beurs=tdg")
         self.assertEqual(res.status_code, 200)
         self.assertFalse(res.get_json()["blijft_betalen"])
@@ -395,7 +510,7 @@ class TestEndpoints(unittest.TestCase):
             self.assertEqual(self.client.post("/api/beurs-alternatieven", json=body).status_code, 400)
         self.assertEqual(self.client.post("/api/beurs-alternatieven", data="geen json").status_code, 400)
         self.patch_app("haal_alternatieven", side_effect=lambda i: haal_alternatieven(
-            i, onderzoeker=lambda isin: onderzoek([])))
+            i, onderzoeker=lambda isin, naam=None: onderzoek([])))
         res = self.client.post("/api/beurs-alternatieven", json={"invoer": invoer()})
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.get_json()["blijft_betalen"])

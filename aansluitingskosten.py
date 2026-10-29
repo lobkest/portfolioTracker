@@ -221,12 +221,15 @@ def bouw_alternatieven_invoer(beurs, transacties_df, waarde_per_ticker, ticker_n
     if not open_posities:
         return None
     isin_per_ticker = _isin_per_ticker_laatste(transacties_df) if "isin" in transacties_df.columns else {}
+    echte_namen = (transacties_df.dropna(subset=["ticker", "echte_naam"]).drop_duplicates(subset=["ticker"], keep="last")
+                   .set_index("ticker")["echte_naam"].to_dict()) if "echte_naam" in transacties_df.columns else {}
     aantallen = transacties_df.dropna(subset=["ticker"]).groupby("ticker")["aantal"].sum()
     posities = []
     for p in open_posities:
         waarde = waarde_per_ticker.get(p["ticker"])
         posities.append({
-            "ticker": p["ticker"], "naam": p["naam"], "isin": isin_per_ticker.get(p["ticker"]),
+            "ticker": p["ticker"], "naam": p["naam"], "echte_naam": echte_namen.get(p["ticker"]),
+            "isin": isin_per_ticker.get(p["ticker"]),
             "aantal": round(float(aantallen[p["ticker"]]) * p["gewicht"], 4),
             "waarde_eur": round(float(waarde) * p["gewicht"], 2) if waarde is not None else None,
         })

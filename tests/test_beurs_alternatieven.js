@@ -5,7 +5,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-    KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, FOUT_TEKST, ONGEVAL_TEKST, TE_LANG_TEKST, alternatievenPaneel,
+    KNOP_TEKST, VASTE_REGELS, DIT_JAAR_AL_BETAALD, FOUT_TEKST, ONGEVAL_TEKST, TE_LANG_TEKST, NIET_OP_ISIN_TEKST, alternatievenPaneel,
     alternatievenFoutTekst,
 } = require("../static/js/beurs_alternatieven.js");
 
@@ -38,6 +38,15 @@ test("status gevonden: ticker en thuisbeurs", () => {
     assert.equal(p.naam, "World ETF");
     assert.equal(p.tekst, "Gevonden op een thuisbeurs: IWDA.AS op Euronext Amsterdam.");
     assert.equal(p.waarschuwing, null);
+});
+
+test("notering alleen op naam gevonden: waarschuwing met controle-advies over de ISIN", () => {
+    const opNaam = { ...VOORKEUR, waarschuwing: "niet_op_isin_bevestigd" };
+    const [p] = alternatievenPaneel(antwoord({ posities: [positie({ voorkeur: opNaam, noteringen: [opNaam] })] })).posities;
+    assert.equal(p.waarschuwing, NIET_OP_ISIN_TEKST);
+    assert.equal(NIET_OP_ISIN_TEKST,
+                 "Gevonden op naam, niet op ISIN. Controleer in DEGIRO of de ISIN gelijk is aan die van je positie (bijv. niet Acc i.p.v. Dist).");
+    assert.equal(alternatievenPaneel(antwoord()).posities[0].waarschuwing, null);
 });
 
 test("status niet gevonden", () => {
