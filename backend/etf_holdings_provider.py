@@ -258,10 +258,32 @@ _PROVIDER_PARSERS = {
 AANBIEDER_NAMEN = {"ishares": "iShares", "vaneck": "VanEck"}
 
 
-def aanbieder_naam(etf_ticker):
-    """Een provider-CSV van een ETF buiten ETF_HOLDINGS_BRON komt uit de iShares-screener (op ISIN)."""
-    provider = ETF_HOLDINGS_BRON.get(etf_ticker, {}).get("provider", "ishares")
-    return AANBIEDER_NAMEN.get(provider, provider)
+def aanbieder_naam(etf_ticker, fondsnaam=None):
+    """Buiten ETF_HOLDINGS_BRON: een VanEck-naam betekent de VanEck-ticker-route, anders de iShares-screener (op ISIN)."""
+    bron = ETF_HOLDINGS_BRON.get(etf_ticker)
+    if bron is None:
+        return AANBIEDER_NAMEN["vaneck" if is_vaneck_naam(fondsnaam) else "ishares"]
+    return AANBIEDER_NAMEN.get(bron["provider"], bron["provider"])
+
+
+def is_vaneck_naam(naam):
+    return bool(naam) and re.search(r"\bvaneck\b", str(naam), re.IGNORECASE) is not None
+
+
+def ticker_root(ticker):
+    """'TDIV.AS' -> 'TDIV'."""
+    return (ticker or "").split(".")[0].upper()
+
+
+VANECK_TICKER_URL = "https://www.vaneck.com/nl/en/investments/{root}/downloads/holdings/"
+VANECK_MAX_POGINGEN = 3
+VANECK_MIN_GEWICHTSSOM = 50.0
+VANECK_MAX_GEWICHTSSOM = 105.0
+_VANECK_CONTENT_TYPES = ("spreadsheetml", "csv")
+
+
+def vaneck_holdings_url(root):
+    return VANECK_TICKER_URL.format(root=ticker_root(root))
 
 
 def _dedupliceer_holdings(holdings):
@@ -301,6 +323,42 @@ def fetch_provider_holdings(etf_ticker):
 
     return _dedupliceer_holdings(holdings)
 
+
+def _vaneck_pogingsresultaat(sessie, root):
+    """(holdings, eind_url) bij een geldig bestand, anders None."""
+    response = sessie.get(vaneck_holdings_url(root), timeout=30, allow_redirects=True)
+    content_type = (response.headers.get("Content-Type") or "").lower()
+    dprint(f"[vaneck] root '{root}': status {response.status_code}, type '{content_type}', eind-url {response.url}")
+    if response.status_code != 200 or "disabled-cookies" in response.url:
+        return None
+    if not any(t in content_type for t in _VANECK_CONTENT_TYPES):
+        return None
+    holdings = _parse_vaneck_holdings(response.content, locale="en")
+    som = sum(h["gewicht"] for h in holdings)
+    if not holdings or not VANECK_MIN_GEWICHTSSOM <= som <= VANECK_MAX_GEWICHTSSOM:
+        dprint(f"[vaneck] root '{root}': {len(holdings)} holdings met gewichtssom {som:.1f}%, afgekeurd")
+        return None
+    return _dedupliceer_holdings(holdings), response.url
+
+
+def fetch_vaneck_holdings_via_ticker(ticker_roots):
+    """(holdings, gebruikte_root, eind_url) of None. VanEck stuurt een ticker-URL door naar de fonds-URL, maar
+    controleert via de redirects of cookies werken: zonder gedeelde Session eindigt het in /disabled-cookies."""
+    roots = list(dict.fromkeys(r for r in ticker_roots if r))[:VANECK_MAX_POGINGEN]
+    sessie = requests.Session()
+    sessie.headers["User-Agent"] = _PROVIDER_USER_AGENT
+    try:
+        for root in roots:
+            try:
+                resultaat = _vaneck_pogingsresultaat(sessie, root)
+            except Exception as e:
+                dprint(f"[vaneck] root '{root}': mislukt ({e!a})")
+                continue
+            if resultaat:
+                return resultaat[0], root, resultaat[1]
+    finally:
+        sessie.close()
+    return None
 
 
 ISHARES_BASIS_URL = "https://www.ishares.com"

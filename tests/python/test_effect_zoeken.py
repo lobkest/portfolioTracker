@@ -8,7 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from backend import effect_zoeken
 from backend.effect_zoeken import (
-    groepeer_noteringen, herken_isin, isin_kandidaten, normaliseer_fondsnaam, zoek_effecten, zoek_effecten_gecachet,
+    groepeer_noteringen, herken_isin, is_ucits_naam, isin_kandidaten, normaliseer_fondsnaam, zoek_effecten, zoek_effecten_gecachet,
     wis_zoek_cache, noteringen_voor_isin_zoekopdracht, bepaal_isin_kandidaten,
 )
 
@@ -104,6 +104,17 @@ def zoeker_met(per_isin):
     return lambda q: per_isin.get(q, [])
 
 
+class TestIsUcitsNaam(unittest.TestCase):
+    def test_woord_herkend_ongeacht_hoofdletters(self):
+        self.assertTrue(is_ucits_naam(WERELD))
+        self.assertTrue(is_ucits_naam("iShares msci world ucits etf"))
+
+    def test_zonder_woord_of_als_onderdeel_van_ander_woord(self):
+        self.assertFalse(is_ucits_naam("iShares MSCI Brazil ETF"))
+        self.assertFalse(is_ucits_naam("iShares MUCITS ETF"))
+        self.assertFalse(is_ucits_naam(None))
+
+
 class TestIsinKandidaten(unittest.TestCase):
     def test_zoekopdracht_is_zeker(self):
         r = isin_kandidaten("IWDA.L", WERELD, "IE00B4L5Y983", ["XX"], [ishares("A"), ishares("B")], zoek=zoeker_met({}))
@@ -149,6 +160,22 @@ class TestIsinKandidaten(unittest.TestCase):
             with self.subTest(fondsen=fondsen):
                 r = isin_kandidaten("IWDA.AS", WERELD, None, [], fondsen, zoek=zoeker_met({}))
                 self.assertEqual(r, {"zekerheid": "geen", "bron": None, "kandidaten": []})
+
+    def test_amerikaanse_etf_koppelt_niet_aan_de_ierse_ucits_isin(self):
+        fondsen = [ishares("IE00B0M63516", "iShares MSCI Brazil UCITS ETF USD (Dist)")]
+        r = isin_kandidaten("EWZ", "iShares MSCI Brazil ETF", None, [], fondsen, zoek=zoeker_met({}))
+        self.assertEqual(r, {"zekerheid": "geen", "bron": None, "kandidaten": []})
+
+    def test_ucits_naam_vindt_nog_steeds_zijn_ishares_fonds(self):
+        r = isin_kandidaten("IWDA.AS", WERELD, None, [], [ishares("IE1", WERELD)], zoek=zoeker_met({}))
+        self.assertEqual((r["zekerheid"], [k["isin"] for k in r["kandidaten"]]), ("zeker", ["IE1"]))
+
+    def test_acc_en_dist_ucits_geven_kiezen_met_voorselectie(self):
+        fondsen = [ishares("IE1", WERELD), ishares("IE2", WERELD.replace("Acc", "Dist"))]
+        zoek = zoeker_met({"IE1": [{"symbol": "IWDA.L"}], "IE2": []})
+        r = isin_kandidaten("IWDA.AS", WERELD, None, [], fondsen, zoek=zoek)
+        self.assertEqual(r["zekerheid"], "kiezen")
+        self.assertEqual({k["isin"]: k["voorgeselecteerd"] for k in r["kandidaten"]}, {"IE1": True, "IE2": False})
 
     def test_lege_naam_matcht_geen_ishares_fonds(self):
         r = isin_kandidaten("X", "", None, [], [ishares("IE1", "")], zoek=zoeker_met({}))

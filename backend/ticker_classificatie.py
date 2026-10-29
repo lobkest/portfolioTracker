@@ -16,6 +16,7 @@ from backend.debug_utils import dprint
 from backend.yahoo_client import RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS, _met_rate_limit_retry, _tel_yahoo_call
 from backend.etf_holdings_provider import (
     ETF_HOLDINGS_BRON, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
+    fetch_vaneck_holdings_via_ticker, is_vaneck_naam, ticker_root,
 )
 
 
@@ -105,9 +106,10 @@ def _yq_fonds_data(ticker, eigenschap, teller):
 
 def _yq_price(ticker):
     """De .price-dict van één ticker uit yahooquery; None bij een fout of foutstring."""
-    regel = _price_regel(_yq_fonds_data(ticker, "price", "yahooquery.Ticker.price"), ticker)
+    ruw = _yq_fonds_data(ticker, "price", "yahooquery.Ticker.price")
+    regel = _price_regel(ruw, ticker)
     if regel is None:
-        dprint(f"[yahooquery] '{ticker}': geen bruikbare price")
+        dprint(f"[yahooquery] '{ticker}': geen bruikbare price ({ruw!r:.120})")
     return regel
 
 
@@ -152,6 +154,7 @@ def _yq_categorie(ticker):
 ONDERDEEL_SECTOR = "sector"
 ONDERDEEL_HOLDINGS = "holdings"
 ONDERDEEL_CATEGORIE = "categorie"
+ONDERDEEL_VANECK = "vaneck"
 GEEN_FONDSDATA_CACHE_SECONDEN = 3600
 GEEN_FONDSDATA_CACHE_MAX_ITEMS = 500
 _geen_fondsdata_cache = {}
@@ -210,6 +213,42 @@ def _zoek_categorie(ticker, categorie_uit_info):
     return category or None
 
 
+# Sleutels in yfinance 1.7.0 history_metadata (beurscodes als .info: AMS, GER, LSE): currency, exchangeName,
+# instrumentType, longName, shortName, symbol, fullExchangeName, firstTradeDate, regularMarketPrice, ...
+def _chart_metadata(ticker):
+    """De chart-metadata-dict van één ticker; None bij een fout of lege uitkomst."""
+    def _actie():
+        _tel_yahoo_call("yf.Ticker.history_metadata")
+        t = yf.Ticker(ticker)
+        t.history(period="5d")
+        return t.history_metadata
+
+    metadata, fout = _met_rate_limit_retry(_actie, pogingen=1)
+    if fout is not None:
+        dprint(f"[chart] '{ticker}': metadata mislukt: {fout}")
+        return None
+    return metadata if isinstance(metadata, dict) and metadata else None
+
+
+def _classify_via_chart(ticker):
+    """Terugval als .info onbruikbaar is: chart-metadata (het chart-endpoint werkt op Render, quoteSummary niet)."""
+    metadata = _chart_metadata(ticker)
+    if metadata is None or not (metadata.get("currency") or metadata.get("instrumentType")):
+        return None
+    instrument_type = metadata.get("instrumentType") or ""
+    is_etf = instrument_type == "ETF"
+    category = _zoek_categorie(ticker, None) if is_etf or instrument_type == "MUTUALFUND" else None
+    return {
+        "is_etf": is_etf,
+        "quote_type": instrument_type or None,
+        "valuta": metadata.get("currency"),
+        "yahoo_beurs": metadata.get("exchangeName"),
+        "fund_family": None,
+        "category": category,
+        "long_name": metadata.get("longName") or metadata.get("shortName"),
+    }
+
+
 def _classify_via_price(ticker):
     """Terugval als .info mislukt of uitgekleed is: alleen wat yahooquery's .price zeker weet, geen heuristiek."""
     regel = _yq_price(ticker)
@@ -235,9 +274,11 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
     info = _fetch_yf_info(ticker, pogingen, wachttijd)
     if not info_is_bruikbaar(info):
         sleutels = list(info)[:10] if isinstance(info, dict) else None
-        dprint(f"[classify] '{ticker}': .info onbruikbaar (sleutels: {sleutels}), terugval op yahooquery .price")
-        # Land en sector ontbreken hier bewust en worden niet gecachet: None zou get_land_sector blokkeren.
-        return _classify_via_price(ticker)  # None = onbekend, NIET cachen: volgende keer opnieuw proberen
+        dprint(f"[classify] '{ticker}': .info onbruikbaar (sleutels: {sleutels}), terugval op chart-metadata")
+        # quoteSummary geeft op Render een 401, het chart-endpoint niet. Land en sector ontbreken hier bewust
+        # en worden niet gecachet: None zou get_land_sector blokkeren.
+        # None = onbekend, NIET cachen: volgende keer opnieuw proberen
+        return _classify_via_chart(ticker) or _classify_via_price(ticker)
 
     quote_type = info.get("quoteType", "")
     country = info.get("country")
@@ -401,9 +442,49 @@ def _haal_provider_holdings(ticker, ishares_fonds):
     return holdings
 
 
+def _andere_vaneck_roots(ticker, naam):
+    """Roots van de andere noteringen met dezelfde naam en hetzelfde type; [] bij een zoekfout."""
+    # Lokaal: effect_zoeken importeert dit module.
+    from backend.effect_zoeken import groepeer_noteringen, zoek_gecachet
+    try:
+        groepen = groepeer_noteringen(zoek_gecachet(naam))
+    except Exception as e:
+        dprint(f"[vaneck] '{ticker}': andere noteringen niet opgehaald ({e!a})")
+        return []
+    eigen = ticker.upper()
+    groep = next((g for g in groepen if g["naam"] == naam
+                  and any(n["ticker"].upper() == eigen for n in g["noteringen"])), None)
+    if groep is None:
+        return []
+    return [ticker_root(n["ticker"]) for n in groep["noteringen"]]
+
+
+def _haal_vaneck_holdings(ticker):
+    """Provider-holdings via de VanEck-ticker-URL voor een fonds met 'VanEck' in de naam; None bij een miss
+    (die een uur in het geheugen wordt onthouden)."""
+    if _geen_fondsdata_bekend(ticker, ONDERDEEL_VANECK):
+        return None
+    naam = get_ticker_details(ticker).get("long_name")
+    if not is_vaneck_naam(naam):
+        return None
+    eigen_root = ticker_root(ticker)
+    gevonden = fetch_vaneck_holdings_via_ticker([eigen_root])
+    if gevonden is None:
+        andere = [r for r in _andere_vaneck_roots(ticker, naam) if r != eigen_root]
+        gevonden = fetch_vaneck_holdings_via_ticker(andere) if andere else None
+    if gevonden is None:
+        print(f"[etf-holdings] WARN '{ticker}' ({naam}): VanEck-holdings via ticker-URL niet opgehaald")
+        _onthoud_geen_fondsdata(ticker, ONDERDEEL_VANECK)
+        return None
+    holdings, root, eind_url = gevonden
+    dprint(f"[etf-holdings] '{ticker}': VanEck-holdings via root '{root}' ({eind_url})")
+    return holdings
+
+
 def get_etf_holdings(ticker, isin=None):
     """[{holding_naam, holding_ticker, gewicht (0-1), land, bron}]: eerst de provider, anders yfinance's top 10.
-    Provider = ETF_HOLDINGS_BRON, of met isin elk iShares-fonds uit de screener (exacte ISIN).
+    Provider = ETF_HOLDINGS_BRON, of met isin elk iShares-fonds uit de screener (exacte ISIN), of elk VanEck-fonds
+    via de ticker-URL van VanEck (_haal_vaneck_holdings).
     Een yfinance_top10-cache wordt alsnog vervangen zodra er een provider bekend is.
     De top 10 komt eerst van yahooquery, met yfinance als terugval (die geeft op Render 401 Invalid Crumb).
     Een lege uitkomst van beide wordt kort in het geheugen onthouden."""
@@ -413,18 +494,20 @@ def get_etf_holdings(ticker, isin=None):
 
     ishares_fonds = None if ticker in ETF_HOLDINGS_BRON else _ishares_fonds_voor_isin(isin)
     heeft_provider = ticker in ETF_HOLDINGS_BRON or ishares_fonds is not None
-    if cached is not None:
-        if not heeft_provider:
-            return cached
+    if cached is not None and heeft_provider:
         dprint(f"[etf-holdings] '{ticker}': yfinance-top10-cache is nog vers, maar er is inmiddels "
                f"een provider bekend -> alsnog proberen te upgraden naar de volledige lijst")
 
     if heeft_provider:
         provider_holdings = _haal_provider_holdings(ticker, ishares_fonds)
-        if provider_holdings:
-            holdings = _provider_holdings_naar_cache(provider_holdings)
-            db_save_etf_holdings(ticker, holdings)
-            return holdings
+    else:
+        provider_holdings = _haal_vaneck_holdings(ticker)
+    if provider_holdings:
+        holdings = _provider_holdings_naar_cache(provider_holdings)
+        db_save_etf_holdings(ticker, holdings)
+        return holdings
+    if cached is not None and not heeft_provider:
+        return cached
 
     if _geen_fondsdata_bekend(ticker, ONDERDEEL_HOLDINGS):
         return cached or []

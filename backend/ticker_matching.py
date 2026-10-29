@@ -25,9 +25,14 @@ BEURS_MAP = {
 }
 
 
+# Een .DE-ticker is Xetra; Tradegate telt mee op verzoek, Frankfurt (parket) niet.
+YAHOO_BEURS_UITGESLOTEN_DEGIRO = {"GER": {"FRA"}}
+
+
 def degiro_codes_voor_yahoo_beurs(yahoo_beurs):
     """Alle DeGiro-beurscodes die op deze Yahoo-beurs uitkomen; leeg bij een onbekende beurs."""
-    return {code for code, beurzen in BEURS_MAP.items() if yahoo_beurs in beurzen}
+    uitgesloten = YAHOO_BEURS_UITGESLOTEN_DEGIRO.get(yahoo_beurs, set())
+    return {code for code, beurzen in BEURS_MAP.items() if yahoo_beurs in beurzen and code not in uitgesloten}
 
 # Handelsvaluta per Yahoo-beurscode, om bij het zoeken kandidaten uit te sluiten die niet bij de valuta van de Excel
 # passen. Een bekende ticker_info.valuta gaat voor; een onbekende beurs doet niet mee.

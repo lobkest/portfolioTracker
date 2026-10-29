@@ -67,6 +67,87 @@ class TestPriceTerugval(_Classificatie):
         self.assertEqual(uit["valuta"], "USD")
 
 
+CHART_ETF = {"currency": "EUR", "exchangeName": "AMS", "instrumentType": "ETF", "longName": "VanEck ETF",
+             "shortName": "VanEck"}
+
+
+def _yf_met_metadata(metadata=None, fout=None):
+    yf = MagicMock()
+    if fout:
+        yf.return_value.history.side_effect = fout
+    yf.return_value.history_metadata = metadata
+    return yf
+
+
+class TestClassifyViaChart(unittest.TestCase):
+    def setUp(self):
+        tc.wis_geen_fondsdata_cache()
+        self.addCleanup(tc.wis_geen_fondsdata_cache)
+
+    def via_chart(self, metadata=None, fout=None):
+        with patch.object(tc.yf, "Ticker", _yf_met_metadata(metadata, fout)), \
+                patch.object(tc, "_yq_categorie", return_value="Equity"), patch.object(tc, "dprint"):
+            return tc._classify_via_chart("X")
+
+    def test_volledige_etf_metadata_vult_alle_velden(self):
+        self.assertEqual(self.via_chart(CHART_ETF), {
+            "is_etf": True, "quote_type": "ETF", "valuta": "EUR", "yahoo_beurs": "AMS", "fund_family": None,
+            "category": "Equity", "long_name": "VanEck ETF"})
+
+    def test_gbp_pence_blijft_gbp_pence(self):
+        self.assertEqual(self.via_chart({**CHART_ETF, "currency": "GBp"})["valuta"], "GBp")
+
+    def test_equity_is_geen_etf(self):
+        uit = self.via_chart({"currency": "USD", "instrumentType": "EQUITY", "shortName": "Kort"})
+        self.assertFalse(uit["is_etf"])
+        self.assertIsNone(uit["category"])
+        self.assertEqual(uit["long_name"], "Kort")
+
+    def test_lege_metadata_of_exceptie_geeft_none(self):
+        self.assertIsNone(self.via_chart({}))
+        self.assertIsNone(self.via_chart({"symbol": "X"}))
+        self.assertIsNone(self.via_chart(fout=RuntimeError("boem")))
+
+
+class TestVolgordeInfoChartPrice(unittest.TestCase):
+    def classificeer(self, info, chart, price):
+        with patch.object(tc, "_fetch_yf_info", return_value=info), \
+                patch.object(tc, "_classify_via_chart", return_value=chart) as via_chart, \
+                patch.object(tc, "_classify_via_price", return_value=price) as via_price, \
+                patch.object(tc, "db_save_land_sector") as land_sector, patch.object(tc, "dprint"):
+            uit = tc._classify_ticker_uncached("X")
+        return uit, via_chart, via_price, land_sector
+
+    def test_chart_gaat_voor_price_en_slaat_geen_land_sector_op(self):
+        uit, via_chart, via_price, land_sector = self.classificeer(UITGEKLEED, {"valuta": "EUR"}, {"valuta": "USD"})
+        self.assertEqual(uit, {"valuta": "EUR"})
+        via_price.assert_not_called()
+        land_sector.assert_not_called()
+
+    def test_zonder_chart_valt_door_naar_price(self):
+        uit, _, via_price, land_sector = self.classificeer(UITGEKLEED, None, {"valuta": "USD"})
+        self.assertEqual(uit, {"valuta": "USD"})
+        land_sector.assert_not_called()
+
+    def test_alles_faalt_geeft_none(self):
+        self.assertIsNone(self.classificeer(None, None, None)[0])
+
+    def test_bruikbare_info_roept_chart_en_price_niet_aan(self):
+        _, via_chart, via_price, _ = self.classificeer({"quoteType": "EQUITY", "currency": "USD"}, None, None)
+        via_chart.assert_not_called()
+        via_price.assert_not_called()
+
+
+class TestPriceFoutLog(unittest.TestCase):
+    def test_foutstring_staat_afgekapt_in_de_log(self):
+        lang = "Unauthorized " + "x" * 300
+        with patch.object(tc, "_yq_fonds_data", return_value=lang), patch.object(tc, "dprint") as dprint:
+            self.assertIsNone(tc._yq_price("X"))
+        bericht = dprint.call_args[0][0]
+        self.assertIn("Unauthorized", bericht)
+        self.assertLess(len(bericht), 200)
+
+
 class TestBruikbareInfo(_Classificatie):
     def test_zonder_quotetype_blijft_de_heuristiek(self):
         info = {"currency": "EUR", "totalAssets": 1e9, "fundFamily": "F"}

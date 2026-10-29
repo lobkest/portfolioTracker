@@ -60,6 +60,7 @@ class TestSectorTerugval(unittest.TestCase):
 class TestHoldingsTerugval(unittest.TestCase):
     def _draai(self, yq):
         with patch.object(tc, "db_get_cached_etf_holdings", return_value=None), \
+             patch.object(tc, "get_ticker_details", return_value={}), \
              patch.object(tc, "db_save_etf_holdings") as opslaan, \
              patch.object(tc, "get_land_sector", return_value=("United States", "Tech")), \
              patch.object(tc.yf, "Ticker", _yf_faalt()), \

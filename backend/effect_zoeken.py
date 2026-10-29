@@ -5,6 +5,7 @@ import time
 
 from backend.db import db_get_isins_voor_ticker
 from backend.debug_utils import dprint
+from backend.etf_holdings_provider import ticker_root as _root
 from backend.ticker_classificatie import ishares_fondsen
 from backend.ticker_matching import _yahoo_search
 
@@ -35,6 +36,10 @@ def herken_isin(tekst):
 def normaliseer_fondsnaam(naam):
     woorden = re.sub(r"[^a-z0-9]+", " ", (naam or "").lower()).split()
     return " ".join(w for w in woorden if w not in NAAM_STOPWOORDEN)
+
+
+def is_ucits_naam(naam):
+    return re.search(r"\bucits\b", naam or "", re.IGNORECASE) is not None
 
 
 def kies_voorkeur_ticker(noteringen):
@@ -112,10 +117,6 @@ def wis_zoek_cache():
         _zoek_cache.clear()
 
 
-def _root(ticker):
-    return (ticker or "").split(".")[0].upper()
-
-
 def _noteringen_van_isin(isin, zoek):
     try:
         quotes = noteringen_voor_isin_zoekopdracht(zoek(isin), zoek)
@@ -157,8 +158,10 @@ def isin_kandidaten(ticker, naam, isin_uit_zoekopdracht, eigen_isins, ishares_fo
                 "kandidaten": _kandidaten(eigen, naam, eigen[0] if zeker else None)}
 
     genormaliseerd = normaliseer_fondsnaam(naam)
+    # Een Amerikaanse ETF (EWZ) en de UCITS-versie volgen dezelfde index, maar zijn andere fondsen met een andere ISIN.
     fondsen = [f for f in ishares_fondsen_lijst or []
-               if genormaliseerd and normaliseer_fondsnaam(f.get("naam")) == genormaliseerd]
+               if genormaliseerd and normaliseer_fondsnaam(f.get("naam")) == genormaliseerd
+               and is_ucits_naam(naam) == is_ucits_naam(f.get("naam"))]
     if not fondsen:
         return {"zekerheid": ZEKERHEID_GEEN, "bron": None, "kandidaten": []}
     if len(fondsen) == 1:

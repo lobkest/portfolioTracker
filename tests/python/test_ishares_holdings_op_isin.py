@@ -32,6 +32,7 @@ def _yahoo_top10():
 class TestIsharesHoldingsOpIsin(unittest.TestCase):
     def _haal_op(self, ticker, isin, productpagina=PRODUCTPAGINA_HOLDINGS, fondsen=FONDSEN, cached=None):
         with patch.object(ticker_classificatie, "db_get_cached_etf_holdings", return_value=cached), \
+             patch.object(ticker_classificatie, "get_ticker_details", return_value={}), \
              patch.object(ticker_classificatie, "db_save_etf_holdings") as mock_save, \
              patch.object(ticker_classificatie, "ishares_fondsen", return_value=fondsen), \
              patch.object(ticker_classificatie, "fetch_ishares_holdings_via_productpagina",

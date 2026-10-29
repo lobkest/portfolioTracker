@@ -495,7 +495,8 @@ def _meld_etf_holdings(land_sector_verdeling, ticker_namen=None, land_proxies=No
         if set(land) <= {"Unknown"}:
             niveau, tekst = LET_OP, "geen holdings met landinformatie; land, top-bedrijven en ETF-overlap ontbreken voor deze ETF."
         elif info.get("land_bron") == ETF_BRON_PROVIDER:
-            niveau, tekst = GOED, f"volledige holdings van de fondsaanbieder ({aanbieder_naam(ticker)})."
+            fondsnaam = (ticker_namen or {}).get(ticker)
+            niveau, tekst = GOED, f"volledige holdings van de fondsaanbieder ({aanbieder_naam(ticker, fondsnaam)})."
         else:
             niveau, tekst = INFO, ("alleen de top-10 holdings via Yahoo; top-bedrijven en ETF-overlap zijn voor "
                                    "deze ETF onvolledig.")

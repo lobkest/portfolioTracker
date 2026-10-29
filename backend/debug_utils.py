@@ -29,6 +29,8 @@ def timing_detail_aan():
 _CODE_IN_DB_FOUT = re.compile(r"(Key \(code(?:, \w+)*\)=\()[A-Z]{3}")
 # De code staat in het pad: /p/<code> en /api/portfolio/<code>/...
 _CODE_IN_PAD = re.compile(r"^(/p/|/api/portfolio/)[^/?#]+")
+# Tijdelijk, voor /api/diagnose/yahoo (zie backend/diagnose_yahoo.py).
+_TOKEN_IN_QUERY = re.compile(r"([?&]token=)[^&#\s]*")
 
 
 FOUTCODE_LENGTE = 6
@@ -45,7 +47,7 @@ def maskeer_codes(tekst):
 
 
 def maskeer_pad(pad):
-    return _CODE_IN_PAD.sub(r"\1***", str(pad))
+    return _TOKEN_IN_QUERY.sub(r"\1***", _CODE_IN_PAD.sub(r"\1***", str(pad)))
 
 
 def print_traceback():

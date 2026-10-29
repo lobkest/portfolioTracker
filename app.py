@@ -7,7 +7,7 @@ import time
 from datetime import date
 
 from flask import (
-    Flask, Response, copy_current_request_context, g, make_response, render_template, send_from_directory,
+    Flask, Response, abort, copy_current_request_context, g, make_response, render_template, send_from_directory,
     request, jsonify, redirect, stream_with_context, url_for,
 )
 from werkzeug.exceptions import HTTPException
@@ -16,6 +16,7 @@ from io import BytesIO
 from werkzeug.datastructures import FileStorage
 from xml.sax.saxutils import escape as xml_escape
 import pandas as pd
+from backend import diagnose_yahoo
 from backend.db import (
     db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
@@ -745,6 +746,21 @@ def api_zoek():
     if not ZOEK_MIN_TEKENS <= len(query) <= ZOEK_MAX_TEKENS:
         return jsonify({"error": f"Zoek met {ZOEK_MIN_TEKENS} tot {ZOEK_MAX_TEKENS} tekens."}), 400
     return jsonify({"resultaten": zoek_effecten_gecachet(query), "isin_uit_zoekopdracht": herken_isin(query)})
+
+
+# TIJDELIJK: verwijderen na het onderzoek naar de 401 op Render (met backend/diagnose_yahoo.py).
+@app.route("/api/diagnose/yahoo")
+def api_diagnose_yahoo():
+    if not diagnose_yahoo.token_klopt(request.args.get("token"), os.environ.get("DIAGNOSE_TOKEN")):
+        abort(404)
+    # Hier i.p.v. in CATEGORIE_PER_ZWAAR_ENDPOINT: een 429 vóór de tokencheck zou de route verraden.
+    wacht = toegangslimiet.verbruik(CATEGORIE_ZOEKEN, client_ip())
+    if wacht:
+        return _limiet_antwoord(CATEGORIE_ZOEKEN, wacht)
+    tickers, fout = diagnose_yahoo.parse_tickers(request.args.get("tickers"), TICKER_MAX_TEKENS)
+    if fout:
+        return jsonify({"error": fout}), 400
+    return jsonify(diagnose_yahoo.bouw_diagnose(tickers))
 
 
 @app.route("/api/isin-kandidaten")

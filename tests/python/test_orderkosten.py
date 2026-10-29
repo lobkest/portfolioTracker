@@ -32,8 +32,8 @@ class TestCodesVoorYahooBeurs(unittest.TestCase):
     def test_amsterdam(self):
         self.assertEqual(degiro_codes_voor_yahoo_beurs("AMS"), {"EAM", "XAMS"})
 
-    def test_duitsland_bevat_xetra_en_tradegate(self):
-        self.assertLessEqual({"XET", "TDG"}, degiro_codes_voor_yahoo_beurs("GER"))
+    def test_duitsland_is_xetra_en_tradegate_zonder_frankfurt(self):
+        self.assertEqual(degiro_codes_voor_yahoo_beurs("GER"), {"XET", "TDG"})
 
     def test_onbekende_of_lege_beurs_geeft_een_lege_set(self):
         self.assertEqual(degiro_codes_voor_yahoo_beurs("ZZZ"), set())

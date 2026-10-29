@@ -58,6 +58,7 @@ class TestVolgorde(_MetLegeCache):
     def test_holdings_yahooquery_eerst(self):
         yf = _yf()
         with patch.object(tc, "db_get_cached_etf_holdings", return_value=None), \
+                patch.object(tc, "get_ticker_details", return_value={}), \
                 patch.object(tc, "db_save_etf_holdings"), patch.object(tc, "get_land_sector", return_value=("US", "IT")), \
                 patch.object(tc, "YahooqueryTicker", _yq(fund_top_holdings=TOP10)), patch.object(tc.yf, "Ticker", yf), \
                 patch.object(tc, "dprint"):
@@ -104,6 +105,7 @@ class TestGeenFondsdataCache(_MetLegeCache):
     def test_holdings_lege_uitkomst_wordt_onthouden(self):
         yq = _yq(fund_top_holdings=pd.DataFrame())
         with patch.object(tc, "db_get_cached_etf_holdings", return_value=None), \
+                patch.object(tc, "get_ticker_details", return_value={}), \
                 patch.object(tc, "YahooqueryTicker", yq), patch.object(tc.yf, "Ticker", _yf()), patch.object(tc, "dprint"):
             self.assertEqual(tc.get_etf_holdings("X"), [])
             yq.reset_mock()
