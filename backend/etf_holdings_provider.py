@@ -254,7 +254,7 @@ def _vertaal_land_nl(land):
     return land
 
 
-def _land_via_isin(isin):
+def land_via_isin(isin):
     """Land van registratie uit de ISIN-prefix: een benadering, niet waar het bedrijf actief is."""
     if not isin or not isinstance(isin, str) or len(isin) < 2:
         return "Unknown"
@@ -296,7 +296,7 @@ def _parse_vaneck_holdings(content, locale="en"):
         if land_kolom:
             land = row.get(land_kolom)
         elif isin_kolom:
-            land = _land_via_isin(row.get(isin_kolom))
+            land = land_via_isin(row.get(isin_kolom))
         else:
             land = None
         holdings.append(_holding_rij(

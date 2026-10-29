@@ -142,8 +142,13 @@ def _overlap(basis, aankoop, bedrijven_voor, totaal_voor):
     status, gedekt_pct = _holdings_dekking(holdings_nieuw)
     gewichten_nieuw = _groepeer_holdings_per_bedrijf(holdings_nieuw)[0]
     per_etf = {}
+    zonder_holdings = 0
     for ticker in basis["waarde_per_ticker"]:
         if ticker == aankoop["ticker"] or not basis["is_etf_map"].get(ticker, False):
+            continue
+        if not basis["holdings_per_etf"].get(ticker):
+            zonder_holdings += 1
+            per_etf[ticker] = None
             continue
         if status == HOLDINGS_ONBEKEND:
             per_etf[ticker] = None
@@ -154,8 +159,8 @@ def _overlap(basis, aankoop, bedrijven_voor, totaal_voor):
     al_in_portfolio = None if status == HOLDINGS_ONBEKEND else round(sum(
         min(gewicht * 100, _pct(bedrijven_voor[key]["waarde"], totaal_voor))
         for key, gewicht in gewichten_nieuw.items() if key in bedrijven_voor), PCT_DECIMALEN)
-    return {"per_etf": per_etf, "al_in_portfolio_pct": al_in_portfolio,
-            "holdings_status": status, "gedekt_pct": gedekt_pct}
+    return {"per_etf": per_etf, "al_in_portfolio_pct": al_in_portfolio, "al_in_portfolio_onvolledig": zonder_holdings > 0,
+            "etf_zonder_holdings": zonder_holdings, "holdings_status": status, "gedekt_pct": gedekt_pct}
 
 
 def _al_in_bezit(basis, aankoop, bedrijven_voor):

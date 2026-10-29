@@ -156,6 +156,34 @@ class TestProfielDividend(_Profiel):
         self.assertEqual((p["dividend"]["status"], p["dividend"]["per_stuk_bruto_eur"]), ("keert_uit", 1.0))
         self.assertEqual(p["waarschuwingen"].count("geen_dividend_data"), 0)
 
+    def test_etf_gebruikt_de_isin_uit_de_eigen_transacties_voor_de_belasting(self):
+        self.m["db_get_isins_voor_ticker"].return_value = ["IE00B5BMR087"]
+        d = self.profiel()["dividend"]
+        self.assertEqual((d["belasting_fractie"], d["belasting_onzeker"]), (0.0, False))
+
+    def test_etf_met_meerdere_eigen_isins_en_zonder_fonds_is_een_aanname(self):
+        self.m["db_get_isins_voor_ticker"].return_value = ["IE00B5BMR087", "NL0000000001"]
+        d = self.profiel()["dividend"]
+        self.assertEqual((d["belasting_bron"], d["belasting_onzeker"]), ("aanname_etf", True))
+
+    def test_etf_zonder_enige_isin_is_een_aanname(self):
+        d = self.profiel()["dividend"]
+        self.assertEqual((d["belasting_fractie"], d["belasting_bron"], d["belasting_onzeker"]), (0.15, "aanname_etf", True))
+
+    def test_etf_met_nederlandse_gekozen_isin_is_zeker(self):
+        d = self.profiel(isin="NL0000000001")["dividend"]
+        self.assertEqual((d["belasting_fractie"], d["belasting_onzeker"]), (0.15, False))
+
+    def test_fonds_isin_wordt_gebruikt_als_de_andere_bronnen_leeg_zijn(self):
+        fonds = {"isin": "IE00B5BMR087", "naam": "iShares"}
+        self.assertEqual(effect_profiel._isin_voor_belasting("X", None, fonds), "IE00B5BMR087")
+
+    def test_aandeel_zonder_isin_blijft_standaard_ook_met_eigen_isin(self):
+        self.m["get_ticker_details"].return_value = {"is_etf": False, "long_name": "Bedrijf", "valuta": "EUR"}
+        self.m["db_get_isins_voor_ticker"].return_value = ["IE00B5BMR087"]
+        d = self.profiel("ASML.AS")["dividend"]
+        self.assertEqual((d["belasting_bron"], d["belasting_onzeker"]), ("standaard", False))
+
     def test_geen_dividenddata_geeft_waarschuwing_en_het_profiel_blijft(self):
         self.m["haal_yahoo_dividenden"].return_value = None
         p = self.profiel()

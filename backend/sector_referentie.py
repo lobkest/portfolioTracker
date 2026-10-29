@@ -1,7 +1,9 @@
 """Sector per bedrijf opzoeken in een breed iShares-fonds, voor fondsen waarvan het holdingsbestand geen sectorkolom heeft."""
 import re
 
-from backend.etf_holdings_provider import SECTOR_MIN_HERKEND_PCT, SECTOR_ONBEKEND, app_sector as vertaal_sector
+from backend.etf_holdings_provider import (
+    SECTOR_MIN_HERKEND_PCT, SECTOR_ONBEKEND, app_sector as vertaal_sector, normaliseer_land,
+)
 
 # iShares Core MSCI World: ±1300 bedrijven met sector, genoeg voor dividend- en wereldfondsen (TDIV: ±92 % gevonden).
 # Een tweede fonds (MSCI EM IMI) voegt voor TDIV niets toe: de ontbrekende namen zijn ontwikkelde markten.
@@ -29,19 +31,40 @@ def _sleutels(holding):
             ("naam", _naam_sleutel(holding.get("naam"))))
 
 
-def maak_sector_opzoektabel(referentie_holdings):
-    """{"isin": {...}, "ticker": {...}, "naam": {...}}: sleutel -> app-sector. Een sleutel met verschillende sectoren
-    (dubbelzinnig) valt weg, net als rijen zonder herkende sector (cash)."""
+def _maak_opzoektabel(referentie_holdings, waarde_van):
     kandidaten = {"isin": {}, "ticker": {}, "naam": {}}
     for h in referentie_holdings:
-        app_sector = vertaal_sector(h.get("sector"))
-        if app_sector == SECTOR_ONBEKEND:
+        waarde = waarde_van(h)
+        if waarde == SECTOR_ONBEKEND:
             continue
         for soort, sleutel in _sleutels(h):
             if sleutel:
-                kandidaten[soort].setdefault(sleutel, set()).add(app_sector)
-    return {soort: {sleutel: next(iter(sectoren)) for sleutel, sectoren in per_sleutel.items() if len(sectoren) == 1}
+                kandidaten[soort].setdefault(sleutel, set()).add(waarde)
+    return {soort: {sleutel: next(iter(waarden)) for sleutel, waarden in per_sleutel.items() if len(waarden) == 1}
             for soort, per_sleutel in kandidaten.items()}
+
+
+def maak_sector_opzoektabel(referentie_holdings):
+    """{"isin": {...}, "ticker": {...}, "naam": {...}}: sleutel -> app-sector. Een sleutel met verschillende sectoren
+    (dubbelzinnig) valt weg, net als rijen zonder herkende sector (cash)."""
+    return _maak_opzoektabel(referentie_holdings, lambda h: vertaal_sector(h.get("sector")))
+
+
+def maak_land_opzoektabel(referentie_holdings):
+    """Zelfde vorm als maak_sector_opzoektabel, met het land uit de Location-kolom; "Unknown" valt weg."""
+    return _maak_opzoektabel(referentie_holdings, lambda h: normaliseer_land(h.get("land")))
+
+
+def zoek_land_sector(opzoektabel, ticker, naam, isin):
+    """(land of None, sector of None): per eigenschap eerst op ISIN, dan ticker, dan naam. Het landdeel zit onder
+    opzoektabel["land"] (zie maak_land_opzoektabel)."""
+    sleutels = _sleutels({"isin": isin, "ticker": ticker, "naam": naam})
+    land_tabel = opzoektabel.get("land") or {}
+
+    def _zoek(tabel):
+        return next((tabel[soort][sleutel] for soort, sleutel in sleutels if sleutel and sleutel in tabel.get(soort, {})), None)
+
+    return _zoek(land_tabel), _zoek(opzoektabel)
 
 
 def sector_verdeling_via_referentie(holdings, opzoektabel):

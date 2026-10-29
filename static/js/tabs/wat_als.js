@@ -390,15 +390,30 @@ function renderWatAlsKoers(d) {
     samenvattingRegel.classList.add("watAlsTipRegel");
     const rendementUitleg = watAlsRendementUitleg(d.uitleg, d.koers_rendement, d.totaal_rendement);
     if (rendementUitleg) samenvattingRegel.append(" ", watAlsInfoTip("Rendement", rendementUitleg));
+    if (d.per === "week") samenvattingRegel.append(" ", watAlsInfoTip("Rechter as", WAT_ALS_WEEK_AS_TIP));
     watAlsEl("watAlsKoersGrafiekPlek").hidden = false;
     if (watAlsKoersGrafiek) watAlsKoersGrafiek.destroy();
 
-    const lijn = (label, sleutel, kleur) => ({
-        label, data: d.punten.map(p => p[sleutel]), borderColor: kleur, pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5,
+    const lijn = (label, sleutel, indexSleutel, kleur) => ({
+        label, indexSleutel, data: d.punten.map(p => p[sleutel]), borderColor: kleur, pointRadius: 0, pointHoverRadius: 4,
+        borderWidth: 1.5, yAxisID: "y",
     });
-    const datasets = [lijn("Koers", "koers_index", WAT_ALS_KOERS_KLEUR)];
-    if (d.heeft_dividend) datasets.push(lijn("Totaal incl. dividend", "totaal_index", WAT_ALS_TOTAAL_KLEUR));
-    const koersLabel = d.per === "week" ? "Weekgemiddelde koers" : "Koers";
+    const datasets = [lijn("Koers", "koers_eur", "koers_index", WAT_ALS_KOERS_KLEUR)];
+    if (d.heeft_dividend) {
+        datasets.push(lijn("Totaal incl. dividend", "totaal_eur", "totaal_index", WAT_ALS_TOTAAL_KLEUR));
+    }
+    // De rechter as heeft geen datasets en volgt de uiteindelijke grenzen van y; pas na de layout bekend.
+    const koppelRechterAs = {
+        id: "watAlsRechterAs",
+        afterUpdate(chart) {
+            const grenzen = watAlsProcentGrenzen(chart.scales.y.min, chart.scales.y.max, d.basis_eur);
+            const as = chart.options.scales.y1;
+            if (!grenzen || (as.min === grenzen.min && as.max === grenzen.max)) return;
+            as.min = grenzen.min;
+            as.max = grenzen.max;
+            chart.update("none");
+        },
+    };
 
     watAlsKoersGrafiek = new Chart(watAlsEl("watAlsKoersChart"), {
         type: "line",
@@ -408,19 +423,32 @@ function renderWatAlsKoers(d) {
             maintainAspectRatio: false,
             locale: "nl-NL",
             interaction: { mode: "index", intersect: false },
-            scales: { y: { title: { display: true, text: "Index (start = 100)" } } },
+            scales: {
+                y: {
+                    position: "left",
+                    title: { display: true, text: "EUR" },
+                    ticks: { callback: waarde => watAlsEuroAsTick(waarde) },
+                },
+                y1: {
+                    position: "right",
+                    title: { display: true, text: "Rendement" },
+                    grid: { drawOnChartArea: false },
+                    ticks: { callback: waarde => watAlsProcentAsTick(waarde) },
+                },
+            },
             plugins: {
                 legend: { display: true },
                 tooltip: {
                     callbacks: {
                         title: ctx => formatDatum(d.punten[ctx[0].dataIndex].datum),
-                        label: ctx => `${ctx.dataset.label}: index ${formatGetal(ctx.parsed.y, 1)}`,
-                        footer: ctx => `${koersLabel}: ${formatteerEuro(d.punten[ctx[0].dataIndex].koers_eur)}`,
+                        label: ctx => watAlsKoersTooltipTekst(ctx.dataset.label, ctx.parsed.y,
+                            d.punten[ctx.dataIndex][ctx.dataset.indexSleutel]),
                     },
                 },
                 datalabels: { display: false },
             },
         },
+        plugins: [koppelRechterAs],
     });
 }
 

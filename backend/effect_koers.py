@@ -61,15 +61,16 @@ def _cumulatief_op(datums, dividenden, na):
 
 
 def dagpunten(koersen_eur, dividenden_eur, start):
-    """DataFrame (index = datum; koers_eur, koers_index, totaal_index), index 100 op de eerste handelsdag >= start.
+    """DataFrame (index = datum; koers_eur, totaal_eur, koers_index, totaal_index), index 100 op de eerste handelsdag >= start.
     Een dividend telt vanaf zijn ex-datum, niet als hij op de eerste handelsdag zelf valt (die koers is al ex)."""
     koersen = _vanaf(koersen_eur, start)
     if koersen.empty:
-        return pd.DataFrame(columns=["koers_eur", "koers_index", "totaal_index"])
+        return pd.DataFrame(columns=["koers_eur", "totaal_eur", "koers_index", "totaal_index"])
     basis = koersen.iloc[0]
     uitgekeerd = _cumulatief_op(koersen.index, _dividend_reeks(dividenden_eur), koersen.index[0])
     return pd.DataFrame({
         "koers_eur": koersen,
+        "totaal_eur": koersen + uitgekeerd,
         "koers_index": koersen / basis * 100,
         "totaal_index": (koersen + uitgekeerd) / basis * 100,
     })
@@ -80,7 +81,7 @@ def weekpunten(koersen_eur, dividenden_eur, start):
     Een dividend telt pas vanaf de week na de week van zijn ex-datum."""
     koersen = _vanaf(koersen_eur, start)
     if koersen.empty:
-        return pd.DataFrame(columns=["koers_eur", "koers_index", "totaal_index"])
+        return pd.DataFrame(columns=["koers_eur", "totaal_eur", "koers_index", "totaal_index"])
     maandag = (koersen.index - pd.to_timedelta(koersen.index.weekday, unit="D")).normalize()
     maandagen = koersen.groupby(maandag).mean().index
     weekkoers = pd.Series(koersen.groupby(maandag).mean().values,
@@ -90,10 +91,12 @@ def weekpunten(koersen_eur, dividenden_eur, start):
     dividenden = dividenden[dividenden.index >= pd.Timestamp(start)]
     uitgekeerd = [dividenden[dividenden.index < m].sum() for m in maandagen]
     basis = weekkoers.iloc[0]
+    totaal = weekkoers + pd.Series(uitgekeerd, index=weekkoers.index)
     return pd.DataFrame({
         "koers_eur": weekkoers,
+        "totaal_eur": totaal,
         "koers_index": weekkoers / basis * 100,
-        "totaal_index": (weekkoers + pd.Series(uitgekeerd, index=weekkoers.index)) / basis * 100,
+        "totaal_index": totaal / basis * 100,
     })
 
 
@@ -181,7 +184,7 @@ def _afgerond(waarde, decimalen):
 
 
 def bouw_effect_koers(ticker, periode, per, vandaag=None):
-    """{periode, per, punten: [{datum, koers_eur, koers_index, totaal_index}], koers_rendement, totaal_rendement,
+    """{periode, per, basis_eur (eerste koers_eur van punten), punten: [{datum, koers_eur, totaal_eur, koers_index, totaal_index}], koers_rendement, totaal_rendement,
     beschikbaar_sinds, heeft_dividend, uitleg}. Bij periode 1j altijd per dag.
     Raises ValutaOnbekend (vóór de download) en GeenKoers."""
     vandaag = vandaag or date.today()
@@ -200,10 +203,12 @@ def bouw_effect_koers(ticker, periode, per, vandaag=None):
     return {
         "periode": periode,
         "per": per,
+        "basis_eur": _afgerond(punten["koers_eur"].iloc[0], EUR_DECIMALEN),
         "punten": [
             {
                 "datum": datum.strftime("%Y-%m-%d"),
                 "koers_eur": _afgerond(rij.koers_eur, EUR_DECIMALEN),
+                "totaal_eur": _afgerond(rij.totaal_eur, EUR_DECIMALEN),
                 "koers_index": _afgerond(rij.koers_index, INDEX_DECIMALEN),
                 "totaal_index": _afgerond(rij.totaal_index, INDEX_DECIMALEN),
             }

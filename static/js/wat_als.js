@@ -43,7 +43,10 @@
     const WAT_ALS_BELASTING_BRONNEN = {
         land: "de bronbelasting van het land van de ISIN",
         standaard: "een standaardaanname, omdat de ISIN geen bekend land heeft",
+        aanname_etf: "een aanname, omdat de ISIN van het fonds onbekend is",
     };
+    const WAT_ALS_BELASTING_ONZEKER_TIP = "De ISIN van dit fonds is onbekend, dus de bronbelasting is een aanname (15 %). "
+        + "Bij een Ierse of Luxemburgse ETF is er geen dividendbelasting en is netto gelijk aan bruto.";
     const WAT_ALS_DIVIDEND_NIET_UIT = "Keert geen dividend uit (vermoedelijk accumulerend)";
     const WAT_ALS_DIVIDEND_ONBEKEND = "Dividend onbekend";
     const WAT_ALS_ONBEKENDE_WAARSCHUWING = "Let op: er is een onverwachte opmerking over deze gegevens.";
@@ -167,6 +170,10 @@
         };
     }
 
+    function watAlsNettoTeken(onzeker) {
+        return onzeker ? "≈ " : "";
+    }
+
     // Profielregel van dividend: {tekst, tip: {label, tekst} of null}; alle bedragen komen kant-en-klaar van de backend.
     function watAlsDividendRegel(dividend) {
         if (!dividend || dividend.status === "onbekend") return { tekst: WAT_ALS_DIVIDEND_ONBEKEND, tip: null };
@@ -175,11 +182,12 @@
         const yieldTekst = Number.isFinite(dividend.yield_bruto) ? ` (bruto ${formatPct(dividend.yield_bruto * 100, 2)})` : "";
         return {
             tekst: `Verwacht dividend: ${watAlsDividendBedrag(dividend.per_stuk_bruto_eur)} bruto / `
-                + `${watAlsDividendBedrag(dividend.per_stuk_netto_eur)} netto per stuk per jaar${yieldTekst}`,
+                + `${watAlsNettoTeken(dividend.belasting_onzeker)}${watAlsDividendBedrag(dividend.per_stuk_netto_eur)} netto per stuk per jaar${yieldTekst}`,
             tip: {
                 label: "Verwacht dividend",
                 tekst: `${bron} Netto is bruto min ${formatPct(dividend.belasting_fractie * 100, 0)} bronbelasting (${belastingBron}). `
-                    + `Aantal uitkeringen in 12 maanden: ${dividend.uitkeringen_12m}.`,
+                    + `Aantal uitkeringen in 12 maanden: ${dividend.uitkeringen_12m}.`
+                    + (dividend.belasting_onzeker ? ` ${WAT_ALS_BELASTING_ONZEKER_TIP}` : ""),
             },
         };
     }
@@ -191,7 +199,7 @@
             return WAT_ALS_DIVIDEND_ONBEKEND;
         }
         return `Verwacht dividend per jaar: ${formatteerEuro(aankoop.dividend_jaar_bruto_eur)} bruto / `
-            + `${formatteerEuro(aankoop.dividend_jaar_netto_eur)} netto`;
+            + `${watAlsNettoTeken(aankoop.dividend_belasting_onzeker)}${formatteerEuro(aankoop.dividend_jaar_netto_eur)} netto`;
     }
 
     // Uitleg bij de resultaatregel; alleen bij een bekend uitkerend dividend. "aantal × per stuk" komt kant-en-klaar uit de backend.
@@ -206,6 +214,7 @@
         return `${aantal} ${aantal === 1 ? "stuk" : "stuks"} × ${watAlsDividendBedrag(perStuk)} per stuk = ${formatteerEuro(bruto)} bruto. `
             + `${bron}${uitkeringen} Omgerekend tegen de huidige wisselkoers. `
             + `Netto = bruto min ${formatPct(aankoop.dividend_belasting_fractie * 100, 0)} bronbelasting (${belastingBron}). `
+            + (aankoop.dividend_belasting_onzeker ? `${WAT_ALS_BELASTING_ONZEKER_TIP} ` : "")
             + "Niet herbelegd; geen garantie voor de toekomst.";
     }
 
@@ -223,6 +232,28 @@
         return `${koers} Totaal: ${formatPct(totaalRendement, 2, true)}, koers plus ${formatteerEuro(uitleg.dividend_som_eur)} aan `
             + "bruto dividend in die periode (ex-datums), niet herbelegd, gedeeld door de beginkoers. In EUR.";
     }
+
+    // Alleen de lineaire omzetting van de linker asgrenzen (EUR) naar rendement t.o.v. de beginkoers.
+    function watAlsProcentGrenzen(min, max, basis) {
+        if (!(basis > 0) || !Number.isFinite(min) || !Number.isFinite(max)) return null;
+        return { min: (min / basis - 1) * 100, max: (max / basis - 1) * 100 };
+    }
+
+    function watAlsEuroAsTick(bedrag) {
+        return formatteerEuro(bedrag, Math.abs(bedrag) >= 10 ? 0 : 2);
+    }
+
+    function watAlsProcentAsTick(pct) {
+        return formatPct(Math.round(pct * 10) / 10, 0, true).replace("%", " %");
+    }
+
+    // indexWaarde komt uit de backend (koers_index / totaal_index); het percentage is index - 100.
+    function watAlsKoersTooltipTekst(label, bedrag, indexWaarde) {
+        return `${label}: ${formatteerEuro(bedrag)} (${formatPct(indexWaarde - 100, 1, true).replace("%", " %")})`;
+    }
+
+    const WAT_ALS_WEEK_AS_TIP = "Rechter as: ten opzichte van het eerste weekgemiddelde; het % boven de grafiek "
+        + "gebruikt de dagkoersen en kan iets afwijken.";
 
     function watAlsMeldingZelfdeFonds(tickers) {
         if (!Array.isArray(tickers) || tickers.length === 0) return null;
@@ -285,11 +316,17 @@
     // Hoofdregel van de overlapsectie; status en getallen komen uit de backend.
     function watAlsOverlapRegel(overlap) {
         if (overlap.holdings_status === "onbekend") return WAT_ALS_OVERLAP_ONBEKEND;
+        const onvolledig = overlap.al_in_portfolio_onvolledig ? ` ${watAlsOverlapOnvolledigTekst(overlap.etf_zonder_holdings)}` : "";
         if (overlap.holdings_status === "top10") {
             return `Minstens ${watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct)} `
-                + `(op basis van de top 10, ${formatPct(overlap.gedekt_pct, 1)} van het fonds)`;
+                + `(op basis van de top 10, ${formatPct(overlap.gedekt_pct, 1)} van het fonds)${onvolledig}`;
         }
-        return watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct);
+        return `${watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct)}${onvolledig}`;
+    }
+
+    function watAlsOverlapOnvolledigTekst(aantal) {
+        const wie = aantal === 1 ? "1 ETF" : Number.isFinite(aantal) ? `${aantal} ETF's` : "een ETF";
+        return `(minstens; van ${wie} zijn de bedrijven onbekend)`;
     }
 
     function watAlsOverlapToontLijst(overlap) {
@@ -352,6 +389,7 @@
         watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst, WAT_ALS_TOP_PROFIEL_BEDRIJVEN,
         watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOverlapToontLijst, watAlsOnbekendTekst, watAlsProfielBedrijven,
         watAlsDividendRegel, watAlsDividendResultaatTekst, watAlsDividendResultaatUitleg, watAlsRendementUitleg, watAlsOrderkostenRegels,
+        watAlsProcentGrenzen, watAlsEuroAsTick, watAlsProcentAsTick, watAlsKoersTooltipTekst, WAT_ALS_WEEK_AS_TIP,
     };
 
     if (typeof module !== "undefined" && module.exports) {

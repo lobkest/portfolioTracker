@@ -4,7 +4,7 @@ from datetime import date
 
 from backend.debug_utils import dprint
 from backend.dividend_verwachting import (
-    BRON_GEEN_UITKERINGEN, _als_reeks, _dag, _fx_op, _fx_reeksen, _naar_eur_factor, belasting_fractie,
+    BELASTING_BRON_AANNAME_ETF, BRON_GEEN_UITKERINGEN, _als_reeks, _dag, _fx_op, _fx_reeksen, _naar_eur_factor, belasting_fractie,
     bruikbare_dividenden, haal_yahoo_dividenden, jaar_dividend_per_aandeel, keert_niet_uit, laatste_splitdatum,
 )
 from backend.ticker_prijscheck import _haal_splits_op
@@ -20,9 +20,10 @@ EUR_DECIMALEN = 4
 YIELD_DECIMALEN = 6
 
 
-def dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildatum):
+def dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildatum, is_etf=False):
     """yahoo: haal_yahoo_dividenden() of None; splits: {iso_datum: ratio}; fx_actueel: koers van het FX-paar (EUR: 1).
-    Bedragen per stuk per jaar in EUR (bij GBp via dezelfde omrekening als positie_verwachting), None als onbekend."""
+    Bedragen per stuk per jaar in EUR (bij GBp via dezelfde omrekening als positie_verwachting), None als onbekend.
+    Een ETF zonder ISIN rekent met de standaardbelasting als aanname (belasting_onzeker): het land van het fonds beslist."""
     peil = _dag(peildatum)
     alle = _als_reeks(yahoo["dividenden"] if yahoo else None)
     venster, volledig_jaar = bruikbare_dividenden(alle, laatste_splitdatum(splits, []), peil)
@@ -32,6 +33,9 @@ def dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildat
         yahoo.get("trailing_rate") if yahoo else None, geen_uitkeringen)
     factor = _naar_eur_factor(fx_actueel, valuta)
     belasting, belasting_bron = belasting_fractie([], isin)
+    belasting_onzeker = is_etf and not isin
+    if belasting_onzeker:
+        belasting_bron = BELASTING_BRON_AANNAME_ETF
     gepasseerd = alle[alle.index <= peil]
 
     if bron == BRON_GEEN_UITKERINGEN or per_stuk == 0:
@@ -48,14 +52,14 @@ def dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildat
         "per_stuk_netto_eur": None if netto is None else round(netto, EUR_DECIMALEN),
         "yield_bruto": round(bruto / koers_eur, YIELD_DECIMALEN) if bruto is not None and koers_eur else None,
         "yield_netto": round(netto / koers_eur, YIELD_DECIMALEN) if netto is not None and koers_eur else None,
-        "belasting_fractie": belasting, "belasting_bron": belasting_bron,
+        "belasting_fractie": belasting, "belasting_bron": belasting_bron, "belasting_onzeker": belasting_onzeker,
         "bron": bron, "uitkeringen_12m": len(venster),
         "laatste_ex_datum": gepasseerd.index.max().date().isoformat() if not gepasseerd.empty else None,
         "status": status,
     }
 
 
-def haal_dividend_profiel(ticker, valuta, isin, koers_eur, waarschuwingen):
+def haal_dividend_profiel(ticker, valuta, isin, koers_eur, waarschuwingen, is_etf=False):
     """Een ophaalfout wordt een waarschuwing en status 'onbekend', geen crash."""
     try:
         yahoo = haal_yahoo_dividenden(ticker)
@@ -74,7 +78,7 @@ def haal_dividend_profiel(ticker, valuta, isin, koers_eur, waarschuwingen):
         waarschuwingen.append(WAARSCHUWING_VALUTA_ONBEKEND)
     peildatum = date.today()
     fx_actueel = _fx_actueel(valuta, peildatum)
-    return dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildatum)
+    return dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildatum, is_etf)
 
 
 def _fx_actueel(valuta, peildatum):
@@ -99,6 +103,7 @@ _UITLEG_SLEUTELS = {
     "per_stuk_bruto_eur": "dividend_per_stuk_bruto_eur", "per_stuk_netto_eur": "dividend_per_stuk_netto_eur",
     "bron": "dividend_bron", "uitkeringen_12m": "dividend_uitkeringen_12m",
     "belasting_fractie": "dividend_belasting_fractie", "belasting_bron": "dividend_belasting_bron",
+    "belasting_onzeker": "dividend_belasting_onzeker",
 }
 
 

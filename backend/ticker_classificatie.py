@@ -19,10 +19,11 @@ from backend.yahoo_client import (
     _database_locked_sinds, _met_rate_limit_retry, _tel_yahoo_call, _tel_yahoo_retry,
 )
 from backend.sector_referentie import (
-    SECTOR_REFERENTIE_ISINS, SECTOR_REFERENTIE_NAAM, maak_sector_opzoektabel, sector_verdeling_via_referentie,
+    SECTOR_REFERENTIE_ISINS, SECTOR_REFERENTIE_NAAM, maak_land_opzoektabel, maak_sector_opzoektabel,
+    sector_verdeling_via_referentie, zoek_land_sector,
 )
 from backend.etf_holdings_provider import (
-    ETF_HOLDINGS_BRON, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
+    ETF_HOLDINGS_BRON, land_via_isin, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
     fetch_vaneck_holdings_via_ticker, is_vaneck_naam, sector_verdeling_uit_holdings, ticker_root,
 )
 
@@ -164,6 +165,9 @@ ONDERDEEL_CATEGORIE = "categorie"
 ONDERDEEL_VANECK = "vaneck"
 ONDERDEEL_SECTOR_PROVIDER = "sector_provider"
 ONDERDEEL_SECTOR_REFERENTIE = "sector_referentie"
+ONDERDEEL_LAND_SECTOR = "land_sector"
+LAND_SECTOR_BRON_REFERENTIE = "referentie"
+LAND_SECTOR_BRON_ISIN = "isin"
 GEEN_FONDSDATA_CACHE_SECONDEN = 3600
 GEEN_FONDSDATA_CACHE_MAX_ITEMS = 500
 _geen_fondsdata_cache = {}
@@ -366,20 +370,41 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
     }
 
 
-def get_land_sector(ticker):
-    """(land, sector), met "Unknown" i.p.v. None."""
-    cached = db_get_cached_land_sector([ticker])
-    if ticker in cached:
-        land, sector = cached[ticker]
-        return (land or "Unknown", sector or "Unknown")
+def land_sector_via_referentie(ticker, naam, isin):
+    """(land of None, sector of None, bron) zonder Yahoo-fondsinfo: de iShares-referentie, voor het land daarna de
+    ISIN-prefix (land van registratie). bron: 'referentie', 'isin' of None."""
+    tabel = _sector_opzoektabel()
+    land, sector = zoek_land_sector(tabel, ticker, naam, isin) if tabel else (None, None)
+    bron = LAND_SECTOR_BRON_REFERENTIE if land or sector else None
+    if land is None and isin:
+        land = land_via_isin(isin)
+        if land == "Unknown":
+            land = None
+        elif bron is None:
+            bron = LAND_SECTOR_BRON_ISIN
+    return land, sector, bron
+
+
+def get_land_sector(ticker, isin=None, naam=None):
+    """(land, sector), met "Unknown" i.p.v. None. Een onbruikbare .info (Render: 401) cachet nooit None/None; de
+    terugval is de referentie/ISIN en wordt alleen gecachet als die iets vond."""
+    cached = db_get_cached_land_sector([ticker]).get(ticker)
+    if cached and any(cached):
+        return (cached[0] or "Unknown", cached[1] or "Unknown")
+    if _geen_fondsdata_bekend(ticker, ONDERDEEL_LAND_SECTOR):
+        return ("Unknown", "Unknown")
 
     info = _fetch_yf_info(ticker)
-    if info is None:
-        return ("Unknown", "Unknown")  # niet cachen, volgende keer opnieuw proberen
-
-    land = info.get("country")
-    sector = info.get("sector")
-    db_save_land_sector(ticker, land, sector)  # None mag hier gecached worden, is niet kritiek
+    if info_is_bruikbaar(info):
+        land, sector = info.get("country"), info.get("sector")
+        db_save_land_sector(ticker, land, sector)
+    else:
+        land, sector, _ = land_sector_via_referentie(
+            ticker, naam or get_ticker_details(ticker).get("long_name"), isin)
+        if land or sector:
+            db_save_land_sector(ticker, land, sector)
+    if not (land or sector):
+        _onthoud_geen_fondsdata(ticker, ONDERDEEL_LAND_SECTOR)
     return (land or "Unknown", sector or "Unknown")
 
 
@@ -462,6 +487,8 @@ def _sector_opzoektabel():
         fonds = _ishares_fonds_voor_isin(isin)
         referentie += (fetch_ishares_holdings_via_productpagina(fonds["product_url"]) if fonds else None) or []
     tabel = maak_sector_opzoektabel(referentie)
+    if any(tabel.values()):
+        tabel["land"] = maak_land_opzoektabel(referentie)
     if not any(tabel.values()):
         dprint(f"[etf-sector] WARN referentiefonds {SECTOR_REFERENTIE_NAAM} niet opgehaald")
         _onthoud_geen_fondsdata(SECTOR_REFERENTIE_NAAM, ONDERDEEL_SECTOR_REFERENTIE)
@@ -665,7 +692,7 @@ def get_etf_holdings(ticker, isin=None):
     # Bron blijft yfinance_top10 (ook bij yahooquery): proxy- en waarschuwingslogica kijken alleen naar die waarde.
     holdings = []
     for holding_ticker, naam, gewicht in top10:
-        land, _ = get_land_sector(holding_ticker)
+        land, _ = get_land_sector(holding_ticker, naam=naam)
         holdings.append({
             "holding_naam": naam,
             "holding_ticker": holding_ticker,
@@ -754,7 +781,7 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, isin_per_ticker=Non
             get_etf_sector_verdeling(ticker)
             get_etf_holdings(ticker, isin_per_ticker.get(ticker))
         else:
-            get_land_sector(ticker)
+            get_land_sector(ticker, isin_per_ticker.get(ticker))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         list(executor.map(_warm, tickers))

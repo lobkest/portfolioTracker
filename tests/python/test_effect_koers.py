@@ -86,6 +86,30 @@ class TestWeekpunten(BenaderdTestCase):
         self.assertEqual(len(p), 1)
 
 
+class TestTotaalEur(BenaderdTestCase):
+    def test_zonder_dividend_is_totaal_gelijk_aan_koers(self):
+        for functie in (dagpunten, weekpunten):
+            p = functie(reeks([100, 110, 90, 95, 99, 101]), None, START)
+            self.assertLijstBenaderd(list(p["totaal_eur"]), list(p["koers_eur"]))
+
+    def test_dividend_per_dag_vanaf_de_ex_datum(self):
+        p = dagpunten(reeks([10, 10, 10, 10]), dividend(d2024_01_03=0.5), START)
+        self.assertLijstBenaderd(list(p["totaal_eur"] - p["koers_eur"]), [0, 0, 0.5, 0.5])
+
+    def test_dividend_per_week_vanaf_de_volgende_week(self):
+        p = weekpunten(reeks([10] * 15), dividend(d2024_01_03=0.5), START)
+        self.assertLijstBenaderd(list(p["totaal_eur"] - p["koers_eur"]), [0, 0.5, 0.5])
+
+    def test_indexen_zijn_consistent_met_de_basis(self):
+        koersen = reeks([20, 22, 19, 25, 24, 21, 23, 26, 27, 25])
+        divs = dividend(d2024_01_03=0.5, d2024_01_09=0.25)
+        for functie in (dagpunten, weekpunten):
+            p = functie(koersen, divs, START)
+            basis = p["koers_eur"].iloc[0]
+            self.assertLijstBenaderd(list(p["koers_index"]), list(p["koers_eur"] / basis * 100))
+            self.assertLijstBenaderd(list(p["totaal_index"]), list(p["totaal_eur"] / basis * 100))
+
+
 class TestRendementen(unittest.TestCase):
     def test_dagdata_en_weekdata_geven_hetzelfde_rendement(self):
         koersen = reeks([100, 104, 98, 101, 120, 90, 95, 130])
@@ -194,13 +218,21 @@ class TestRoute(unittest.TestCase):
         res = self.vraag(periode="3j", per="week")
         self.assertEqual(res.status_code, 200)
         data = res.get_json()
-        self.assertEqual(set(data), {"periode", "per", "punten", "koers_rendement", "totaal_rendement",
+        self.assertEqual(set(data), {"periode", "per", "basis_eur", "punten", "koers_rendement", "totaal_rendement",
                                      "beschikbaar_sinds", "heeft_dividend", "uitleg"})
         self.assertEqual(data["per"], "week")
         self.assertEqual(len(data["punten"]), 2)
-        self.assertEqual(set(data["punten"][0]), {"datum", "koers_eur", "koers_index", "totaal_index"})
+        self.assertEqual(set(data["punten"][0]), {"datum", "koers_eur", "totaal_eur", "koers_index", "totaal_index"})
         self.assertTrue(data["heeft_dividend"])
         self.assertEqual(data["koers_rendement"], 9.0)
+
+    def test_basis_eur_is_de_eerste_koers_van_de_getoonde_reeks(self):
+        dag = self.vraag(periode="1j").get_json()
+        self.assertEqual(dag["basis_eur"], dag["punten"][0]["koers_eur"])
+        week = self.vraag(periode="3j", per="week").get_json()
+        self.assertEqual(week["basis_eur"], week["punten"][0]["koers_eur"])
+        for p in week["punten"]:
+            self.assertAlmostEqual(p["totaal_index"], p["totaal_eur"] / week["basis_eur"] * 100, places=1)
 
     def test_uitleg_is_bij_week_gelijk_aan_de_daguitkomst(self):
         dag = self.vraag(periode="3j", per="dag").get_json()["uitleg"]

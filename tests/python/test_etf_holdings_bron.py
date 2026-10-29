@@ -29,7 +29,7 @@ from backend.etf_holdings_provider import (
     _parse_vaneck_holdings,
     _parse_percentage_waarde,
     _vertaal_land_nl,
-    _land_via_isin,
+    land_via_isin,
     _dedupliceer_holdings,
     NL_LAND_VERTALING,
 )
@@ -187,14 +187,14 @@ class TestVertaalLandNl(unittest.TestCase):
 
 class TestLandViaIsin(unittest.TestCase):
     def test_bekende_isin_prefixes(self):
-        self.assertEqual(_land_via_isin("CA0084741085"), "Canada")
-        self.assertEqual(_land_via_isin("US6516391066"), "United States")
-        self.assertEqual(_land_via_isin("GB00BRXH2664"), "United Kingdom")
+        self.assertEqual(land_via_isin("CA0084741085"), "Canada")
+        self.assertEqual(land_via_isin("US6516391066"), "United States")
+        self.assertEqual(land_via_isin("GB00BRXH2664"), "United Kingdom")
 
     def test_ongeldige_isin_geeft_unknown_zonder_crash(self):
-        self.assertEqual(_land_via_isin(""), "Unknown")
-        self.assertEqual(_land_via_isin(None), "Unknown")
-        self.assertEqual(_land_via_isin("X"), "Unknown")
+        self.assertEqual(land_via_isin(""), "Unknown")
+        self.assertEqual(land_via_isin(None), "Unknown")
+        self.assertEqual(land_via_isin("X"), "Unknown")
 
 
 def _maak_vaneck_xlsx(header, rows):

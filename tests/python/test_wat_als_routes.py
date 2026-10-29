@@ -173,7 +173,7 @@ def profiel(koers=12.5, type_="ETF"):
             "sector": {"Technology": 1.0}, "land_bron": "provider_csv", "land_proxy": None, "isin_geverifieerd": True,
             "holdings_route": "provider_ticker", "holdings_fonds": None, "waarschuwingen": [],
             "dividend": {"status": "keert_uit", "per_stuk_bruto_eur": 0.5, "per_stuk_netto_eur": 0.425, "bron": "yahoo_reeks",
-                         "uitkeringen_12m": 4, "belasting_fractie": 0.15, "belasting_bron": "standaard"}}
+                         "uitkeringen_12m": 4, "belasting_fractie": 0.15, "belasting_bron": "standaard", "belasting_onzeker": False}}
 
 
 class TestBouwAankoop(unittest.TestCase):
@@ -190,7 +190,7 @@ class TestBouwAankoop(unittest.TestCase):
                                              "dividend_jaar_bruto_eur", "dividend_jaar_netto_eur", "dividend_status",
                                              "dividend_per_stuk_bruto_eur", "dividend_per_stuk_netto_eur", "dividend_bron",
                                              "dividend_uitkeringen_12m", "dividend_belasting_fractie",
-                                             "dividend_belasting_bron"})
+                                             "dividend_belasting_bron", "dividend_belasting_onzeker"})
         self.assertEqual((samenvatting["dividend_jaar_bruto_eur"], samenvatting["dividend_jaar_netto_eur"]), (2.0, 1.7))
 
     def test_dividenduitleg_velden_komen_uit_het_profiel(self):
@@ -207,7 +207,7 @@ class TestBouwAankoop(unittest.TestCase):
         with patch.object(effect_profiel, "_profiel_en_holdings", return_value=(dict(profiel(), dividend=onbekend), [])):
             _, samenvatting = bouw_aankoop("EMIM.AS", None, 4)
         velden = [k for k in samenvatting if k.startswith("dividend_") and k not in ("dividend_jaar_bruto_eur", "dividend_jaar_netto_eur", "dividend_status")]
-        self.assertEqual(len(velden), 6)
+        self.assertEqual(len(velden), 7)
         self.assertTrue(all(samenvatting[k] is None for k in velden))
 
     def test_aandeel_heeft_geen_holdings_en_ontbrekende_sector_wordt_unknown(self):

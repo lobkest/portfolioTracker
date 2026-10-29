@@ -130,10 +130,33 @@ class TestNieuweEtf(unittest.TestCase):
         self.assertEqual(r["bedrijven"], [{"naam": "Toyota", "voor_pct": 20.0, "na_pct": 60.0, "verschil_pp": 40.0}])
 
 
+class TestEigenEtfZonderHoldings(unittest.TestCase):
+    def basis_met_tweede_etf(self, holdings):
+        basis = basis_met_een_etf_en_een_aandeel()
+        basis["waarde_per_ticker"]["ETF_C"] = 100.0
+        basis["is_etf_map"]["ETF_C"] = True
+        basis["fracties_per_ticker"]["ETF_C"] = basis["fracties_per_ticker"]["ETF_A"]
+        basis["holdings_per_etf"]["ETF_C"] = holdings
+        return basis
+
+    def test_eigen_etf_zonder_holdings_is_onbekend_en_maakt_het_percentage_onvolledig(self):
+        r = simuleer_aankoop(self.basis_met_tweede_etf([]), nieuwe_etf(), top_n=3)
+        self.assertEqual(r["overlap"]["per_etf"], {"ETF_A": 60.0, "ETF_C": None})
+        self.assertTrue(r["overlap"]["al_in_portfolio_onvolledig"])
+        self.assertEqual(r["overlap"]["etf_zonder_holdings"], 1)
+        self.assertEqual(r["overlap"]["al_in_portfolio_pct"], 66.3636)
+
+    def test_alle_etfs_met_holdings_blijft_volledig(self):
+        r = simuleer_aankoop(self.basis_met_tweede_etf([holding("Apple Inc", 1.0)]), nieuwe_etf(), top_n=3)
+        self.assertFalse(r["overlap"]["al_in_portfolio_onvolledig"])
+        self.assertEqual(r["overlap"]["per_etf"]["ETF_C"], 50.0)
+
+
 class TestHoldingsStatus(unittest.TestCase):
     def test_lege_aankoop_holdings_geven_onbekend_en_geen_nullen(self):
         r = simuleer_aankoop(basis_met_een_etf_en_een_aandeel(), dict(nieuwe_etf(), holdings=[]), top_n=3)
         self.assertEqual(r["overlap"], {"per_etf": {"ETF_A": None}, "al_in_portfolio_pct": None,
+                                        "al_in_portfolio_onvolledig": False, "etf_zonder_holdings": 0,
                                         "holdings_status": "onbekend", "gedekt_pct": None})
         self.assertTrue(r["aankoop"]["bedrijven_onvolledig"])
 
@@ -312,7 +335,8 @@ class TestLegePortfolio(unittest.TestCase):
         self.assertEqual(r["etf_aandeel"]["voor"], {"etf_pct": 0.0, "aandeel_pct": 0.0})
         self.assertTrue(all(rij["voor_pct"] == 0.0 for rij in r["land"] + r["sector"] + r["bedrijven"]))
         self.assertAlmostEqual(sum(rij["na_pct"] for rij in r["land"]), 100.0)
-        self.assertEqual(r["overlap"], {"per_etf": {}, "al_in_portfolio_pct": 0.0, "holdings_status": "volledig", "gedekt_pct": 100.0})
+        self.assertEqual(r["overlap"], {"per_etf": {}, "al_in_portfolio_pct": 0.0, "al_in_portfolio_onvolledig": False,
+                                        "etf_zonder_holdings": 0, "holdings_status": "volledig", "gedekt_pct": 100.0})
 
 
 class TestUitvoer(unittest.TestCase):

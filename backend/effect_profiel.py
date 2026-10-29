@@ -164,6 +164,21 @@ def holdings_voor_effect(ticker, isin=None):
     }
 
 
+def _isin_voor_belasting(ticker, isin, fonds):
+    """ISIN van het fonds zelf, zonder extra Yahoo-call: de gekozen ISIN, anders de enige ISIN uit de eigen transacties,
+    anders die van het gekoppelde iShares-fonds. Nooit de ISIN's van holdings binnenin het fonds."""
+    if isin:
+        return isin
+    try:
+        eigen = db_get_isins_voor_ticker(ticker)
+    except Exception as e:
+        dprint(f"[profiel] WARN eigen ISIN's niet opgehaald ({e!a})")
+        eigen = []
+    if len(eigen) == 1:
+        return eigen[0]
+    return fonds["isin"] if fonds else None
+
+
 def _sector_aanbieder(ticker, fondsnaam, sector_bron):
     if sector_bron == SECTOR_BRON_REFERENTIE:
         return SECTOR_REFERENTIE_NAAM
@@ -220,7 +235,7 @@ def _profiel_en_holdings(ticker, isin, naam=None):
             _etf_onderdelen(ticker, isin, waarschuwingen))
     else:
         sector_bron, sector_dekking = None, None
-        aandeel_land, aandeel_sector = get_land_sector(ticker)
+        aandeel_land, aandeel_sector = get_land_sector(ticker, isin)
         geverifieerd = verifieer_isin_bij_ticker(ticker, isin) if isin else None
         volledig = None
         land, sector, land_bron, land_proxy, holdings, route, fonds = (
@@ -228,7 +243,8 @@ def _profiel_en_holdings(ticker, isin, naam=None):
 
     # Lokale import: effect_dividend importeert portfolio_orchestratie, dat zelf effect_profiel importeert.
     from backend.effect_dividend import haal_dividend_profiel
-    dividend = haal_dividend_profiel(ticker, details.get("valuta"), isin, koers_eur, waarschuwingen)
+    belasting_isin = _isin_voor_belasting(ticker, isin, fonds) if is_etf else isin
+    dividend = haal_dividend_profiel(ticker, details.get("valuta"), belasting_isin, koers_eur, waarschuwingen, is_etf)
 
     profiel = _zonder_nan({
         "ticker": ticker,

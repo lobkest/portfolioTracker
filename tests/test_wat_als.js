@@ -12,6 +12,7 @@ const {
     watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOnbekendTekst, watAlsOverlapToontLijst, watAlsProfielBedrijven,
     watAlsOrderkostenRegels, watAlsSectorBronTekst, watAlsGeenIsinTekst, watAlsWaarschuwingTeksten, watAlsBedrijvenKop,
     watAlsVerdelingRijen, WAT_ALS_GEEN_FONDSDATA, watAlsDividendResultaatUitleg, watAlsRendementUitleg,
+    watAlsProcentGrenzen, watAlsKoersTooltipTekst, watAlsEuroAsTick,
 } = require("../static/js/wat_als.js");
 
 const UITKEREND = {
@@ -268,8 +269,33 @@ test("overlapregel: onbekend, top10 met ondergrens en volledig", () => {
         "44,7% van deze aankoop zit al in je portfolio");
 });
 
+test("overlapregel: minstens-tekst als eigen ETF's geen holdings hebben", () => {
+    assert.equal(watAlsOverlapRegel({ holdings_status: "volledig", al_in_portfolio_pct: 44.74, gedekt_pct: 99,
+        al_in_portfolio_onvolledig: true, etf_zonder_holdings: 1 }),
+        "44,7% van deze aankoop zit al in je portfolio (minstens; van 1 ETF zijn de bedrijven onbekend)");
+    assert.match(watAlsOverlapRegel({ holdings_status: "top10", al_in_portfolio_pct: 12.34, gedekt_pct: 25,
+        al_in_portfolio_onvolledig: true, etf_zonder_holdings: 2 }), /van het fonds\) \(minstens; van 2 ETF's zijn de bedrijven onbekend\)$/);
+    assert.doesNotMatch(watAlsOverlapRegel({ holdings_status: "volledig", al_in_portfolio_pct: 1, al_in_portfolio_onvolledig: false }), /minstens/);
+});
+
+test("onzekere bronbelasting: zin in beide tips en ≈ voor het netto, anders niet", () => {
+    const onzeker = { ...DIVIDEND, belasting_bron: "aanname_etf", belasting_onzeker: true };
+    const regel = watAlsDividendRegel(onzeker);
+    assert.match(regel.tekst, /€2,00 bruto \/ ≈ €1,70 netto/);
+    assert.match(regel.tip.tekst, /De ISIN van dit fonds is onbekend, dus de bronbelasting is een aanname \(15 %\)\. Bij een Ierse of Luxemburgse ETF/);
+    assert.doesNotMatch(watAlsDividendRegel({ ...DIVIDEND, belasting_onzeker: false }).tekst, /≈/);
+    assert.doesNotMatch(watAlsDividendRegel(DIVIDEND).tip.tekst, /ISIN van dit fonds is onbekend/);
+
+    const aankoop = { ...UITKEREND, dividend_belasting_bron: "aanname_etf", dividend_belasting_onzeker: true };
+    assert.match(watAlsDividendResultaatTekst(aankoop), /bruto \/ ≈ €14,37 netto/);
+    assert.match(watAlsDividendResultaatUitleg(aankoop), /De ISIN van dit fonds is onbekend, dus de bronbelasting is een aanname/);
+    assert.doesNotMatch(watAlsDividendResultaatTekst(UITKEREND), /≈/);
+    assert.doesNotMatch(watAlsDividendResultaatUitleg(UITKEREND), /ISIN van dit fonds is onbekend/);
+});
+
 test("overlap per ETF: null is onbekend, geen 0, en top10 is een ondergrens", () => {
     assert.equal(watAlsOverlapEtfTekst(null, "onbekend"), "onbekend");
+    assert.equal(watAlsOverlapEtfTekst(null, "volledig"), "onbekend");
     assert.equal(watAlsOverlapEtfTekst(12.34, "top10"), "minstens 12,3%");
     assert.equal(watAlsOverlapEtfTekst(0, "volledig"), "0,0%");
 });
@@ -308,4 +334,21 @@ test("foutteksten per statuscode", () => {
     assert.match(watAlsFoutTekst(422, null), /geen actuele koers/);
     assert.match(watAlsFoutTekst(429, "Je hebt te veel aanvragen gedaan. Probeer het over 5 minuten opnieuw."), /over 5 minuten/);
     for (const status of [500, 504, 0]) assert.match(watAlsFoutTekst(status, "interne details"), /Er ging iets mis/);
+});
+
+test("watAlsProcentGrenzen zet de EUR-grenzen lineair om naar rendement t.o.v. de basis", () => {
+    const grenzen = watAlsProcentGrenzen(50, 60, 50);
+    assert.equal(grenzen.min, 0);
+    assert.ok(Math.abs(grenzen.max - 20) < 1e-9);
+    assert.equal(watAlsProcentGrenzen(50, 60, 0), null);
+});
+
+test("watAlsKoersTooltipTekst toont bedrag en percentage uit de index", () => {
+    assert.equal(watAlsKoersTooltipTekst("Koers", 12.5, 125), "Koers: €12,50 (+25,0 %)");
+    assert.equal(watAlsKoersTooltipTekst("Totaal incl. dividend", 9, 90), "Totaal incl. dividend: €9,00 (-10,0 %)");
+});
+
+test("watAlsEuroAsTick: geen decimalen vanaf 10 euro", () => {
+    assert.equal(watAlsEuroAsTick(12.4), "€12");
+    assert.equal(watAlsEuroAsTick(9.5), "€9,50");
 });

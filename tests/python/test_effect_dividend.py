@@ -72,6 +72,24 @@ class TestBelasting(unittest.TestCase):
     def test_zonder_isin_geldt_de_standaardfractie(self):
         p = profiel(yahoo(VIER_UITKERINGEN), isin=None)
         self.assertEqual((p["belasting_fractie"], p["belasting_bron"], p["per_stuk_netto_eur"]), (0.15, "standaard", 1.7))
+        self.assertFalse(p["belasting_onzeker"])
+
+    def test_etf_met_ierse_isin_is_zeker_nul_procent(self):
+        p = dividend_profiel(yahoo(VIER_UITKERINGEN), {}, "EUR", IE_ISIN, 100.0, 1.0, PEIL, is_etf=True)
+        self.assertEqual((p["belasting_fractie"], p["belasting_onzeker"]), (0.0, False))
+
+    def test_etf_met_nederlandse_isin_is_zeker_vijftien_procent(self):
+        p = dividend_profiel(yahoo(VIER_UITKERINGEN), {}, "EUR", "NL0000000001", 100.0, 1.0, PEIL, is_etf=True)
+        self.assertEqual((p["belasting_fractie"], p["belasting_onzeker"]), (0.15, False))
+
+    def test_etf_zonder_isin_is_een_aanname(self):
+        p = dividend_profiel(yahoo(VIER_UITKERINGEN), {}, "EUR", None, 100.0, 1.0, PEIL, is_etf=True)
+        self.assertEqual((p["belasting_fractie"], p["belasting_bron"], p["belasting_onzeker"], p["per_stuk_netto_eur"]),
+                         (0.15, "aanname_etf", True, 1.7))
+
+    def test_aandeel_zonder_isin_blijft_standaard_en_zeker(self):
+        p = dividend_profiel(yahoo(VIER_UITKERINGEN), {}, "EUR", None, 100.0, 1.0, PEIL, is_etf=False)
+        self.assertEqual((p["belasting_bron"], p["belasting_onzeker"]), ("standaard", False))
 
 
 class TestOphalen(unittest.TestCase):
