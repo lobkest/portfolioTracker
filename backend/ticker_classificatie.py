@@ -1,6 +1,7 @@
 """ETF of aandeel, plus land/sector/holdings per ticker (met database-cache)."""
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
@@ -216,6 +217,22 @@ def _zoek_categorie(ticker, categorie_uit_info):
     return category or None
 
 
+# yfinance 1.7.0: history_metadata is een HistoryMetadata(collections.abc.Mapping) met .items()/.keys()/__getitem__, geen dict.
+def _als_dict(metadata):
+    if isinstance(metadata, dict):
+        return metadata
+    try:
+        if isinstance(metadata, Mapping) or hasattr(metadata, "items"):
+            return dict(metadata.items())
+        if hasattr(metadata, "__iter__") and hasattr(metadata, "__getitem__"):
+            return {k: metadata[k] for k in metadata}
+    except Exception as e:
+        dprint(f"[chart] metadata van type {type(metadata).__name__} niet om te zetten naar dict: {e}")
+        return None
+    dprint(f"[chart] metadata van type {type(metadata).__name__} is geen dict of mapping")
+    return None
+
+
 # Sleutels in yfinance 1.7.0 history_metadata (beurscodes als .info: AMS, GER, LSE): currency, exchangeName,
 # instrumentType, longName, shortName, symbol, fullExchangeName, firstTradeDate, regularMarketPrice, ...
 def _chart_metadata(ticker, wachttijd=BULK_DOWNLOAD_WACHTTIJD):
@@ -233,6 +250,7 @@ def _chart_metadata(ticker, wachttijd=BULK_DOWNLOAD_WACHTTIJD):
             dprint(f"[chart] '{ticker}': metadata mislukt: {fout}")
             return None
         rijen, metadata = uitkomst
+        metadata = _als_dict(metadata)
         bruikbaar = isinstance(metadata, dict) and bool(metadata.get("currency") or metadata.get("instrumentType"))
         locked = _database_locked_sinds(begin, [ticker])
         if not bruikbaar:

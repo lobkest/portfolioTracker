@@ -2,6 +2,7 @@
 import os
 import sys
 import unittest
+from collections.abc import Mapping
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pandas as pd
@@ -109,6 +110,55 @@ class TestClassifyViaChart(unittest.TestCase):
         self.assertIsNone(self.via_chart({}))
         self.assertIsNone(self.via_chart({"symbol": "X"}))
         self.assertIsNone(self.via_chart(fout=RuntimeError("boem")))
+
+
+class _AlleenMapping(Mapping):
+    def __init__(self, d):
+        self._d = d
+
+    def __getitem__(self, k):
+        return self._d[k]
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def __len__(self):
+        return len(self._d)
+
+
+class _AlleenIterEnGetitem:
+    def __init__(self, d):
+        self._d = d
+
+    def __iter__(self):
+        return iter(self._d)
+
+    def __getitem__(self, k):
+        return self._d[k]
+
+
+class TestAlsDict(unittest.TestCase):
+    def test_dict_blijft_dezelfde_dict(self):
+        d = {"a": 1}
+        self.assertIs(tc._als_dict(d), d)
+
+    def test_mapping_en_iter_getitem_worden_dict(self):
+        self.assertEqual(tc._als_dict(_AlleenMapping({"a": 1, "b": 2})), {"a": 1, "b": 2})
+        self.assertEqual(tc._als_dict(_AlleenIterEnGetitem({"a": 1})), {"a": 1})
+
+    def test_none_en_int_geven_none(self):
+        with patch.object(tc, "dprint"):
+            self.assertIsNone(tc._als_dict(None))
+            self.assertIsNone(tc._als_dict(5))
+
+
+class TestClassifyViaChartMapping(TestClassifyViaChart):
+    def test_niet_dict_mapping_geeft_volledige_classificatie(self):
+        meta = _AlleenMapping({"currency": "USD", "instrumentType": "ETF", "longName": "VanEck Semi",
+                               "exchangeName": "PCX"})
+        uit = self.via_chart(meta)
+        self.assertTrue(uit["is_etf"])
+        self.assertEqual((uit["valuta"], uit["yahoo_beurs"], uit["long_name"]), ("USD", "PCX", "VanEck Semi"))
 
 
 class TestChartMetadataRetry(unittest.TestCase):
