@@ -8,11 +8,35 @@ const {
     WAT_ALS_MAX_AANTAL, WAT_ALS_BALK_MAX_PP, WAT_ALS_WAARSCHUWING_TEKSTEN, WAT_ALS_ONBEKENDE_WAARSCHUWING,
     isWatAlsIsin, watAlsAantal, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst, watAlsTypeLabel, watAlsNoteringLabel,
     watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk, watAlsRij, watAlsAlInPortfolioTekst,
-    watAlsAlInBezitRegels, watAlsFoutTekst,
+    watAlsAlInBezitRegels, watAlsFoutTekst, watAlsDividendRegel, watAlsDividendResultaatTekst,
 } = require("../static/js/wat_als.js");
 
 // De codes die effect_profiel.py kan teruggeven.
-const BACKEND_WAARSCHUWINGEN = ["geen_koers", "geen_sector", "geen_holdings", "alleen_top10", "isin_gekozen", "land_via_proxy"];
+const BACKEND_WAARSCHUWINGEN = ["geen_koers", "geen_sector", "geen_holdings", "alleen_top10", "isin_gekozen", "land_via_proxy",
+    "geen_dividend_data"];
+
+const DIVIDEND = {
+    status: "keert_uit", per_stuk_bruto_eur: 2, per_stuk_netto_eur: 1.7, yield_bruto: 0.02, belasting_fractie: 0.15,
+    belasting_bron: "land", bron: "yahoo_reeks", uitkeringen_12m: 4,
+};
+
+test("dividendregel: bedragen, yield en infotip; geen uitkering en onbekend krijgen een vaste tekst", () => {
+    const regel = watAlsDividendRegel(DIVIDEND);
+    assert.match(regel.tekst, /€2,00 bruto \/ €1,70 netto per stuk per jaar \(bruto 2,00%\)/);
+    assert.match(regel.tip.tekst, /15% bronbelasting/);
+    assert.deepEqual(watAlsDividendRegel({ status: "keert_niet_uit" }),
+        { tekst: "Keert geen dividend uit (vermoedelijk accumulerend)", tip: null });
+    assert.deepEqual(watAlsDividendRegel({ status: "onbekend" }), { tekst: "Dividend onbekend", tip: null });
+    assert.equal(watAlsDividendRegel(undefined).tekst, "Dividend onbekend");
+});
+
+test("dividend in het resultaat: bedragen van de backend, anders de status", () => {
+    assert.match(watAlsDividendResultaatTekst({ dividend_status: "keert_uit", dividend_jaar_bruto_eur: 20, dividend_jaar_netto_eur: 17 }),
+        /€20,00 bruto \/ €17,00 netto/);
+    assert.equal(watAlsDividendResultaatTekst({ dividend_status: "onbekend", dividend_jaar_bruto_eur: null, dividend_jaar_netto_eur: null }),
+        "Dividend onbekend");
+    assert.match(watAlsDividendResultaatTekst({ dividend_status: "keert_niet_uit", dividend_jaar_bruto_eur: null }), /Keert geen dividend uit/);
+});
 
 test("elke waarschuwingscode van de backend heeft een eigen tekst", () => {
     for (const code of BACKEND_WAARSCHUWINGEN) {

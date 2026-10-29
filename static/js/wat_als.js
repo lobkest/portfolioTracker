@@ -28,7 +28,20 @@
         alleen_top10: "Alleen de 10 grootste holdings zijn bekend. Land en bedrijven zijn daardoor een schatting.",
         isin_gekozen: "Je hebt een ISIN gekozen die niet aantoonbaar bij deze notering hoort. Controleer of dit de juiste variant van het fonds is.",
         land_via_proxy: "Het land is afgeleid uit een vergelijkbaar iShares-fonds, omdat van dit fonds alleen de top 10 bekend is.",
+        geen_dividend_data: "De dividendgegevens van dit effect konden niet worden opgehaald.",
     };
+
+    const WAT_ALS_DIVIDEND_BRONNEN = {
+        yahoo_reeks: "Som van de uitkeringen van de afgelopen 12 maanden volgens Yahoo.",
+        dividend_rate: "Het verwachte jaardividend volgens Yahoo.",
+        trailing_rate: "Het dividend van het afgelopen jaar volgens Yahoo.",
+    };
+    const WAT_ALS_BELASTING_BRONNEN = {
+        land: "de bronbelasting van het land van de ISIN",
+        standaard: "een standaardaanname, omdat de ISIN geen bekend land heeft",
+    };
+    const WAT_ALS_DIVIDEND_NIET_UIT = "Keert geen dividend uit (vermoedelijk accumulerend)";
+    const WAT_ALS_DIVIDEND_ONBEKEND = "Dividend onbekend";
     const WAT_ALS_ONBEKENDE_WAARSCHUWING = "Let op: er is een onverwachte opmerking over deze gegevens.";
 
     function isWatAlsIsin(tekst) {
@@ -95,6 +108,39 @@
             .map(([naam, fractie]) => ({ naam, pct: fractie * 100 }));
     }
 
+    function watAlsDividendBedrag(bedrag) {
+        return formatteerEuro(bedrag, Math.abs(bedrag) < 1 ? 4 : 2);
+    }
+
+    // Profielregel van dividend: {tekst, tip: {label, tekst} of null}; alle bedragen komen kant-en-klaar van de backend.
+    function watAlsDividendRegel(dividend) {
+        if (!dividend || dividend.status === "onbekend") return { tekst: WAT_ALS_DIVIDEND_ONBEKEND, tip: null };
+        if (dividend.status === "keert_niet_uit") return { tekst: WAT_ALS_DIVIDEND_NIET_UIT, tip: null };
+        const belastingBron = Object.hasOwn(WAT_ALS_BELASTING_BRONNEN, dividend.belasting_bron)
+            ? WAT_ALS_BELASTING_BRONNEN[dividend.belasting_bron] : "een aanname";
+        const bron = Object.hasOwn(WAT_ALS_DIVIDEND_BRONNEN, dividend.bron) ? WAT_ALS_DIVIDEND_BRONNEN[dividend.bron] : "";
+        const yieldTekst = Number.isFinite(dividend.yield_bruto) ? ` (bruto ${formatPct(dividend.yield_bruto * 100, 2)})` : "";
+        return {
+            tekst: `Verwacht dividend: ${watAlsDividendBedrag(dividend.per_stuk_bruto_eur)} bruto / `
+                + `${watAlsDividendBedrag(dividend.per_stuk_netto_eur)} netto per stuk per jaar${yieldTekst}`,
+            tip: {
+                label: "Verwacht dividend",
+                tekst: `${bron} Netto is bruto min ${formatPct(dividend.belasting_fractie * 100, 0)} bronbelasting (${belastingBron}). `
+                    + `Aantal uitkeringen in 12 maanden: ${dividend.uitkeringen_12m}.`,
+            },
+        };
+    }
+
+    // Resultaatregel van wat-als: het jaardividend voor het gekozen aantal, of de status als dat onbekend is.
+    function watAlsDividendResultaatTekst(aankoop) {
+        if (aankoop.dividend_status === "keert_niet_uit") return WAT_ALS_DIVIDEND_NIET_UIT;
+        if (!Number.isFinite(aankoop.dividend_jaar_bruto_eur) || !Number.isFinite(aankoop.dividend_jaar_netto_eur)) {
+            return WAT_ALS_DIVIDEND_ONBEKEND;
+        }
+        return `Verwacht dividend per jaar: ${formatteerEuro(aankoop.dividend_jaar_bruto_eur)} bruto / `
+            + `${formatteerEuro(aankoop.dividend_jaar_netto_eur)} netto`;
+    }
+
     function watAlsMeldingZelfdeFonds(tickers) {
         if (!Array.isArray(tickers) || tickers.length === 0) return null;
         const wie = tickers.length === 1
@@ -157,6 +203,7 @@
         isWatAlsIsin, watAlsAantal, watAlsGeschatteWaarde, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst,
         watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
         watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst,
+        watAlsDividendRegel, watAlsDividendResultaatTekst,
     };
 
     if (typeof module !== "undefined" && module.exports) {

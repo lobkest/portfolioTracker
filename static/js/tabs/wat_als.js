@@ -451,6 +451,10 @@ function renderWatAlsProfiel() {
             .map(h => ({ naam: h.naam, pct: h.gewicht * 100 }));
         kaart.append(maakWatAlsLijst(`Grootste holdings (${profiel.holdings.aantal} bekend)`, holdings));
     }
+    const dividend = watAlsDividendRegel(profiel.dividend);
+    const dividendRegel = watAlsMaak("p", null, dividend.tekst);
+    if (dividend.tip) dividendRegel.append(" ", watAlsInfoTip(dividend.tip.label, dividend.tip.tekst));
+    kaart.append(dividendRegel);
     if (profiel.holdings_route === "isin" && profiel.holdings_fonds) {
         const fonds = profiel.holdings_fonds;
         kaart.append(watAlsMaak("p", "kleineMelding", `Holdings van: ${fonds.naam || "onbekend fonds"} (${fonds.isin})`));
@@ -577,6 +581,7 @@ function renderWatAlsUitkomst(data) {
     const samenvatting = [
         watAlsMaak("p", "vet", `${aankoop.aantal} × ${aankoop.naam} = ${formatteerEuro(aankoop.waarde_eur)}`),
         watAlsMaak("p", null, `Portfolio: ${formatteerEuro(w.totaal.voor)} → ${formatteerEuro(w.totaal.na)}`),
+        watAlsMaak("p", null, watAlsDividendResultaatTekst(aankoop)),
     ];
     if (w.aankoop.bijkopen) samenvatting.push(watAlsMaak("p", "kleineMelding", "Je bezit dit al: de aankoop wordt bij je bestaande positie opgeteld."));
     const zelfdeFonds = watAlsMeldingZelfdeFonds(aankoop.zelfde_fonds_als);

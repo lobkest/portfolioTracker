@@ -204,6 +204,10 @@ def _profiel_en_holdings(ticker, isin):
         land, sector, land_bron, land_proxy, holdings, route, fonds = (
             {aandeel_land: 1.0}, {aandeel_sector: 1.0}, LAND_BRON_AANDEEL, None, None, None, None)
 
+    # Lokale import: effect_dividend importeert portfolio_orchestratie, dat zelf effect_profiel importeert.
+    from backend.effect_dividend import haal_dividend_profiel
+    dividend = haal_dividend_profiel(ticker, details.get("valuta"), isin, koers_eur, waarschuwingen)
+
     profiel = _zonder_nan({
         "ticker": ticker,
         "naam": details.get("long_name") or ticker,
@@ -219,6 +223,7 @@ def _profiel_en_holdings(ticker, isin):
         "holdings_route": route,
         "holdings_fonds": fonds,
         "isin_geverifieerd": geverifieerd,
+        "dividend": dividend,
         "waarschuwingen": waarschuwingen,
     })
     return profiel, volledig
@@ -245,8 +250,12 @@ def bouw_aankoop(ticker, isin, aantal):
                      "land_bron": profiel["land_bron"], "land_proxy": profiel["land_proxy"]},
         "holdings": holdings if is_etf else None,
     }
+    from backend.effect_dividend import dividend_voor_aantal
+    dividend_bruto, dividend_netto = dividend_voor_aantal(profiel["dividend"], aantal)
     samenvatting = {
         "ticker": ticker, "naam": profiel["naam"], "aantal": aantal, "koers_eur": koers_eur, "waarde_eur": waarde_eur,
+        "dividend_jaar_bruto_eur": dividend_bruto, "dividend_jaar_netto_eur": dividend_netto,
+        "dividend_status": profiel["dividend"]["status"],
         "isin_geverifieerd": profiel["isin_geverifieerd"], "holdings_route": profiel["holdings_route"],
         "holdings_fonds": profiel["holdings_fonds"], "waarschuwingen": profiel["waarschuwingen"],
     }

@@ -10,6 +10,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from backend import db
+from backend import effect_dividend
 from backend import effect_profiel
 from backend import ticker_classificatie
 from backend.effect_profiel import bouw_effect_profiel, verifieer_isin_bij_ticker, OnbekendEffect
@@ -115,6 +116,12 @@ class _Profiel(unittest.TestCase):
             p = patch.object(effect_profiel, naam, **kwargs)
             self.m[naam] = p.start()
             self.addCleanup(p.stop)
+        for naam, kwargs in {"haal_yahoo_dividenden": dict(return_value={"dividenden": {}, "dividend_rate": None, "trailing_rate": None}),
+                             "_haal_splits_op": dict(return_value={}),
+                             "_fx_actueel": dict(return_value=1.0)}.items():
+            p = patch.object(effect_dividend, naam, **kwargs)
+            self.m[naam] = p.start()
+            self.addCleanup(p.stop)
 
     def profiel(self, ticker="SXR8.DE", isin=None):
         return bouw_effect_profiel(ticker, isin)
@@ -138,6 +145,22 @@ class TestVerificatie(_Profiel):
         self.m["db_get_isins_voor_ticker"].side_effect = RuntimeError("db")
         self.m["zoek_gecachet"].side_effect = RuntimeError("yahoo")
         self.assertFalse(verifieer_isin_bij_ticker("SXR8.DE", ISIN))
+
+
+class TestProfielDividend(_Profiel):
+    def test_dividend_staat_onder_de_sleutel_dividend(self):
+        self.m["haal_yahoo_dividenden"].return_value = {
+            "dividenden": {"2026-09-01": 1.0}, "dividend_rate": None, "trailing_rate": None}
+        p = self.profiel("ASML.AS", ISIN)
+        self.assertEqual((p["dividend"]["status"], p["dividend"]["per_stuk_bruto_eur"]), ("keert_uit", 1.0))
+        self.assertEqual(p["waarschuwingen"].count("geen_dividend_data"), 0)
+
+    def test_geen_dividenddata_geeft_waarschuwing_en_het_profiel_blijft(self):
+        self.m["haal_yahoo_dividenden"].return_value = None
+        p = self.profiel()
+        self.assertEqual(p["dividend"]["status"], "onbekend")
+        self.assertIn("geen_dividend_data", p["waarschuwingen"])
+        self.assertEqual(p["koers_eur"], 100.0)
 
 
 class TestProfielAandeel(_Profiel):
