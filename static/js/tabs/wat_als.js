@@ -5,12 +5,20 @@ function nieuweWatAlsToestand() {
     return {
         resultaten: [], isinUitZoek: null, gekozen: null, kandidaten: null, isinKeuze: null, gekozenIsin: null,
         profiel: null, uitkomst: null, bezig: null,
+        koers: { periode: WAT_ALS_KOERS_STANDAARD, perDag: false },
         // Per stap het nummer van de laatste aanvraag: een trager, ouder antwoord wordt genegeerd.
-        volgnr: { zoek: 0, isin: 0, profiel: 0, bereken: 0 },
+        volgnr: { zoek: 0, isin: 0, profiel: 0, bereken: 0, koers: 0 },
     };
 }
 
+const WAT_ALS_KOERS_PERIODES = ["1j", "3j", "7j"];
+const WAT_ALS_KOERS_STANDAARD = "1j";
+const WAT_ALS_KOERS_KLEUR = "#2c6fbb";
+const WAT_ALS_TOTAAL_KLEUR = "#2c7a4b";
+const WAT_ALS_WEEK_TIP = "Weekgemiddelde; dividend telt vanaf de week na de ex-datum";
+
 let watAlsToestand = nieuweWatAlsToestand();
+let watAlsKoersGrafiek = null;
 
 function watAlsEl(id) {
     return document.getElementById(id);
@@ -79,6 +87,7 @@ function wisWatAlsProfielEnUitkomst() {
     t.profiel = null;
     t.uitkomst = null;
     t.volgnr.bereken += 1;
+    wisWatAlsKoers();
     watAlsEl("watAlsProfiel").replaceChildren();
     watAlsEl("watAlsInvoerBlok").hidden = true;
     watAlsEl("watAlsWaarde").textContent = "";
@@ -285,6 +294,128 @@ async function laadWatAlsProfiel(isin) {
     renderWatAlsProfiel();
     watAlsEl("watAlsInvoerBlok").hidden = false;
     werkWatAlsWaardeBij();
+    t.koers.periode = WAT_ALS_KOERS_STANDAARD;
+    laadWatAlsKoers();
+}
+
+// --- Koersgrafiek ---
+
+function wisWatAlsKoers() {
+    watAlsToestand.volgnr.koers += 1;
+    if (watAlsKoersGrafiek) { watAlsKoersGrafiek.destroy(); watAlsKoersGrafiek = null; }
+    watAlsEl("watAlsKoers").hidden = true;
+}
+
+function bouwWatAlsKoersBesturing() {
+    const keuze = watAlsEl("watAlsKoersPeriode");
+    if (keuze.childElementCount > 0) return;
+    keuze.replaceChildren(...WAT_ALS_KOERS_PERIODES.map(periode => {
+        const knop = watAlsMaak("button", "segmentKnop", periode);
+        knop.type = "button";
+        knop.dataset.periode = periode;
+        knop.addEventListener("click", () => {
+            watAlsToestand.koers.periode = periode;
+            laadWatAlsKoers();
+        });
+        return knop;
+    }));
+    watAlsEl("watAlsKoersTipPlek").append(watAlsInfoTip("Weekgemiddelde", WAT_ALS_WEEK_TIP));
+}
+
+function werkWatAlsKoersBesturingBij() {
+    const { periode, perDag } = watAlsToestand.koers;
+    document.querySelectorAll("#watAlsKoersPeriode .segmentKnop").forEach(knop => {
+        knop.classList.toggle("actief", knop.dataset.periode === periode);
+    });
+    const dagAltijd = periode === WAT_ALS_KOERS_STANDAARD;
+    const schakelaar = watAlsEl("watAlsKoersPerDag");
+    schakelaar.disabled = dagAltijd;
+    schakelaar.checked = perDag;
+    watAlsEl("watAlsKoersTipPlek").hidden = dagAltijd || perDag;
+}
+
+function zetWatAlsKoersMelding(tekst, isFout) {
+    const melding = watAlsEl("watAlsKoersMelding");
+    melding.textContent = tekst || "";
+    melding.className = isFout ? "foutTekst" : "kleineMelding";
+    melding.hidden = !tekst;
+}
+
+async function laadWatAlsKoers() {
+    const t = watAlsToestand;
+    const mijn = ++t.volgnr.koers;
+    const actueel = () => t === watAlsToestand && mijn === t.volgnr.koers;
+    const { periode, perDag } = t.koers;
+
+    watAlsEl("watAlsKoers").hidden = false;
+    bouwWatAlsKoersBesturing();
+    werkWatAlsKoersBesturingBij();
+    if (watAlsKoersGrafiek) { watAlsKoersGrafiek.destroy(); watAlsKoersGrafiek = null; }
+    watAlsEl("watAlsKoersGrafiekPlek").hidden = true;
+    watAlsEl("watAlsKoersSamenvatting").textContent = "";
+    zetWatAlsKoersMelding("laden…", false);
+
+    const parameters = new URLSearchParams({ ticker: t.profiel.ticker, periode, per: perDag ? "dag" : "week" });
+    let res = null;
+    let data = null;
+    try {
+        res = await fetchMetTimeout(`/api/effect-koers?${parameters}`);
+        data = await res.json();
+    } catch (fout) {
+        data = null;
+    }
+    if (!actueel()) return;
+    if (!res || !res.ok || !data) {
+        zetWatAlsKoersMelding(watAlsFoutTekst(res ? res.status : 0, data && data.error), true);
+        return;
+    }
+    zetWatAlsKoersMelding("", false);
+    renderWatAlsKoers(data);
+}
+
+function watAlsKoersSamenvatting(d) {
+    const delen = [`Koers: ${formatPct(d.koers_rendement, 2, true)}`];
+    delen.push(d.heeft_dividend
+        ? `Totaal incl. dividend: ${formatPct(d.totaal_rendement, 2, true)}`
+        : "Geen dividend in deze periode");
+    if (d.beschikbaar_sinds) delen.push(`beschikbaar sinds ${formatDatum(d.beschikbaar_sinds)}`);
+    return delen.join(" · ");
+}
+
+function renderWatAlsKoers(d) {
+    watAlsEl("watAlsKoersSamenvatting").textContent = watAlsKoersSamenvatting(d);
+    watAlsEl("watAlsKoersGrafiekPlek").hidden = false;
+    if (watAlsKoersGrafiek) watAlsKoersGrafiek.destroy();
+
+    const lijn = (label, sleutel, kleur) => ({
+        label, data: d.punten.map(p => p[sleutel]), borderColor: kleur, pointRadius: 0, pointHoverRadius: 4, borderWidth: 1.5,
+    });
+    const datasets = [lijn("Koers", "koers_index", WAT_ALS_KOERS_KLEUR)];
+    if (d.heeft_dividend) datasets.push(lijn("Totaal incl. dividend", "totaal_index", WAT_ALS_TOTAAL_KLEUR));
+    const koersLabel = d.per === "week" ? "Weekgemiddelde koers" : "Koers";
+
+    watAlsKoersGrafiek = new Chart(watAlsEl("watAlsKoersChart"), {
+        type: "line",
+        data: { labels: d.punten.map(p => formatDatum(p.datum)), datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            locale: "nl-NL",
+            interaction: { mode: "index", intersect: false },
+            scales: { y: { title: { display: true, text: "Index (start = 100)" } } },
+            plugins: {
+                legend: { display: true },
+                tooltip: {
+                    callbacks: {
+                        title: ctx => formatDatum(d.punten[ctx[0].dataIndex].datum),
+                        label: ctx => `${ctx.dataset.label}: index ${formatGetal(ctx.parsed.y, 1)}`,
+                        footer: ctx => `${koersLabel}: ${formatteerEuro(d.punten[ctx[0].dataIndex].koers_eur)}`,
+                    },
+                },
+                datalabels: { display: false },
+            },
+        },
+    });
 }
 
 function maakWatAlsLijst(titel, rijen) {
@@ -487,3 +618,8 @@ watAlsEl("watAlsAantalForm").addEventListener("submit", gebeurtenis => {
 });
 
 watAlsEl("watAlsAantal").addEventListener("input", werkWatAlsWaardeBij);
+
+watAlsEl("watAlsKoersPerDag").addEventListener("change", gebeurtenis => {
+    watAlsToestand.koers.perDag = gebeurtenis.target.checked;
+    laadWatAlsKoers();
+});

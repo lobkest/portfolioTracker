@@ -410,6 +410,24 @@
                 <div id="watAlsResultaten" class="margeBoven16"></div>
                 <div id="watAlsIsin" class="margeBoven16"></div>
                 <div id="watAlsProfiel" class="margeBoven16"></div>
+                <section id="watAlsKoers" class="watAlsSectie margeBoven16" hidden>
+                    <h3>Koers en totaalrendement</h3>
+                    <div class="knoppenRij margeOnder15">
+                        <div id="watAlsKoersPeriode" class="segmentKeuze" role="group" aria-label="Periode"></div>
+                    </div>
+                    <div class="schakelaarRij">
+                        <span class="schakelaarTekst">
+                            <label for="watAlsKoersPerDag">Per dag</label>
+                            <span id="watAlsKoersTipPlek"></span>
+                        </span>
+                        <input type="checkbox" role="switch" class="schakelaar" id="watAlsKoersPerDag">
+                    </div>
+                    <p id="watAlsKoersSamenvatting" class="vet"></p>
+                    <p id="watAlsKoersMelding" class="kleineMelding" hidden></p>
+                    <div id="watAlsKoersGrafiekPlek" class="chart-wrapper" hidden>
+                        <canvas id="watAlsKoersChart"></canvas>
+                    </div>
+                </section>
                 <div id="watAlsInvoerBlok" class="margeBoven16" hidden>
                     <form id="watAlsAantalForm" autocomplete="off">
                         <label for="watAlsAantal">Aantal stuks om bij te kopen</label>

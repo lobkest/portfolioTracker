@@ -79,6 +79,7 @@ from backend.portfolio_orchestratie import (
 )
 from backend.portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
 from backend.effect_profiel import bouw_effect_profiel, OnbekendEffect, GeenKoers
+from backend.effect_koers import bouw_effect_koers, PERIODE_JAREN, PER_WAARDEN, STANDAARD_PERIODE, STANDAARD_PER
 from backend.beurs_alternatieven import haal_alternatieven, valideer_alternatieven_invoer, valideer_beurscode
 from backend.vergelijkbare_etfs import (
     FOUT_ALGEMEEN as VERGELIJK_FOUT_ALGEMEEN, FOUT_NIET_ETF, OnbekendeTicker, bron_uit_portfolio,
@@ -123,6 +124,7 @@ CATEGORIE_PER_ZWAAR_ENDPOINT = {
     "api_zoek": CATEGORIE_ZOEKEN,
     "api_isin_kandidaten": CATEGORIE_ZOEKEN,
     "api_effect_profiel": CATEGORIE_EXTERNE_BRON,
+    "api_effect_koers": CATEGORIE_EXTERNE_BRON,
     "portfolio_wat_als": CATEGORIE_EXTERNE_BRON,
     "wat_als_zonder_opslaan": CATEGORIE_EXTERNE_BRON,
     "portfolio_beurs_alternatieven": CATEGORIE_EXTERNE_BRON,
@@ -758,6 +760,26 @@ def api_effect_profiel():
         return jsonify(bouw_effect_profiel(ticker, isin))
     except OnbekendEffect:
         return jsonify({"error": f"Geen gegevens gevonden voor '{ticker}'."}), 404
+
+
+@app.route("/api/effect-koers")
+def api_effect_koers():
+    ticker = request.args.get("ticker", "").strip()
+    if not ticker or len(ticker) > TICKER_MAX_TEKENS:
+        return jsonify({"error": "Geef een ticker van normale lengte."}), 400
+    periode = request.args.get("periode", STANDAARD_PERIODE)
+    per = request.args.get("per", STANDAARD_PER)
+    if periode not in PERIODE_JAREN:
+        return jsonify({"error": "Onbekende periode."}), 400
+    if per not in PER_WAARDEN:
+        return jsonify({"error": "Onbekende weergave (per dag of per week)."}), 400
+    try:
+        return jsonify(bouw_effect_koers(ticker, periode, per))
+    except GeenKoers:
+        return jsonify({"error": f"Geen koersen beschikbaar voor '{ticker}'."}), 422
+    except Exception:
+        print_traceback()
+        return jsonify({"error": "De koersgrafiek ophalen is mislukt. Probeer het opnieuw."}), 500
 
 
 def _wat_als_response(maak_basis, ticker, isin, aantal):
