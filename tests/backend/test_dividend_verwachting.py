@@ -10,9 +10,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import dividend_verwachting as dv
-from diagnostiek import GOED, INFO, LET_OP
-from portfolio_calc import compute_split_adjusted_shares
+from backend import dividend_verwachting as dv
+from backend.diagnostiek import GOED, INFO, LET_OP
+from backend.portfolio_calc import compute_split_adjusted_shares
 
 PEIL = "2026-10-07"
 KWARTALEN = ["2025-11-15", "2026-02-15", "2026-05-15", "2026-08-15"]

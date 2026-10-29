@@ -8,13 +8,11 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import prijzen
-
-
+from backend import prijzen
 class TestValutaPerTicker(unittest.TestCase):
     def _valuta(self, tickers, cache):
-        with patch("prijzen.db_get_ticker_details", return_value=cache) as mock_cache, \
-                patch("prijzen._haal_valuta_op", side_effect=lambda t: "USD") as mock_info, \
+        with patch("backend.prijzen.db_get_ticker_details", return_value=cache) as mock_cache, \
+                patch("backend.prijzen._haal_valuta_op", side_effect=lambda t: "USD") as mock_info, \
                 redirect_stdout(io.StringIO()):
             return prijzen._valuta_per_ticker(tickers), mock_cache, mock_info
 
@@ -35,8 +33,8 @@ class TestValutaPerTicker(unittest.TestCase):
         mock_info.assert_not_called()
 
     def test_onleesbare_cache_valt_terug_op_info(self):
-        with patch("prijzen.db_get_ticker_details", side_effect=RuntimeError("geen database")), \
-                patch("prijzen._haal_valuta_op", return_value="GBp") as mock_info, redirect_stdout(io.StringIO()):
+        with patch("backend.prijzen.db_get_ticker_details", side_effect=RuntimeError("geen database")), \
+                patch("backend.prijzen._haal_valuta_op", return_value="GBp") as mock_info, redirect_stdout(io.StringIO()):
             self.assertEqual(prijzen._valuta_per_ticker(["X.L"]), {"X.L": "GBp"})
         mock_info.assert_called_once_with("X.L")
 

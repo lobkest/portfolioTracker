@@ -24,8 +24,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_zekerheid
-
+from backend import ticker_zekerheid
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
 # (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
@@ -63,9 +62,9 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
             {"datum": "2024-12-01", "koers": 10.0},
         ]
 
-    @patch("ticker_zekerheid._zoek_betere_alternatieven")
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
-    @patch("ticker_zekerheid.find_ticker_detailed")
+    @patch("backend.ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.find_ticker_detailed")
     def test_tier1_beurs_en_2_matches_wordt_overgenomen(self, mock_find, mock_vergelijk, mock_alt):
         mock_find.return_value = {
             "ticker": "FOUT.AS", "zekerheid": "zeker",
@@ -84,9 +83,9 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
         self.assertEqual(resultaat["ticker"], "GOED.AS")
         self.assertEqual(resultaat["zekerheid"], "zeker")
 
-    @patch("ticker_zekerheid._zoek_betere_alternatieven")
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
-    @patch("ticker_zekerheid.find_ticker_detailed")
+    @patch("backend.ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.find_ticker_detailed")
     def test_tier2_andere_beurs_maar_alle_datums_wordt_overgenomen(self, mock_find, mock_vergelijk, mock_alt):
         # Vanguard/iShares-scenario: kandidaat NIET op AMS (verwachte
         # beurs voor EAM), maar wel alle 3 steekproefdatums kloppend.
@@ -107,9 +106,9 @@ class TestAutomatischeTickerCorrectie(unittest.TestCase):
         self.assertEqual(resultaat["ticker"], "VUAA.L")
         self.assertEqual(resultaat["zekerheid"], "zeker")
 
-    @patch("ticker_zekerheid._zoek_betere_alternatieven")
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
-    @patch("ticker_zekerheid.find_ticker_detailed")
+    @patch("backend.ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.find_ticker_detailed")
     def test_andere_beurs_met_slechts_2_van_3_wordt_NIET_overgenomen(self, mock_find, mock_vergelijk, mock_alt):
         # Zelfde als hierboven, maar nu maar 2 van de 3 datums matchen op
         # de andere beurs -- te weinig voor tier 2 (die eist ALLE datums).

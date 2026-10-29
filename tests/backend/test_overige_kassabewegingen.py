@@ -7,10 +7,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from db import TRANSACTIE_KOLOMMEN
-from dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
-from portfolio_calc import compute_value_over_time
-from statistieken import bereken_overige_kassabewegingen, bereken_statistieken
+from backend.db import TRANSACTIE_KOLOMMEN
+from backend.dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
+from backend.portfolio_calc import compute_value_over_time
+from backend.statistieken import bereken_overige_kassabewegingen, bereken_statistieken
 
 DIVIDEND = ("2024-06-01", "09:00", "Dividend", "EUR", 2.19)
 STORTING_RNA = ("2024-01-02", "09:00", "iDEAL storting", "EUR", 13440.0)

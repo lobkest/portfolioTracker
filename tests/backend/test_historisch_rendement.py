@@ -11,10 +11,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import historisch_rendement as hr
-import portfolio_orchestratie
-from portfolio_calc import compute_split_adjusted_shares
-from split_correctie import continue_reeks
+from backend import historisch_rendement as hr
+from backend import portfolio_orchestratie
+from backend.portfolio_calc import compute_split_adjusted_shares
+from backend.split_correctie import continue_reeks
 
 PEIL = "2026-10-07"
 

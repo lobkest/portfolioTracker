@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_matching as tm
-from ticker_matching import find_ticker_detailed, zoeknaam_zonder_rechtsvorm
-from ticker_zekerheid import handelt_in_eur
+from backend import ticker_matching as tm
+from backend.ticker_matching import find_ticker_detailed, zoeknaam_zonder_rechtsvorm
+from backend.ticker_zekerheid import handelt_in_eur
 
 NFLX = {"symbol": "NFLX", "exchange": "NMS"}
 NFC = {"symbol": "NFC.DE", "exchange": "GER"}

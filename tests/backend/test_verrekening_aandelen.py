@@ -11,13 +11,13 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie as po
-from db import TRANSACTIE_KOLOMMEN
-from diagnostiek_checks import check_verrekening_aandelen
-from portfolio_calc import compute_value_over_time
-from rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, behandeling
-from statistieken import _bouw_xirr_cashflows, bereken_holdings_en_gesloten, bereken_overige_kassabewegingen
-from verrekening import bouw_verrekeningen, zet_verrekeningen
+from backend import portfolio_orchestratie as po
+from backend.db import TRANSACTIE_KOLOMMEN
+from backend.diagnostiek_checks import check_verrekening_aandelen
+from backend.portfolio_calc import compute_value_over_time
+from backend.rekening_regelsoorten import OMSCHRIJVING_VERREKENING_AANDELEN, behandeling
+from backend.statistieken import _bouw_xirr_cashflows, bereken_holdings_en_gesloten, bereken_overige_kassabewegingen
+from backend.verrekening import bouw_verrekeningen, zet_verrekeningen
 
 TEST_CODE = "test_verrekening"
 AAA, BBB = "XX0000000001", "XX0000000002"

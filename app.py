@@ -16,7 +16,7 @@ from io import BytesIO
 from werkzeug.datastructures import FileStorage
 from xml.sax.saxutils import escape as xml_escape
 import pandas as pd
-from db import (
+from backend.db import (
     db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
@@ -24,42 +24,42 @@ from db import (
     db_get_dividenden, db_get_upload_meldingen, db_markeer_portfolio_gebruikt, db_verbinding_teller_stand,
     is_verbindingsfout, db_get_koers_splits,
 )
-from koersoverzicht import bouw_koersoverzicht, PERIODES as KOERS_PERIODES, STANDAARD_PERIODE as STANDAARD_KOERS_PERIODE
-from bewaartermijn import ruim_verlopen_portfolios_op, BEWAARTERMIJN_MAANDEN
-from ticker_classificatie import haal_long_names, bewaar_long_names
-from prijzen import get_prices
-from ticker_zekerheid import (
+from backend.koersoverzicht import bouw_koersoverzicht, PERIODES as KOERS_PERIODES, STANDAARD_PERIODE as STANDAARD_KOERS_PERIODE
+from backend.bewaartermijn import ruim_verlopen_portfolios_op, BEWAARTERMIJN_MAANDEN
+from backend.ticker_classificatie import haal_long_names, bewaar_long_names
+from backend.prijzen import get_prices
+from backend.ticker_zekerheid import (
     verifieer_tickers_met_prijs_parallel, verifieer_ticker_met_prijs, backfill_verouderde_tickers,
     controleer_alle_transactieprijzen, bijnaam_na_tickerwissel,
 )
-from debug_utils import meet_tijd, maskeer_codes, print_traceback, maak_foutcode
-from diagnostiek import voeg_diagnostiek_toe
-from voortgang import (
+from backend.debug_utils import meet_tijd, maskeer_codes, print_traceback, maak_foutcode
+from backend.diagnostiek import voeg_diagnostiek_toe
+from backend.voortgang import (
     Voortgang, meld_stap, zet_voortgang, reset_voortgang, huidige_stap_tekst, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN,
     STAPPEN_BIJWERKEN, STAPPEN_OPHALEN, STAPPEN_OPHALEN_ZONDER_HERBEPALEN,
 )
-from yahoo_client import (
+from backend.yahoo_client import (
     reset_yahoo_call_teller, log_yahoo_call_samenvatting, yahoo_teller_stand, meld_yahoo_samenvatting,
     DIAGNOSTIEK_SLEUTEL_YAHOO_KERN, DIAGNOSTIEK_SLEUTEL_YAHOO_VERRIJKING,
 )
-from statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
-from dividend import (
+from backend.statistieken import bereken_benchmark_vergelijking, bereken_rendement_over_tijd, BENCHMARK_TICKERS
+from backend.dividend import (
     bereken_dividend_samenvatting, bouw_dividend_samenvatting, lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df,
     bereken_kassaldo, bouw_rekening_regels, promotie_bedragen,
 )
-from dividend_verwachting import bereken_dividend_verwachting
-from historisch_rendement import bereken_historisch_rendement
-from portfolio_admin import (
+from backend.dividend_verwachting import bereken_dividend_verwachting
+from backend.historisch_rendement import bereken_historisch_rendement
+from backend.portfolio_admin import (
     is_geldige_code, CODE_LENGTH, controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
     GeenVrijeCode, UploadHoortBijBestaandePortfolio, valideer_bijnaam, MELDING_GEEN_VRIJE_CODE,
 )
-from toegangslimiet import (
+from backend.toegangslimiet import (
     Toegangslimiet, wachttijd_tekst, SLEUTEL_GLOBAAL, CATEGORIE_FOUTE_CODE, CATEGORIE_FOUTE_CODE_GLOBAAL,
     CATEGORIE_GEVOELIGE_ACTIE, CATEGORIE_UPLOAD, CATEGORIE_EXTERNE_BRON, CATEGORIE_BEREKENING,
     CATEGORIE_ZOEKEN,
 )
-from upload_verwerking import (
+from backend.upload_verwerking import (
     lees_transacties_excel, voeg_koers_eur_toe, OngeldigExcelBestand, ticker_resolutie_niet_opslaan,
     bouw_transacties_df_niet_opslaan, vul_synthetische_order_ids_aan, vind_of_maak_portfolio,
     voeg_nieuwe_transacties_toe, bepaal_product_per_ticker, sla_dividend_bestand_op, verwerk_dividend_zonder_opslaan,
@@ -67,7 +67,7 @@ from upload_verwerking import (
     meld_portfolio_opslaan, bewaar_upload_meldingen, upload_meldingen_voor_api, UPLOAD_SOORT_UPLOAD,
     UPLOAD_SOORT_BIJWERKEN,
 )
-from portfolio_orchestratie import (
+from backend.portfolio_orchestratie import (
     haal_portfolio_basis, wis_portfolio_basis_cache, laad_transacties_en_resultaat,
     laad_split_gecorrigeerde_transacties, pas_effectieve_datums_toe, continue_koersreeks,
     ticker_zekerheid_groepen, build_portfolio_response, bouw_transacties_lijst, analyze_transacties_verrijking, analyze_transacties,
@@ -77,18 +77,18 @@ from portfolio_orchestratie import (
     bouw_wat_als_basis, bouw_wat_als_basis_uit_posities, bereken_wat_als,
     bouw_beurs_alternatieven_invoer, OnbekendeBeurs,
 )
-from portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
-from effect_profiel import bouw_effect_profiel, OnbekendEffect, GeenKoers
-from beurs_alternatieven import haal_alternatieven, valideer_alternatieven_invoer, valideer_beurscode
-from vergelijkbare_etfs import (
+from backend.portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
+from backend.effect_profiel import bouw_effect_profiel, OnbekendEffect, GeenKoers
+from backend.beurs_alternatieven import haal_alternatieven, valideer_alternatieven_invoer, valideer_beurscode
+from backend.vergelijkbare_etfs import (
     FOUT_ALGEMEEN as VERGELIJK_FOUT_ALGEMEEN, FOUT_NIET_ETF, OnbekendeTicker, bron_uit_portfolio,
     is_etf_volgens_classificatie, valideer_vergelijk_invoer, zoek_vergelijkbare_etfs)
-from wat_als import valideer_aankoop_invoer, valideer_posities
-from effect_zoeken import zoek_effecten_gecachet, herken_isin, bepaal_isin_kandidaten
-from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
-from portfolio_calc import holdings_op_datums
-from static_versie import registreer_static_versies
-from yahoo_client import init_yfinance_cache
+from backend.wat_als import valideer_aankoop_invoer, valideer_posities
+from backend.effect_zoeken import zoek_effecten_gecachet, herken_isin, bepaal_isin_kandidaten
+from backend.box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
+from backend.portfolio_calc import holdings_op_datums
+from backend.static_versie import registreer_static_versies
+from backend.yahoo_client import init_yfinance_cache
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
 # X-Forwarded-For is "bezoeker, Cloudflare, Render-proxy": drie hops. Elke proxy voegt achteraan toe, dus een
@@ -714,6 +714,8 @@ def etf_overlap_detail():
     etf_b = request.args.get("b", "").strip()
     if not etf_a or not etf_b:
         return jsonify({"error": "Query-parameters 'a' en 'b' (ETF-tickers) zijn verplicht."}), 400
+    if len(etf_a) > TICKER_MAX_TEKENS or len(etf_b) > TICKER_MAX_TEKENS:
+        return jsonify({"error": "Geef tickers van normale lengte."}), 400
     return jsonify({"holdings": bereken_etf_overlap_detail(etf_a, etf_b)})
 
 
@@ -869,6 +871,8 @@ def etf_holdings():
     ticker = request.args.get("ticker", "").strip()
     if not ticker:
         return jsonify({"error": "Query-parameter 'ticker' is verplicht."}), 400
+    if len(ticker) > TICKER_MAX_TEKENS:
+        return jsonify({"error": "Geef een ticker van normale lengte."}), 400
     waarde = None
     if request.args.get("waarde", "").strip():
         try:
@@ -975,6 +979,14 @@ def box3_bereken():
         return jsonify({"error": "Ongeldige portfoliogegevens voor de box 3-berekening."}), 400
 
 
+def _is_iso_datum(tekst):
+    try:
+        date.fromisoformat(tekst)
+    except ValueError:
+        return False
+    return True
+
+
 @app.route("/api/portfolio/<code>/ticker-koers-bereik")
 def ticker_koers_bereik(code):
     """Koersen van 1 ticker buiten de standaard-crop. Query-params: ticker, vanaf, tot (optioneel)."""
@@ -989,6 +1001,8 @@ def ticker_koers_bereik(code):
     tot = request.args.get("tot")
     if not ticker or not vanaf:
         return jsonify({"error": "ticker en vanaf zijn verplicht"}), 400
+    if len(ticker) > TICKER_MAX_TEKENS or not _is_iso_datum(vanaf) or (tot and not _is_iso_datum(tot)):
+        return jsonify({"error": "Ongeldige ticker of datum (verwacht jjjj-mm-dd)."}), 400
 
     price_data = get_prices([ticker], vanaf)
     if price_data.empty or ticker not in price_data.columns:

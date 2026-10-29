@@ -9,9 +9,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
-from portfolio_calc import compute_value_over_time
-from statistieken import bereken_holdings_en_gesloten
+from backend.box3 import bouw_box3_basis, bereken_box3, valideer_box3_invoer
+from backend.portfolio_calc import compute_value_over_time
+from backend.statistieken import bereken_holdings_en_gesloten
 
 GEEN_INVOER = valideer_box3_invoer({})[0]
 

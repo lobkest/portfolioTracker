@@ -7,8 +7,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from diagnostiek import LET_OP
-from diagnostiek_checks import MAX_BEVINDINGEN_PER_CHECK, MAX_FORWARD_FILL_DAGEN, check_koers_stilstand
+from backend.diagnostiek import LET_OP
+from backend.diagnostiek_checks import MAX_BEVINDINGEN_PER_CHECK, MAX_FORWARD_FILL_DAGEN, check_koers_stilstand
 
 DAGEN = pd.bdate_range("2024-01-01", "2024-03-29")
 

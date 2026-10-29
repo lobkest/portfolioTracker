@@ -7,7 +7,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_admin import is_geldige_code, CODE_LENGTH
+from backend.portfolio_admin import is_geldige_code, CODE_LENGTH
 
 
 class TestIsGeldigeCode(unittest.TestCase):

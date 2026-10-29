@@ -8,8 +8,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-
+from backend import db
 try:
     from db_helper import vereist_database
 except ImportError:
@@ -82,7 +81,7 @@ class TestOrderIdQueries(unittest.TestCase):
         self.assertEqual(gevonden, {"TST-OID-B1"})
 
     def test_find_matching_code_met_nieuwe_rij(self):
-        from portfolio_admin import find_matching_code
+        from backend.portfolio_admin import find_matching_code
         with db.db_transactie() as cur:
             code, ontbrekend = find_matching_code(cur, {"TST-OID-A1", "TST-OID-A2", "TST-OID-NIEUW"})
         self.assertEqual((code, ontbrekend), (self.EIGEN, {"TST-OID-NIEUW"}))

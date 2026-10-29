@@ -9,8 +9,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import yahoo_client
-from yahoo_client import download_koersen_met_retry, init_yfinance_cache, YFINANCE_CACHE_MAP
+from backend import yahoo_client
+from backend.yahoo_client import download_koersen_met_retry, init_yfinance_cache, YFINANCE_CACHE_MAP
 
 LOCKED_BERICHT = "['EMIM.AS']: OperationalError('database is locked')"
 

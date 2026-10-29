@@ -9,10 +9,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_prijscheck
-import ticker_zekerheid
-from ticker_prijscheck import dagrange_grenzen, vergelijk_prijs_op_datum
-from ticker_zekerheid import _zoek_betere_alternatieven, _corrigeer_met_alternatief
+from backend import ticker_prijscheck
+from backend import ticker_zekerheid
+from backend.ticker_prijscheck import dagrange_grenzen, vergelijk_prijs_op_datum
+from backend.ticker_zekerheid import _zoek_betere_alternatieven, _corrigeer_met_alternatief
 
 
 def _mock_yahoo_omgeving(yahoo_koers, high, low):

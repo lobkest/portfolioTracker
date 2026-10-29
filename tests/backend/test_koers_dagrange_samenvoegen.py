@@ -22,8 +22,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_prijscheck
-from ticker_prijscheck import _haal_koers_en_dagrange_op, vergelijk_prijs_op_datum
+from backend import ticker_prijscheck
+from backend.ticker_prijscheck import _haal_koers_en_dagrange_op, vergelijk_prijs_op_datum
 
 # vergelijk_prijs_op_datum() roept bij een niet-EUR valuta ook
 # _fx_koers_op_datum() aan -- niet relevant voor deze tests (alles hier is

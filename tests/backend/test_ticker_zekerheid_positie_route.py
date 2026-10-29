@@ -30,8 +30,7 @@ try:
 except ImportError:
     from tests.db_helper import vereist_database
 
-import ticker_zekerheid
-
+from backend import ticker_zekerheid
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
 # aan, die zonder deze patch een echte DB/netwerk-call zou doen. Module-breed
@@ -60,13 +59,13 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
-        import ticker_zekerheid
+        from backend import ticker_zekerheid
         self.app_module = app_module
         self.ticker_zekerheid = ticker_zekerheid
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
@@ -84,7 +83,7 @@ class TestTickerZekerheidPositieRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
@@ -157,7 +156,7 @@ class TestTickerZekerheidLijstRoute(unittest.TestCase):
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
@@ -175,7 +174,7 @@ class TestTickerZekerheidLijstRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
@@ -212,7 +211,7 @@ class TestTickerZekerheidWijzigRoute(unittest.TestCase):
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
@@ -237,7 +236,7 @@ class TestTickerZekerheidWijzigRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
@@ -256,7 +255,7 @@ class TestTickerZekerheidWijzigRoute(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.get_json(), {"ticker": "XELA.NEW", "oude_ticker": "XELA", "bijnaam": None})
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("SELECT isin, ticker FROM transacties WHERE code = %s", (self.TEST_CODE,))

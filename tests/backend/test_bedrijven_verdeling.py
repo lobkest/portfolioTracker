@@ -16,8 +16,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from portfolio_verdeling import (
+from backend import portfolio_verdeling
+from backend.portfolio_verdeling import (
     BEDRIJVEN_TOP_N_MAX, BEDRIJVEN_TOP_N_STANDAARD,
     _normaliseer_bedrijfsnaam, bereken_bedrijven_verdeling,
 )

@@ -12,7 +12,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from upload_verwerking import VERWACHTE_KOLOMMEN, OngeldigExcelBestand
+from backend.upload_verwerking import VERWACHTE_KOLOMMEN, OngeldigExcelBestand
 
 
 def _excel_bytes():

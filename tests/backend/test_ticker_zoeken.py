@@ -16,8 +16,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_matching
-from ticker_matching import (
+from backend import ticker_matching
+from backend.ticker_matching import (
     _zoek_product_progressief, _woorden_varianten, BEURS_MAP,
     find_ticker_detailed, MANUAL_TICKER_OVERRIDES_ISIN,
 )

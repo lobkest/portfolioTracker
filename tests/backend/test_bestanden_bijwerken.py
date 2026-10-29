@@ -9,12 +9,12 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_admin import (
+from backend.portfolio_admin import (
     controleer_eigen_transactiebestand, controleer_eigen_rekeningoverzicht,
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, FOUT_GEEN_ORDER_IDS, FOUT_ONBEKENDE_TRANSACTIES,
 )
-from dividend import lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df, MELDING_GEEN_REKENINGOVERZICHT
-from upload_verwerking import OngeldigExcelBestand, lees_transacties_excel, voeg_koers_eur_toe, vul_synthetische_order_ids_aan
+from backend.dividend import lees_rekeningoverzicht, order_ids_uit_rekeningoverzicht_df, MELDING_GEEN_REKENINGOVERZICHT
+from backend.upload_verwerking import OngeldigExcelBestand, lees_transacties_excel, voeg_koers_eur_toe, vul_synthetische_order_ids_aan
 
 TEST_FILES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files")
 BESTAND_TRANSACTIES = os.path.join(TEST_FILES, "Transactions_test.xlsx")
@@ -87,7 +87,7 @@ class TestOrderIdsUitRekeningoverzicht(unittest.TestCase):
 class TestBijwerkenRoute(unittest.TestCase):
     def setUp(self):
         import app as app_module
-        import upload_verwerking
+        from backend import upload_verwerking
         self.app_module = app_module
         self.client = app_module.app.test_client()
         self.transactie_ids = _transactie_ids()

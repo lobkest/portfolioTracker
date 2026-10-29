@@ -17,9 +17,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_calc import compute_per_ticker
-from statistieken import bereken_holdings_en_gesloten
-from transactie_utils import pas_kostenkorting_toe, verdeel_kostenkorting
+from backend.portfolio_calc import compute_per_ticker
+from backend.statistieken import bereken_holdings_en_gesloten
+from backend.transactie_utils import pas_kostenkorting_toe, verdeel_kostenkorting
 
 
 class TestGakGebruiktWaardeEurNietTotaalEur(unittest.TestCase):

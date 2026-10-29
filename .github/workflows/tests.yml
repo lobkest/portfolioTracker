@@ -4,6 +4,9 @@ on:
   push:
   workflow_dispatch:        # manual "Run workflow" button in the Actions tab
 
+permissions:
+  contents: read
+
 concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
@@ -83,7 +86,7 @@ jobs:
 
       # Niet elke database-test importeert app.py, dus db_init() draait anders niet.
       - name: Schema aanmaken
-        run: python -c "from db import db_init; db_init()"
+        run: python -c "from backend.db import db_init; db_init()"
 
       - name: Unit tests draaien
         run: python -m unittest discover -s tests -v

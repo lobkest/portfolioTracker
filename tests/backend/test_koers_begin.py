@@ -9,8 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import prijzen
-
+from backend import prijzen
 START = pd.Timestamp("2016-10-07")
 YAHOO_BEGIN = pd.Timestamp("2022-06-01")
 EIND = pd.Timestamp("2026-10-06")

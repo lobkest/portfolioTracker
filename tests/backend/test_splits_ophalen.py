@@ -7,10 +7,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_prijscheck
-import ticker_zekerheid
-from ticker_prijscheck import _haal_splits_op
-from ticker_zekerheid import vind_tickers_met_snelle_prijscheck_parallel
+from backend import ticker_prijscheck
+from backend import ticker_zekerheid
+from backend.ticker_prijscheck import _haal_splits_op
+from backend.ticker_zekerheid import vind_tickers_met_snelle_prijscheck_parallel
 
 
 def _yf_ticker_met_splits(splits):

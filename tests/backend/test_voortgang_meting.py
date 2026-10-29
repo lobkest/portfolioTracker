@@ -9,8 +9,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-from voortgang import Voortgang, stand_verschil, stap_logregel
+from backend import db
+from backend.voortgang import Voortgang, stand_verschil, stap_logregel
 
 STAPPEN = (("a", "A", 10), ("b", "B", 90))
 
@@ -56,13 +56,13 @@ class TestWorkerVerbindingTeller(unittest.TestCase):
         db.db_reset_verbinding_teller()
 
     def test_alleen_buiten_app_context(self):
-        with patch("db.psycopg2.connect"), patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}),                 patch.object(db, "_pool", None), patch.dict(db._laatst_gebruikt, clear=True):
+        with patch("backend.db.psycopg2.connect"), patch.dict(os.environ, {"DATABASE_URL": "postgresql://x"}),                 patch.object(db, "_pool", None), patch.dict(db._laatst_gebruikt, clear=True):
             threading.Thread(target=db._open_verbinding).start()
             for t in threading.enumerate():
                 if t is not threading.current_thread():
                     t.join(5)
             self.assertEqual(db._verbinding_teller["worker"], 1)
-            with patch("db.has_app_context", return_value=True):
+            with patch("backend.db.has_app_context", return_value=True):
                 db._open_verbinding()
         self.assertEqual(db._verbinding_teller["aantal"], 2)
         self.assertEqual(db._verbinding_teller["worker"], 1)

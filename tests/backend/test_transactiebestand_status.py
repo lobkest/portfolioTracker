@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from transactiebestand_status import (
+from backend.transactiebestand_status import (
     REDEN_DIVIDEND_ZONDER_POSITIE, REDEN_NEGATIEF_AANTAL, REDEN_REKENING_ZONDER_TRANSACTIE,
     beoordeel_transactiebestand,
 )

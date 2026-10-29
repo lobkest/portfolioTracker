@@ -10,8 +10,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import voortgang
-from voortgang import (
+from backend import voortgang
+from backend.voortgang import (
     bereken_procent, meld_teller, Voortgang,
     STAPPEN_BIJWERKEN, STAPPEN_OPHALEN, STAPPEN_OPHALEN_ZONDER_HERBEPALEN,
 )
@@ -98,7 +98,7 @@ class TestMeldTeller(unittest.TestCase):
 
 class TestDownloadParallel(unittest.TestCase):
     def test_resultaten_horen_bij_hun_ticker_ook_bij_andere_afrondvolgorde(self):
-        import prijzen
+        from backend import prijzen
         vertraging = {"AAA": 0.15, "BBB": 0.01, "CCC": 0.08, "DDD": 0.0}
 
         def download(t):
@@ -110,7 +110,7 @@ class TestDownloadParallel(unittest.TestCase):
                          ["koersen-AAA", "koersen-BBB", "koersen-CCC", "koersen-DDD"])
 
     def test_telt_vanuit_de_aanroepende_thread_met_offset(self):
-        import prijzen
+        from backend import prijzen
         v = Voortgang(STAPPEN)
         v.start_stap("b")
         token = voortgang.zet_voortgang(v)
@@ -122,8 +122,7 @@ class TestDownloadParallel(unittest.TestCase):
         self.assertEqual((laatste["gedaan"], laatste["totaal"]), (4, 4))
 
     def test_fout_in_een_download_komt_door(self):
-        import prijzen
-
+        from backend import prijzen
         def download(t):
             raise ValueError(t)
 

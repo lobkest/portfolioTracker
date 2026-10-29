@@ -24,8 +24,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_zekerheid
-
+from backend import ticker_zekerheid
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
 # (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_
 # resultaten() aan, die zonder deze patch een echte DB/netwerk-call zou
@@ -51,8 +50,8 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
     def setUp(self):
         self.transacties = [{"datum": "2026-02-16", "koers": 10.39}]
 
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
-    @patch("ticker_zekerheid.find_ticker_detailed")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.find_ticker_detailed")
     def test_escaleert_nu_bij_dagrange_probleem_met_lage_pct(self, mock_find, mock_vergelijk):
         # BYD-achtig geval: afwijking maar 3.7% (< 6%-drempel), maar WEL
         # buiten de dagrange -- moet nu escaleren voorbij stap 1. Stap 3
@@ -72,8 +71,8 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
         self.assertIsNotNone(resultaat["prijswaarschuwing"])
         self.assertEqual(resultaat["zekerheid"], "onzeker")
 
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
-    @patch("ticker_zekerheid.find_ticker_detailed")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.find_ticker_detailed")
     def test_escaleert_niet_bij_lage_pct_en_binnen_dagrange(self, mock_find, mock_vergelijk):
         # VUSA.AS-achtig geval: laatste transactie oprecht in orde -- moet
         # NIET escaleren (ongewijzigd gedrag).
@@ -87,9 +86,9 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
         )
         self.assertIsNone(resultaat["prijswaarschuwing"])
 
-    @patch("ticker_zekerheid._zoek_betere_alternatieven")
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
-    @patch("ticker_zekerheid.find_ticker_detailed")
+    @patch("backend.ticker_zekerheid._zoek_betere_alternatieven")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.find_ticker_detailed")
     def test_ontbrekende_koersdata_escaleert_nog_steeds(self, mock_find, mock_vergelijk, mock_alt):
         # Regressietest: het G2X.MU-geval (geen koersdata = verdacht) mag
         # niet stuklopen door deze wijziging.
@@ -106,7 +105,7 @@ class TestEscalatiepoortDagrangeBewust(unittest.TestCase):
 
 
 class TestTickerHeeftPrijsprobleemDagrangeBewust(unittest.TestCase):
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
     def test_dagrange_probleem_met_lage_pct_telt_als_probleem(self, mock_vergelijk):
         mock_vergelijk.return_value = {
             "afwijking_pct": 3.7, "match": False, "binnen_dagrange": False,
@@ -115,7 +114,7 @@ class TestTickerHeeftPrijsprobleemDagrangeBewust(unittest.TestCase):
             ticker_zekerheid._ticker_heeft_prijsprobleem("BY6.MU", [{"datum": "2026-02-16", "koers": 10.39}])
         )
 
-    @patch("ticker_zekerheid.vergelijk_prijs_op_datum")
+    @patch("backend.ticker_zekerheid.vergelijk_prijs_op_datum")
     def test_binnen_dagrange_telt_niet_als_probleem(self, mock_vergelijk):
         mock_vergelijk.return_value = {
             "afwijking_pct": 1.1, "match": True, "binnen_dagrange": True,

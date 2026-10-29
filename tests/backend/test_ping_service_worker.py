@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class TestPingEnServiceWorker(unittest.TestCase):
     def setUp(self):
         import app as app_module
-        import db
+        from backend import db
         self.client = app_module.app.test_client()
         patcher = patch.object(
             db, "db_connect",

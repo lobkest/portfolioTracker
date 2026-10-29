@@ -10,10 +10,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_calc import compute_per_ticker, compute_value_over_time, waarde_per_ticker_per_dag
-import portfolio_verdeling
-import ticker_classificatie
-from portfolio_verdeling import (
+from backend.portfolio_calc import compute_per_ticker, compute_value_over_time, waarde_per_ticker_per_dag
+from backend import portfolio_verdeling
+from backend import ticker_classificatie
+from backend.portfolio_verdeling import (
     VERDELING_OVERIG_SLEUTEL, bereken_verdeling_over_tijd, compute_beurs_verdeling, compute_valuta_verdeling,
     gewichten_per_beurs, gewichten_per_positie, gewichten_per_valuta,
 )
@@ -248,7 +248,7 @@ class TestWaakhondPerDimensie(unittest.TestCase):
 class TestVerdelingOverTijdRoute(unittest.TestCase):
     def setUp(self):
         import app as app_module
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         self.orchestratie = portfolio_orchestratie
         self.client = app_module.app.test_client()
 

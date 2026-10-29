@@ -14,10 +14,8 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_classificatie
-import upload_verwerking as uv
-
-
+from backend import ticker_classificatie
+from backend import upload_verwerking as uv
 class TestHaalLongNames(unittest.TestCase):
     def test_lege_lijst_doet_geen_call(self):
         with patch.object(ticker_classificatie, "YahooqueryTicker") as mock_ticker:

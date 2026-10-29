@@ -10,7 +10,7 @@ from contextlib import redirect_stdout
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-from debug_utils import maskeer_codes, print_traceback
+from backend.debug_utils import maskeer_codes, print_traceback
 
 LOG_FUNCTIES = {"print", "dprint", "meet_tijd"}
 VERBODEN_NAMEN = {"code", "nieuwe_code", "oude_code", "ip"}
@@ -50,7 +50,7 @@ class TestMaskeerCodes(unittest.TestCase):
 class TestGeenCodesOfIpInLogregels(unittest.TestCase):
     def test_geen_code_of_ip_in_print_dprint_of_meet_tijd(self):
         gevonden = []
-        for pad in sorted(glob.glob(os.path.join(ROOT, "*.py"))):
+        for pad in sorted(glob.glob(os.path.join(ROOT, "*.py")) + glob.glob(os.path.join(ROOT, "backend", "*.py"))):
             for aanroep in _log_aanroepen(pad):
                 for deel in ast.walk(aanroep):
                     if isinstance(deel, ast.Name) and deel.id in VERBODEN_NAMEN:

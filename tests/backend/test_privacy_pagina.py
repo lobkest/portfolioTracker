@@ -9,8 +9,7 @@ from unittest.mock import patch
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-import db
-
+from backend import db
 PAGINAS = ("/", "/p/ABC", "/analyse", "/privacy")
 DISCLAIMER = "Indicatie, geen financieel advies."
 VENDOR_VOLGORDE = [
@@ -76,7 +75,7 @@ class TestPrivacyPagina(_MetApp):
         self.assertNotIn("noindex", html)
 
     def test_bewaartermijn_komt_uit_de_constante(self):
-        import bewaartermijn
+        from backend import bewaartermijn
         self.assertIn(f"Tot {bewaartermijn.BEWAARTERMIJN_MAANDEN} maanden na je laatste gebruik", self.html("/privacy"))
 
     def test_noemt_de_onderwerpen_uit_de_opdracht(self):

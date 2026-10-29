@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_admin import ONTWIKKEL_CODES_VARIABELE, is_ontwikkel_code, ontwikkel_codes
+from backend.portfolio_admin import ONTWIKKEL_CODES_VARIABELE, is_ontwikkel_code, ontwikkel_codes
 
 VERZONNEN = "QQA,QQB"
 
@@ -44,9 +44,9 @@ class TestOntwikkelCodes(unittest.TestCase):
 
 class TestOntwikkelaarVlag(unittest.TestCase):
     def _kern(self, code):
-        from portfolio_orchestratie import analyze_transacties_kern
+        from backend.portfolio_orchestratie import analyze_transacties_kern
         transacties = pd.DataFrame({"ticker": ["AAA"]})
-        with patch("portfolio_orchestratie.bepaal_koersstatus", return_value={}),                 patch("portfolio_orchestratie._ticker_namen", return_value={}):
+        with patch("backend.portfolio_orchestratie.bepaal_koersstatus", return_value={}),                 patch("backend.portfolio_orchestratie._ticker_namen", return_value={}):
             return analyze_transacties_kern(transacties, code, "Test", prijs_data_al_klaar=pd.DataFrame())
 
     def test_vlag_true_voor_ontwikkelcode(self):

@@ -5,8 +5,8 @@ from decimal import Decimal
 
 import pandas as pd
 
-from dividend import bouw_dividend_samenvatting
-from transactie_utils import formatteer_transacties_overzicht, transacties_overzicht_uit_df
+from backend.dividend import bouw_dividend_samenvatting
+from backend.transactie_utils import formatteer_transacties_overzicht, transacties_overzicht_uit_df
 
 
 class TestFormatteerTransactiesOverzicht(unittest.TestCase):

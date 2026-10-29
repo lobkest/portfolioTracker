@@ -22,13 +22,13 @@ from flask import Flask
 PROJECT_MAP = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_MAP)
 
-import diagnostiek
-import debug_utils
-import yahoo_client
-import prijzen
-import portfolio_calc
-import portfolio_orchestratie as po
-from diagnostiek import (
+from backend import diagnostiek
+from backend import debug_utils
+from backend import yahoo_client
+from backend import prijzen
+from backend import portfolio_calc
+from backend import portfolio_orchestratie as po
+from backend.diagnostiek import (
     haal_meldingen, CATEGORIE_KOERSEN, CATEGORIE_SPLITS, CATEGORIE_ETF_HOLDINGS, CATEGORIE_LAADTIJDEN,
     GOED, INFO, LET_OP, FOUT,
 )
@@ -89,8 +89,8 @@ class TestLaadtijden(_MetRequest):
     def test_geen_circulaire_import(self):
         # Verse interpreter: debug_utils als eerste importeren moet werken, en
         # diagnostiek mag geen andere projectmodules binnenhalen.
-        code = ("import sys, debug_utils; "
-                "eigen = {'prijzen', 'db', 'yahoo_client', 'portfolio_calc', 'upload_verwerking'}; "
+        code = ("import sys; from backend import debug_utils; "
+                "eigen = {'backend.prijzen', 'backend.db', 'backend.yahoo_client', 'backend.portfolio_calc', 'backend.upload_verwerking'}; "
                 "print(sorted(eigen & set(sys.modules)))")
         uit = subprocess.run([sys.executable, "-c", code], cwd=PROJECT_MAP, capture_output=True, text=True)
         self.assertEqual(uit.returncode, 0, uit.stderr)
@@ -102,7 +102,7 @@ class TestYahooTellers(_MetRequest):
         super().setUp()
         yahoo_client.reset_yahoo_call_teller()
 
-    @patch("yahoo_client.time.sleep")
+    @patch("backend.yahoo_client.time.sleep")
     def test_rate_limit_retry_telt_retry_en_gedrag_gelijk(self, _sleep):
         pogingen = []
 
@@ -116,7 +116,7 @@ class TestYahooTellers(_MetRequest):
         # Eerste retry wacht de basiswachttijd (oplopende backoff: 1 x basis).
         self.assertEqual(yahoo_client.yahoo_teller_stand()[1:], (1, 0, yahoo_client.RATE_LIMIT_WACHTTIJD_BASIS))
 
-    @patch("yahoo_client.time.sleep")
+    @patch("backend.yahoo_client.time.sleep")
     def test_andere_fout_direct_mislukt_zonder_retry(self, mock_sleep):
         fout = ValueError("iets anders")
 
@@ -127,8 +127,8 @@ class TestYahooTellers(_MetRequest):
         mock_sleep.assert_not_called()
         self.assertEqual(yahoo_client.yahoo_teller_stand()[1:], (0, 1, 0.0))
 
-    @patch("yahoo_client.time.sleep")
-    @patch("yahoo_client.yf.download")
+    @patch("backend.yahoo_client.time.sleep")
+    @patch("backend.yahoo_client.yf.download")
     def test_download_koersen_met_retry_telt_en_geeft_leeg_resultaat(self, mock_download, _sleep):
         mock_download.side_effect = RuntimeError("netwerk")
         close, splits = yahoo_client.download_koersen_met_retry("AAPL", "2024-01-01")
@@ -179,10 +179,10 @@ def _mock_conn(min_max_rows, laatst_ververst_rows, cached_rows):
 
 
 class TestKoersenMeldingen(_MetRequest):
-    @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_koersen")
-    @patch("prijzen.download_koersen_met_retry")
-    @patch("db.db_connect")
+    @patch("backend.prijzen.yf.Ticker")
+    @patch("backend.prijzen.db_save_koersen")
+    @patch("backend.prijzen.download_koersen_met_retry")
+    @patch("backend.db.db_connect")
     def test_cache_en_download_zonder_data(self, mock_conn, mock_download, _save, mock_ticker):
         mock_ticker.return_value.info = {"currency": "EUR"}
         vandaag = pd.Timestamp.now().normalize()
@@ -390,11 +390,11 @@ class TestCacheHitNieuweMeldingen(_MetRequest):
     def tearDown(self):
         po.wis_portfolio_basis_cache(TEST_CODE)
 
-    @patch("portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
-    @patch("portfolio_orchestratie._meld_datakwaliteit")
-    @patch("portfolio_orchestratie.get_prices")
-    @patch("portfolio_orchestratie.db_get_koers_splits", return_value={})
-    @patch("db.db_connect")
+    @patch("backend.portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
+    @patch("backend.portfolio_orchestratie._meld_datakwaliteit")
+    @patch("backend.portfolio_orchestratie.get_prices")
+    @patch("backend.portfolio_orchestratie.db_get_koers_splits", return_value={})
+    @patch("backend.db.db_connect")
     def test_hit_geeft_koersmeldingen_opnieuw_zonder_laadtijden(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit, _mock_promo):
         mock_conn.side_effect = lambda: _fake_conn()
         index = pd.date_range("2024-01-01", "2024-02-29", freq="D")

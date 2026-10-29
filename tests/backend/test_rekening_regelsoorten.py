@@ -9,11 +9,11 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from diagnostiek import INFO, LET_OP
-from diagnostiek_checks import check_rekening_regelsoorten
-import rekening_regelsoorten as rs
-from dividend import bereken_kassaldo, bouw_rekening_regels, promotie_bedragen, verwerk_rekeningoverzicht_df
-from rekening_regelsoorten import BEHANDELING, GEBRUIK_DIAGNOSTIEK, behandeling, regelsoort
+from backend.diagnostiek import INFO, LET_OP
+from backend.diagnostiek_checks import check_rekening_regelsoorten
+from backend import rekening_regelsoorten as rs
+from backend.dividend import bereken_kassaldo, bouw_rekening_regels, promotie_bedragen, verwerk_rekeningoverzicht_df
+from backend.rekening_regelsoorten import BEHANDELING, GEBRUIK_DIAGNOSTIEK, behandeling, regelsoort
 
 SWEEP = "Degiro Cash Sweep Transfer"
 OVERBOEKING_VAN = "Overboeking van uw geldrekening bij flatexDEGIRO Bank 400 EUR"

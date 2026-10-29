@@ -15,8 +15,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_zekerheid
-from ticker_zekerheid import basis_ticker_zekerheid_parallel
+from backend import ticker_zekerheid
+from backend.ticker_zekerheid import basis_ticker_zekerheid_parallel
 
 
 def _basis_voor_een_positie(product, isin, beurs):

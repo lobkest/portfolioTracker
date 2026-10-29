@@ -27,7 +27,7 @@ class TestWijzigPortfolioCode(unittest.TestCase):
     BESTAAND = "TESTSB"
 
     def _leeg_op(self, code):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (code,))
@@ -41,7 +41,7 @@ class TestWijzigPortfolioCode(unittest.TestCase):
         for code in (self.OUD, self.NIEUW, self.BESTAAND):
             self._leeg_op(code)
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.OUD, "unittest"))
@@ -64,7 +64,7 @@ class TestWijzigPortfolioCode(unittest.TestCase):
             self._leeg_op(code)
 
     def test_wijzigen_naar_vrije_code_slaagt(self):
-        from db import db_wijzig_portfolio_code, db_connect
+        from backend.db import db_wijzig_portfolio_code, db_connect
 
         success, foutmelding = db_wijzig_portfolio_code(self.OUD, self.NIEUW)
         self.assertTrue(success)
@@ -80,8 +80,8 @@ class TestWijzigPortfolioCode(unittest.TestCase):
         conn.close()
 
     def test_gekoppelde_transacties_en_dividenden_volgen_de_nieuwe_code(self):
-        from db import db_wijzig_portfolio_code, db_connect
-        from dividend import bereken_dividend_samenvatting
+        from backend.db import db_wijzig_portfolio_code, db_connect
+        from backend.dividend import bereken_dividend_samenvatting
 
         success, _ = db_wijzig_portfolio_code(self.OUD, self.NIEUW)
         self.assertTrue(success)
@@ -101,7 +101,7 @@ class TestWijzigPortfolioCode(unittest.TestCase):
         self.assertIsNone(bereken_dividend_samenvatting(self.OUD))
 
     def test_wijzigen_naar_bestaande_code_faalt_zonder_overschrijven(self):
-        from db import db_connect, db_wijzig_portfolio_code
+        from backend.db import db_connect, db_wijzig_portfolio_code
 
         conn = db_connect()
         cur = conn.cursor()

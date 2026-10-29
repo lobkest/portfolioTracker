@@ -35,8 +35,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_zekerheid
-from ticker_zekerheid import verifieer_tickers_met_prijs_parallel, basis_ticker_zekerheid_parallel
+from backend import ticker_zekerheid
+from backend.ticker_zekerheid import verifieer_tickers_met_prijs_parallel, basis_ticker_zekerheid_parallel
 
 # find_ticker_met_snelle_prijscheck() roept sinds de OpenFIGI-root-check
 # (zie _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_

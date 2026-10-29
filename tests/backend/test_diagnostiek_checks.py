@@ -9,8 +9,8 @@ import pandas as pd
 PROJECT_MAP = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, PROJECT_MAP)
 
-from diagnostiek import INFO, LET_OP
-from diagnostiek_checks import (
+from backend.diagnostiek import INFO, LET_OP
+from backend.diagnostiek_checks import (
     MAX_BEVINDINGEN_PER_CHECK, check_ontbrekende_kolommen, check_posities_zonder_ticker,
     check_synthetische_order_ids, check_corporate_action_rijen, check_isin_wissels,
     MAX_RIJEN_PER_BEVINDING, maak_rijen_blok, check_valuta_consistentie,
@@ -149,8 +149,8 @@ class TestMeldDatakwaliteit(unittest.TestCase):
     def test_meldt_in_categorie_data_en_breekt_niet_bij_dbfout(self):
         from unittest.mock import patch
         from flask import Flask
-        import portfolio_orchestratie as po
-        from diagnostiek import haal_meldingen, CATEGORIE_DATA
+        from backend import portfolio_orchestratie as po
+        from backend.diagnostiek import haal_meldingen, CATEGORIE_DATA
 
         df = _df(_rij(tijd=None))
         app = Flask(__name__)

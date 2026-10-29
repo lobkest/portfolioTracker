@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from naam_verkorting import korte_naam, kies_korte_namen
+from backend.naam_verkorting import korte_naam, kies_korte_namen
 
 BLACKROCK = "BlackRock Asset Management Ireland - ETF"
 VANGUARD = "Vanguard Group (Ireland) Limited"

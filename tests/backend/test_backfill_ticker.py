@@ -27,8 +27,8 @@ try:
 except ImportError:
     from tests.db_helper import vereist_database
 
-import ticker_zekerheid
-from ticker_zekerheid import _ticker_heeft_prijsprobleem, backfill_verouderde_tickers
+from backend import ticker_zekerheid
+from backend.ticker_zekerheid import _ticker_heeft_prijsprobleem, backfill_verouderde_tickers
 
 
 def _prijscheck(afwijking_pct):
@@ -68,7 +68,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
     CODE = "TESTBF"
 
     def _leeg_op(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.CODE,))
@@ -78,7 +78,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         conn.close()
 
     def _voeg_positie_toe(self, isin, beurs, ticker, product="VANECK GOLD MINERS"):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute(
@@ -92,7 +92,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         conn.close()
 
     def _huidige_ticker(self, isin, beurs):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("SELECT ticker FROM transacties WHERE code = %s AND isin = %s AND beurs = %s", (self.CODE, isin, beurs))
@@ -103,7 +103,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
 
     def setUp(self):
         self._leeg_op()
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.CODE, "unittest"))
@@ -156,7 +156,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
 
     def _voeg_xela_keten_toe(self):
         """Twee markttransacties en een wisselpaar (00:00, zonder kosten) ertussen, alles met ticker XELA op NDQ."""
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         rijen = [
@@ -195,7 +195,7 @@ class TestBackfillVerouderdeTickers(unittest.TestCase):
         mock_find.assert_called_once()
         self.assertEqual(mock_find.call_args.args[1:3], (self.NIEUW_ISIN, "NDQ"))
         self.assertEqual(gecorrigeerd, 1)
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("SELECT ticker FROM transacties WHERE code = %s", (self.CODE,))

@@ -8,8 +8,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from portfolio_verdeling import (
+from backend import portfolio_verdeling
+from backend.portfolio_verdeling import (
     bedrijven_verdeling_uit, bereken_bedrijven_verdeling, bereken_etf_overlap, compute_land_sector_verdeling,
     etf_overlap_uit, land_sector_verdeling_uit, waarde_per_ticker_nu,
 )

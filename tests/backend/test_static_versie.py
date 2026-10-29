@@ -7,7 +7,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from flask import Flask, render_template_string
 
-from static_versie import StaticVersies, bestand_hash, registreer_static_versies
+from backend.static_versie import StaticVersies, bestand_hash, registreer_static_versies
 
 
 def _schrijf(pad, inhoud):

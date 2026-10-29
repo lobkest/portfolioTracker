@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import voortgang
-from voortgang import bereken_procent, meld_stap, Voortgang, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN
+from backend import voortgang
+from backend.voortgang import bereken_procent, meld_stap, Voortgang, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN
 
 STAPPEN = (("a", "A", 10), ("b", "B", 30), ("c", "C", 60))
 

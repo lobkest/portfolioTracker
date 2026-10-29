@@ -10,14 +10,14 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import portfolio_orchestratie as po
-from aansluitingskosten import (
+from backend import db
+from backend import portfolio_orchestratie as po
+from backend.aansluitingskosten import (
     BEURS_ONBEKEND, bouw_aansluitingskosten_samenvatting, parse_aansluitingskosten, voeg_beurs_resultaat_toe)
-from db import TRANSACTIE_KOLOMMEN
-from dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
-from rekening_regelsoorten import REGELSOORT_AANSLUITINGSKOSTEN, regelsoort
-from statistieken import bereken_totale_transactiekosten
+from backend.db import TRANSACTIE_KOLOMMEN
+from backend.dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
+from backend.rekening_regelsoorten import REGELSOORT_AANSLUITINGSKOSTEN, regelsoort
+from backend.statistieken import bereken_totale_transactiekosten
 
 TEST_CODE = "test_aansluitingskosten"
 

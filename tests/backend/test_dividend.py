@@ -17,8 +17,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import dividend
-from dividend import verwerk_rekeningoverzicht_df, _koppel_valutaconversie_paren
+from backend import dividend
+from backend.dividend import verwerk_rekeningoverzicht_df, _koppel_valutaconversie_paren
 
 
 def _rij(datum, tijd, omschrijving, mutatie, valuta_mutatie, product=None, isin=None):
@@ -219,7 +219,7 @@ class TestDividendSamenvattingHerinvesteerd(unittest.TestCase):
     def _samenvatting(self, dividenden):
         conn = MagicMock()
         conn.cursor.return_value.fetchall.return_value = []
-        with patch.object(dividend, "db_get_dividenden", return_value=dividenden),              patch("db.db_connect", return_value=conn):
+        with patch.object(dividend, "db_get_dividenden", return_value=dividenden),              patch("backend.db.db_connect", return_value=conn):
             return dividend.bereken_dividend_samenvatting("TST")
 
     def test_vlag_komt_als_bool_in_de_lijst(self):

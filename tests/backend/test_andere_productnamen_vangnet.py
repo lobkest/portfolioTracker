@@ -10,9 +10,7 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import upload_verwerking
-
-
+from backend import upload_verwerking
 def _excel():
     return pd.DataFrame({
         "Datum": pd.to_datetime(["2024-01-10", "2024-02-10", "2024-03-10"]),

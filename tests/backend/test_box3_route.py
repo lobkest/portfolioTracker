@@ -55,7 +55,7 @@ class TestBox3Routes(unittest.TestCase):
                             "netto_inleg": 0, "kosten": 0, "kosten_onvolledig": False, "dividend_bruto": None,
                             "dividendbelasting": None, "gerealiseerd": 0}],
                  "verkopen": [], "latente_winst": 0, "dividend_beschikbaar": False}
-        import db
+        from backend import db
         with patch.object(db, "db_connect", side_effect=AssertionError("database geraakt")):
             res = self.client.post("/api/box3/bereken", json={"basis": basis, "invoer": {"fiscale_partner": False}})
         self.assertEqual(res.status_code, 200)

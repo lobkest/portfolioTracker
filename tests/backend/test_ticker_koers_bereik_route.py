@@ -34,7 +34,7 @@ class TestTickerKoersBereikRoute(unittest.TestCase):
         self.client = app_module.app.test_client()
         self._opschonen()
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
@@ -46,7 +46,7 @@ class TestTickerKoersBereikRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM portfolios WHERE code = %s", (self.TEST_CODE,))

@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_verdeling import _voeg_kleine_landen_samen, LAND_OVERIG_DREMPEL
+from backend.portfolio_verdeling import _voeg_kleine_landen_samen, LAND_OVERIG_DREMPEL
 
 
 class TestVoegKleineLandenSamen(unittest.TestCase):

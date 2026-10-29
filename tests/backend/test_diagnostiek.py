@@ -24,8 +24,8 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import diagnostiek
-from diagnostiek import meld, haal_meldingen, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, FOUT
+from backend import diagnostiek
+from backend.diagnostiek import meld, haal_meldingen, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, FOUT
 
 
 class TestMeld(unittest.TestCase):
@@ -162,7 +162,7 @@ class TestExcelWisselkoersMelding(unittest.TestCase):
     identiek aan vóór de wijziging (Koers / Wisselkoers, anders Koers)."""
 
     def setUp(self):
-        import upload_verwerking
+        from backend import upload_verwerking
         self.uv = upload_verwerking
         self.app = Flask(__name__)
 
@@ -198,11 +198,11 @@ class TestFxReeksMelding(unittest.TestCase):
     """_fx_prijzen_serie() met get_prices gemockt."""
 
     def setUp(self):
-        import prijzen
+        from backend import prijzen
         self.prijzen = prijzen
         self.app = Flask(__name__)
 
-    @patch("prijzen.get_prices")
+    @patch("backend.prijzen.get_prices")
     def test_lege_serie_geeft_fout(self, mock_get_prices):
         mock_get_prices.return_value = pd.DataFrame()
         with self.app.test_request_context():
@@ -214,7 +214,7 @@ class TestFxReeksMelding(unittest.TestCase):
         self.assertEqual(meldingen[0]["sleutel"], "USDEUR=X")
         self.assertIn("USD -> EUR: geen koersdata van Yahoo (USDEUR=X)", meldingen[0]["tekst"])
 
-    @patch("prijzen.get_prices")
+    @patch("backend.prijzen.get_prices")
     def test_gevulde_serie_geeft_goed(self, mock_get_prices):
         index = pd.to_datetime(["2024-01-02", "2024-01-03", "2024-01-04"])
         mock_get_prices.return_value = pd.DataFrame({"USDEUR=X": [0.91, None, 0.92]}, index=index)
@@ -229,7 +229,7 @@ class TestFxReeksMelding(unittest.TestCase):
             "USD -> EUR via Yahoo (USDEUR=X): 2 koersen, vanaf 2024-01-02; gedownload.",
         )
 
-    @patch("prijzen.get_prices")
+    @patch("backend.prijzen.get_prices")
     def test_buiten_context_geen_crash(self, mock_get_prices):
         mock_get_prices.return_value = pd.DataFrame()
         self.assertTrue(self.prijzen._fx_prijzen_serie("USD").empty)
@@ -261,7 +261,7 @@ class TestBasisCacheMeldingen(unittest.TestCase):
     de meldingen van de miss moeten toch opnieuw meekomen."""
 
     def setUp(self):
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         self.po = portfolio_orchestratie
         self.app = Flask(__name__)
         self.po.wis_portfolio_basis_cache(TEST_CODE)
@@ -269,11 +269,11 @@ class TestBasisCacheMeldingen(unittest.TestCase):
     def tearDown(self):
         self.po.wis_portfolio_basis_cache(TEST_CODE)
 
-    @patch("portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
-    @patch("portfolio_orchestratie._meld_datakwaliteit")
-    @patch("portfolio_orchestratie.get_prices")
-    @patch("portfolio_orchestratie.db_get_koers_splits", return_value={})
-    @patch("db.db_connect")
+    @patch("backend.portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
+    @patch("backend.portfolio_orchestratie._meld_datakwaliteit")
+    @patch("backend.portfolio_orchestratie.get_prices")
+    @patch("backend.portfolio_orchestratie.db_get_koers_splits", return_value={})
+    @patch("backend.db.db_connect")
     def test_hit_geeft_meldingen_opnieuw_mee(self, mock_conn, _mock_splits, mock_get_prices, _mock_datakwaliteit, _mock_promo):
         mock_conn.side_effect = lambda: _fake_conn()
 

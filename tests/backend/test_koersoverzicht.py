@@ -5,7 +5,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
-from koersoverzicht import PERIODES, bouw_koersoverzicht, periode_grens
+from backend.koersoverzicht import PERIODES, bouw_koersoverzicht, periode_grens
 
 VANDAAG = date(2024, 3, 6)
 

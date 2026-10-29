@@ -8,9 +8,9 @@ import psycopg2
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-from debug_utils import maak_foutcode, FOUTCODE_LENGTE
-from voortgang import Voortgang, zet_voortgang, reset_voortgang, meld_stap, huidige_stap_tekst, STAPPEN_UPLOAD_OPSLAAN
+from backend import db
+from backend.debug_utils import maak_foutcode, FOUTCODE_LENGTE
+from backend.voortgang import Voortgang, zet_voortgang, reset_voortgang, meld_stap, huidige_stap_tekst, STAPPEN_UPLOAD_OPSLAAN
 
 
 def _nep_verbinding(gesloten=0):

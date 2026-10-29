@@ -5,9 +5,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_zekerheid
-from ticker_matching import _kies_beurs_match, BEURS_MAP
-from ticker_zekerheid import beurs_status, BEURS_OTC_NA_DELISTING, _voeg_kaartvelden_toe
+from backend import ticker_zekerheid
+from backend.ticker_matching import _kies_beurs_match, BEURS_MAP
+from backend.ticker_zekerheid import beurs_status, BEURS_OTC_NA_DELISTING, _voeg_kaartvelden_toe
 
 
 def _check(binnen_dagrange):

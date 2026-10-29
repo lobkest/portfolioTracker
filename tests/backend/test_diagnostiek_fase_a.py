@@ -13,14 +13,14 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie as po
-from diagnostiek import CATEGORIE_DATA, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP, haal_meldingen
-from diagnostiek_checks import (
+from backend import portfolio_orchestratie as po
+from backend.diagnostiek import CATEGORIE_DATA, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP, haal_meldingen
+from backend.diagnostiek_checks import (
     ANDERE_BEURS_PRIJS_KLOPT, MAX_BEVINDINGEN_PER_CHECK, beurs_oordeel, check_dividend_zonder_positie,
     check_isin_override, check_negatief_aantal, check_ontbrekende_kolommen, check_verversing, check_xirr,
     ticker_bevindingen,
 )
-from statistieken import bereken_statistieken
+from backend.statistieken import bereken_statistieken
 
 M = datetime.time(0, 0)
 

@@ -8,7 +8,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from transactie_resultaat import bereken_transactie_resultaten, laatste_koersen
+from backend.transactie_resultaat import bereken_transactie_resultaten, laatste_koersen
 
 NAN = float("nan")
 M = datetime.time(0, 0)

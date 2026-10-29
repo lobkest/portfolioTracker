@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from statistieken import bereken_totaal_degiro
+from backend.statistieken import bereken_totaal_degiro
 
 
 def _kassaldo(saldo, netto_gestort):

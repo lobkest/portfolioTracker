@@ -42,7 +42,7 @@ def _fake_conn():
 class TestBasisCache(unittest.TestCase):
     def setUp(self):
         import app as app_module
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         self.app_module = app_module
         self.portfolio_orchestratie = portfolio_orchestratie
         # Eigen entry opruimen vóór en na de test, nooit de hele cache leegen
@@ -50,15 +50,15 @@ class TestBasisCache(unittest.TestCase):
         portfolio_orchestratie._basis_cache.pop(TEST_CODE, None)
         self.addCleanup(portfolio_orchestratie._basis_cache.pop, TEST_CODE, None)
 
-        self._get_conn_patcher = patch("db.db_connect", side_effect=lambda: _fake_conn())
+        self._get_conn_patcher = patch("backend.db.db_connect", side_effect=lambda: _fake_conn())
         self.mock_get_conn = self._get_conn_patcher.start()
         self.addCleanup(self._get_conn_patcher.stop)
 
-        promo_patcher = patch("portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
+        promo_patcher = patch("backend.portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
         promo_patcher.start()
         self.addCleanup(promo_patcher.stop)
 
-        datakwaliteit_patcher = patch("portfolio_orchestratie._meld_datakwaliteit")
+        datakwaliteit_patcher = patch("backend.portfolio_orchestratie._meld_datakwaliteit")
         datakwaliteit_patcher.start()
         self.addCleanup(datakwaliteit_patcher.stop)
 

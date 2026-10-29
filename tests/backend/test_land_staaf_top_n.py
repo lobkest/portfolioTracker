@@ -21,8 +21,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from portfolio_verdeling import (
+from backend import portfolio_verdeling
+from backend.portfolio_verdeling import (
     _beperk_tot_top_n_per_bron, _voeg_kleine_landen_samen, compute_land_sector_verdeling,
     LAND_STAAF_TOP_N,
 )

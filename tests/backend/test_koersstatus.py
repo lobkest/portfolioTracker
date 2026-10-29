@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_orchestratie import bepaal_koersstatus, splits_voor_grafiek
+from backend.portfolio_orchestratie import bepaal_koersstatus, splits_voor_grafiek
 
 NAMEN = {"AA": "Alfa", "BB": "Beta", "CC": "Gamma"}
 

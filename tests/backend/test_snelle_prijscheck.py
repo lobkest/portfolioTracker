@@ -25,8 +25,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import ticker_zekerheid
-from ticker_zekerheid import (
+from backend import ticker_zekerheid
+from backend.ticker_zekerheid import (
     find_ticker_met_snelle_prijscheck, prijswaarschuwing_voor_ticker,
     ticker_waarschuwingen_voor_transacties, basis_ticker_zekerheid_parallel,
     vind_tickers_met_snelle_prijscheck_parallel,

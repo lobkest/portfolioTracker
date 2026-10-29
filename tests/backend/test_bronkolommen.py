@@ -13,9 +13,8 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import upload_verwerking as uv
-
+from backend import db
+from backend import upload_verwerking as uv
 try:
     from db_helper import vereist_database
 except ImportError:

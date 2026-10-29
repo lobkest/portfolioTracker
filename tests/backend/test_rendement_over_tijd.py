@@ -15,7 +15,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from statistieken import bereken_rendement_over_tijd, bereken_totaal_rendement
+from backend.statistieken import bereken_rendement_over_tijd, bereken_totaal_rendement
 
 
 class TestRendementOverTijd(unittest.TestCase):

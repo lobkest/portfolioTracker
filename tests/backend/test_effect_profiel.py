@@ -9,11 +9,11 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import effect_profiel
-import ticker_classificatie
-from effect_profiel import bouw_effect_profiel, verifieer_isin_bij_ticker, OnbekendEffect
-from portfolio_verdeling import land_pct_uit_holdings, sector_pct_met_restant, holdings_lijst_uit
+from backend import db
+from backend import effect_profiel
+from backend import ticker_classificatie
+from backend.effect_profiel import bouw_effect_profiel, verifieer_isin_bij_ticker, OnbekendEffect
+from backend.portfolio_verdeling import land_pct_uit_holdings, sector_pct_met_restant, holdings_lijst_uit
 
 ISIN = "IE00B5BMR087"
 DIST_ISIN = "IE0031442068"
@@ -357,7 +357,7 @@ class TestRoute(unittest.TestCase):
         self.assertIn("error", res.get_json())
 
     def test_valt_onder_de_externe_bron_limiet(self):
-        from toegangslimiet import REGELS_EXTERNE_BRON
+        from backend.toegangslimiet import REGELS_EXTERNE_BRON
         with patch.object(self.m, "bouw_effect_profiel", return_value={}):
             statussen = [self.client.get("/api/effect-profiel", query_string={"ticker": "A"},
                                          environ_base={"REMOTE_ADDR": "3.3.3.3"}).status_code

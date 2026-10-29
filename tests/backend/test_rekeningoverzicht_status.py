@@ -8,8 +8,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
-from rekeningoverzicht_status import (
+from backend.dividend import ORDER_ID_KOLOM_REKENING, bereken_kassaldo, bouw_rekening_regels
+from backend.rekeningoverzicht_status import (
     REDEN_BEGINSALDO, REDEN_BEGINT_TE_LAAT, REDEN_GESTORT_NUL, REDEN_GESTORT_TE_LAAG, REDEN_SALDO_NEGATIEF,
     beoordeel_rekeningoverzicht,
 )

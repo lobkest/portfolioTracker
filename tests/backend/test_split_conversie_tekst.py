@@ -11,9 +11,9 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from diagnostiek import CATEGORIE_SPLITS, haal_meldingen
-from portfolio_calc import bepaal_split_boekingen, compute_split_adjusted_shares, meld_split_koppeling
-from split_correctie import bepaal_effectieve_datums
+from backend.diagnostiek import CATEGORIE_SPLITS, haal_meldingen
+from backend.portfolio_calc import bepaal_split_boekingen, compute_split_adjusted_shares, meld_split_koppeling
+from backend.split_correctie import bepaal_effectieve_datums
 
 ISIN = "CNE100000296"
 TICKER = "BY6.MU"

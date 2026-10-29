@@ -7,9 +7,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import etf_proxy
-import ticker_classificatie
-from ticker_classificatie import get_etf_holdings
+from backend import etf_proxy
+from backend import ticker_classificatie
+from backend.ticker_classificatie import get_etf_holdings
 
 IUSA_ISIN = "IE0031442068"
 FONDSEN = [

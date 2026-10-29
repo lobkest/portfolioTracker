@@ -10,10 +10,10 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie
-import portfolio_verdeling
-from portfolio_calc import waarde_per_ticker_per_dag
-from portfolio_verdeling import (
+from backend import portfolio_orchestratie
+from backend import portfolio_verdeling
+from backend.portfolio_calc import waarde_per_ticker_per_dag
+from backend.portfolio_verdeling import (
     bereken_verdeling_over_tijd, compute_land_sector_verdeling, gewichten_per_land, gewichten_per_positie,
     gewichten_per_sector, land_sector_fracties,
 )

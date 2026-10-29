@@ -35,14 +35,14 @@ class TestTransactiesOverzichtRoute(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         self.client = app_module.app.test_client()
         koers_patch = patch.object(portfolio_orchestratie, "get_prices", return_value=_koersen())
         koers_patch.start()
         self.addCleanup(koers_patch.stop)
         self._opschonen()
 
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.TEST_CODE, "unittest"))
@@ -72,7 +72,7 @@ class TestTransactiesOverzichtRoute(unittest.TestCase):
         self._opschonen()
 
     def _opschonen(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.TEST_CODE,))
@@ -142,7 +142,7 @@ class TestTransactiesLijstNietOpslaan(unittest.TestCase):
 
     def test_zelfde_velden_dividend_altijd_none(self):
         import app as am
-        import portfolio_orchestratie as po
+        from backend import portfolio_orchestratie as po
         dividenden = [{"datum": date(2024, 3, 1), "isin": "NL0000000001", "netto_eur": 3.0, "herinvesteerd": False}]
         with am.app.test_request_context(),              patch.object(am, "ticker_resolutie_niet_opslaan", return_value=({}, [], [])),              patch.object(am, "bepaal_product_per_ticker", return_value={}),              patch.object(am, "bouw_transacties_df_niet_opslaan", return_value=self._transacties_df()),              patch.object(am, "bereken_kassaldo", return_value=None),              patch.object(am, "verwerk_dividend_zonder_opslaan", return_value=dividenden),              patch.object(am, "bouw_rekening_regels", return_value=[]),              patch.object(am, "meld_valuta_consistentie"),              patch.object(am, "meld_order_ids_rekening_uit_bestanden"),              patch.object(am, "bouw_dividend_samenvatting", return_value=None),              patch.object(po, "get_prices", return_value=_koersen()),              patch.object(po, "pas_effectieve_datums_toe", side_effect=lambda df: df),              patch.object(po, "analyze_transacties_kern", return_value={"chart_data": None}):
             result = am._analyseer_zonder_opslaan(pd.DataFrame(), pd.DataFrame({"x": [1]}), "")

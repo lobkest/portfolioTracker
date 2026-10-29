@@ -13,16 +13,16 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie as po
-from diagnostiek import CATEGORIE_DATA, CATEGORIE_SPLITS, CATEGORIE_TICKERS, GOED, INFO, LET_OP, haal_meldingen, meld
-from diagnostiek_checks import (
+from backend import portfolio_orchestratie as po
+from backend.diagnostiek import CATEGORIE_DATA, CATEGORIE_SPLITS, CATEGORIE_TICKERS, GOED, INFO, LET_OP, haal_meldingen, meld
+from backend.diagnostiek_checks import (
     beurs_oordeel, check_corporate_action_rijen, check_isin_wissels, check_ontbrekende_kolommen,
     check_openfigi_leeg, check_openfigi_root, check_synthetische_order_ids, check_ticker_info_onvolledig,
     check_ticker_samenvatting, check_valuta_consistentie, dis_acc_strijdigheden, openfigi_root_mismatches,
     ticker_bevindingen,
 )
-from portfolio_calc import bepaal_split_boekingen, compute_split_adjusted_shares, meld_split_koppeling
-from split_correctie import bepaal_effectieve_datums
+from backend.portfolio_calc import bepaal_split_boekingen, compute_split_adjusted_shares, meld_split_koppeling
+from backend.split_correctie import bepaal_effectieve_datums
 
 VWCE_ISIN = "IE00B3RBWM25"
 VWCE_DEGIRO = "VANGUARD FTSE ALL-WORLD UCITS ETF USD DIS"

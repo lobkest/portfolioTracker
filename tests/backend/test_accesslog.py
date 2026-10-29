@@ -8,8 +8,8 @@ from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import accesslog
-from accesslog import accesslog_regel
+from backend import accesslog
+from backend.accesslog import accesslog_regel
 
 
 class TestAccesslogRegel(unittest.TestCase):

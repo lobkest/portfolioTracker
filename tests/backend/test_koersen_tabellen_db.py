@@ -18,7 +18,7 @@ T1, T2, T3 = "ZZTESTKOERS1", "ZZTESTKOERS2", "ZZTESTKOERS3"
 
 
 def _ruim_op():
-    from db import db_connect
+    from backend.db import db_connect
     conn = db_connect()
     cur = conn.cursor()
     for tabel in ("koersen", "koers_splits"):
@@ -35,7 +35,7 @@ class TestKoersenTabellen(unittest.TestCase):
         self.addCleanup(_ruim_op)
 
     def test_opslaan_en_ophalen_van_ruwe_koersen(self):
-        from db import db_save_koersen, db_get_gecachte_koersen
+        from backend.db import db_save_koersen, db_get_gecachte_koersen
         db_save_koersen(
             [(T1, date(2021, 1, 25), 0.8737), (T1, date(2021, 1, 26), 2.51), (T2, date(2021, 1, 26), 10.0)],
             {T1: {"2021-01-26": 1 / 3}, T2: {}},
@@ -47,13 +47,13 @@ class TestKoersenTabellen(unittest.TestCase):
                          [(T1, date(2021, 1, 25), 0.8737), (T1, date(2021, 1, 26), 2.51), (T2, date(2021, 1, 26), 10.0)])
 
     def test_start_datum_filtert_de_koersrijen(self):
-        from db import db_save_koersen, db_get_gecachte_koersen
+        from backend.db import db_save_koersen, db_get_gecachte_koersen
         db_save_koersen([(T1, date(2021, 1, 25), 1.0), (T1, date(2021, 1, 26), 2.0)], {T1: {}})
         _, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 26))
         self.assertEqual([(d, float(k)) for _, d, k in koersen], [(date(2021, 1, 26), 2.0)])
 
     def test_splits_leeg_is_iets_anders_dan_onbekend(self):
-        from db import db_save_koersen, db_get_koers_splits
+        from backend.db import db_save_koersen, db_get_koers_splits
         db_save_koersen([(T1, date(2021, 1, 26), 2.51), (T2, date(2021, 1, 26), 10.0)], {T1: {"2021-01-26": 0.5}, T2: {}})
         splits = db_get_koers_splits([T1, T2, T3])
         self.assertEqual(splits[T1], {"2021-01-26": 0.5})
@@ -61,7 +61,7 @@ class TestKoersenTabellen(unittest.TestCase):
         self.assertNotIn(T3, splits)
 
     def test_tweede_keer_opslaan_werkt_bij_en_voegt_splits_samen(self):
-        from db import db_save_koersen, db_get_gecachte_koersen, db_get_koers_splits
+        from backend.db import db_save_koersen, db_get_gecachte_koersen, db_get_koers_splits
         db_save_koersen([(T1, date(2021, 1, 26), 1.0)], {T1: {"2021-01-26": 0.5}})
         db_save_koersen([(T1, date(2021, 1, 26), 1.5), (T1, date(2021, 1, 27), 2.0)], {T1: {"2022-07-26": 0.05}})
         _, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 1))
@@ -69,14 +69,14 @@ class TestKoersenTabellen(unittest.TestCase):
         self.assertEqual(db_get_koers_splits([T1])[T1], {"2021-01-26": 0.5, "2022-07-26": 0.05})
 
     def test_mislukte_splits_laten_geen_koersen_achter(self):
-        from db import db_save_koersen, db_get_gecachte_koersen
+        from backend.db import db_save_koersen, db_get_gecachte_koersen
         with self.assertRaises(Exception):
             db_save_koersen([(T1, date(2021, 1, 26), 1.0)], {T1: {"2021-01-26": None}})
         datums, _, koersen = db_get_gecachte_koersen([T1], date(2021, 1, 1))
         self.assertEqual((datums, koersen), ({}, []))
 
     def test_laatste_koers_update(self):
-        from db import db_save_koersen, db_get_laatste_koers_update
+        from backend.db import db_save_koersen, db_get_laatste_koers_update
         self.assertEqual(db_get_laatste_koers_update([]), (None, None))
         self.assertEqual(db_get_laatste_koers_update([T1]), (None, None))
         db_save_koersen([(T1, date(2021, 1, 25), 1.0), (T1, date(2021, 1, 26), 2.0)], {T1: {}})

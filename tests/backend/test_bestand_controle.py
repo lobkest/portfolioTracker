@@ -10,11 +10,11 @@ from werkzeug.datastructures import FileStorage
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import bestand_controle
-from bestand_controle import controleer_excel_bestand, controleer_aantal_rijen
-from dividend import lees_rekeningoverzicht
-from transactie_utils import OngeldigExcelBestand
-from upload_verwerking import lees_transacties_excel
+from backend import bestand_controle
+from backend.bestand_controle import controleer_excel_bestand, controleer_aantal_rijen
+from backend.dividend import lees_rekeningoverzicht
+from backend.transactie_utils import OngeldigExcelBestand
+from backend.upload_verwerking import lees_transacties_excel
 
 TEST_FILES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files")
 

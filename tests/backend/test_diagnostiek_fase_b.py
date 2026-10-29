@@ -13,24 +13,24 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie as po
-import ticker_prijscheck as tp
-from diagnostiek import (
+from backend import portfolio_orchestratie as po
+from backend import ticker_prijscheck as tp
+from backend.diagnostiek import (
     CATEGORIE_ETF_HOLDINGS, CATEGORIE_ORDER_IDS, CATEGORIE_REKENINGOVERZICHT, CATEGORIE_WISSELKOERSEN,
     INFO, LET_OP, haal_meldingen,
 )
-from diagnostiek_checks import (
+from backend.diagnostiek_checks import (
     aantal_tekst, check_order_ids_rekening, check_prijscheck_zonder_fx, check_rekening_regelsoorten, kale_order_id,
 )
-from dividend import lees_rekeningoverzicht
-from rekening_regelsoorten import (
+from backend.dividend import lees_rekeningoverzicht
+from backend.rekening_regelsoorten import (
     REGELSOORT_CORPORATE_ACTION, REGELSOORT_DIVIDEND, REGELSOORT_DIVIDEND_HERINVESTERING, REGELSOORT_DIVIDENDBELASTING,
     REGELSOORT_KOOP_VERKOOP, REGELSOORT_KOSTEN, REGELSOORT_RENTE, REGELSOORT_PROMOTIE, REGELSOORT_STORTING_OPNAME,
     REGELSOORT_SWEEP, REGELSOORT_VALUTA_CREDITERING, REGELSOORT_VALUTA_DEBITERING, REGELSOORT_VERREKENING_AANDELEN,
     regelsoort,
 )
-from etf_holdings_provider import aanbieder_naam
-from upload_verwerking import lees_transacties_excel, _meld_rekening_regelsoorten
+from backend.etf_holdings_provider import aanbieder_naam
+from backend.upload_verwerking import lees_transacties_excel, _meld_rekening_regelsoorten
 
 TEST_FILES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files")
 U1 = "00000000-0000-4000-8000-000000000001"

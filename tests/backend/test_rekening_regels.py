@@ -8,8 +8,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-from dividend import lees_rekeningoverzicht, bouw_rekening_regels
+from backend import db
+from backend.dividend import lees_rekeningoverzicht, bouw_rekening_regels
 
 try:
     from db_helper import vereist_database

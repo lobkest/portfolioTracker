@@ -12,9 +12,9 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import upload_verwerking as uv
-from diagnostiek import (
+from backend import db
+from backend import upload_verwerking as uv
+from backend.diagnostiek import (
     CATEGORIE_DATA, CATEGORIE_DIVIDEND, CATEGORIE_KOERSEN, CATEGORIE_LAADTIJDEN, CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS,
     CATEGORIE_REKENINGOVERZICHT, CATEGORIE_TICKERS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, alleen_bij_upload,
     meld, upload_meldingen_om_te_bewaren,

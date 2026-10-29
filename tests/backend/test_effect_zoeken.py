@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import effect_zoeken
-from effect_zoeken import (
+from backend import effect_zoeken
+from backend.effect_zoeken import (
     groepeer_noteringen, herken_isin, isin_kandidaten, normaliseer_fondsnaam, zoek_effecten, zoek_effecten_gecachet,
     wis_zoek_cache, noteringen_voor_isin_zoekopdracht, bepaal_isin_kandidaten,
 )

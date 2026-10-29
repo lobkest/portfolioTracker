@@ -12,9 +12,9 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_admin as pa
-import upload_verwerking as uv
-from portfolio_admin import (
+from backend import portfolio_admin as pa
+from backend import upload_verwerking as uv
+from backend.portfolio_admin import (
     FOUT_ANDERE_PORTFOLIO, FOUT_TRANSACTIES_ONTBREKEN, UploadHoortBijBestaandePortfolio,
     controleer_eigen_transactiebestand, find_matching_code,
 )

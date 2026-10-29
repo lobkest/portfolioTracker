@@ -17,10 +17,8 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import diagnostiek
-import prijzen
-
-
+from backend import diagnostiek
+from backend import prijzen
 def _fake_ticker(info):
     ticker = MagicMock()
     ticker.info = info
@@ -47,28 +45,28 @@ class TestHaalValutaOpDiagnostiek(unittest.TestCase):
         self.assertEqual(m["sleutel"], ticker)
         self.assertIn(tekst_deel, m["tekst"])
 
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen.yf.Ticker")
     def test_mislukte_opvraging_geeft_let_op(self, mock_ticker):
         mock_ticker.side_effect = RuntimeError("rate limit")
         valuta, meldingen = self._roep_aan_in_request("TTWO")
         self.assertEqual(valuta, "EUR")
         self._assert_een_let_op(meldingen, "TTWO", "Valuta van 'TTWO' niet op te halen bij Yahoo")
 
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen.yf.Ticker")
     def test_geen_valuta_geeft_let_op(self, mock_ticker):
         mock_ticker.return_value = _fake_ticker({})
         valuta, meldingen = self._roep_aan_in_request("XYZ")
         self.assertEqual(valuta, "EUR")
         self._assert_een_let_op(meldingen, "XYZ", "Yahoo geeft geen valuta voor 'XYZ'")
 
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen.yf.Ticker")
     def test_chf_geeft_let_op(self, mock_ticker):
         mock_ticker.return_value = _fake_ticker({"currency": "CHF"})
         valuta, meldingen = self._roep_aan_in_request("NESN.SW")
         self.assertEqual(valuta, "CHF")
         self._assert_een_let_op(meldingen, "NESN.SW", "Valuta CHF van 'NESN.SW' wordt niet ondersteund")
 
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen.yf.Ticker")
     def test_usd_en_eur_geven_geen_melding(self, mock_ticker):
         for valuta_yahoo, ticker in (("USD", "TTWO"), ("EUR", "ASML.AS")):
             mock_ticker.return_value = _fake_ticker({"currency": valuta_yahoo})
@@ -89,12 +87,12 @@ class TestConverteerNaarEurOngewijzigd(unittest.TestCase):
 
     def _converteer(self):
         # Lege valuta-cache: de valuta komt dan via yf.Ticker(...).info, zoals deze tests mocken.
-        with self.app.test_request_context(), redirect_stdout(io.StringIO()),                 patch("prijzen.db_get_ticker_details", return_value={}):
+        with self.app.test_request_context(), redirect_stdout(io.StringIO()),                 patch("backend.prijzen.db_get_ticker_details", return_value={}):
             prijzen._converteer_naar_eur(self.raw, ["T"])
             return diagnostiek.haal_meldingen()
 
-    @patch("prijzen._fx_prijzen_serie")
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen._fx_prijzen_serie")
+    @patch("backend.prijzen.yf.Ticker")
     def test_mislukte_opvraging_laat_koers_ongewijzigd(self, mock_ticker, mock_fx):
         mock_ticker.side_effect = RuntimeError("rate limit")
         meldingen = self._converteer()
@@ -102,8 +100,8 @@ class TestConverteerNaarEurOngewijzigd(unittest.TestCase):
         self.assertEqual([m["niveau"] for m in meldingen], [diagnostiek.LET_OP])
         mock_fx.assert_not_called()
 
-    @patch("prijzen._fx_prijzen_serie")
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen._fx_prijzen_serie")
+    @patch("backend.prijzen.yf.Ticker")
     def test_chf_laat_koers_ongewijzigd(self, mock_ticker, mock_fx):
         mock_ticker.return_value = _fake_ticker({"currency": "CHF"})
         meldingen = self._converteer()
@@ -111,8 +109,8 @@ class TestConverteerNaarEurOngewijzigd(unittest.TestCase):
         self.assertEqual([m["niveau"] for m in meldingen], [diagnostiek.LET_OP])
         mock_fx.assert_not_called()
 
-    @patch("prijzen._fx_prijzen_serie")
-    @patch("prijzen.yf.Ticker")
+    @patch("backend.prijzen._fx_prijzen_serie")
+    @patch("backend.prijzen.yf.Ticker")
     def test_usd_wordt_omgerekend_zoals_voorheen(self, mock_ticker, mock_fx):
         mock_ticker.return_value = _fake_ticker({"currency": "USD"})
         mock_fx.return_value = self.fx

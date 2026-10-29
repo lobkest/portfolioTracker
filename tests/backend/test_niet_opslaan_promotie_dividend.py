@@ -11,11 +11,11 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import portfolio_orchestratie as po
-from db import TRANSACTIE_KOLOMMEN
-from dividend import ORDER_ID_KOLOM_REKENING, bouw_rekening_regels, promotie_bedragen
-from rekening_regelsoorten import OMSCHRIJVINGEN_PROMOTIE
+from backend import db
+from backend import portfolio_orchestratie as po
+from backend.db import TRANSACTIE_KOLOMMEN
+from backend.dividend import ORDER_ID_KOLOM_REKENING, bouw_rekening_regels, promotie_bedragen
+from backend.rekening_regelsoorten import OMSCHRIJVINGEN_PROMOTIE
 
 TEST_CODE = "test_niet_opslaan_promo"
 PROMOTIE = OMSCHRIJVINGEN_PROMOTIE[0]

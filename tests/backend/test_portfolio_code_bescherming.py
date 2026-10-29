@@ -7,9 +7,9 @@ from psycopg2 import errors as pg_errors
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import portfolio_admin
-from portfolio_admin import (
+from backend import db
+from backend import portfolio_admin
+from backend.portfolio_admin import (
     generate_code, maak_portfolio_met_nieuwe_code, find_matching_code, GeenVrijeCode,
     UploadHoortBijBestaandePortfolio, valideer_bijnaam, MAX_CODE_POGINGEN, MAX_BIJNAAM_LENGTE, is_geldige_code,
     MELDING_UPLOAD_HOORT_BIJ_BESTAANDE,

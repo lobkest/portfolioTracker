@@ -14,10 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie as po
-import portfolio_verdeling
-
-
+from backend import portfolio_orchestratie as po
+from backend import portfolio_verdeling
 def _transacties_df():
     return pd.DataFrame({
         "datum": [pd.Timestamp("2024-01-01")],

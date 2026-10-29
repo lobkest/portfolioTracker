@@ -32,7 +32,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
     TEST_CODE = "TESTDIV"
 
     def setUp(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (self.TEST_CODE,))
@@ -44,7 +44,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         conn.close()
 
     def tearDown(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM dividenden WHERE code = %s", (self.TEST_CODE,))
@@ -55,12 +55,12 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         conn.close()
 
     def _sla_op(self, records):
-        from db import db_save_dividenden, db_transactie
+        from backend.db import db_save_dividenden, db_transactie
         with db_transactie() as cur:
             db_save_dividenden(cur, self.TEST_CODE, records)
 
     def test_opgeslagen_dividend_komt_terug_in_de_samenvatting(self):
-        from dividend import bereken_dividend_samenvatting
+        from backend.dividend import bereken_dividend_samenvatting
 
         self._sla_op([{
             "dividend_id": "TEST-EUR-1", "datum": date(2024, 1, 1),
@@ -79,7 +79,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # dividend_id opnieuw opslaan met de gecorrigeerde waarde. Met
         # ON CONFLICT DO NOTHING zou de eerste (foutieve) waarde blijven
         # staan; met de upsert-fix moet de tweede (juiste) waarde winnen.
-        from dividend import bereken_dividend_samenvatting
+        from backend.dividend import bereken_dividend_samenvatting
 
         foutief = [{
             "dividend_id": "TEST-USD-1", "datum": date(2024, 2, 1),
@@ -110,8 +110,8 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         # (uitkeringslijst-feature, 2026-09-11): moet ongeaggregeerd per
         # uitkering teruggeven, nieuwste eerst, en een rij met
         # netto_eur=None (onbekende valutaconversie) NIET wegfilteren.
-        from db import db_connect
-        from dividend import bereken_dividend_samenvatting
+        from backend.db import db_connect
+        from backend.dividend import bereken_dividend_samenvatting
 
         # Eén ISIN heeft een gekoppelde transactie (dus een bijnaam/ticker
         # via isin_naar_bijnaam/isin_naar_ticker), de andere niet -- om de
@@ -170,7 +170,7 @@ class TestDividendOpslaanEnOphalen(unittest.TestCase):
         self.assertAlmostEqual(gekoppeld["netto_eur"], 2.0)
 
     def test_geen_dividenden_voor_deze_code_geeft_none(self):
-        from dividend import bereken_dividend_samenvatting
+        from backend.dividend import bereken_dividend_samenvatting
         # TEST_CODE bestaat als portfolio (zie setUp) maar heeft hier geen
         # dividendrijen -> moet None zijn, niet een lege-maar-beschikbare
         # samenvatting (dat onderscheid bepaalt de "niet geupload"-melding

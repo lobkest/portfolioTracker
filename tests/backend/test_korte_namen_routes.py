@@ -9,8 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie as po
-
+from backend import portfolio_orchestratie as po
 VOORSTELLEN = [
     {"ticker": "ASML.AS", "huidig": "ASML HOLDING NV", "voorstel": "ASML Holding"},
     {"ticker": "ONB.AS", "huidig": "ONBEKEND", "voorstel": None},

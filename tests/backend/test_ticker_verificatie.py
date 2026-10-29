@@ -38,10 +38,10 @@ try:
 except ImportError:
     from tests.db_helper import vereist_database
 
-import ticker_zekerheid
-import ticker_prijscheck
-from ticker_zekerheid import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, BEURS_MAP
-from ticker_prijscheck import _cumulatieve_split_factor
+from backend import ticker_zekerheid
+from backend import ticker_prijscheck
+from backend.ticker_zekerheid import verifieer_ticker_met_prijs, vergelijk_prijs_op_datum, BEURS_MAP
+from backend.ticker_prijscheck import _cumulatieve_split_factor
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
@@ -181,7 +181,7 @@ class TestPrijscheckCache(unittest.TestCase):
     TEST_DATUM = date(2023, 3, 15)
 
     def _cleanup(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute(
@@ -199,7 +199,7 @@ class TestPrijscheckCache(unittest.TestCase):
         self._cleanup()
 
     def test_tweede_aanroep_gebruikt_cache_geen_nieuwe_yahoo_call(self):
-        from ticker_zekerheid import vergelijk_prijs_op_datum
+        from backend.ticker_zekerheid import vergelijk_prijs_op_datum
 
         call_count = {"n": 0}
 

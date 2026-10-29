@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_verdeling import bereken_etf_holdings_lijst
+from backend.portfolio_verdeling import bereken_etf_holdings_lijst
 
 
 def holding(naam, gewicht, bron="provider_csv"):
@@ -14,7 +14,7 @@ def holding(naam, gewicht, bron="provider_csv"):
 
 
 def lijst(holdings, positie_waarde=None):
-    with patch("portfolio_verdeling.get_etf_holdings", return_value=holdings) as mock:
+    with patch("backend.portfolio_verdeling.get_etf_holdings", return_value=holdings) as mock:
         resultaat = bereken_etf_holdings_lijst("ETF", positie_waarde)
     mock.assert_called_once_with("ETF")
     return resultaat

@@ -13,8 +13,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_calc import compute_per_ticker
-from statistieken import bereken_holdings_en_gesloten, bereken_statistieken
+from backend.portfolio_calc import compute_per_ticker
+from backend.statistieken import bereken_holdings_en_gesloten, bereken_statistieken
 
 
 def _rij(datum, aantal, totaal_eur, ticker="TEST", koers=0.0, beurs="EAM"):

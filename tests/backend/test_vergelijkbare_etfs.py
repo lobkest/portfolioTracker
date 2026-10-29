@@ -8,9 +8,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import vergelijkbare_etfs as ve
-from vergelijkbare_etfs import (
+from backend import db
+from backend import vergelijkbare_etfs as ve
+from backend.vergelijkbare_etfs import (
     MAX_KANDIDATEN, MIN_OVERLAP_PCT, OnbekendeTicker, bron_uit_portfolio, fonds_profiel, gelijkenis_pct,
     kies_kandidaten_voor_bron, onderzoek_kandidaat, overlap_pct, selecteer_alternatieven, selecteer_onder_drempel, thuisnotering_van_vaneck,
     valideer_vergelijk_invoer, vaneck_kandidaten, zoek_vergelijkbare_etfs)

@@ -17,8 +17,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from portfolio_verdeling import compute_land_sector_verdeling
+from backend import portfolio_verdeling
+from backend.portfolio_verdeling import compute_land_sector_verdeling
 
 
 def _price_data(tickers, waarde=100.0, datum="2024-01-02"):

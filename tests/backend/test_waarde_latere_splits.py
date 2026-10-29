@@ -18,9 +18,9 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_orchestratie
-import prijzen
-from portfolio_calc import compute_value_over_time
+from backend import portfolio_orchestratie
+from backend import prijzen
+from backend.portfolio_calc import compute_value_over_time
 
 TICKER = "TST"
 ISIN = "XX0000000001"

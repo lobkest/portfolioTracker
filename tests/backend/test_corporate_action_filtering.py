@@ -33,9 +33,9 @@ try:
 except ImportError:
     from tests.db_helper import vereist_database
 
-import ticker_matching
-from ticker_matching import find_ticker_detailed
-from transactie_utils import _is_corporate_action_row
+from backend import ticker_matching
+from backend.ticker_matching import find_ticker_detailed
+from backend.transactie_utils import _is_corporate_action_row
 
 
 class TestIsCorporateActionRow(unittest.TestCase):
@@ -92,7 +92,7 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
     CODE = "TESTCA"
 
     def _leeg_op(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("DELETE FROM transacties WHERE code = %s", (self.CODE,))
@@ -102,12 +102,12 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
         conn.close()
 
     def setUp(self):
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         portfolio_orchestratie._basis_cache.pop(self.CODE, None)
         self.addCleanup(portfolio_orchestratie._basis_cache.pop, self.CODE, None)
 
         self._leeg_op()
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute("INSERT INTO portfolios (code, naam) VALUES (%s, %s)", (self.CODE, "unittest"))
@@ -146,7 +146,7 @@ class TestTickerZekerheidRouteFiltertCorporateActionRijen(unittest.TestCase):
 
     def test_regressie_normale_corporate_action_rij_op_beurs_deg_blijft_gefilterd(self):
         cur_code = self.CODE
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute(

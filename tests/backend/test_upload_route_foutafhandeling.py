@@ -21,7 +21,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from upload_verwerking import VERWACHTE_KOLOMMEN
+from backend.upload_verwerking import VERWACHTE_KOLOMMEN
 
 BESTAND_REKENING = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "test_files",
                                 "Account_test.xlsx")
@@ -70,7 +70,7 @@ class TestNietOpslaanGebruiktGoedkopeTickerMatch(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
-        import upload_verwerking
+        from backend import upload_verwerking
         self.app_module = app_module
         self.upload_verwerking = upload_verwerking
         self.client = app_module.app.test_client()
@@ -106,7 +106,7 @@ class TestUploadGeeftNetteFoutrespons(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
-        import upload_verwerking
+        from backend import upload_verwerking
         self.app_module = app_module
         self.upload_verwerking = upload_verwerking
         self.client = app_module.app.test_client()
@@ -133,7 +133,7 @@ class TestUploadOpslaan(unittest.TestCase):
 
     def setUp(self):
         import app as app_module
-        import db
+        from backend import db
         self.app_module = app_module
         self.client = app_module.app.test_client()
         self.conn = MagicMock()
@@ -143,7 +143,7 @@ class TestUploadOpslaan(unittest.TestCase):
         self._start(patch.object(app_module, "meld_valuta_consistentie"))
         self._start(patch.object(app_module, "ticker_per_isin_beurs_uit_basis", return_value={}))
         self._start(patch.object(app_module, "meld_order_ids_rekening"))
-        import upload_verwerking
+        from backend import upload_verwerking
         self.mock_bewaar = self._start(patch.object(upload_verwerking, "db_save_upload_meldingen"))
         self.mock_vind = self._start(patch.object(app_module, "vind_of_maak_portfolio"))
         self.mock_voeg_toe = self._start(patch.object(app_module, "voeg_nieuwe_transacties_toe"))

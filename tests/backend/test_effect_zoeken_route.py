@@ -6,9 +6,9 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import effect_zoeken
-from toegangslimiet import REGELS_ZOEKEN
+from backend import db
+from backend import effect_zoeken
+from backend.toegangslimiet import REGELS_ZOEKEN
 
 
 class TestZoekRoutes(unittest.TestCase):

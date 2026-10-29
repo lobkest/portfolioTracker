@@ -9,14 +9,14 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import beurs_alternatieven as ba
-import db
-import portfolio_orchestratie as po
-from aansluitingskosten import (
+from backend import beurs_alternatieven as ba
+from backend import db
+from backend import portfolio_orchestratie as po
+from backend.aansluitingskosten import (
     THUISBEURZEN, bouw_aansluitingskosten_samenvatting, bouw_alternatieven_invoer, voeg_beurs_resultaat_toe)
 from contextlib import ExitStack
-from dividend import ORDER_ID_KOLOM_REKENING, bouw_rekening_regels
-from beurs_alternatieven import (
+from backend.dividend import ORDER_ID_KOLOM_REKENING, bouw_rekening_regels
+from backend.beurs_alternatieven import (
     FOUT_ALGEMEEN, STATUS_FOUT, STATUS_GEVONDEN, STATUS_NIET_GEVONDEN, STATUS_WAARSCHUWING, beoordeel_positie,
     bouw_beurs_alternatieven, haal_alternatieven, onderzoek_isin, thuisnoteringen, valideer_alternatieven_invoer,
     valideer_beurscode, wis_onderzoek_cache)
@@ -286,7 +286,7 @@ class TestNetwerklaag(unittest.TestCase):
         self.assertEqual(zoek.call_count, 2)
 
     def test_zoekcache_bewaart_alleen_gevulde_uitslagen(self):
-        import effect_zoeken
+        from backend import effect_zoeken
         effect_zoeken.wis_zoek_cache()
         self.addCleanup(effect_zoeken.wis_zoek_cache)
         with patch.object(effect_zoeken, "_yahoo_search", return_value=[]) as zoek:

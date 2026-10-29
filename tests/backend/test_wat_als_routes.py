@@ -10,13 +10,13 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-import effect_profiel
-import portfolio_orchestratie as po
-import portfolio_verdeling
-from effect_profiel import GeenKoers, OnbekendEffect, bouw_aankoop
-from toegangslimiet import REGELS_EXTERNE_BRON
-from wat_als import MAX_AANTAL_WAT_ALS, MAX_POSITIES_WAT_ALS, valideer_aankoop_invoer, valideer_posities, simuleer_aankoop
+from backend import db
+from backend import effect_profiel
+from backend import portfolio_orchestratie as po
+from backend import portfolio_verdeling
+from backend.effect_profiel import GeenKoers, OnbekendEffect, bouw_aankoop
+from backend.toegangslimiet import REGELS_EXTERNE_BRON
+from backend.wat_als import MAX_AANTAL_WAT_ALS, MAX_POSITIES_WAT_ALS, valideer_aankoop_invoer, valideer_posities, simuleer_aankoop
 
 ISIN = "IE00B5BMR087"
 ETF_ISIN = "IE00BK5BQT80"

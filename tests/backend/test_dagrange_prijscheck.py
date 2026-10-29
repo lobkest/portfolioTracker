@@ -28,10 +28,10 @@ try:
 except ImportError:
     from tests.db_helper import vereist_database
 
-import ticker_zekerheid
-import ticker_prijscheck
-from ticker_zekerheid import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
-from ticker_prijscheck import DAGRANGE_TOLERANTIE
+from backend import ticker_zekerheid
+from backend import ticker_prijscheck
+from backend.ticker_zekerheid import vergelijk_prijs_op_datum, verifieer_ticker_met_prijs
+from backend.ticker_prijscheck import DAGRANGE_TOLERANTIE
 
 # verifieer_ticker_met_prijs() roept sinds de OpenFIGI-root-check (zie
 # _voeg_openfigi_check_toe in ticker_zekerheid.py) altijd haal_openfigi_resultaten()
@@ -197,7 +197,7 @@ class TestBackfillHighLowDoUpdate(unittest.TestCase):
     TEST_DATUM = date(2023, 3, 15)
 
     def _cleanup(self):
-        from db import db_connect
+        from backend.db import db_connect
         conn = db_connect()
         cur = conn.cursor()
         cur.execute(
@@ -215,7 +215,7 @@ class TestBackfillHighLowDoUpdate(unittest.TestCase):
         self._cleanup()
 
     def test_backfill_high_low_do_update(self):
-        from db import db_save_prijscheck, db_get_cached_prijscheck
+        from backend.db import db_save_prijscheck, db_get_cached_prijscheck
 
         # Eerste keer: alleen de slotkoers bekend (zoals een rij van vóór de
         # dagrange-uitbreiding), high/low blijven NULL.

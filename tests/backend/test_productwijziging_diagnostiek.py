@@ -8,11 +8,11 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from diagnostiek_checks import (
+from backend.diagnostiek_checks import (
     check_corporate_action_rijen, check_negatief_aantal, check_ontbrekende_kolommen, check_synthetische_order_ids,
 )
-from portfolio_calc import holdings_op_datums
-from statistieken import bereken_holdings_en_gesloten
+from backend.portfolio_calc import holdings_op_datums
+from backend.statistieken import bereken_holdings_en_gesloten
 
 BYD = "CNE100000296"
 D1, D2 = datetime.date(2025, 6, 10), datetime.date(2025, 7, 31)

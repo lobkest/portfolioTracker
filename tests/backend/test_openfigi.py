@@ -15,9 +15,9 @@ from unittest.mock import patch, Mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 import requests
-import ticker_zekerheid
-import ticker_matching
-from ticker_matching import haal_openfigi_resultaten
+from backend import ticker_zekerheid
+from backend import ticker_matching
+from backend.ticker_matching import haal_openfigi_resultaten
 
 
 def _mock_response(status_code=200, json_data=None):
@@ -46,7 +46,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.addCleanup(self._cache_get_patcher.stop)
         self.addCleanup(self._cache_save_patcher.stop)
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_succesvolle_match(self, mock_post):
         mock_post.return_value = _mock_response(200, [{
             "data": [{
@@ -61,7 +61,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertEqual(result["resultaten"][0]["ticker"], "AAPL")
         self.mock_save_cache.assert_called_once_with("US0378331005", result["resultaten"])
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_geen_match(self, mock_post):
         mock_post.return_value = _mock_response(200, [{"warning": "No identifier found."}])
         result = haal_openfigi_resultaten("XX0000000000")
@@ -71,7 +71,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         # haal_openfigi_resultaten) -- net zo stabiel als een positieve match.
         self.mock_save_cache.assert_called_once_with("XX0000000000", [])
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_rate_limit(self, mock_post):
         mock_post.return_value = _mock_response(429)
         result = haal_openfigi_resultaten("US0378331005")
@@ -79,7 +79,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIn("rate limit", result["fout"].lower())
         self.mock_save_cache.assert_not_called()
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_netwerkfout(self, mock_post):
         mock_post.side_effect = requests.exceptions.ConnectionError("boom")
         result = haal_openfigi_resultaten("US0378331005")
@@ -87,7 +87,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIn("niet bereikbaar", result["fout"].lower())
         self.mock_save_cache.assert_not_called()
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_meerdere_beursnoteringen(self, mock_post):
         mock_post.return_value = _mock_response(200, [{
             "data": [
@@ -98,21 +98,21 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         result = haal_openfigi_resultaten("IE00BK5BQT80")
         self.assertEqual(len(result["resultaten"]), 2)
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_lege_isin_geen_crash_geen_netwerkcall(self, mock_post):
         result = haal_openfigi_resultaten("")
         self.assertEqual(result["resultaten"], [])
         self.assertIsNotNone(result["fout"])
         mock_post.assert_not_called()
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_none_isin_geen_crash_geen_netwerkcall(self, mock_post):
         result = haal_openfigi_resultaten(None)
         self.assertEqual(result["resultaten"], [])
         self.assertIsNotNone(result["fout"])
         mock_post.assert_not_called()
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_onverwachte_status_code(self, mock_post):
         mock_post.return_value = _mock_response(500)
         result = haal_openfigi_resultaten("US0378331005")
@@ -120,7 +120,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIn("500", result["fout"])
         self.mock_save_cache.assert_not_called()
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_cache_hit_slaat_netwerkcall_over(self, mock_post):
         self.mock_get_cache.return_value = [{"ticker": "AAPL", "exchCode": "US"}]
         result = haal_openfigi_resultaten("US0378331005")
@@ -128,7 +128,7 @@ class TestHaalOpenfigiResultaten(unittest.TestCase):
         self.assertIsNone(result["fout"])
         self.assertEqual(result["resultaten"], [{"ticker": "AAPL", "exchCode": "US"}])
 
-    @patch("ticker_matching.requests.post")
+    @patch("backend.ticker_matching.requests.post")
     def test_cache_hit_op_geen_match_geeft_lege_lijst_geen_fout(self, mock_post):
         # Een eerder gecachete "geen match" (lege lijst, zie test_geen_match
         # hierboven) mag bij een volgende aanroep niet als fout terugkomen.

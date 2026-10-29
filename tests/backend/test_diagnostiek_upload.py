@@ -21,8 +21,8 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import upload_verwerking as uv
-from diagnostiek import (
+from backend import upload_verwerking as uv
+from backend.diagnostiek import (
     haal_meldingen, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP, FOUT,
 )
 
@@ -100,8 +100,8 @@ class TestOrderIdMeldingen(_MetRequest):
 class TestPortfolioCodeMelding(_MetRequest):
     def _roep_aan(self, match, missing_ids):
         df = _rijen(3)
-        with patch("upload_verwerking.find_matching_code", return_value=(match, missing_ids)), \
-             patch("upload_verwerking.maak_portfolio_met_nieuwe_code", return_value="NEW"):
+        with patch("backend.upload_verwerking.find_matching_code", return_value=(match, missing_ids)), \
+             patch("backend.upload_verwerking.maak_portfolio_met_nieuwe_code", return_value="NEW"):
             return self._in_request(uv.vind_of_maak_portfolio, MagicMock(), df, "")
 
     def test_nieuwe_portfolio(self):
@@ -275,8 +275,8 @@ class TestDividendMeldingen(_MetRequest):
         overig = _per_sleutel(meldingen)[uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_OVERIG]
         self.assertEqual((overig["niveau"], overig["tekst"]), (LET_OP, "Nog 3 uitkeringen zonder valutaconversie."))
 
-    @patch("upload_verwerking.db_save_dividenden")
-    @patch("upload_verwerking.verwerk_rekeningoverzicht_df")
+    @patch("backend.upload_verwerking.db_save_dividenden")
+    @patch("backend.upload_verwerking.verwerk_rekeningoverzicht_df")
     def test_verwerk_bestand_meldt_en_slaat_ongewijzigd_op(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]
         mock_verwerk.return_value = records
@@ -288,8 +288,8 @@ class TestDividendMeldingen(_MetRequest):
         dividend = [m["sleutel"] for m in meldingen if m["categorie"] == CATEGORIE_DIVIDEND]
         self.assertEqual(dividend, [uv.DIAGNOSTIEK_SLEUTEL_DIVIDEND_SAMENVATTING])
 
-    @patch("upload_verwerking.db_save_dividenden")
-    @patch("upload_verwerking.verwerk_rekeningoverzicht_df")
+    @patch("backend.upload_verwerking.db_save_dividenden")
+    @patch("backend.upload_verwerking.verwerk_rekeningoverzicht_df")
     def test_niet_opslaan_meldt_zonder_op_te_slaan(self, mock_verwerk, mock_save):
         records = [self._record("EUR")]
         mock_verwerk.return_value = records

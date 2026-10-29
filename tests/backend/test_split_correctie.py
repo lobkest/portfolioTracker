@@ -7,7 +7,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from split_correctie import (
+from backend.split_correctie import (
     DegiroSplitGebeurtenis,
     SPLIT_KOPPEL_MAX_DAGEN,
     continue_reeks,

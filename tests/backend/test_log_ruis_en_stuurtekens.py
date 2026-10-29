@@ -9,8 +9,8 @@ from unittest.mock import patch
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT)
 
-import debug_utils
-from debug_utils import meet_tijd, tprint, TIMING_DETAIL_VARIABELE, TIMING_TOTAAL_LABELS
+from backend import debug_utils
+from backend.debug_utils import meet_tijd, tprint, TIMING_DETAIL_VARIABELE, TIMING_TOTAAL_LABELS
 
 TOEGESTANE_STUURTEKENS = {9, 10, 13}
 

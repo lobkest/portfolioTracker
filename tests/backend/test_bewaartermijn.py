@@ -12,9 +12,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import bewaartermijn
-import db
-from bewaartermijn import verloopgrens, ruim_verlopen_portfolios_op, OPRUIM_MIN_INTERVAL_SECONDEN
+from backend import bewaartermijn
+from backend import db
+from backend.bewaartermijn import verloopgrens, ruim_verlopen_portfolios_op, OPRUIM_MIN_INTERVAL_SECONDEN
 
 NU = datetime(2026, 10, 16, 12, 0, 0)
 

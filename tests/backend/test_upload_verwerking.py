@@ -9,7 +9,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from upload_verwerking import (
+from backend.upload_verwerking import (
     VERWACHTE_KOLOMMEN, OngeldigExcelBestand, lees_transacties_excel, voeg_koers_eur_toe,
     vul_synthetische_order_ids_aan, _kolom_of_naamloze_buurkolom,
 )

@@ -59,7 +59,7 @@ def _price_data():
 class TestGefaseerdLaden(unittest.TestCase):
     def setUp(self):
         import app as app_module  # noqa: F401
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         self.portfolio_orchestratie = portfolio_orchestratie
         self._patchers = [
             patch.object(portfolio_orchestratie, "get_prices", return_value=_price_data()),
@@ -94,7 +94,7 @@ class TestGefaseerdLaden(unittest.TestCase):
     def test_verrijking_vraagt_bedrijven_tot_het_maximum_op(self):
         # De frontend kiest zelf N (10/20/50/eigen aantal) en knipt in; de
         # backend moet daarvoor tot BEDRIJVEN_TOP_N_MAX meeleveren.
-        from portfolio_verdeling import BEDRIJVEN_TOP_N_MAX
+        from backend.portfolio_verdeling import BEDRIJVEN_TOP_N_MAX
         with patch.object(
             self.portfolio_orchestratie, "bereken_bedrijven_verdeling", return_value={"top": []}
         ) as mock_bedrijven:

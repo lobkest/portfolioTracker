@@ -9,12 +9,12 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from portfolio_verdeling import (
+from backend import portfolio_verdeling
+from backend.portfolio_verdeling import (
     bedrijf_waarden, bedrijven_verdeling_uit, bereken_bedrijven_verdeling, bereken_etf_overlap, bouw_verdeling_invoer,
     land_sector_verdeling_uit,
 )
-from wat_als import simuleer_aankoop
+from backend.wat_als import simuleer_aankoop
 
 
 def holding(naam, gewicht):

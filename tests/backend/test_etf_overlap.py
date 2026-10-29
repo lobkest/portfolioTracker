@@ -14,8 +14,8 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from portfolio_verdeling import bereken_etf_overlap, bereken_etf_overlap_detail
+from backend import portfolio_verdeling
+from backend.portfolio_verdeling import bereken_etf_overlap, bereken_etf_overlap_detail
 
 
 def _price_data(tickers, waarde=100.0, datum="2024-01-02"):

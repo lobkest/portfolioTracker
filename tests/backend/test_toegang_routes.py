@@ -10,11 +10,11 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-from portfolio_admin import (
+from backend import db
+from backend.portfolio_admin import (
     GeenVrijeCode, UploadHoortBijBestaandePortfolio, MELDING_UPLOAD_HOORT_BIJ_BESTAANDE, MAX_BIJNAAM_LENGTE,
 )
-from toegangslimiet import REGELS_FOUTE_CODE, REGELS_FOUTE_CODE_GLOBAAL, REGELS_GEVOELIGE_ACTIE, REGELS_UPLOAD
+from backend.toegangslimiet import REGELS_FOUTE_CODE, REGELS_FOUTE_CODE_GLOBAAL, REGELS_GEVOELIGE_ACTIE, REGELS_UPLOAD
 
 
 def XFF_PER_BEZOEKER(adres):

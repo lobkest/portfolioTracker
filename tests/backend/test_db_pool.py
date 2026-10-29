@@ -7,9 +7,7 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import db
-
-
+from backend import db
 def _nep_verbinding():
     conn = MagicMock()
     conn.closed = 0

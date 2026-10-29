@@ -10,7 +10,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_verdeling import bereken_land_dekking
+from backend.portfolio_verdeling import bereken_land_dekking
 
 
 def _h(naam, gewicht, land, sector=None):

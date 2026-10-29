@@ -5,7 +5,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_verdeling import (
+from backend.portfolio_verdeling import (
     _gekozen_regios,
     _groepeer_regios_samen,
     _groepeer_regios_samen_per_bron,

@@ -31,11 +31,9 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import diagnostiek
-import prijzen
-import portfolio_calc
-
-
+from backend import diagnostiek
+from backend import prijzen
+from backend import portfolio_calc
 def _mock_conn(min_max_rows, laatst_ververst_rows, cached_rows):
     """Bouwt een gemockte db_connect()-return die na elkaar de drie
     execute()/fetchall()-aanroepen in get_prices() beantwoordt: eerst
@@ -53,10 +51,10 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
     """Opdracht 1+2: get_prices() moet een verouderde cache (oude MAX(datum))
     incrementeel verversen, niet stilzwijgend laten staan."""
 
-    @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_koersen")
-    @patch("prijzen.download_koersen_met_retry")
-    @patch("db.db_connect")
+    @patch("backend.prijzen.yf.Ticker")
+    @patch("backend.prijzen.db_save_koersen")
+    @patch("backend.prijzen.download_koersen_met_retry")
+    @patch("backend.db.db_connect")
     def test_verouderde_cache_wordt_incrementeel_ververst(
         self, mock_get_conn, mock_download, mock_upsert, mock_yf_ticker
     ):
@@ -87,10 +85,10 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         self.assertIn(vandaag, result.index)
         self.assertEqual(result.loc[vandaag, "AAPL"], 160.0)
 
-    @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_koersen")
-    @patch("prijzen.download_koersen_met_retry")
-    @patch("db.db_connect")
+    @patch("backend.prijzen.yf.Ticker")
+    @patch("backend.prijzen.db_save_koersen")
+    @patch("backend.prijzen.download_koersen_met_retry")
+    @patch("backend.db.db_connect")
     def test_ticker_met_rij_van_vandaag_wordt_toch_ververst(
         self, mock_get_conn, mock_download, mock_upsert, mock_yf_ticker
     ):
@@ -121,9 +119,9 @@ class TestGetPricesCacheFreshness(unittest.TestCase):
         mock_upsert.assert_called_once()
         self.assertEqual(result.loc[vandaag, "AAPL"], 205.0)
 
-    @patch("prijzen.db_save_koersen")
-    @patch("prijzen.download_koersen_met_retry")
-    @patch("db.db_connect")
+    @patch("backend.prijzen.db_save_koersen")
+    @patch("backend.prijzen.download_koersen_met_retry")
+    @patch("backend.db.db_connect")
     def test_net_ververste_ticker_wordt_niet_dubbel_bevraagd(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -153,9 +151,9 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
     behandelen (geen download), maar een écht ontbrekende ticker nog
     altijd downloaden."""
 
-    @patch("prijzen.db_save_koersen")
-    @patch("prijzen.download_koersen_met_retry")
-    @patch("db.db_connect")
+    @patch("backend.prijzen.db_save_koersen")
+    @patch("backend.prijzen.download_koersen_met_retry")
+    @patch("backend.db.db_connect")
     def test_stale_ticker_wordt_niet_ververst_als_verversen_false(
         self, mock_get_conn, mock_download, mock_upsert
     ):
@@ -175,10 +173,10 @@ class TestGetPricesVerversenFalse(unittest.TestCase):
         mock_upsert.assert_not_called()
         self.assertEqual(result.loc[vandaag, "AAPL"], 200.0)
 
-    @patch("prijzen.yf.Ticker")
-    @patch("prijzen.db_save_koersen")
-    @patch("prijzen.download_koersen_met_retry")
-    @patch("db.db_connect")
+    @patch("backend.prijzen.yf.Ticker")
+    @patch("backend.prijzen.db_save_koersen")
+    @patch("backend.prijzen.download_koersen_met_retry")
+    @patch("backend.db.db_connect")
     def test_missende_ticker_wordt_alsnog_gedownload_als_verversen_false(
         self, mock_get_conn, mock_download, mock_save, mock_yf_ticker
     ):

@@ -16,13 +16,13 @@ from flask import Flask
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from diagnostiek import haal_meldingen, LET_OP, INFO
-from portfolio_calc import (
+from backend.diagnostiek import haal_meldingen, LET_OP, INFO
+from backend.portfolio_calc import (
     bepaal_split_boekingen, compute_per_ticker, compute_per_ticker_koers_en_aankopen, compute_split_adjusted_shares,
     compute_value_over_time, meld_split_koppeling,
 )
-from statistieken import _bouw_xirr_cashflows
-from split_correctie import Wisselpaar, bepaal_effectieve_datums, isin_ketens, vind_wisselparen
+from backend.statistieken import _bouw_xirr_cashflows
+from backend.split_correctie import Wisselpaar, bepaal_effectieve_datums, isin_ketens, vind_wisselparen
 
 OUD_ISIN = "PLAATSHOUDER-OUD-ISIN"
 NIEUW_ISIN = "PLAATSHOUDER-NIEUW-ISIN"
@@ -236,7 +236,7 @@ class TestIsinKetens(unittest.TestCase):
 
 class TestWisselrijenUitDePrijscheck(_MetRequest):
     def _excel(self, rijen):
-        import upload_verwerking
+        from backend import upload_verwerking
         return pd.DataFrame({
             "Datum": rijen["datum"], "Tijd": rijen["tijd"], "Product": rijen["product"], "ISIN": rijen["isin"],
             "Beurs": rijen["beurs"], "Aantal": rijen["aantal"], "_koers_eur": rijen["koers"],
@@ -244,7 +244,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         })
 
     def _posities(self, excel):
-        import upload_verwerking
+        from backend import upload_verwerking
         return {(isin, beurs): transacties for _, isin, beurs, transacties in upload_verwerking._bouw_posities(excel)}
 
     def test_upload_wissel_is_een_positie_met_alleen_marktransacties(self):
@@ -261,14 +261,14 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         self.assertEqual(set(self._posities(self._excel(rijen))), {(OUD_ISIN, "NSQ"), (NIEUW_ISIN, "NSQ")})
 
     def test_upload_beide_isins_van_de_keten_krijgen_dezelfde_ticker(self):
-        import upload_verwerking
+        from backend import upload_verwerking
         excel = self._excel(_xela_rijen("NSQ", "XELA"))
         self.assertEqual(upload_verwerking._ticker_per_isin_beurs(excel, {(NIEUW_ISIN, "NSQ"): "XELA"}),
                          {(OUD_ISIN, "NSQ"): "XELA", (NIEUW_ISIN, "NSQ"): "XELA"})
 
     def test_upload_nieuwe_isin_erft_bekende_ticker_van_de_oude(self):
         from unittest.mock import patch
-        import upload_verwerking
+        from backend import upload_verwerking
         excel = self._excel(_xela_rijen("NSQ", "XELA"))
 
         def fake_check(posities, bekende_tickers):
@@ -282,14 +282,14 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         self.assertEqual(tickers, {(OUD_ISIN, "NSQ"): "XELA", (NIEUW_ISIN, "NSQ"): "XELA"})
 
     def test_bekende_ticker_van_de_eind_isin_gaat_voor(self):
-        import upload_verwerking
+        from backend import upload_verwerking
         bekend = {(OUD_ISIN, "NSQ"): "OUD.TICKER", (NIEUW_ISIN, "NSQ"): "XELA"}
         eind_van = {OUD_ISIN: NIEUW_ISIN, NIEUW_ISIN: NIEUW_ISIN}
         self.assertEqual(upload_verwerking._bekende_ticker_per_positie(bekend, eind_van), {(NIEUW_ISIN, "NSQ"): "XELA"})
 
     def test_niet_opslaan_ziet_een_samengevoegde_positie(self):
         from unittest.mock import patch
-        import upload_verwerking
+        from backend import upload_verwerking
         excel = self._excel(_xela_rijen("NSQ", "XELA"))
         with patch.object(upload_verwerking, "basis_ticker_zekerheid_parallel",
                           side_effect=lambda posities: [{"ticker": "XELA"} for _ in posities]):
@@ -301,7 +301,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
 
     def _groepen(self, df):
         from unittest.mock import patch
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         df = df.copy()
         df["echte_naam"] = df["product"]
         df["waarde_eur"] = None
@@ -338,7 +338,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
 
     def test_ticker_zekerheid_groepen_onbekende_code_geeft_none(self):
         from unittest.mock import patch
-        import portfolio_orchestratie
+        from backend import portfolio_orchestratie
         with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=(None, None)):
             self.assertIsNone(portfolio_orchestratie.ticker_zekerheid_groepen("ZZTEST"))
 

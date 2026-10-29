@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 class TestPaginaRoutes(unittest.TestCase):
     def setUp(self):
         import app as app_module
-        import db
+        from backend import db
         self.app_module = app_module
         self.client = app_module.app.test_client()
         patcher = patch.object(

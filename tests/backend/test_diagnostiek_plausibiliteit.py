@@ -12,12 +12,12 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from diagnostiek import GOED, INFO, LET_OP
-from diagnostiek_checks import (
+from backend.diagnostiek import GOED, INFO, LET_OP
+from backend.diagnostiek_checks import (
     MAX_BEVINDINGEN_PER_CHECK, check_dagsprong, check_transactiekoers_vs_rekenkoers, check_waarde_vs_inleg,
     tickers_met_koersafwijking, _naam_per_ticker,
 )
-from portfolio_calc import compute_per_ticker
+from backend.portfolio_calc import compute_per_ticker
 from test_waarde_latere_splits import TICKER, _Omgeving, _rij
 
 D = datetime.date

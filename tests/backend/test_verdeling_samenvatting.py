@@ -12,7 +12,7 @@ from decimal import Decimal
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from portfolio_verdeling import bereken_verdeling_samenvatting
+from backend.portfolio_verdeling import bereken_verdeling_samenvatting
 
 
 class TestVerdelingSamenvatting(unittest.TestCase):

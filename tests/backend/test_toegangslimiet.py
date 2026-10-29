@@ -4,7 +4,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from toegangslimiet import (
+from backend.toegangslimiet import (
     Toegangslimiet, Regel, wachttijd_tekst, CATEGORIE_FOUTE_CODE, CATEGORIE_GEVOELIGE_ACTIE, REGELS_FOUTE_CODE,
     MAX_BIJGEHOUDEN_SLEUTELS,
 )

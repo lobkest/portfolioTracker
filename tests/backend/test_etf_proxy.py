@@ -13,9 +13,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-import portfolio_verdeling
-from etf_proxy import kies_proxy, land_uit_holdings, vergelijk_top10
-from portfolio_verdeling import compute_land_sector_verdeling
+from backend import portfolio_verdeling
+from backend.etf_proxy import kies_proxy, land_uit_holdings, vergelijk_top10
+from backend.portfolio_verdeling import compute_land_sector_verdeling
 
 
 def _h(naam, gewicht_pct, ticker=None):
