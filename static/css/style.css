@@ -1221,6 +1221,36 @@ input.schakelaar:focus-visible {
     cursor: pointer;
 }
 
+.aansluitingTabel tbody tr {
+    cursor: pointer;
+}
+
+.aansluitingTabel .uitklapPijl {
+    background: transparent;
+    border: none;
+    margin: 0 4px 0 0;
+    padding: 0;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.aansluitingDetails {
+    margin-top: 6px;
+}
+
+.aansluitingNetto {
+    font-weight: bold;
+}
+
+.aansluitingUitleg details {
+    margin: 6px 0;
+}
+
+.aansluitingUitleg summary {
+    cursor: pointer;
+}
+
 .positieVerkocht {
     opacity: 0.7;
 }

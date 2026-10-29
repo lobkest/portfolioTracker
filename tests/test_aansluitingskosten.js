@@ -55,8 +55,8 @@ test("aansluitingskostenRijen: meerdere beurzen en jaren, hoogste totaal eerst",
     const rijen = aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING);
     assert.deepEqual(rijen.map(r => r.beurs), ["Voorbeeldbeurs AG (ZZZ)", "Xetra (XET)", "Euronext Amsterdam (EAM)"]);
     const xet = rijen.find(r => r.code === "XET");
-    assert.equal(xet.totaalTekst, "€5,00");
-    assert.equal(xet.perJaar, "2024 €2,50 · 2025 €2,50");
+    assert.equal(xet.kostenTekst, "-€5,00");
+    assert.equal(xet.aantalJarenTekst, "(2 jaar)");
 });
 
 test("aansluitingskostenRijen: beurs zonder huidige positie", () => {
@@ -77,14 +77,15 @@ test("aansluitingskostenRijen: onbekende beurs onderaan, zonder positie-oordeel"
     const rijen = aansluitingskostenRijen(s, BEURS_VERDELING);
     const laatste = rijen.at(-1);
     assert.equal(laatste.beurs, "Onbekende beurs");
-    assert.equal(laatste.perJaar, "jaar onbekend €9,00");
+    assert.equal(laatste.kostenTekst, "-€9,00");
+    assert.equal(laatste.aantalJarenTekst, "(1 jaar)");
     assert.equal(laatste.inBezit, null);
 });
 
 test("aansluitingskostenRijen: afronding op 2 decimalen, geen eigen berekening", () => {
     const s = { ...SAMENVATTING, per_beurs: [{ ...beurs("XET", "Xetra", "Xetra", [[2024, 1.005]]), totaal_eur: 1.004 }] };
     const [rij] = aansluitingskostenRijen(s, BEURS_VERDELING);
-    assert.equal(rij.totaalTekst, "€1,00");
+    assert.equal(rij.kostenTekst, "-€1,00");
     assert.equal(rij.totaal_eur, 1.004);
 });
 
@@ -170,7 +171,7 @@ test("aansluitingskostenRijen: zonder de nieuwe velden (oud antwoord) geen foute
 
 test("aansluitingskostenTotalen: alleen bij meer dan één beurs, bedragen uit de API", () => {
     assert.deepEqual(aansluitingskostenTotalen(MET_RESULTAAT, 3), {
-        kostenTekst: "€12,50", wvTekst: "€300,00", wvNaTekst: "€287,50", wv_na_eur: 287.5, transactiekostenTekst: "€6,00",
+        kostenTekst: "-€12,50", wvTekst: "€300,00", wvNaTekst: "€287,50", wv_na_eur: 287.5, transactiekostenTekst: "€6,00",
     });
     assert.equal(aansluitingskostenTotalen(MET_RESULTAAT, 1), null);
     assert.equal(aansluitingskostenTotalen(undefined, 3), null);

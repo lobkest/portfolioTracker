@@ -31,10 +31,12 @@
         return `${naam} (${beurs.code})`;
     }
 
-    function perJaarTekst(perJaar) {
-        return (perJaar || [])
-            .map(j => `${j.jaar === null || j.jaar === undefined ? "jaar onbekend" : j.jaar} ${formatteerEuro(j.bedrag_eur)}`)
-            .join(" · ");
+    function aantalJarenTekst(perJaar) {
+        return `(${(perJaar || []).length} jaar)`;
+    }
+
+    function kostenAlsAftrek(bedrag) {
+        return formatteerEuro(bedrag > 0 ? -bedrag : bedrag);
     }
 
     const STREEPJE = "–";
@@ -131,13 +133,14 @@
                 code: beurs.code,
                 beurs: beursWeergave(beurs),
                 totaal_eur: beurs.totaal_eur,
-                totaalTekst: formatteerEuro(beurs.totaal_eur),
-                perJaar: perJaarTekst(beurs.per_jaar),
+                kostenTekst: kostenAlsAftrek(beurs.totaal_eur),
+                aantalJarenTekst: aantalJarenTekst(beurs.per_jaar),
                 jaarRegels: jaarRegels(beurs),
                 positieRegel: positieRegel(beurs),
                 heeftOpenPositie: beurs.heeft_open_positie === true,
                 alternatievenInvoer: beurs.alternatieven_invoer || null,
                 betaaldDitJaar: beurs.betaald_dit_jaar === true,
+                wv_eur: beurs.wv_eur,
                 wv_na_eur: beurs.wv_na_aansluitingskosten_eur,
                 wvTekst: wvTekst(beurs.wv_eur, beurs.wv_volledig),
                 wvNaTekst: wvTekst(beurs.wv_na_aansluitingskosten_eur, beurs.wv_volledig),
@@ -156,7 +159,7 @@
         if (!heeftAansluitingskosten(samenvatting) || aantalRijen <= 1) return null;
         const volledig = samenvatting.totaal_wv_volledig;
         return {
-            kostenTekst: formatteerEuro(samenvatting.totaal_eur),
+            kostenTekst: kostenAlsAftrek(samenvatting.totaal_eur),
             wvTekst: wvTekst(samenvatting.totaal_wv_eur, volledig),
             wvNaTekst: wvTekst(samenvatting.totaal_wv_na_aansluitingskosten_eur, volledig),
             wv_na_eur: samenvatting.totaal_wv_na_aansluitingskosten_eur,

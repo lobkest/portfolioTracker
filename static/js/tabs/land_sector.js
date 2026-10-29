@@ -217,24 +217,50 @@ function maakGetalCel(tekst, klasse) {
     return td;
 }
 
-function maakJaarRegelsCel(r) {
+function maakRegel(tekst) {
+    const regel = document.createElement("div");
+    regel.className = "kleineMelding";
+    regel.textContent = tekst;
+    return regel;
+}
+
+function maakBeursUitklapCel(r) {
     const td = maakBeursNaamCel(r);
-    r.jaarRegels.forEach(tekst => {
-        const regel = document.createElement("div");
-        regel.className = "kleineMelding";
-        regel.textContent = tekst;
-        td.appendChild(regel);
-    });
-    if (r.betaaldDitJaar) {
-        const regel = document.createElement("div");
-        regel.className = "kleineMelding";
-        regel.textContent = DIT_JAAR_BETAALD_TEKST;
-        td.appendChild(regel);
-    }
+    const pijl = document.createElement("button");
+    pijl.type = "button";
+    pijl.className = "uitklapPijl";
+    pijl.textContent = "▸";
+    pijl.setAttribute("aria-expanded", "false");
+    pijl.setAttribute("aria-label", "Details per beurs");
+    td.prepend(pijl);
     if (r.positieRegel) td.appendChild(maakPositieRegel(r.positieRegel));
+    const details = document.createElement("div");
+    details.className = "aansluitingDetails";
+    details.hidden = true;
+    r.jaarRegels.forEach(tekst => details.appendChild(maakRegel(tekst)));
+    if (r.betaaldDitJaar) details.appendChild(maakRegel(DIT_JAAR_BETAALD_TEKST));
+    details.appendChild(maakRegel(`Transactiekosten (ter info): ${r.transactiekostenTekst}`));
     const knop = maakAlternatievenKnop(r);
-    if (knop) td.appendChild(knop);
+    if (knop) details.appendChild(knop);
+    td.appendChild(details);
     return td;
+}
+
+function zetUitklapRijOpen(tr, open) {
+    tr.querySelector(".uitklapPijl").setAttribute("aria-expanded", String(open));
+    tr.querySelector(".uitklapPijl").textContent = open ? "▾" : "▸";
+    tr.querySelector(".aansluitingDetails").hidden = !open;
+}
+
+function koppelUitklapRijen(tabelEl) {
+    const tbody = tabelEl.querySelector("tbody");
+    tbody.addEventListener("click", e => {
+        const tr = e.target.closest("tr");
+        if (!tr || !tr.querySelector(".uitklapPijl")) return;
+        if (e.target.closest("button:not(.uitklapPijl), a")) return;
+        const open = tr.querySelector(".uitklapPijl").getAttribute("aria-expanded") !== "true";
+        zetUitklapRijOpen(tr, open);
+    });
 }
 
 function maakPositieItem(item) {
@@ -274,23 +300,45 @@ function maakPositieRegel(regel) {
     return div;
 }
 
+function maakDetailRegelsCel(regels) {
+    const td = document.createElement("td");
+    regels.forEach(tekst => td.appendChild(maakRegel(tekst)));
+    return td;
+}
+
 function maakAansluitingskostenTabel(rijen, totalen) {
     const kolommen = [
-        { label: "Beurs", alleenTabel: true, renderTd: maakJaarRegelsCel },
+        { label: "Beurs", alleenTabel: true, renderTd: maakBeursUitklapCel },
         { label: "Beurs", alleenMobiel: true, mobielRol: "titel", renderTd: maakBeursNaamCel },
         {
-            label: "W/V na aansluitingskosten",
-            waarde: r => r.wv_na_eur,
-            renderTd: r => maakGetalCel(r.wvNaTekst, klasseVoorRendement(r.wv_na_eur)),
+            label: "W/V posities",
+            alleenTabel: true,
+            waarde: r => r.wv_eur,
+            renderTd: r => maakGetalCel(r.wvTekst),
         },
         {
-            label: "Aansluitingskosten (totaal)",
-            mobielRol: "waarde",
+            label: "Aansluitingskosten",
+            alleenTabel: true,
             waarde: r => r.totaal_eur,
-            renderTd: r => maakGetalCel(r.totaalTekst),
+            renderTd: r => {
+                const td = maakGetalCel(r.kostenTekst);
+                td.appendChild(maakRegel(r.aantalJarenTekst));
+                return td;
+            },
         },
-        { label: "W/V posities", renderTd: r => maakGetalCel(r.wvTekst) },
-        { label: "Transactiekosten (ter info)", renderTd: r => maakGetalCel(r.transactiekostenTekst) },
+        {
+            label: "Netto",
+            alleenTabel: true,
+            waarde: r => r.wv_na_eur,
+            renderTd: r => maakGetalCel(r.wvNaTekst, `aansluitingNetto ${klasseVoorRendement(r.wv_na_eur)}`),
+        },
+        { label: "Aansluitingskosten", alleenMobiel: true, mobielRol: "waarde", renderTd: r => maakGetalCel(r.kostenTekst) },
+        {
+            label: "Netto",
+            alleenMobiel: true,
+            renderTd: r => maakGetalCel(r.wvNaTekst, `aansluitingNetto ${klasseVoorRendement(r.wv_na_eur)}`),
+        },
+        { label: "W/V posities", alleenMobiel: true, renderTd: r => maakGetalCel(r.wvTekst) },
         {
             label: "Posities",
             alleenMobiel: true,
@@ -300,6 +348,7 @@ function maakAansluitingskostenTabel(rijen, totalen) {
                 return td;
             },
         },
+        { label: "Transactiekosten (ter info)", alleenMobiel: true, renderTd: r => maakGetalCel(r.transactiekostenTekst) },
         {
             label: "Alternatieven",
             alleenMobiel: true,
@@ -313,26 +362,19 @@ function maakAansluitingskostenTabel(rijen, totalen) {
         {
             label: "Per jaar",
             alleenMobiel: true,
-            renderTd: r => {
-                const td = document.createElement("td");
-                const regels = r.betaaldDitJaar ? [...r.jaarRegels, DIT_JAAR_BETAALD_TEKST] : r.jaarRegels;
-                regels.forEach(tekst => {
-                    const regel = document.createElement("div");
-                    regel.textContent = tekst;
-                    td.appendChild(regel);
-                });
-                return td;
-            },
+            renderTd: r => maakDetailRegelsCel(r.betaaldDitJaar ? [...r.jaarRegels, DIT_JAAR_BETAALD_TEKST] : r.jaarRegels),
         },
     ];
     const resultaat = maakSorteerbareTabel(kolommen, rijen, { klasse: "compacteTabel aansluitingTabel", compactOpMobiel: true });
-    if (totalen) {
+    const tabelEl = resultaat.querySelector("table");
+    if (tabelEl) koppelUitklapRijen(tabelEl);
+    if (totalen && tabelEl) {
         const tfoot = document.createElement("tfoot");
         const tr = document.createElement("tr");
-        tr.append(maakCel("Totaal"), maakGetalCel(totalen.wvNaTekst, klasseVoorRendement(totalen.wv_na_eur)),
-                  maakGetalCel(totalen.kostenTekst), maakGetalCel(totalen.wvTekst), maakGetalCel(totalen.transactiekostenTekst));
+        tr.append(maakCel("Totaal"), maakGetalCel(totalen.wvTekst), maakGetalCel(totalen.kostenTekst),
+                  maakGetalCel(totalen.wvNaTekst, klasseVoorRendement(totalen.wv_na_eur)));
         tfoot.appendChild(tr);
-        resultaat.querySelector("table").appendChild(tfoot);
+        tabelEl.appendChild(tfoot);
     }
     return resultaat;
 }
