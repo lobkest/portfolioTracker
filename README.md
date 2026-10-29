@@ -59,16 +59,18 @@ dezelfde top-10.
 ```
 portfolioTracker/
 ├── app.py                      → Flask-routes (+ orkestratie van upload en "bestanden bijwerken")
-├── portfolio_orchestratie.py   → bouwt de dashboard-respons op (kern + verrijking)
-├── upload_verwerking.py        → taakfuncties achter de upload
-├── statistieken.py, portfolio_calc.py, split_correctie.py → rendement, XIRR/TWR, tijdreeksen, splits
-├── portfolio_verdeling.py, dividend.py, naam_verkorting.py → verdeling/land/sector, dividend, korte namen
-├── prijzen.py, yahoo_client.py → koersen en valuta (Yahoo)
-├── ticker_matching.py, ticker_prijscheck.py, ticker_classificatie.py, ticker_zekerheid.py → ticker zoeken en controleren
-├── etf_holdings_provider.py, etf_proxy.py → ETF-holdings bij iShares/VanEck, land-proxy
-├── db.py                       → alle SQL (schema, opslag, caches)
-├── portfolio_admin.py, transactie_utils.py, debug_utils.py
-├── diagnostiek.py, diagnostiek_checks.py → meldingen en checks voor Instellingen > Diagnostiek
+├── gunicorn.conf.py            → gunicorn-instellingen (accesslog zonder codes of IP's)
+├── backend/                    → alle Python-modules, geïmporteerd als `from backend import ...`
+│   ├── portfolio_orchestratie.py   → bouwt de dashboard-respons op (kern + verrijking)
+│   ├── upload_verwerking.py        → taakfuncties achter de upload
+│   ├── statistieken.py, portfolio_calc.py, split_correctie.py → rendement, XIRR/TWR, tijdreeksen, splits
+│   ├── portfolio_verdeling.py, dividend.py, naam_verkorting.py → verdeling/land/sector, dividend, korte namen
+│   ├── prijzen.py, yahoo_client.py → koersen en valuta (Yahoo)
+│   ├── ticker_matching.py, ticker_prijscheck.py, ticker_classificatie.py, ticker_zekerheid.py → ticker zoeken en controleren
+│   ├── etf_holdings_provider.py, etf_proxy.py → ETF-holdings bij iShares/VanEck, land-proxy
+│   ├── db.py                       → alle SQL (schema, opslag, caches)
+│   ├── portfolio_admin.py, transactie_utils.py, debug_utils.py
+│   └── diagnostiek.py, diagnostiek_checks.py → meldingen en checks voor Instellingen > Diagnostiek
 ├── requirements.txt
 ├── templates/                  → basis.html (skelet), start.html, portfolio.html
 ├── static/
@@ -79,7 +81,7 @@ portfolioTracker/
 │       ├── navigatie.js, prognose.js, transacties.js, land_sector.js, ...  → pure logica, getest
 │       ├── gedeeld/            → hulpfuncties voor de tabbladen (opmaak, grafiek, tabel, tegels)
 │       └── tabs/               → één bestand per tabblad
-├── tests/                      → Python-tests (tests/backend/) en JS-tests (tests/test_*.js)
+├── tests/                      → Python-tests (tests/python/) en JS-tests (tests/test_*.js)
 ├── docs/CODE_OVERZICHT.md      → uitgebreide leesgids (architectuur, flows, database)
 └── .github/workflows/tests.yml → CI
 ```

@@ -47,6 +47,7 @@ cache-tabellen (bv. `ticker_prijscheck`: ticker + datum van een gecontroleerde t
 | Ingangspunt | `app.py` | Bevat `app = Flask(__name__)`, direct onder de imports. Dit `app`-object is wat een WSGI-server nodig heeft. |
 | Database initialiseren | `app.py`: `db_init()`, direct onder `app = Flask(__name__)` | Staat **op moduleniveau** (dus bij het *importeren* van `app.py`, niet in `if __name__ == "__main__"`), achter `if os.environ.get("DATABASE_URL")`. Daardoor draait het onder gunicorn, en in een test die `app` importeert alleen als `DATABASE_URL` is ingesteld. Direct na `db_init()` draait `ruim_verlopen_portfolios_op()` (zie `bewaartermijn.py`: portfolio's zonder gebruik van meer dan 6 maanden worden verwijderd). |
 | Cache-busting | `app.py`: `registreer_static_versies(app)`, direct onder `app = Flask(__name__)` | Zie [`static_versie.py`](#static_versiepy--cache-busting-voor-statische-bestanden). Elke static-URL in de templates krijgt `?v=<inhoudshash>`, zodat de browser na een deploy de nieuwe CSS/JS ophaalt. |
+| Python-modules | `backend/` | Alle modules behalve `app.py` en `gunicorn.conf.py`; import als `from backend import x` of `from backend.x import y`. `ticker_zekerheid.py` leidt de projectmap af met één `os.path.dirname` extra. |
 | Lokaal draaien | `python app.py` | Onderaan `app.py`: `app.run(debug=True)`. Alleen bedoeld voor lokaal. |
 | Configuratie | `.env` met `DATABASE_URL` | `db.py` roept `load_dotenv()` aan; `db_connect()` doet `psycopg2.connect(os.environ["DATABASE_URL"])`. Zonder `DATABASE_URL` slaat `app.py` `db_init()` over; pas de eerste echte databasecall crasht dan met een `KeyError`. |
 | Omgevingsvariabelen (alleen namen en doel, nooit waarden) | `DATABASE_URL`, `OPENFIGI_API_KEY`, `DEBUG_TIMING_DETAIL` | `DATABASE_URL`: verplicht voor de database (gelezen in `db.py` en bij het opstarten in `app.py`). `OPENFIGI_API_KEY`: optioneel, gelezen in `ticker_matching.py`; mag ontbreken. `ONTWIKKEL_CODES`: optioneel, komma-gescheiden portfolio-codes die de tabbladen in ontwikkeling zien (`ontwikkel_codes()` in `portfolio_admin.py`; zie 5.3). `DEBUG_TIMING_DETAIL`: optioneel, `1` zet de per-stap `[timing]`-regels aan (`timing_detail_aan()` in `debug_utils.py`; standaard alleen de totalen). Andere variabelen leest de code niet. |
@@ -754,7 +755,7 @@ niet crasht. Er staan geen uitgecommentarieerde prints in de code: wat niet gelo
 `v=<hash>` bij, dus `/static/js/app.js?v=3f9a0c1b2d`. De hash zijn de eerste 10 tekens van SHA-256 over de bestandsinhoud (`bestand_hash()`).
 `StaticVersies` berekent hem per bestand één keer (bij het eerste gebruik) en onthoudt hem in het geheugen; een deploy start het proces opnieuw,
 dus nieuwe inhoud krijgt dan een nieuwe hash en de browser haalt het bestand opnieuw op. Geen git of omgevingsvariabelen nodig. Een bestand dat
-niet bestaat krijgt geen `?v=`. De templates zelf veranderen niet. Tests: `tests/backend/test_static_versie.py`.
+niet bestaat krijgt geen `?v=`. De templates zelf veranderen niet. Tests: `tests/python/test_static_versie.py`.
 
 ---
 
@@ -937,7 +938,7 @@ geen aandelen vóór de conversie, of geen nieuwe aandelen), dan volgt een `LET_
 - De crop-range per ticker: begint 1 dag vóór de eerste activiteit, eindigt 1 dag ná de laatste als de positie niet meer wordt aangehouden. "Nog in bezit" is bepaald
   op het **aandelenaantal** (`abs(holdings) > 1e-6`), niet op `geinvesteerd` (dat blijft na een winstgevende verkoop > 0). De crop-range telt ook datums met "activiteit" mee, zodat een koop + volledige
   verkoop op één dag (aantal per saldo 0) toch zichtbaar blijft. `compute_per_ticker_koers_en_aankopen()` gebruikt dezelfde crop-logica (bewust gekopieerd, niet gedeeld).
-- Getest in `tests/backend/test_waarde_latere_splits.py` (van Yahoo-download tot waardereeks, zonder database) en `tests/backend/test_wisselpaar_en_effectieve_datum.py`
+- Getest in `tests/python/test_waarde_latere_splits.py` (van Yahoo-download tot waardereeks, zonder database) en `tests/python/test_wisselpaar_en_effectieve_datum.py`
   (de echte XELA-rijen met ISIN-wissel). **Onzeker:** of de herkenning voor alle DeGiro-variantexports werkt, is niet uit de code alleen af te leiden.
 
 ---
@@ -1004,7 +1005,7 @@ Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", 
 
 - **GAK-methode** (`bereken_holdings_en_gesloten()`): lopend gemiddelde. Bij een koop: `aantal += n`, `kostprijs += waarde_eur` (zonder kosten; fallback `totaal_eur`). Bij een verkoop
   (alleen als er een echte cashflow is, `totaal_eur != 0`): de kostenbasis van de verkochte stukken (`GAK × verkocht`) gaat eraf. Een **split-boekingsrij** (aantal ≠ 0, `totaal_eur = 0`)
-  verandert alleen het aantal, niet de kostenbasis; zo verdunt een split de GAK vanzelf. Voorbeeld uit `tests/backend/test_rendement.py`: 10 stuks × €10, dan −10 (DEG) en +20 (conversie) →
+  verandert alleen het aantal, niet de kostenbasis; zo verdunt een split de GAK vanzelf. Voorbeeld uit `tests/python/test_rendement.py`: 10 stuks × €10, dan −10 (DEG) en +20 (conversie) →
   20 stuks, kostenbasis €100, GAK €5.
 - **Gerealiseerd resultaat** = verkoopopbrengst (`totaal_eur`, dus mét kosten) − kostenbasis van het verkochte deel (GAK, zonder kosten). Aan de koopkant tellen kosten dus niet mee, aan de
   verkoopkant wel.
@@ -1050,7 +1051,7 @@ in `rekening_regelsoorten.py`; dit bestand zoekt zelf geen teksten meer.
 - Koppelen aan de conversie gaat op **tijdstip van de conversie-rijen onderling** plus valuta+bedrag — **nooit** op de Valutadatum van de dividendrij (die loopt vaak een dag vóór).
 - "Dividend Herinvestering"-rijen worden **meegenomen** in het netten (anders klopt het netto-bedrag niet) en zetten de vlag `herinvesteerd`. Die vlag
   komt als echte bool in `lijst[].herinvesteerd` (`db_get_dividenden()` cast naar `bool`); de frontend toont er een groen label "herinvesteerd" mee in de
-  uitkeringenlijst (zie hoofdstuk 5). Getest in `tests/backend/test_dividend.py` (`TestDividendSamenvattingHerinvesteerd`).
+  uitkeringenlijst (zie hoofdstuk 5). Getest in `tests/python/test_dividend.py` (`TestDividendSamenvattingHerinvesteerd`).
 - Lukt de koppeling niet, dan blijven `bruto_eur`/`belasting_eur`/`netto_eur` expliciet `None`: nooit een gok. Zulke rijen blijven wel in `lijst` staan, maar tellen niet mee in `totaal_netto`.
 - `dividend_id` = `"DIV-"` + eerste 16 tekens MD5 over `datum|isin|bruto_ruw|belasting_ruw` (de ruwe bedragen, dus stabiel bij latere verbeteringen aan de EUR-omrekening).
 - **Kassaldo en flatex-sweeps.** DeGiro parkeert cash bij flatexDEGIRO Bank en boekt elke verschuiving als paar: "Degiro Cash Sweep Transfer" (met bedrag) en
@@ -2134,7 +2135,7 @@ Bij een schemawijziging in `db_init()` ook deze diagrammen en de tabel bijwerken
 | `static/js/diagnostiek.js` | Pure logica voor Instellingen → Diagnostiek: `voegMeldingenSamen()` (nieuwste wint per categorie + sleutel), `telPerNiveau()`, `groepeerPerCategorie()`, `hoogsteNiveau()`, `categorieStandaardOpen()`, `deelInBlokken()` (Aandacht nodig / In orde / Technisch), `filterOpNiveau()`, `wisselNiveauFilter()`, `diagnostiekConclusie()`, `categorieSamenvatting()`, `meldingActie()` en `diagnostiekTabelRijen()` (de optionele tabel onder een melding); `diagnostiekTellerTekst()` staat er nog, maar het tabblad gebruikt hem niet meer. Het tekenen zelf gebeurt in `toonDiagnostiek()` in `tabs/diagnostiek.js` (zie `diagnostiek.py` in hoofdstuk 3). |
 | `static/js/bijnamen.js` | Pure logica voor Bijnamen: `actieveNaamBron()` (welke naamknop overeenkomt met de huidige bijnaam, `-1` bij een eigen naam) `bijnaamGewijzigd()` (moet een ingetypte bijnaam opgeslagen worden) en `naamOptieTekst()` (de naam in een optie, of "nog niet opgehaald" / "Geen …"). De DOM-kant is `tabs/bijnamen.js`. |
 | `static/js/koersen.js` | Pure logica voor de meldingen bovenaan het dashboard en de splitlabels: `koersMeldingTekst()` (koersen nog niet compleet / ontbreken, uit de koersstatus van de kern), `tickerWaarschuwingTekst()` (de bannertekst per reden), `splitLabel()` (zelfde tekst als `split_tekst()` in Python) en `splitLabelIndex()` (op welk grafieklabel een split valt), en voor de Ticker-zekerheid-kaart `splitsAlternatieven()` (kandidaten zonder koersdata én zonder valuta/land/sector apart tellen), `verborgenAlternatievenTekst()` ("N kandidaat/kandidaten zonder koersdata verborgen") en de teksten van de prijscontrole- en alternatieventabel: `prijscontroleYahooTekst()` (gecorrigeerde koers met `*`), `prijscontroleSubregel()` ("Excel … · Yahoo …"), `prijscontroleSplitTekst()` ("×factor, ruwe Yahoo-koers …" of `null`), `dagrangeOordeel()` (✓/✗/– met klasse en uitleg), `alternatiefDagrangeTekst()`, `alternatiefSubregel()`, `alternatiefControleTekst()` en `alternatiefUitkeringsvormTekst()`. |
-| `static/js/koersoverzicht.js` | Pure helpers voor het tabblad Koersen (in ontwikkeling): `KOERS_PERIODES`, `isGestippeld()` (segment gestippeld als de positie op beide dagen niet in bezit was), `ranglijstRijen()`. De DOM-kant is `tabs/koersoverzicht.js`: `GET /api/portfolio/<code>/koersoverzicht?periode=` (`koersoverzicht.py`: `bouw_koersoverzicht()`, splitgecorrigeerde %/€-reeksen per huidige positie) en een %/€-schakelaar zonder nieuwe fetch. |
+| `static/js/koersoverzicht.js` | Pure helpers voor het tabblad Koersen: `KOERS_PERIODES`, `isGestippeld()` (segment gestippeld als de positie op beide dagen niet in bezit was), `ranglijstRijen()`. De DOM-kant is `tabs/koersoverzicht.js`: `GET /api/portfolio/<code>/koersoverzicht?periode=` (`koersoverzicht.py`: `bouw_koersoverzicht()`, splitgecorrigeerde %/€-reeksen per huidige positie) en een %/€-schakelaar zonder nieuwe fetch. |
 | `static/js/per_aandeel.js` | Pure logica voor Per aandeel: `aandeelLandSectorRegels()` maakt van `land_sector_verdeling.per_aandeel` de regels Land/Sector ("onbekend" grijs); `null` voor een ETF of als de verrijking er nog niet is. De DOM-kant is `toonAandeelLandSector()` in `tabs/per_aandeel.js`. |
 | `static/js/aansluitingskosten.js` | Pure opmaak van de aansluitingskosten (bedragen uit de API, geen berekening): `heeftAansluitingskosten()`, `aansluitingskostenTegel()` (label, `formatteerEuro()`-tekst en `UITLEG_AANSLUITINGSKOSTEN`, `null` zonder kosten) en `aansluitingskostenRijen(samenvatting, beursVerdeling)`: naam zoals op de grafiek met de code ("Xetra (XET)"; een code die Verdeling niet kent met de DEGIRO-naam), totaal, "2024: €2,50 · 2025: €2,50", `inBezit` (`null` zolang de verrijking laadt en bij de onbekende beurs); hoogste totaal eerst, onbekend onderaan; per rij ook `jaarRegels` ("2025 €2,50 · 3 transacties" of "· positie aangehouden"), `positieRegel`, `betaaldDitJaar`, `wvTekst`, `wvNaTekst`, `transactiekostenTekst` (streepje bij `None`, "onvolledig (koers ontbreekt)" bij `wv_volledig` onwaar) en `meldingen` (de twee controlelijsten); `aansluitingskostenTotalen()` geeft de totaalteksten uit de API. Gebruikt door `maakTotalenSectie()` en `toonAansluitingskosten()` (`tabs/land_sector.js`). |
 | `static/js/land_sector.js` | Pure logica voor de landbron van ETF's: `landProxyBijschrift()` ("Land benaderd via … (top-10 wijkt max. X pp af)", `null` zonder proxy) en `landDekkingRegels()` (de regels onder de landgrafiek: eerst de ETF's met alleen een top-10, dan één regel per proxy). Gebruikt door `toonLand()` (`tabs/land_sector.js`) en `toonEtfDrilldown()` (`tabs/per_aandeel.js`). Daarnaast `zichtbareVerdeling(verdelingObj, noemer)`: laat rijen weg die op 0,0% afronden (onder `ZICHTBAAR_MIN_PCT` = 0,05%, ook "Unknown"); gebruikt door `toonPlatteVerdeling()` (taart van Land/Sector/Valuta/Beurs, noemer = totaal van alle rijen, dus de percentages verschuiven niet) en `maakVerdelingLijst()` (ETF-lijstjes op Per aandeel, noemer 1). `bekendeWaarde()`: alleen voor weergave wordt `"Unknown"` (of leeg) `null`, zodat de Ticker-zekerheid-kaart "onbekend" toont (`voegInfoRegelToe()`, Land/Sector van de alternatieven). |
@@ -2292,7 +2293,7 @@ Yahoo's rate limiting is het bekende pijnpunt van dit project; dat zie je terug 
 
 ### 7.1 Opzet
 
-- **Python:** `unittest` (geen pytest), 118 bestanden `tests/backend/test_*.py` met samen 1415 `def test_...`-methodes (geteld op 16-10-2026; zonder lokale database slagen ze allemaal: 1415 tests, waarvan 62 overgeslagen omdat de 16 **[DB]**-bestanden hun database-klassen overslaan). `tests/backend/` heeft een
+- **Python:** `unittest` (geen pytest), 118 bestanden `tests/python/test_*.py` met samen 1415 `def test_...`-methodes (geteld op 16-10-2026; zonder lokale database slagen ze allemaal: 1415 tests, waarvan 62 overgeslagen omdat de 16 **[DB]**-bestanden hun database-klassen overslaan). `tests/python/` heeft een
   `__init__.py`; elk bestand zet daarnaast zelf `sys.path.insert(0, <projectmap>)` zodat `import statistieken` enz. werkt. `tests/db_helper.py` staat één map hoger.
 - **JavaScript:** 26 bestanden `tests/test_*.js` met Node's ingebouwde testrunner (`node --test`), geen `package.json`. Op 16-10-2026 slaagden alle 406 tests (`test_aansluitingskosten.js` 10, `test_bedrijven.js` 32, `test_bestandskeuze.js` 10, `test_bestandsmelding.js` 21, `test_bijnamen.js` 7, `test_box3.js` 7, `test_diagnostiek.js` 34, `test_dividend.js` 9, `test_etf_overlap.js` 5, `test_getallen.js` 7, `test_grafiek.js` 3, `test_home_indeling.js` 21, `test_koersen.js` 18, `test_land_sector.js` 8, `test_menu.js` 30, `test_navigatie.js` 32, `test_overdracht.js` 10, `test_per_aandeel.js` 3, `test_prognose.js` 47, `test_scripts.js` 11, `test_statistieken.js` 8, `test_tabel.js` 19, `test_tegels.js` 16, `test_transacties.js` 29, `test_verdeling_over_tijd.js` 7, `test_xss_sinks.js` 2).
   Getest wordt alleen wat in de "pure module"-bestanden zit (`prognose.js`, `menu.js`, `transacties.js`, `bedrijven.js`, `dividend.js`, `statistieken.js`, `bestandskeuze.js`, `diagnostiek.js`, `navigatie.js`, `overdracht.js`, `koersen.js`, `per_aandeel.js`, `land_sector.js`, `etf_overlap.js`, `bijnamen.js`, `aansluitingskosten.js`). Uitzonderingen: `test_tabel.js` test `maakSorteerbareTabel()` (`gedeeld/tabel.js`) met een kleine nep-DOM in het testbestand zelf, `test_grafiek.js` test `zoomOpties()` en `taartLabelMinPct()` (`gedeeld/grafiek.js`) met gestubde `Chart` en `document`.
@@ -2441,7 +2442,7 @@ Symptomen: een waarschuwingsbanner bovenaan ("koers wijkt af van Yahoo"), een po
 3. Voeg een entry toe aan `ETF_HOLDINGS_BRON` in `etf_holdings_provider.py`: `"TICKER.AS": {"provider": "...", "locale": "...", "url": "..."}`. Een andere notering van hetzelfde fonds (zoals `IS3N.DE` naast `EMIM.AS`) krijgt gewoon dezelfde URL.
 4. Komt er een Nederlandse landnaam voor die niet in `NL_LAND_VERTALING` staat, dan blijft die onvertaald staan (als aparte taartpunt) — vul de tabel aan.
 5. Je hoeft de cache niet te legen: `get_etf_holdings()` probeert een verse `yfinance_top10`-cache alsnog te upgraden naar `provider_csv` zodra er een provider-URL bekend is.
-6. Test: zie `tests/backend/test_etf_holdings_bron.py` als voorbeeld. Vanguard-ETF's (VWCE.AS, VUSA.AS) horen er bewust niet in.
+6. Test: zie `tests/python/test_etf_holdings_bron.py` als voorbeeld. Vanguard-ETF's (VWCE.AS, VUSA.AS) horen er bewust niet in.
 
 ### 8.6 Voorbeeld: kleine UI-wijzigingen
 
@@ -2780,8 +2781,8 @@ van wat een functie hoort te doen.
 - **Waar in de stack:** backend, hulpfuncties.
 - **Waarom nu:** korte bestanden die bijna niets anders importeren; je leert de schrijfstijl van het project kennen zonder de rest te hoeven snappen.
 - **Wat je hier leert:** kleine, herbruikbare helpers; waarom je die in een apart bestand zet (geen circulaire imports); reguliere expressies (`is_geldige_code()`).
-- **Zo lees je het:** begin met `is_geldige_code()` en open `tests/backend/test_code_validatie.py` ernaast. Lees daarna `_sorteer_chronologisch()` met
-  `tests/backend/test_chronologische_sortering.py`.
+- **Zo lees je het:** begin met `is_geldige_code()` en open `tests/python/test_code_validatie.py` ernaast. Lees daarna `_sorteer_chronologisch()` met
+  `tests/python/test_chronologische_sortering.py`.
 
 #### Stap 2 — Het datamodel
 
@@ -2793,7 +2794,7 @@ van wat een functie hoort te doen.
 - **Wat je hier leert:** hoe een tabel met primary key en `UNIQUE` eruitziet; het verschil tussen gebruikersdata en een cachetabel; `ON CONFLICT DO NOTHING`
   tegenover een upsert (`DO UPDATE`).
 - **Zo lees je het:** leg `db_init()` naast de tabellen in hoofdstuk 4. Vergelijk `db_insert_transactie()` (`DO NOTHING`) met `db_save_koersen()` (`DO UPDATE`);
-  `tests/backend/test_koersen_tabellen_db.py` laat zien wat er in `koersen` en `koers_splits` terechtkomt (draait alleen met een lokale database).
+  `tests/python/test_koersen_tabellen_db.py` laat zien wat er in `koersen` en `koers_splits` terechtkomt (draait alleen met een lokale database).
 
 #### Stap 3 — Pure JavaScript
 
@@ -2816,7 +2817,7 @@ van wat een functie hoort te doen.
 - **Waarom nu:** met deze twee bestanden heb je de plattegrond: welke schermen er zijn en welke vragen de frontend aan de backend kan stellen.
 - **Wat je hier leert:** hoe de browser de server aanroept (route, methode, JSON); waarom routes dun zijn; hoe een foutantwoord eruitziet (statuscode 404/500).
 - **Zo lees je het:** zoek in `portfolio.html` de `data-view`-knoppen en de bijbehorende `tab-<view>`-blokken. Lees in `app.py` eerst `api_portfolio()` (kort), dan
-  `upload()` en `_upload_impl()`. `tests/backend/test_upload_route_foutafhandeling.py` laat zien wat er gebeurt als er iets misgaat.
+  `upload()` en `_upload_impl()`. `tests/python/test_upload_route_foutafhandeling.py` laat zien wat er gebeurt als er iets misgaat.
 
 #### Stap 5 — De ingang van alle data: de upload
 
@@ -2828,7 +2829,7 @@ van wat een functie hoort te doen.
 - **Waarom nu:** alles wat het dashboard later toont, komt hier binnen; de rest van de code gaat ervan uit dat deze stap goed ging.
 - **Wat je hier leert:** een bestandsupload verwerken met pandas; idempotent inserten (twee keer hetzelfde uploaden geeft geen dubbele rijen, dankzij
   `UNIQUE` + `ON CONFLICT`); waarom echte data eigenaardigheden heeft (de verschoven Order ID-kolom).
-- **Zo lees je het:** volg de tabel in 2.1 en 2.3 stap voor stap mee in de code. `tests/backend/test_diagnostiek_upload.py` test `vul_synthetische_order_ids_aan()`, `_meld_order_ids()` en het opslaan
+- **Zo lees je het:** volg de tabel in 2.1 en 2.3 stap voor stap mee in de code. `tests/python/test_diagnostiek_upload.py` test `vul_synthetische_order_ids_aan()`, `_meld_order_ids()` en het opslaan
   met kleine voorbeeldtabellen.
 
 #### Stap 6 — Hoe alles aan elkaar hangt
@@ -2842,23 +2843,23 @@ van wat een functie hoort te doen.
 - **Wat je hier leert:** orkestratie; een korte in-process cache (`_basis_cache`, 20 s) en waarom je die moet legen na een wijziging
   (`wis_portfolio_basis_cache()`); toestand die maar één request leeft (Flask's `g` in `diagnostiek.py`).
 - **Zo lees je het:** noteer welke functies `analyze_transacties_kern()` aanroept en welke sleutels het teruggegeven dict heeft; vergelijk met de tabel in
-  2.4. `tests/backend/test_basis_cache.py` laat zien wanneer de cache wel en niet wordt gebruikt.
+  2.4. `tests/python/test_basis_cache.py` laat zien wanneer de cache wel en niet wordt gebruikt.
 
 #### Stap 7 — Rekenen: rendement, XIRR, TWR en GAK
 
-- **Lees:** `statistieken.py`, met `tests/backend/test_rendement.py` en `tests/backend/test_twr.py`.
+- **Lees:** `statistieken.py`, met `tests/python/test_rendement.py` en `tests/python/test_twr.py`.
 - **Wat doen deze bestanden:** `statistieken.py` berekent alle cijfers van het Statistieken-tabblad: rendement, XIRR, TWR, gemiddelde aankoopkoers (GAK),
   gesloten posities en het jaaroverzicht. Het zijn pure functies: getallen en tabellen erin, getallen eruit.
 - **Waar in de stack:** backend, logica.
 - **Waarom nu:** je kent nu de vorm van de data (stap 2 en 6); hier zie je wat ermee berekend wordt, en je kunt elke uitkomst met de hand controleren.
 - **Wat je hier leert:** financiële berekeningen als pure, geteste functies; testen met met de hand na te rekenen voorbeelden.
 - **Zo lees je het:** begin met `bereken_totaal_rendement()` en `bereken_positie_rendement()` (een paar regels). Lees dan `bereken_holdings_en_gesloten()`
-  samen met de GAK-tests in `tests/backend/test_rendement.py` (o.a. het splitvoorbeeld: 10 × €10, dan −10 en +20 → GAK €5). De woordenlijst in hoofdstuk 9 legt
+  samen met de GAK-tests in `tests/python/test_rendement.py` (o.a. het splitvoorbeeld: 10 × €10, dan −10 en +20 → GAK €5). De woordenlijst in hoofdstuk 9 legt
   GAK, XIRR en TWR uit.
 
 #### Stap 8 — Tijdreeksen achter de grafieken
 
-- **Lees:** `portfolio_calc.py` en `split_correctie.py`, met `tests/backend/test_nog_in_bezit.py`, `tests/backend/test_per_ticker_koers_en_aankopen.py` en `tests/backend/test_waarde_latere_splits.py`.
+- **Lees:** `portfolio_calc.py` en `split_correctie.py`, met `tests/python/test_nog_in_bezit.py`, `tests/python/test_per_ticker_koers_en_aankopen.py` en `tests/python/test_waarde_latere_splits.py`.
 - **Wat doen deze bestanden:** `portfolio_calc.py` rekent per dag uit hoeveel je portfolio waard was en hoeveel je had ingelegd, in totaal en per aandeel.
   Het herkent ook DeGiro's splitboekingen; `split_correctie.py` koppelt die aan Yahoo's splits, zodat aantal en koers op dezelfde dag van basis wisselen.
   Dit zijn de lijnen in de grafieken van Samenvatting en Per aandeel.
@@ -2866,32 +2867,32 @@ van wat een functie hoort te doen.
 - **Waarom nu:** na de losse cijfers (stap 7) zie je hoe dezelfde transacties een reeks per dag worden.
 - **Wat je hier leert:** werken met pandas-tijdreeksen; waarom "geïnvesteerd" twee betekenissen heeft (zie de valkuil bij `portfolio_calc.py`); waarom
   "nog in bezit" op aantal stuks wordt bepaald.
-- **Zo lees je het:** lees `compute_value_over_time()` eerst, dan `compute_per_ticker()`. De tests in `tests/backend/test_nog_in_bezit.py` tonen het randgeval van
+- **Zo lees je het:** lees `compute_value_over_time()` eerst, dan `compute_per_ticker()`. De tests in `tests/python/test_nog_in_bezit.py` tonen het randgeval van
   een volledig verkochte positie.
 
 #### Stap 9 — Koersen en valuta
 
-- **Lees:** `prijzen.py` en `yahoo_client.py`, met `tests/backend/test_koersen_cache.py` en `tests/backend/test_fx_caching_en_retry.py`.
+- **Lees:** `prijzen.py` en `yahoo_client.py`, met `tests/python/test_koersen_cache.py` en `tests/python/test_fx_caching_en_retry.py`.
 - **Wat doen deze bestanden:** `prijzen.py` levert de ruwe dagkoersen in euro: uit de `koersen`-tabel als die er al zijn, anders van Yahoo (teruggerekend
   naar de koers van die dag), en rekent dollars en ponden om. `yahoo_client.py` telt Yahoo-calls en probeert mislukte calls opnieuw.
 - **Waar in de stack:** backend, data en externe bron.
 - **Waarom nu:** stap 7 en 8 rekenen met koersen; hier zie je waar die vandaan komen.
 - **Wat je hier leert:** hoe een cache-tabel werkt (eerst kijken wat je al hebt, alleen het ontbrekende downloaden); incrementeel verversen; retry en backoff;
   waarom er twee retry-varianten zijn.
-- **Zo lees je het:** volg de vijf stappen onder "De logica van `get_prices()`" in hoofdstuk 3 in de code. Kijk daarna in `tests/backend/test_koersen_cache.py` wanneer
-  een ticker `missing` of `stale` is, en in `tests/backend/test_fx_caching_en_retry.py` hoe de FX-reeks vanaf `FX_ANKER_DATUM` gecachet, ververst en
+- **Zo lees je het:** volg de vijf stappen onder "De logica van `get_prices()`" in hoofdstuk 3 in de code. Kijk daarna in `tests/python/test_koersen_cache.py` wanneer
+  een ticker `missing` of `stale` is, en in `tests/python/test_fx_caching_en_retry.py` hoe de FX-reeks vanaf `FX_ANKER_DATUM` gecachet, ververst en
   bij een fout opnieuw geprobeerd wordt.
 
 #### Stap 10 — Dividend: een afgerond stuk domeinlogica
 
-- **Lees:** `dividend.py`, met `tests/backend/test_dividend.py`.
+- **Lees:** `dividend.py`, met `tests/python/test_dividend.py`.
 - **Wat doen deze bestanden:** `dividend.py` leest het rekeningoverzicht van DeGiro, zoekt per dividenduitkering het echte bedrag in euro (via de
   bijbehorende valutaconversie) en vat alle dividenden samen voor het Dividend-tabblad. `bereken_kassaldo()` haalt uit hetzelfde bestand de cash en het netto gestorte bedrag.
 - **Waar in de stack:** backend, logica en data.
 - **Waarom nu:** een compleet onderdeel met een duidelijk begin (Excel) en eind (JSON), dat je los van de rest kunt begrijpen.
 - **Wat je hier leert:** omgaan met rommelige echte data (samengevoegde kolomkoppen, gepoolde conversies); liever `None` dan een gok; een upsert om oude,
   foute rijen te kunnen overschrijven.
-- **Zo lees je het:** lees eerst `lees_rekeningoverzicht()` (inlezen), dan `verwerk_rekeningoverzicht_df()` (het rekenwerk). In `tests/backend/test_dividend.py` volg je
+- **Zo lees je het:** lees eerst `lees_rekeningoverzicht()` (inlezen), dan `verwerk_rekeningoverzicht_df()` (het rekenwerk). In `tests/python/test_dividend.py` volg je
   eerst `test_usd_dividend_gebruikt_gekoppelde_valuta_creditering` (één uitkering, één conversie) en daarna
   `test_twee_dividenden_zelfde_dag_gepoold_in_een_conversie`.
 
@@ -2901,18 +2902,18 @@ van wat een functie hoort te doen.
 - **Wat doen deze bestanden:** `ticker_classificatie.py` bepaalt of een ticker een ETF of aandeel is en zoekt land, sector en holdings op (met cache).
   `etf_holdings_provider.py` downloadt de volledige holdingslijst bij iShares en VanEck. `portfolio_verdeling.py` telt dat alles op tot de verdelingen per
   land, sector en bedrijf, en de overlap tussen ETF's. `etf_proxy.py` vult het land aan van ETF's waarvan alleen een top-10 bekend is, via een iShares-ETF
-  met dezelfde top-10 (`tests/backend/test_etf_proxy.py` laat de vergelijking zien).
+  met dezelfde top-10 (`tests/python/test_etf_proxy.py` laat de vergelijking zien).
 - **Waar in de stack:** backend, logica en externe bronnen.
 - **Waarom nu:** dit is de "verrijking" uit stap 6; met de koerslogica van stap 9 in je hoofd is het cachepatroon herkenbaar.
 - **Wat je hier leert:** een externe bron met een terugvaloptie (aanbieder → Yahoo top-10 → `"Unknown"`); parallel een cache opwarmen; aggregeren met een
   "Overig"-bucket.
 - **Zo lees je het:** begin bij `compute_land_sector_verdeling()` en volg de aanroepen naar `get_etf_holdings()` en `fetch_provider_holdings()`.
-  `tests/backend/test_etf_holdings_bron.py` laat de parsers werken op kleine voorbeeldgegevens (ook met een verkeerde `locale`); `tests/backend/test_land_overig.py` en `tests/backend/test_etf_overlap.py` tonen de
+  `tests/python/test_etf_holdings_bron.py` laat de parsers werken op kleine voorbeeldgegevens (ook met een verkeerde `locale`); `tests/python/test_land_overig.py` en `tests/python/test_etf_overlap.py` tonen de
   optelregels.
 
 #### Stap 12 — Ticker-matching en -controle
 
-- **Lees:** `ticker_matching.py` → `ticker_prijscheck.py` → `ticker_zekerheid.py`, met `tests/backend/test_ticker_zoeken.py` en `tests/backend/test_snelle_prijscheck.py`.
+- **Lees:** `ticker_matching.py` → `ticker_prijscheck.py` → `ticker_zekerheid.py`, met `tests/python/test_ticker_zoeken.py` en `tests/python/test_snelle_prijscheck.py`.
 - **Wat doen deze bestanden:** `ticker_matching.py` zoekt bij een DeGiro-product de Yahoo-ticker. `ticker_prijscheck.py` vergelijkt Yahoo's koers met de
   prijs die je bij DeGiro betaalde. `ticker_zekerheid.py` combineert die twee tot een oordeel ("zeker", "onzeker") en vervangt een foute ticker soms
   automatisch.
@@ -2921,8 +2922,8 @@ van wat een functie hoort te doen.
 - **Wat je hier leert:** een beslisboom met escalatie (eerst goedkoop controleren, pas bij twijfel duur); parallel werk met een thread pool; hoe je een
   onbetrouwbare externe bron met een tweede signaal (prijs, OpenFIGI) controleert.
 - **Zo lees je het:** begin bij `find_ticker_detailed()` (de volgorde staat in hoofdstuk 3), dan `vergelijk_prijs_op_datum()` en `_prijscheck_is_probleem()`, en
-  tot slot het escalatietrapje in `find_ticker_met_snelle_prijscheck()`. `tests/backend/test_snelle_prijscheck.py` laat de treden zien;
-  `tests/backend/test_escalatiepoort_dagrange.py` toont wanneer er wel en niet geëscaleerd wordt.
+  tot slot het escalatietrapje in `find_ticker_met_snelle_prijscheck()`. `tests/python/test_snelle_prijscheck.py` laat de treden zien;
+  `tests/python/test_escalatiepoort_dagrange.py` toont wanneer er wel en niet geëscaleerd wordt.
 
 #### Stap 13 — De frontend: `start.js`, `app.js` en de tabbladen
 

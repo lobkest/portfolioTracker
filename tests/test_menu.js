@@ -117,7 +117,7 @@ test("actieveOntwikkelIds: zonder ontwikkelaar-vlag geldt alles als uit, ook als
     for (const vlag of [false, undefined, null, "true", 1]) {
         assert.deepEqual(actieveOntwikkelIds(vlag, aan), [], String(vlag));
     }
-    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3", "watals", "koersoverzicht"]);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, aan)), ["box3"]);
     assert.equal(ontwikkelAan("rendement-pct", actieveOntwikkelIds(false, aan)), false);
 });
 
@@ -240,10 +240,24 @@ test("viewport-meta: apparaatbreedte en startschaal", () => {
     assert.match(meta, /initial-scale=1/);
 });
 
-test("Zoeken & wat als staat als laatste in Samenstelling en is een ontwikkeltab", () => {
+test("Zoeken & wat als staat als laatste in Samenstelling en is geen ontwikkeltab meer", () => {
     const samenstelling = MENU_GROEPEN.find(g => g.id === "samenstelling");
-    assert.deepEqual(samenstelling.views.at(-1), { view: "watals", label: "Zoeken & wat als", inOntwikkeling: true });
-    assert.ok(ontwikkelViews().some(v => v.view === "watals"));
-    assert.ok(uitgeschakeldeViews([]).includes("watals"));
-    assert.ok(!menuViews(samenstelling, ["verdeling", "etfoverlap"]).some(v => v.view === "watals"));
+    assert.deepEqual(samenstelling.views.at(-1), { view: "watals", label: "Zoeken & wat als" });
+    assert.ok(!ontwikkelViews().some(v => v.view === "watals"));
+    assert.ok(!uitgeschakeldeViews([]).includes("watals"));
+    assert.ok(!ontwikkelItems().some(i => i.id === "watals"));
+});
+
+test("Koersen is geen ontwikkeltab meer; box3 blijft achter de schakelaar", () => {
+    assert.ok(!ontwikkelViews().some(v => v.view === "koersoverzicht"));
+    assert.ok(!ontwikkelItems().some(i => i.id === "koersoverzicht"));
+    assert.deepEqual(uitgeschakeldeViews([]), ["box3"]);
+    assert.deepEqual(uitgeschakeldeViews(actieveOntwikkelIds(false, ["box3"])), ["box3"]);
+});
+
+test("watals en koersoverzicht blijven zichtbaar zonder schakelaar", () => {
+    const uit = uitgeschakeldeViews([]);
+    const groep = id => MENU_GROEPEN.find(g => g.id === id);
+    assert.ok(menuViews(groep("samenstelling"), ["verdeling", "watals"], uit).some(v => v.view === "watals" && !v.uitgeschakeld));
+    assert.ok(menuViews(groep("posities"), ["peraandeel", "koersoverzicht"], uit).some(v => v.view === "koersoverzicht" && !v.uitgeschakeld));
 });

@@ -33,7 +33,7 @@
                 { view: "valuta", label: "Valuta" },
                 { view: "beurs", label: "Beurs" },
                 { view: "etfoverlap", label: "ETF-overlap" },
-                { view: "watals", label: "Zoeken & wat als", inOntwikkeling: true },
+                { view: "watals", label: "Zoeken & wat als" },
             ],
         },
         {
@@ -41,7 +41,7 @@
             views: [
                 { view: "peraandeel", label: "Per aandeel" },
                 { view: "peraandeelaankoop", label: "Aankopen" },
-                { view: "koersoverzicht", label: "Koersen", inOntwikkeling: true },
+                { view: "koersoverzicht", label: "Koersen" },
             ],
         },
         {

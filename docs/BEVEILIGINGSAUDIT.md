@@ -6,7 +6,7 @@ Fixes in deze ronde (4):
 1. Ticker-lengtecontrole op `/api/etf-overlap-detail`, `/api/etf-holdings` en `/api/portfolio/<code>/ticker-koers-bereik` (`TICKER_MAX_TEKENS`).
 2. Datumvalidatie op `ticker-koers-bereik` (`_is_iso_datum()`): 400 in plaats van een 500 bij een ongeldige `vanaf`/`tot`.
 3. `permissions: contents: read` in `.github/workflows/tests.yml`. De push vraagt daarom een token met `workflow`-scope.
-4. Tests: `tests/backend/test_beveiligingsaudit.py` (7 tests, incl. een waakhond op `permissions` in alle workflows).
+4. Tests: `tests/python/test_beveiligingsaudit.py` (7 tests, incl. een waakhond op `permissions` in alle workflows).
 
 ## A. Toegang aan serverkant: OK, met voorstellen
 
