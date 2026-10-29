@@ -1,4 +1,4 @@
-"""compute_beurs_verdeling(): huidige posities per DeGiro-beurs, met een Euronext-samengevoegde variant."""
+"""compute_beurs_verdeling(): huidige posities per DeGiro-beurs, Euronext-beurzen blijven apart."""
 import os
 import sys
 import unittest
@@ -32,13 +32,12 @@ class TestBeursVerdeling(unittest.TestCase):
         self.assertEqual(res["beurs"], {"Euronext Amsterdam": 30.0})
         self.assertEqual(res["aantal_beurzen"], 1)
 
-    def test_euronext_variant_voegt_samen_tradegate_blijft_apart(self):
+    def test_euronext_beurzen_blijven_apart(self):
         df = _transacties([("A", "EAM", 1), ("B", "EPA", 2), ("C", "TDG", 3)])
         res = compute_beurs_verdeling(df, _koersen({"A": 10.0, "B": 10.0, "C": 10.0}))
         self.assertEqual(res["aantal_beurzen"], 3)
-        self.assertEqual(res["beurs_euronext"], {"Euronext": 30.0, "Tradegate": 30.0})
-        self.assertEqual(res["beurs_euronext_per_bron"]["Euronext"], {"A": 10.0, "B": 20.0})
-        self.assertEqual(res["aantal_beurzen_euronext"], 2)
+        self.assertEqual(res["beurs"], {"Euronext Amsterdam": 10.0, "Euronext Parijs": 20.0, "Tradegate": 30.0})
+        self.assertEqual(res["beurs_per_bron"]["Euronext Parijs"], {"B": 20.0})
 
     def test_volledig_verkochte_positie_telt_niet_mee(self):
         df = _transacties([("A", "EAM", 10), ("A", "EAM", -10), ("B", "NDQ", 1)])
@@ -55,14 +54,12 @@ class TestBeursVerdeling(unittest.TestCase):
         df = _transacties([("A", "XYZ", 2)])
         res = compute_beurs_verdeling(df, _koersen({"A": 5.0}))
         self.assertEqual(res["beurs"], {"XYZ": 10.0})
-        self.assertEqual(res["beurs_euronext"], {"XYZ": 10.0})
 
     def test_totaal_gelijk_aan_waarde_posities(self):
         # 3*10 + 2*25 + 4*5 = 100
         df = _transacties([("A", "EAM", 3), ("B", "NSY", 2), ("C", "LSE", 4)])
         res = compute_beurs_verdeling(df, _koersen({"A": 10.0, "B": 25.0, "C": 5.0}))
         self.assertAlmostEqual(sum(res["beurs"].values()), 100.0)
-        self.assertAlmostEqual(sum(res["beurs_euronext"].values()), 100.0)
 
 
 if __name__ == "__main__":

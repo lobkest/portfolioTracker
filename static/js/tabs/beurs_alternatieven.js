@@ -85,15 +85,24 @@ function maakVergelijkKaart(kaart, bronTitel) {
     return el;
 }
 
+function maakOnderDrempelBlok(blok, bronTitel) {
+    const details = document.createElement("details");
+    const samenvatting = document.createElement("summary");
+    samenvatting.textContent = blok.titel;
+    details.appendChild(samenvatting);
+    blok.kaarten.forEach(k => details.appendChild(maakVergelijkKaart(k, bronTitel)));
+    return details;
+}
+
 function renderVergelijkbaarPaneel(antwoord, bronNaam) {
     const paneel = vergelijkbaarPaneel(antwoord, bronNaam);
     const nodes = [];
     if (paneel.melding) nodes.push(maakAlternatievenRegel("", paneel.melding));
     if (paneel.waarschuwing) nodes.push(maakAlternatievenRegel("kleineMelding", paneel.waarschuwing));
     paneel.kaarten.forEach(k => nodes.push(maakVergelijkKaart(k, paneel.bronTop10Titel)));
+    if (paneel.onderDrempel) nodes.push(maakOnderDrempelBlok(paneel.onderDrempel, paneel.bronTop10Titel));
     if (paneel.telling) nodes.push(maakAlternatievenRegel("kleineMelding", paneel.telling));
     if (paneel.onvolledig) nodes.push(maakAlternatievenRegel("kleineMelding", paneel.onvolledig));
-    paneel.vasteRegels.forEach(tekst => nodes.push(maakAlternatievenRegel("kleineMelding", tekst)));
     return nodes;
 }
 
@@ -182,7 +191,7 @@ async function wisselAlternatieven(rij) {
     const plek = alternatievenPlek();
     if (t.open === rij.code) {
         resetBeursAlternatieven();
-        toonAansluitingskosten(document.getElementById("euronextCheckbox").checked);
+        toonAansluitingskosten();
         return;
     }
     t.open = rij.code;
@@ -190,7 +199,7 @@ async function wisselAlternatieven(rij) {
     const mijn = t.volgnr;
     plek.hidden = false;
     plek.replaceChildren(maakAlternatievenRegel("kleineMelding", "Alternatieven opzoeken..."));
-    toonAansluitingskosten(document.getElementById("euronextCheckbox").checked);
+    toonAansluitingskosten();
     const actueel = () => t === alternatievenToestand && mijn === t.volgnr;
     try {
         const res = await haalAlternatieven(rij);

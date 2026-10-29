@@ -120,13 +120,13 @@
     }
 
     // beursVerdeling: huidigeData.beurs_verdeling, of undefined zolang de verrijking laadt (inBezit dan null).
-    function aansluitingskostenRijen(samenvatting, beursVerdeling, euronextSamenvoegen) {
+    function aansluitingskostenRijen(samenvatting, beursVerdeling) {
         if (!heeftAansluitingskosten(samenvatting)) return [];
         const posities = beursVerdeling
-            ? (euronextSamenvoegen ? beursVerdeling.beurs_euronext : beursVerdeling.beurs) || {}
+            ? beursVerdeling.beurs || {}
             : null;
         return samenvatting.per_beurs.map(beurs => {
-            const sleutel = euronextSamenvoegen ? beurs.verdeling_naam_euronext : beurs.verdeling_naam;
+            const sleutel = beurs.verdeling_naam;
             return {
                 code: beurs.code,
                 beurs: beursWeergave(beurs),

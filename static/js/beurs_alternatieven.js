@@ -9,9 +9,8 @@
     const KNOP_TEKST = "Alternatieven op een thuisbeurs";
     const ONBEKEND = "onbekend";
     const VASTE_REGELS = [
-        "Dit is geen advies.",
-        "Controleer in DEGIRO of het product op deze beurs te koop is; DEGIRO biedt niet elke notering aan.",
-        "Verkopen gebeurt op de beurs waar je de positie hebt.",
+        "Dit is geen advies. Controleer in DEGIRO of het product op deze beurs te koop is; DEGIRO biedt niet elke notering aan. "
+        + "Een vergelijkbaar fonds is niet hetzelfde: index, kosten en risico kunnen verschillen.",
     ];
     const SCHATTING_TOELICHTING = "schatting op basis van je eigen transactiekosten";
     const DIT_JAAR_AL_BETAALD = "De kosten voor dit jaar zijn al betaald; vanaf het jaar na je laatste transactie of positie "

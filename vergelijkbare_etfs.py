@@ -23,6 +23,8 @@ from wat_als import MAX_NAAM_TEKENS, MAX_TICKER_TEKENS
 MAX_KANDIDATEN = 10
 MIN_OVERLAP_PCT = 70.0
 MAX_ALTERNATIEVEN = 5
+MIN_ONDER_DREMPEL_OVERLAP_PCT = 30.0
+MAX_ONDER_DREMPEL = 3
 MAX_PARALLEL = 4
 TOP_N_BEDRIJVEN = 10
 TIJDBUDGET_SECONDEN = 40
@@ -159,6 +161,33 @@ def selecteer_alternatieven(vergelijkingen, min_overlap=MIN_OVERLAP_PCT, max_n=M
     return sorted(houden, key=lambda v: -v["overlap_pct"])[:max_n]
 
 
+def selecteer_onder_drempel(vergelijkingen, drempel=MIN_OVERLAP_PCT, ondergrens=MIN_ONDER_DREMPEL_OVERLAP_PCT,
+                            max_n=MAX_ONDER_DREMPEL):
+    """De beste kandidaten onder de drempel: minstens `ondergrens`, aflopend op overlap, hoogstens max_n."""
+    eronder = [v for v in vergelijkingen if ondergrens <= v["overlap_pct"] < drempel]
+    return sorted(eronder, key=lambda v: -v["overlap_pct"])[:max_n]
+
+
+def vul_sector_aan(vergelijkingen, bron, sector_ophaler):
+    """De sectorgelijkenis wordt alleen bij >= de drempel in onderzoek_kandidaat() opgehaald; wie eronder toch getoond wordt, krijgt hem hier."""
+    aangevuld = []
+    for v in vergelijkingen:
+        if v["sector_gelijkenis_pct"] is None and bron["sector"]:
+            verdeling = _sector_van_veilig(sector_ophaler, v["ticker"])
+            if verdeling:
+                v = {**v, "sector_gelijkenis_pct": gelijkenis_pct(bron["sector"], sector_pct_met_restant(verdeling))}
+        aangevuld.append(v)
+    return aangevuld
+
+
+def _sector_van_veilig(sector_ophaler, ticker):
+    try:
+        return sector_ophaler(ticker)
+    except Exception as e:
+        dprint(f"[vergelijkbaar] WARN sectorverdeling niet opgehaald ({e!a})")
+        return None
+
+
 def thuisnotering_van_vaneck(kandidaat):
     for ticker in kandidaat["tickers"]:
         for thuis in THUISBEURZEN:
@@ -257,7 +286,7 @@ def zoek_vergelijkbare_etfs(ticker, isin, naam, onderzoeker=onderzoek_isin, hold
                             sector_ophaler=_sector_van, fondsen_ophaler=ishares_fondsen):
     """Het antwoord voor één positie. status: ok, geen_kandidaten, geen_alternatieven of fout."""
     antwoord = {"status": STATUS_OK, "ticker": ticker, "naam": naam, "waarschuwing": None, "fout": None,
-                "alternatieven": [], "aantal_kandidaten": 0, "aantal_onderzocht": 0, "onvolledig": False,
+                "alternatieven": [], "onder_drempel": [], "aantal_kandidaten": 0, "aantal_onderzocht": 0, "onvolledig": False,
                 "min_overlap_pct": MIN_OVERLAP_PCT, "kandidaten_via": None, "bron": None}
     with meet_tijd("vergelijkbare_etfs"):
         bron, alleen_top10 = bouw_bron(ticker, isin, sector_ophaler)
@@ -284,7 +313,9 @@ def zoek_vergelijkbare_etfs(ticker, isin, naam, onderzoeker=onderzoek_isin, hold
         dprint(f"[vergelijkbaar] {len(kandidaten)} kandidaat/kandidaten via {via}, {len(resultaten)} met thuisnotering en "
                f"holdings, {len(antwoord['alternatieven'])} boven de drempel")
         if not antwoord["alternatieven"]:
-            return {**antwoord, "status": STATUS_GEEN_ALTERNATIEVEN}
+            onder = selecteer_onder_drempel(resultaten)
+            return {**antwoord, "status": STATUS_GEEN_ALTERNATIEVEN,
+                    "onder_drempel": vul_sector_aan(onder, bron, sector_ophaler)}
         return antwoord
 
 

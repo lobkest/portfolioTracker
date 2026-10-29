@@ -5,7 +5,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
-    VERGELIJK_GEEN_KANDIDATEN_TEKST, VERGELIJK_ONVOLLEDIG_TEKST, VERGELIJK_VASTE_REGELS, VERGELIJK_FOUT_TEKST,
+    VERGELIJK_GEEN_KANDIDATEN_TEKST, VERGELIJK_ONVOLLEDIG_TEKST, VERGELIJK_FOUT_TEKST,
     VERGELIJK_ONGEVAL_TEKST, VERGELIJK_TE_LANG_TEKST, vergelijkbaarPaneel, vergelijkFoutTekst, uitkeringsvormTekst,
 } = require("../static/js/vergelijkbare_etfs.js");
 const { alternatievenPaneel } = require("../static/js/beurs_alternatieven.js");
@@ -85,11 +85,30 @@ test("onvolledig antwoord krijgt een opmerking", () => {
     assert.equal(vergelijkbaarPaneel(antwoord(), "x").onvolledig, null);
 });
 
-test("vaste regels: geen advies en controleren in DEGIRO", () => {
-    const p = vergelijkbaarPaneel(antwoord(), "x");
-    assert.deepEqual(p.vasteRegels, VERGELIJK_VASTE_REGELS);
-    assert.match(VERGELIJK_VASTE_REGELS[0], /^Dit is geen advies\. Een vergelijkbaar fonds is niet hetzelfde/);
-    assert.match(VERGELIJK_VASTE_REGELS[1], /Controleer in DEGIRO/);
+test("fase B herhaalt de disclaimers niet: ze staan een keer onderaan het fase A-paneel", () => {
+    const vergelijk = vergelijkbaarPaneel(antwoord(), "x");
+    assert.equal(vergelijk.vasteRegels, undefined);
+    assert.equal(JSON.stringify(vergelijk).includes("geen advies"), false);
+    assert.equal(JSON.stringify(vergelijk).includes("Controleer in DEGIRO"), false);
+});
+
+test("onder_drempel: kopje met de drempel en kaarten met overlap, land en sector", () => {
+    const eronder = [alternatief({ naam: "Net eronder", overlap_pct: 65.5 }), alternatief({ naam: "Verder eronder", overlap_pct: 40 })];
+    const p = vergelijkbaarPaneel(antwoord({ status: "geen_alternatieven", alternatieven: [], onder_drempel: eronder }), "x");
+    assert.equal(p.melding, "Geen vergelijkbaar fonds op een thuisbeurs met minstens 70% overlap gevonden.");
+    assert.deepEqual(p.kaarten, []);
+    assert.equal(p.onderDrempel.titel, "Minder vergelijkbaar (onder 70% overlap)");
+    assert.deepEqual(p.onderDrempel.kaarten.map(k => k.hoofdgetal), ["65,5%", "40,0%"]);
+    assert.equal(p.onderDrempel.kaarten[0].regels[0].label, "Landen");
+    assert.equal(p.onderDrempel.kaarten[0].regels[1].label, "Sectoren");
+});
+
+test("zonder onder_drempel (leeg of afwezig) geen blok", () => {
+    for (const extra of [{ onder_drempel: [] }, {}]) {
+        const p = vergelijkbaarPaneel(antwoord({ status: "geen_alternatieven", alternatieven: [], ...extra }), "x");
+        assert.equal(p.onderDrempel, null);
+    }
+    assert.equal(vergelijkbaarPaneel(antwoord(), "x").onderDrempel, null);
 });
 
 test("foutteksten per status", () => {

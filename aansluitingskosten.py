@@ -40,8 +40,8 @@ def _per_jaar(bedragen):
 def bouw_aansluitingskosten_samenvatting(regels):
     """regels: dicts zoals bouw_rekening_regels() of db_get_rekening_regels_eur(). Bedragen als positieve kosten.
     {totaal_eur, aantal_regels, per_jaar: [{jaar, bedrag_eur}],
-     per_beurs: [{code, naam, verdeling_naam, verdeling_naam_euronext, totaal_eur, aantal_regels, per_jaar}],
-     onbekend_formaat: [omschrijving]}. verdeling_naam(_euronext) = sleutel in beurs_verdeling.beurs(_euronext);
+     per_beurs: [{code, naam, verdeling_naam, totaal_eur, aantal_regels, per_jaar}],
+     onbekend_formaat: [omschrijving]}. verdeling_naam = sleutel in beurs_verdeling.beurs;
     None bij een onbekende beurs."""
     per_beurs, per_jaar, onbekend = {}, {}, []
     for regel in regels:
@@ -64,8 +64,7 @@ def bouw_aansluitingskosten_samenvatting(regels):
     lijst = [{
         "code": code,
         "naam": b["naam"],
-        "verdeling_naam": None if code == BEURS_ONBEKEND else beurs_naam(code, False),
-        "verdeling_naam_euronext": None if code == BEURS_ONBEKEND else beurs_naam(code, True),
+        "verdeling_naam": None if code == BEURS_ONBEKEND else beurs_naam(code),
         "totaal_eur": round(b["totaal"], 2),
         "aantal_regels": b["aantal"],
         "per_jaar": _per_jaar(b["per_jaar"]),

@@ -15,10 +15,6 @@
     const VERGELIJK_FOUT_TEKST = "Vergelijkbare fondsen opzoeken is niet gelukt. Probeer het later opnieuw.";
     const VERGELIJK_ONGEVAL_TEKST = "Er ging iets mis bij het opzoeken van vergelijkbare fondsen.";
     const VERGELIJK_TE_LANG_TEKST = "Het ophalen duurde te lang. Probeer het later opnieuw.";
-    const VERGELIJK_VASTE_REGELS = [
-        "Dit is geen advies. Een vergelijkbaar fonds is niet hetzelfde: index, kosten en risico kunnen verschillen.",
-        "Controleer in DEGIRO of het fonds op deze beurs te koop is.",
-    ];
     const ONBEKEND = "onbekend";
     const UITKERINGSVORM_TEKST = { ACC: "accumulerend", DIS: "uitkerend" };
 
@@ -61,12 +57,16 @@
         return `Geen vergelijkbaar fonds op een thuisbeurs met minstens ${formatGetal(antwoord.min_overlap_pct, 0)}% overlap gevonden.`;
     }
 
+    function onderDrempelTitel(antwoord) {
+        return `Minder vergelijkbaar (onder ${formatGetal(antwoord.min_overlap_pct, 0)}% overlap)`;
+    }
+
     // `bronNaam`: de naam van de positie (uit het fase A-antwoord), voor de waarschuwing.
     function vergelijkbaarPaneel(antwoord, bronNaam) {
         const paneel = {
             melding: null, waarschuwing: waarschuwingTekst(antwoord, bronNaam || antwoord.naam), kaarten: [],
             telling: null, onvolledig: antwoord.onvolledig ? VERGELIJK_ONVOLLEDIG_TEKST : null,
-            bronTop10Titel: bronNaam || antwoord.naam, vasteRegels: VERGELIJK_VASTE_REGELS,
+            bronTop10Titel: bronNaam || antwoord.naam, onderDrempel: null,
         };
         if (antwoord.status === "fout") {
             return { ...paneel, melding: antwoord.fout || VERGELIJK_FOUT_TEKST };
@@ -77,7 +77,11 @@
         const telling = `${antwoord.aantal_onderzocht} van ${antwoord.aantal_kandidaten} kandidaten hadden een notering op een `
             + "thuisbeurs en volledige holdings.";
         if (antwoord.status === "geen_alternatieven") {
-            return { ...paneel, melding: geenAlternatievenTekst(antwoord), telling };
+            const eronder = (antwoord.onder_drempel || []).map(a => alternatiefKaart(a, antwoord.bron.top10));
+            return {
+                ...paneel, melding: geenAlternatievenTekst(antwoord), telling,
+                onderDrempel: eronder.length ? { titel: onderDrempelTitel(antwoord), kaarten: eronder } : null,
+            };
         }
         return { ...paneel, telling, kaarten: antwoord.alternatieven.map(a => alternatiefKaart(a, antwoord.bron.top10)) };
     }
@@ -93,7 +97,7 @@
 
     const exportsObj = {
         VERGELIJK_KNOP_TEKST, VERGELIJK_AL_GEVONDEN_TEKST, VERGELIJK_GEEN_KANDIDATEN_TEKST, VERGELIJK_ONVOLLEDIG_TEKST,
-        VERGELIJK_BEZIG_TEKST, VERGELIJK_FOUT_TEKST, VERGELIJK_ONGEVAL_TEKST, VERGELIJK_TE_LANG_TEKST, VERGELIJK_VASTE_REGELS,
+        VERGELIJK_BEZIG_TEKST, VERGELIJK_FOUT_TEKST, VERGELIJK_ONGEVAL_TEKST, VERGELIJK_TE_LANG_TEKST,
         vergelijkbaarPaneel, vergelijkFoutTekst, uitkeringsvormTekst,
     };
 

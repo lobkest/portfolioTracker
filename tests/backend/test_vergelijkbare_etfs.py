@@ -12,7 +12,7 @@ import db
 import vergelijkbare_etfs as ve
 from vergelijkbare_etfs import (
     MAX_KANDIDATEN, MIN_OVERLAP_PCT, OnbekendeTicker, bron_uit_portfolio, fonds_profiel, gelijkenis_pct,
-    kies_kandidaten_voor_bron, onderzoek_kandidaat, overlap_pct, selecteer_alternatieven, thuisnotering_van_vaneck,
+    kies_kandidaten_voor_bron, onderzoek_kandidaat, overlap_pct, selecteer_alternatieven, selecteer_onder_drempel, thuisnotering_van_vaneck,
     valideer_vergelijk_invoer, vaneck_kandidaten, zoek_vergelijkbare_etfs)
 
 ISIN_BRON = "IE00B4L5Y983"
@@ -126,6 +126,16 @@ class TestVergelijken(unittest.TestCase):
         self.assertEqual(MIN_OVERLAP_PCT, 70.0)
 
 
+class TestOnderDrempel(unittest.TestCase):
+    def test_max_drie_gesorteerd_en_minstens_dertig_procent(self):
+        uitslag = [{"overlap_pct": x} for x in (10, 29.9, 30, 55, 69.9, 40, 62, 70, 85)]
+        self.assertEqual([v["overlap_pct"] for v in selecteer_onder_drempel(uitslag)], [69.9, 62, 55])
+        self.assertEqual([v["overlap_pct"] for v in selecteer_onder_drempel(uitslag, max_n=10)][-2:], [40, 30])
+
+    def test_niets_tussen_dertig_en_zeventig_geeft_een_lege_lijst(self):
+        self.assertEqual(selecteer_onder_drempel([{"overlap_pct": 20}, {"overlap_pct": 90}]), [])
+
+
 class TestOnderzoekKandidaat(unittest.TestCase):
     def setUp(self):
         self.bron = fonds_profiel([holding("Apple", 0.5), holding("Shell", 0.5, "Netherlands")], {"Technology": 1.0})
@@ -201,6 +211,27 @@ class TestZoekVergelijkbareEtfs(unittest.TestCase):
         self.assertEqual((antwoord["aantal_kandidaten"], antwoord["aantal_onderzocht"]), (2, 2))
         self.assertIsNone(antwoord["waarschuwing"])
         self.assertEqual(antwoord["bron"]["aantal_holdings"], 2)
+
+    def test_onder_drempel_gevuld_zonder_alternatieven_met_sector_aangevuld(self):
+        stukje = lambda w: [holding("Apple", w), holding("Nvidia", 1 - w)]
+        antwoord = self.zoek(per_kandidaat={isin_van(2): stukje(0.6), isin_van(3): stukje(0.4)})
+        self.assertEqual((antwoord["status"], antwoord["alternatieven"]), ("geen_alternatieven", []))
+        self.assertEqual([v["overlap_pct"] for v in antwoord["onder_drempel"]], [50.0, 40.0])
+        self.assertTrue(all(v["sector_gelijkenis_pct"] == 100.0 for v in antwoord["onder_drempel"]))
+        self.assertTrue(all(v["land_gelijkenis_pct"] is not None for v in antwoord["onder_drempel"]))
+
+    def test_onder_drempel_leeg_als_er_wel_alternatieven_zijn(self):
+        antwoord = self.zoek(per_kandidaat={isin_van(3): [holding("Apple", 0.5), holding("Nvidia", 0.5)]})
+        self.assertEqual(antwoord["status"], "ok")
+        self.assertEqual(antwoord["onder_drempel"], [])
+
+    def test_onder_drempel_max_drie_en_niet_onder_dertig(self):
+        lijst = [BRONFONDS] + [fonds(n, f"Wereld Fonds {chr(65 + n)}", float(n)) for n in range(2, 8)]
+        gewicht = {isin_van(2): 0.65, isin_van(3): 0.6, isin_van(4): 0.5, isin_van(5): 0.45, isin_van(6): 0.2, isin_van(7): 0.1}
+        per = {i: [holding("Apple", w), holding("Nvidia", 1 - w)] for i, w in gewicht.items()}
+        antwoord = self.zoek(lijst=lijst, per_kandidaat=per)
+        # Bron is 50% Apple: overlap = min(gewicht, 0,5) -> 50, 50, 50, 45, 20, 10; de 45 valt buiten de top 3, 20 en 10 onder de 30.
+        self.assertEqual([v["overlap_pct"] for v in antwoord["onder_drempel"]], [50.0, 50.0, 50.0])
 
     def test_geen_alternatief_boven_de_drempel(self):
         antwoord = self.zoek(per_kandidaat={isin_van(2): [holding("Nvidia", 1.0)], isin_van(3): [holding("Nvidia", 1.0)]})

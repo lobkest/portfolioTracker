@@ -349,9 +349,9 @@ function maakAansluitingskostenMeldingen(rijen) {
 }
 
 // Kerndata: staat er ook als de verrijking (beurs_verdeling) nog laadt, dan zonder "geen positie".
-function toonAansluitingskosten(samenvoegen) {
+function toonAansluitingskosten() {
     const sectie = document.getElementById("aansluitingskostenSectie");
-    const rijen = aansluitingskostenRijen(huidigeData.aansluitingskosten, huidigeData.beurs_verdeling, samenvoegen);
+    const rijen = aansluitingskostenRijen(huidigeData.aansluitingskosten, huidigeData.beurs_verdeling);
     sectie.style.display = rijen.length > 0 ? "block" : "none";
     if (rijen.length > 0) {
         document.getElementById("aansluitingskostenTabel").replaceChildren(
@@ -365,32 +365,24 @@ function toonBeurs() {
     document.getElementById("geenData").style.display = "none";
     const tekst = document.getElementById("beursTekst");
     tekst.style.display = "none";
-    const samenvoegen = document.getElementById("euronextCheckbox").checked;
-    toonAansluitingskosten(samenvoegen);
-    if (toonOverTijdIndienGekozen("beurs", samenvoegen)) {
-        document.getElementById("euronextCheckboxWrapper").style.display = "flex";
-        return;
-    }
-    if (toonVerrijkingWachtstatusIndienNodig()) {
-        document.getElementById("euronextCheckboxWrapper").style.display = "none";
-        return;
-    }
+    toonAansluitingskosten();
+    if (toonOverTijdIndienGekozen("beurs")) return;
+    if (toonVerrijkingWachtstatusIndienNodig()) return;
 
     const bv = huidigeData.beurs_verdeling;
-    document.getElementById("euronextCheckboxWrapper").style.display = "flex";
-    const verdeling = bv && (samenvoegen ? bv.beurs_euronext : bv.beurs);
+    const verdeling = bv && bv.beurs;
 
     if (landSectorWeergave === "staaf") {
         const tickerNamen = {};
         (huidigeData.tickers || []).forEach(t => { tickerNamen[t.ticker] = t.naam; });
         const totaal = Object.values(verdeling || {}).reduce((s, w) => s + w, 0);
-        const perBron = bv && (samenvoegen ? bv.beurs_euronext_per_bron : bv.beurs_per_bron);
+        const perBron = bv && bv.beurs_per_bron;
         chart = renderGestapeldeStaafgrafiek("rendementChart", perBron, tickerNamen, { totaal });
     } else {
         toonPlatteVerdeling(verdeling);
     }
 
-    const aantal = bv ? (samenvoegen ? bv.aantal_beurzen_euronext : bv.aantal_beurzen) : 0;
+    const aantal = bv ? bv.aantal_beurzen : 0;
     if (aantal > 0) {
         tekst.textContent = `Je posities staan op ${aantal} ${aantal === 1 ? "beurs" : "beurzen"}.`;
         tekst.style.display = "block";
@@ -401,10 +393,6 @@ function toonBeurs() {
     document.getElementById(id).addEventListener("change", () => {
         toonLand();
     });
-});
-
-document.getElementById("euronextCheckbox").addEventListener("change", () => {
-    toonBeurs();
 });
 
 // De keuze geldt voor Land, Sector, Valuta én Beurs; de data staat al in huidigeData.

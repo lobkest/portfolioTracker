@@ -57,7 +57,6 @@ BEURS_NAMEN = {
     "NDQ": "Nasdaq", "NASDAQ": "Nasdaq", "NSY": "NYSE", "NYSE": "NYSE", "ARCA": "NYSE Arca",
     "BME": "Madrid (BME)", "SWX": "SIX Swiss Exchange", "TSE": "Toronto", "ASX": "ASX (Australië)",
 }
-EURONEXT_BEURZEN = frozenset(code for code, naam in BEURS_NAMEN.items() if naam.startswith("Euronext"))
 
 VERDELING_OVER_TIJD_TOP_N = 10
 # Pandas-periode: per week de laatste echte koersdag als meetpunt.
@@ -669,16 +668,14 @@ def _beurs_codes(transacties_df):
     return transacties_df["beurs"].fillna("Onbekend")
 
 
-def beurs_naam(code, euronext_samenvoegen):
-    if euronext_samenvoegen and code in EURONEXT_BEURZEN:
-        return "Euronext"
+def beurs_naam(code):
     return BEURS_NAMEN.get(code, code)
 
 
-def gewichten_per_beurs(transacties_df, euronext_samenvoegen=False):
+def gewichten_per_beurs(transacties_df):
     """Een ticker op meerdere beursnamen naar verhouding van de gekochte stuks (zie CLAUDE.md: Data en rekenen)."""
     return _gewichten_per_beurssleutel(
-        transacties_df, lambda codes: codes.map(lambda code: beurs_naam(code, euronext_samenvoegen)))
+        transacties_df, lambda codes: codes.map(beurs_naam))
 
 
 def gewichten_per_beurscode(transacties_df):
@@ -785,34 +782,28 @@ def compute_valuta_verdeling(transacties_df, price_data):
 
 def compute_beurs_verdeling(transacties_df, price_data):
     """Per DeGiro-beurs, bedragen in €. Geen "Overig": het gaat juist om het aantal beurzen. Sleutels:
-      beurs, beurs_euronext: {naam: €} (taart)
-      beurs_per_bron, beurs_euronext_per_bron: {naam: {ticker: €}} (staaf)
-      aantal_beurzen, aantal_beurzen_euronext
+      beurs: {naam: €} (taart)
+      beurs_per_bron: {naam: {ticker: €}} (staaf)
+      aantal_beurzen
     """
     transacties_df = transacties_df.dropna(subset=["ticker"])
     holdings = transacties_df.groupby([transacties_df["ticker"], _beurs_codes(transacties_df)])["aantal"].sum()
     laatste_prijzen = price_data.iloc[-1]
 
     beurs, beurs_per_bron = {}, {}
-    euronext, euronext_per_bron = {}, {}
     for (ticker, code), aantal in holdings.items():
         if ticker not in price_data.columns or not pd.notna(laatste_prijzen[ticker]):
             continue
         waarde = float(aantal) * float(laatste_prijzen[ticker])
         if waarde <= 0:
             continue
-        naam = beurs_naam(code, False)
-        naam_euronext = beurs_naam(code, True)
-        for totalen, per_bron, n in ((beurs, beurs_per_bron, naam), (euronext, euronext_per_bron, naam_euronext)):
-            totalen[n] = totalen.get(n, 0.0) + waarde
-            rij = per_bron.setdefault(n, {})
-            rij[ticker] = rij.get(ticker, 0.0) + waarde
+        naam = beurs_naam(code)
+        beurs[naam] = beurs.get(naam, 0.0) + waarde
+        rij = beurs_per_bron.setdefault(naam, {})
+        rij[ticker] = rij.get(ticker, 0.0) + waarde
 
     return {
         "beurs": beurs,
         "beurs_per_bron": beurs_per_bron,
-        "beurs_euronext": euronext,
-        "beurs_euronext_per_bron": euronext_per_bron,
         "aantal_beurzen": len(beurs),
-        "aantal_beurzen_euronext": len(euronext),
     }

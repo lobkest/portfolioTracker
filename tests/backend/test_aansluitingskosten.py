@@ -102,10 +102,8 @@ class TestSamenvatting(unittest.TestCase):
         s = bouw_aansluitingskosten_samenvatting(_regels(KOSTEN_REGELS + [
             ("2024-02-03", "09:00", _tekst(2024, "Euronext Amsterdam", "EAM"), "EUR", -2.5)]))
         per_code = {b["code"]: b for b in s["per_beurs"]}
-        self.assertEqual((per_code["XET"]["verdeling_naam"], per_code["XET"]["verdeling_naam_euronext"]),
-                         ("Xetra", "Xetra"))
-        self.assertEqual((per_code["EAM"]["verdeling_naam"], per_code["EAM"]["verdeling_naam_euronext"]),
-                         ("Euronext Amsterdam", "Euronext"))
+        self.assertEqual(per_code["XET"]["verdeling_naam"], "Xetra")
+        self.assertEqual(per_code["EAM"]["verdeling_naam"], "Euronext Amsterdam")
         # Onbekende code: zoals Verdeling, rauw.
         self.assertEqual(per_code["ZZZ"]["verdeling_naam"], "ZZZ")
 

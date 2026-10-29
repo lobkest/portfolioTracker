@@ -174,12 +174,10 @@ class TestGewichtenPerBeurs(unittest.TestCase):
         df = pd.DataFrame([_rij("2024-01-02", "A", 5.0, -50.0, "EAM"), _rij("2024-01-03", "A", 5.0, -50.0, "XAMS")])
         self.assertEqual(gewichten_per_beurs(df), {"A": {"Euronext Amsterdam": 1.0}})
 
-    def test_euronext_samenvoegen_tradegate_apart(self):
-        df = pd.DataFrame([_rij("2024-01-02", "A", 5.0, -50.0, "EAM"), _rij("2024-01-02", "B", 5.0, -50.0, "EPA"),
-                           _rij("2024-01-02", "C", 5.0, -50.0, "TDG")])
-        self.assertEqual(gewichten_per_beurs(df, euronext_samenvoegen=True),
-                         {"A": {"Euronext": 1.0}, "B": {"Euronext": 1.0}, "C": {"Tradegate": 1.0}})
-        self.assertEqual(gewichten_per_beurs(df)["B"], {"Euronext Parijs": 1.0})
+    def test_euronext_beurzen_blijven_apart(self):
+        df = pd.DataFrame([_rij("2024-01-02", "A", 5.0, -50.0, "EAM"), _rij("2024-01-02", "B", 5.0, -50.0, "EPA")])
+        self.assertEqual(gewichten_per_beurs(df),
+                         {"A": {"Euronext Amsterdam": 1.0}, "B": {"Euronext Parijs": 1.0}})
 
     def test_twee_beursnamen_naar_gekochte_stuks_ook_als_gesloten(self):
         # 6 op Xetra en 2 op Tradegate gekocht, alles verkocht op Xetra: som van de aantallen 0, gekocht 6 : 2.
@@ -227,8 +225,7 @@ class TestWaakhondPerDimensie(unittest.TestCase):
         with patch.object(portfolio_verdeling, "get_valutas", return_value={"A": "EUR", "B": "USD", "C": "EUR"}):
             valuta = bereken_verdeling_over_tijd(waarde, gewichten_per_valuta(waarde.columns), {})
         self._check(valuta, positie)
-        for samenvoegen in (False, True):
-            self._check(bereken_verdeling_over_tijd(waarde, gewichten_per_beurs(df, samenvoegen), {}), positie)
+        self._check(bereken_verdeling_over_tijd(waarde, gewichten_per_beurs(df), {}), positie)
 
     def test_laatste_meetpunt_gelijk_aan_huidige_verdeling(self):
         df, koersen = self._df_en_koersen()
@@ -244,9 +241,8 @@ class TestWaakhondPerDimensie(unittest.TestCase):
         self.assertEqual(over_tijd, {k: round(v, 2) for k, v in nu.items()})
 
         nu_beurs = compute_beurs_verdeling(df, koersen)
-        for samenvoegen, sleutel in ((False, "beurs"), (True, "beurs_euronext")):
-            over_tijd = laatste(bereken_verdeling_over_tijd(waarde, gewichten_per_beurs(df, samenvoegen), {}))
-            self.assertEqual(over_tijd, {k: round(v, 2) for k, v in nu_beurs[sleutel].items()})
+        over_tijd = laatste(bereken_verdeling_over_tijd(waarde, gewichten_per_beurs(df), {}))
+        self.assertEqual(over_tijd, {k: round(v, 2) for k, v in nu_beurs["beurs"].items()})
 
 
 class TestVerdelingOverTijdRoute(unittest.TestCase):
@@ -274,7 +270,7 @@ class TestVerdelingOverTijdRoute(unittest.TestCase):
         self.assertEqual(valuta.status_code, 200)
         self.assertEqual([r["sleutel"] for r in valuta.get_json()["reeksen"]], ["EUR"])
         self.assertEqual(beurs.status_code, 200)
-        self.assertEqual([r["sleutel"] for r in beurs.get_json()["reeksen"]], ["Euronext"])
+        self.assertEqual([r["sleutel"] for r in beurs.get_json()["reeksen"]], ["Euronext Amsterdam"])
 
     def test_onbekende_code_404(self):
         with patch.object(self.orchestratie, "haal_portfolio_basis", return_value=(None, None, None)):

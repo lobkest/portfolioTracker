@@ -9,10 +9,10 @@ const {
     aansluitingskostenTotalen, ONVOLLEDIG_TEKST, DIT_JAAR_BETAALD_TEKST, POSITIE_AANGEHOUDEN_TEKST,
 } = require("../static/js/aansluitingskosten.js");
 
-function beurs(code, naam, verdelingNaam, verdelingNaamEuronext, perJaar) {
+function beurs(code, naam, verdelingNaam, perJaar) {
     const totaal = perJaar.reduce((s, [, b]) => s + b, 0);
     return {
-        code, naam, verdeling_naam: verdelingNaam, verdeling_naam_euronext: verdelingNaamEuronext,
+        code, naam, verdeling_naam: verdelingNaam,
         totaal_eur: totaal, aantal_regels: perJaar.length,
         per_jaar: perJaar.map(([jaar, bedrag_eur]) => ({ jaar, bedrag_eur })),
     };
@@ -23,14 +23,13 @@ const SAMENVATTING = {
     aantal_regels: 5,
     per_jaar: [{ jaar: 2024, bedrag_eur: 5 }, { jaar: 2025, bedrag_eur: 7.5 }],
     per_beurs: [
-        beurs("XET", "Xetra", "Xetra", "Xetra", [[2024, 2.5], [2025, 2.5]]),
-        beurs("EAM", "Euronext Amsterdam", "Euronext Amsterdam", "Euronext", [[2025, 2.5]]),
-        beurs("ZZZ", "Voorbeeldbeurs AG", "ZZZ", "ZZZ", [[2024, 2.5], [2025, 2.5]]),
+        beurs("XET", "Xetra", "Xetra", [[2024, 2.5], [2025, 2.5]]),
+        beurs("EAM", "Euronext Amsterdam", "Euronext Amsterdam", [[2025, 2.5]]),
+        beurs("ZZZ", "Voorbeeldbeurs AG", "ZZZ", [[2024, 2.5], [2025, 2.5]]),
     ],
 };
 const BEURS_VERDELING = {
     beurs: { "Xetra": 1000, "Euronext Amsterdam": 500 },
-    beurs_euronext: { "Xetra": 1000, "Euronext": 500 },
 };
 
 test("heeftAansluitingskosten: alleen met kostenregels", () => {
@@ -53,19 +52,17 @@ test("aansluitingskostenTegel: zonder kosten of zonder veld geen tegel", () => {
 });
 
 test("aansluitingskostenRijen: meerdere beurzen en jaren, hoogste totaal eerst", () => {
-    const rijen = aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING, false);
+    const rijen = aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING);
     assert.deepEqual(rijen.map(r => r.beurs), ["Voorbeeldbeurs AG (ZZZ)", "Xetra (XET)", "Euronext Amsterdam (EAM)"]);
     const xet = rijen.find(r => r.code === "XET");
     assert.equal(xet.totaalTekst, "€5,00");
     assert.equal(xet.perJaar, "2024 €2,50 · 2025 €2,50");
 });
 
-test("aansluitingskostenRijen: beurs zonder huidige positie, ook met Euronext samengevoegd", () => {
-    for (const samenvoegen of [false, true]) {
-        const inBezit = Object.fromEntries(
-            aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING, samenvoegen).map(r => [r.code, r.inBezit]));
-        assert.deepEqual(inBezit, { XET: true, EAM: true, ZZZ: false }, String(samenvoegen));
-    }
+test("aansluitingskostenRijen: beurs zonder huidige positie", () => {
+    const inBezit = Object.fromEntries(
+        aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING).map(r => [r.code, r.inBezit]));
+    assert.deepEqual(inBezit, { XET: true, EAM: true, ZZZ: false });
 });
 
 test("aansluitingskostenRijen: zolang de verrijking laadt is het bezit onbekend", () => {
@@ -75,9 +72,9 @@ test("aansluitingskostenRijen: zolang de verrijking laadt is het bezit onbekend"
 test("aansluitingskostenRijen: onbekende beurs onderaan, zonder positie-oordeel", () => {
     const s = {
         ...SAMENVATTING,
-        per_beurs: [beurs("onbekend", "onbekend", null, null, [[null, 9]]), ...SAMENVATTING.per_beurs],
+        per_beurs: [beurs("onbekend", "onbekend", null, [[null, 9]]), ...SAMENVATTING.per_beurs],
     };
-    const rijen = aansluitingskostenRijen(s, BEURS_VERDELING, false);
+    const rijen = aansluitingskostenRijen(s, BEURS_VERDELING);
     const laatste = rijen.at(-1);
     assert.equal(laatste.beurs, "Onbekende beurs");
     assert.equal(laatste.perJaar, "jaar onbekend €9,00");
@@ -85,8 +82,8 @@ test("aansluitingskostenRijen: onbekende beurs onderaan, zonder positie-oordeel"
 });
 
 test("aansluitingskostenRijen: afronding op 2 decimalen, geen eigen berekening", () => {
-    const s = { ...SAMENVATTING, per_beurs: [{ ...beurs("XET", "Xetra", "Xetra", "Xetra", [[2024, 1.005]]), totaal_eur: 1.004 }] };
-    const [rij] = aansluitingskostenRijen(s, BEURS_VERDELING, false);
+    const s = { ...SAMENVATTING, per_beurs: [{ ...beurs("XET", "Xetra", "Xetra", [[2024, 1.005]]), totaal_eur: 1.004 }] };
+    const [rij] = aansluitingskostenRijen(s, BEURS_VERDELING);
     assert.equal(rij.totaalTekst, "€1,00");
     assert.equal(rij.totaal_eur, 1.004);
 });
@@ -99,19 +96,19 @@ const MET_RESULTAAT = {
     totaal_wv_volledig: true,
     per_beurs: [
         {
-            ...beurs("XET", "Xetra", "Xetra", "Xetra", [[2024, 2.5], [2025, 2.5]]),
+            ...beurs("XET", "Xetra", "Xetra", [[2024, 2.5], [2025, 2.5]]),
             transacties_per_jaar: [{ jaar: 2024, aantal: 3 }, { jaar: 2025, aantal: 1 }],
             wv_eur: 250, wv_volledig: true, wv_na_aansluitingskosten_eur: 245, transactiekosten_eur: 4.5,
             betaald_dit_jaar: false, kosten_zonder_positie_of_transacties: [], activiteit_zonder_kosten: [],
         },
         {
-            ...beurs("ZZZ", "Voorbeeldbeurs AG", "ZZZ", "ZZZ", [[2024, 2.5], [2026, 2.5]]),
+            ...beurs("ZZZ", "Voorbeeldbeurs AG", "ZZZ", [[2024, 2.5], [2026, 2.5]]),
             transacties_per_jaar: [{ jaar: 2025, aantal: 2 }, { jaar: 2026, aantal: 1 }],
             wv_eur: 50, wv_volledig: false, wv_na_aansluitingskosten_eur: 45, transactiekosten_eur: null,
             betaald_dit_jaar: true, kosten_zonder_positie_of_transacties: [2024], activiteit_zonder_kosten: [2025], jaren_met_positie: [2025, 2026],
         },
         {
-            ...beurs("TDG", "Tradegate", "Tradegate", "Tradegate", [[2023, 2.5], [2024, 2.5]]),
+            ...beurs("TDG", "Tradegate", "Tradegate", [[2023, 2.5], [2024, 2.5]]),
             transacties_per_jaar: [],
             wv_eur: null, wv_volledig: true, wv_na_aansluitingskosten_eur: null, transactiekosten_eur: null,
             betaald_dit_jaar: false, kosten_zonder_positie_of_transacties: [2023, 2024], activiteit_zonder_kosten: [],
@@ -165,7 +162,7 @@ test("aansluitingskostenRijen: meldingen voor de twee controlelijsten, neutraal"
 });
 
 test("aansluitingskostenRijen: zonder de nieuwe velden (oud antwoord) geen fouten", () => {
-    const [rij] = aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING, false);
+    const [rij] = aansluitingskostenRijen(SAMENVATTING, BEURS_VERDELING);
     assert.equal(rij.wvTekst, "–");
     assert.deepEqual(rij.meldingen, []);
     assert.equal(rij.betaaldDitJaar, false);
@@ -190,7 +187,7 @@ function pos(naam, nogInBezit = true, gewicht = 1) {
 }
 
 function rijMetPosities(posities, extra = {}) {
-    const b = { ...beurs("XET", "Xetra", "Xetra", "Xetra", [[2024, 2.5]]), posities, ...extra };
+    const b = { ...beurs("XET", "Xetra", "Xetra", [[2024, 2.5]]), posities, ...extra };
     return aansluitingskostenRijen({ ...SAMENVATTING, per_beurs: [b] }, BEURS_VERDELING, false)[0];
 }
 

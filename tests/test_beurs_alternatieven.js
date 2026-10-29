@@ -107,7 +107,9 @@ test("dit jaar al betaald en de vaste regels", () => {
     assert.match(DIT_JAAR_AL_BETAALD, /vanaf het jaar na je laatste transactie of positie op deze beurs betaal je niet meer/);
     assert.equal(alternatievenPaneel(antwoord()).ditJaarAlBetaald, null);
     assert.deepEqual(alternatievenPaneel(antwoord()).vasteRegels, VASTE_REGELS);
-    assert.deepEqual(VASTE_REGELS.map(r => r.split(" ")[0]), ["Dit", "Controleer", "Verkopen"]);
+    assert.equal(VASTE_REGELS.length, 1);
+    assert.equal(VASTE_REGELS[0], "Dit is geen advies. Controleer in DEGIRO of het product op deze beurs te koop is; DEGIRO biedt niet elke notering aan. "
+        + "Een vergelijkbaar fonds is niet hetzelfde: index, kosten en risico kunnen verschillen.");
     assert.equal(KNOP_TEKST, "Alternatieven op een thuisbeurs");
 });
 

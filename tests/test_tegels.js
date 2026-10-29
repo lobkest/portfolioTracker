@@ -198,7 +198,7 @@ test("maakTotalenSectie: transactiekosten zonder korting (0 of veld ontbreekt) z
 
 const AANSLUITINGSKOSTEN = {
     totaal_eur: 7.5, aantal_regels: 3, per_jaar: [{ jaar: 2025, bedrag_eur: 7.5 }],
-    per_beurs: [{ code: "XET", naam: "Xetra", verdeling_naam: "Xetra", verdeling_naam_euronext: "Xetra",
+    per_beurs: [{ code: "XET", naam: "Xetra", verdeling_naam: "Xetra",
                   totaal_eur: 7.5, aantal_regels: 3, per_jaar: [{ jaar: 2025, bedrag_eur: 7.5 }] }],
 };
 

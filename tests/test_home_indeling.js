@@ -40,7 +40,7 @@ const RNA = {
 };
 const AANSLUITING = {
     totaal_eur: 22.5, aantal_regels: 9, per_jaar: [{ jaar: 2025, bedrag_eur: 22.5 }],
-    per_beurs: [{ code: "XET", naam: "Xetra", verdeling_naam: "Xetra", verdeling_naam_euronext: "Xetra",
+    per_beurs: [{ code: "XET", naam: "Xetra", verdeling_naam: "Xetra",
                   totaal_eur: 22.5, aantal_regels: 9, per_jaar: [{ jaar: 2025, bedrag_eur: 22.5 }] }],
 };
 

@@ -619,7 +619,7 @@ def _beperkte_dekking(is_etf_map, fracties, ticker_namen):
 
 
 def bouw_verdeling_over_tijd(code, dimensie, samenvoegen=False, azie_samenvoegen=False):
-    """None bij een onbekende code. `samenvoegen`: Euronext bij 'beurs', Europa bij 'land', anders genegeerd;
+    """None bij een onbekende code. `samenvoegen`: Europa bij 'land', anders genegeerd;
     `azie_samenvoegen` alleen bij 'land'.
     Land en sector krijgen ook `beperkte_dekking` (zie _beperkte_dekking)."""
     naam, transacties_df, price_data = haal_portfolio_basis(code)
@@ -632,7 +632,7 @@ def bouw_verdeling_over_tijd(code, dimensie, samenvoegen=False, azie_samenvoegen
     if dimensie == "valuta":
         gewichten, namen = gewichten_per_valuta(tickers), {}
     elif dimensie == "beurs":
-        gewichten, namen = gewichten_per_beurs(transacties_df, samenvoegen), {}
+        gewichten, namen = gewichten_per_beurs(transacties_df), {}
     elif dimensie in ("land", "sector"):
         is_etf_map, fracties = _land_sector_fracties_over_tijd(transacties_df, tickers)
         gewichten = gewichten_per_land(fracties, samenvoegen, azie_samenvoegen) if dimensie == "land" else gewichten_per_sector(fracties)
