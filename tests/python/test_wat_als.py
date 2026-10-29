@@ -165,6 +165,30 @@ class TestHoldingsStatus(unittest.TestCase):
         self.assertFalse(r["aankoop"]["bedrijven_onvolledig"])
 
 
+class TestOnbekend(unittest.TestCase):
+    ALLES_FALSE = {"land": False, "sector": False, "bedrijven": False}
+
+    def test_etf_zonder_holdings_land_en_sector_is_alles_onbekend(self):
+        gdx = dict(nieuwe_etf(), holdings=[], fracties=fracties({"Unknown": 1.0}, {"Unknown": 1.0}))
+        r = simuleer_aankoop(basis_met_een_etf_en_een_aandeel(), gdx, top_n=3)
+        self.assertEqual(r["aankoop"]["onbekend"], {"land": True, "sector": True, "bedrijven": True})
+
+    def test_etf_met_top10_en_restant_unknown_onder_de_drempel_is_niet_onbekend(self):
+        top10 = [dict(holding("Apple Inc", 0.2), bron="yfinance_top10")]
+        etf = dict(nieuwe_etf(), holdings=top10, fracties=fracties({"US": 0.2, "Unknown": 0.8}, {"Tech": 0.2, "Unknown": 0.8}))
+        r = simuleer_aankoop(basis_met_een_etf_en_een_aandeel(), etf, top_n=3)
+        self.assertEqual(r["aankoop"]["onbekend"], self.ALLES_FALSE)
+
+    def test_aandeel_is_nooit_onbekend(self):
+        r = simuleer_aankoop(basis_met_een_etf_en_een_aandeel(), aandeel_aankoop("Zzz Corp"), top_n=3)
+        self.assertEqual(r["aankoop"]["onbekend"], self.ALLES_FALSE)
+
+    def test_bijkopen_gebruikt_de_gegevens_van_de_bestaande_etf(self):
+        gdx = dict(nieuwe_etf(), ticker="ETF_A", holdings=[], fracties=fracties({"Unknown": 1.0}, {"Unknown": 1.0}))
+        r = simuleer_aankoop(basis_met_een_etf_en_een_aandeel(), gdx, top_n=3)
+        self.assertEqual(r["aankoop"]["onbekend"], self.ALLES_FALSE)
+
+
 class TestBijkopen(unittest.TestCase):
     def setUp(self):
         aankoop = {"ticker": "ETF_A", "naam": "Eigen naam", "is_etf": True, "waarde_eur": 400.0,

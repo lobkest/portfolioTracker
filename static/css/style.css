@@ -2337,6 +2337,10 @@ button.diagnostiekChip:disabled:hover {
 }
 
 /* Zoeken & wat als */
+.watAlsTipRegel {
+    position: relative; /* de uitleg achter een (i) komt onder de regel */
+}
+
 .watAlsZoekRij,
 .watAlsAantalRij,
 .watAlsKeuzeRij {

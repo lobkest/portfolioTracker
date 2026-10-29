@@ -460,7 +460,7 @@ function renderWatAlsProfiel() {
         kaart.append(maakWatAlsLijst(`Grootste holdings (${profiel.holdings.aantal} bekend)`, holdings));
     }
     const dividend = watAlsDividendRegel(profiel.dividend);
-    const dividendRegel = watAlsMaak("p", null, dividend.tekst);
+    const dividendRegel = watAlsMaak("p", "watAlsTipRegel", dividend.tekst);
     if (dividend.tip) dividendRegel.append(" ", watAlsInfoTip(dividend.tip.label, dividend.tip.tekst));
     kaart.append(dividendRegel);
     if (profiel.holdings_route === "isin" && profiel.holdings_fonds) {
@@ -545,7 +545,7 @@ function maakWatAlsVoorNaTabel(naamKop, rijen, naamTekst = r => r.naam) {
 
 function maakWatAlsSectie(titel, inhoud, tip) {
     const sectie = watAlsMaak("section", "watAlsSectie");
-    const kop = watAlsMaak("h3", null, titel);
+    const kop = watAlsMaak("h3", tip ? "watAlsTipRegel" : null, titel);
     if (tip) kop.append(" ", watAlsInfoTip(tip.label, tip.tekst));
     sectie.append(kop, ...inhoud);
     return sectie;
@@ -564,8 +564,15 @@ function watAlsEtfNaam(ticker) {
     return rij && rij.naam ? rij.naam : ticker;
 }
 
+const WAT_ALS_OVERLAP_TIP = {
+    label: "Al in je portfolio",
+    tekst: "Per bedrijf telt het laagste van het gewicht in de aankoop en in je portfolio mee (zoals bij de ETF-overlap). "
+        + "Die minima worden opgeteld. Bedrijven worden op naam herkend.",
+};
+
 function maakWatAlsOverlapSectie(overlap) {
     const regels = [watAlsMaak("p", "vet", watAlsOverlapRegel(overlap))];
+    if (!watAlsOverlapToontLijst(overlap)) return maakWatAlsSectie("Overlap met je portfolio", regels, WAT_ALS_OVERLAP_TIP);
     const rijen = Object.entries(overlap.per_etf).map(([ticker, pct]) => ({ ticker, pct }));
     const kolommen = [
         { label: "Je ETF", renderTd: r => maakCel(watAlsEtfNaam(r.ticker)) },
@@ -577,11 +584,7 @@ function maakWatAlsOverlapSectie(overlap) {
     rijen.sort((a, b) => (Number.isFinite(b.pct) ? b.pct : -1) - (Number.isFinite(a.pct) ? a.pct : -1));
     const wrapper = watAlsMaak("div", "tabelWrapper");
     wrapper.append(maakSorteerbareTabel(kolommen, rijen, { legeTekst: "Je hebt geen andere ETF's om mee te vergelijken." }));
-    return maakWatAlsSectie("Overlap met je portfolio", [...regels, wrapper], {
-        label: "Al in je portfolio",
-        tekst: "Per bedrijf telt het laagste van het gewicht in de aankoop en in je portfolio mee (zoals bij de ETF-overlap). "
-            + "Die minima worden opgeteld. Bedrijven worden op naam herkend.",
-    });
+    return maakWatAlsSectie("Overlap met je portfolio", [...regels, wrapper], WAT_ALS_OVERLAP_TIP);
 }
 
 function renderWatAlsUitkomst(data) {
@@ -595,7 +598,7 @@ function renderWatAlsUitkomst(data) {
         watAlsMaak("p", null, watAlsDividendResultaatTekst(aankoop)),
     ];
     const orderkosten = watAlsOrderkostenRegels(data.orderkosten);
-    const orderkostenRegel = watAlsMaak("p", null, orderkosten.tekst);
+    const orderkostenRegel = watAlsMaak("p", "watAlsTipRegel", orderkosten.tekst);
     orderkostenRegel.append(" ", watAlsInfoTip("Orderkosten", orderkosten.tip));
     samenvatting.push(orderkostenRegel);
     if (orderkosten.aansluiting) samenvatting.push(watAlsMaak("p", "melding", orderkosten.aansluiting));
@@ -604,7 +607,10 @@ function renderWatAlsUitkomst(data) {
     if (zelfdeFonds) samenvatting.push(watAlsMaak("p", "melding", zelfdeFonds));
     plek.append(maakWatAlsSectie("Resultaat", samenvatting));
 
-    const onvolledig = watAlsBedrijvenOnvolledigTekst(w.aankoop);
+    const onbekendRegel = onderdeel => {
+        const tekst = watAlsOnbekendTekst(w.aankoop, onderdeel);
+        return tekst ? [watAlsMaak("p", "melding", tekst)] : null;
+    };
     if (w.overlap) plek.append(maakWatAlsOverlapSectie(w.overlap));
     if (w.al_in_bezit) {
         plek.append(maakWatAlsSectie("Heb je dit bedrijf al?", watAlsAlInBezitRegels(w.al_in_bezit).map(tekst => watAlsMaak("p", null, tekst))));
@@ -613,16 +619,15 @@ function renderWatAlsUitkomst(data) {
     plek.append(
         maakWatAlsSectie("Posities", [maakWatAlsVoorNaTabel("Positie", w.posities, r => (r.nieuw ? `${r.naam} (nieuw)` : r.naam))]),
         maakWatAlsSectie("ETF en aandelen", [maakWatAlsEtfAandeelTabel(w.etf_aandeel)]),
-        maakWatAlsSectie("Land", [maakWatAlsVoorNaTabel("Land", w.land)], {
+        maakWatAlsSectie("Land", onbekendRegel("land") || [maakWatAlsVoorNaTabel("Land", w.land)], {
             label: "Percentages bij land",
             tekst: "Percentages ten opzichte van de som van de bedragen per land, niet van je portfoliowaarde. Het verschil is in procentpunten.",
         }),
-        maakWatAlsSectie("Sector", [maakWatAlsVoorNaTabel("Sector", w.sector)], {
+        maakWatAlsSectie("Sector", onbekendRegel("sector") || [maakWatAlsVoorNaTabel("Sector", w.sector)], {
             label: "Percentages bij sector",
             tekst: "Percentages ten opzichte van de som van de bedragen per sector, niet van je portfoliowaarde. Het verschil is in procentpunten.",
         }),
-        maakWatAlsSectie(`Top ${WAT_ALS_TOP_BEDRIJVEN} bedrijven (na de aankoop)`, [
-            ...(onvolledig ? [watAlsMaak("p", "melding", onvolledig)] : []),
+        maakWatAlsSectie(`Top ${WAT_ALS_TOP_BEDRIJVEN} bedrijven (na de aankoop)`, onbekendRegel("bedrijven") || [
             maakWatAlsVoorNaTabel("Bedrijf", w.bedrijven.slice(0, WAT_ALS_TOP_BEDRIJVEN)),
         ]),
     );

@@ -19,6 +19,7 @@ HOLDINGS_ONBEKEND = "onbekend"
 HOLDINGS_TOP10 = "top10"
 HOLDINGS_VOLLEDIG = "volledig"
 BRON_TOP10 = "yfinance_top10"
+ONBEKEND_DREMPEL = 0.999
 
 
 def _pct(deel, totaal):
@@ -125,6 +126,19 @@ def _holdings_dekking(holdings):
     return status, round(gedekt, PCT_DECIMALEN)
 
 
+def _volledig_onbekend(verdeling):
+    return not verdeling or verdeling.get("Unknown", 0.0) >= ONBEKEND_DREMPEL
+
+
+def _onbekend(basis, aankoop):
+    """Per onderdeel True als het voor deze ETF helemaal onbekend is; bijkopen gebruikt de bestaande positie."""
+    if not aankoop["is_etf"]:
+        return {"land": False, "sector": False, "bedrijven": False}
+    fracties = basis["fracties_per_ticker"].get(aankoop["ticker"], aankoop["fracties"]) or {}
+    return {"land": _volledig_onbekend(fracties.get("land_pct")), "sector": _volledig_onbekend(fracties.get("sector_pct")),
+            "bedrijven": _holdings_dekking(_effectieve_holdings(basis, aankoop))[0] == HOLDINGS_ONBEKEND}
+
+
 def _overlap(basis, aankoop, bedrijven_voor, totaal_voor):
     """per_etf: overlap-% van de aankoop met elke huidige ETF; al_in_portfolio_pct: hoeveel van de aankoop (in %) al
     als bedrijf in de huidige portfolio zit, via ETF's of direct. Zijn de holdings onbekend, dan zijn beide None
@@ -170,7 +184,7 @@ def simuleer_aankoop(basis, aankoop, top_n):
     basis: {waarde_per_ticker, is_etf_map, fracties_per_ticker, holdings_per_etf, aandeel_namen, bron_namen,
             extra_aandelen} zoals bouw_verdeling_invoer() ze levert.
     aankoop: {ticker, naam, is_etf, waarde_eur (aantal x koers), fracties (land_pct/sector_pct), holdings of None}.
-    Sleutels: aankoop, totaal {voor, na}, posities, etf_aandeel {voor, na, verschil_pp}, land, sector, bedrijven (top_n op het
+    Sleutels: aankoop (met onbekend {land, sector, bedrijven}: voor die ETF helemaal onbekend), totaal {voor, na}, posities, etf_aandeel {voor, na, verschil_pp}, land, sector, bedrijven (top_n op het
     ná-%), overlap (alleen bij een ETF), al_in_bezit (alleen bij een aandeel)."""
     na = _na_basis(basis, aankoop)
     land_sector_voor, land_sector_na = _land_sector(basis), _land_sector(na)
@@ -183,7 +197,8 @@ def simuleer_aankoop(basis, aankoop, top_n):
                     "waarde_eur": round(aankoop["waarde_eur"], EUR_DECIMALEN),
                     "bijkopen": aankoop["ticker"] in basis["waarde_per_ticker"],
                     "bedrijven_onvolledig": aankoop["is_etf"]
-                    and _holdings_dekking(_effectieve_holdings(basis, aankoop))[0] == HOLDINGS_ONBEKEND},
+                    and _holdings_dekking(_effectieve_holdings(basis, aankoop))[0] == HOLDINGS_ONBEKEND,
+                    "onbekend": _onbekend(basis, aankoop)},
         "totaal": {"voor": round(totaal_voor, EUR_DECIMALEN), "na": round(totaal_na, EUR_DECIMALEN)},
         "posities": _posities(basis, na),
         "etf_aandeel": _etf_aandeel_voor_na(_etf_aandeel(basis), _etf_aandeel(na)),

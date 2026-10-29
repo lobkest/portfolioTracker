@@ -212,14 +212,22 @@
         return watAlsAlInPortfolioTekst(overlap.al_in_portfolio_pct);
     }
 
+    function watAlsOverlapToontLijst(overlap) {
+        return overlap.holdings_status !== "onbekend";
+    }
+
     function watAlsOverlapEtfTekst(pct, holdingsStatus) {
         if (!Number.isFinite(pct)) return "onbekend";
         return holdingsStatus === "top10" ? `minstens ${formatPct(pct, 1)}` : formatPct(pct, 1);
     }
 
-    function watAlsBedrijvenOnvolledigTekst(aankoop) {
-        if (!aankoop || !aankoop.bedrijven_onvolledig) return null;
-        return `${aankoop.ticker} is hier niet meegeteld: de bedrijven in dit fonds zijn onbekend`;
+    const WAT_ALS_ONBEKEND_ONDERDELEN = { land: ["Land", "landen"], sector: ["Sector", "sectoren"], bedrijven: ["Top 10 bedrijven", "bedrijven"] };
+
+    // Eén regel in plaats van een tabel als het onderdeel voor de aankoop helemaal onbekend is; anders null.
+    function watAlsOnbekendTekst(aankoop, onderdeel) {
+        if (!aankoop || !aankoop.onbekend || !aankoop.onbekend[onderdeel]) return null;
+        const [kop, meervoud] = WAT_ALS_ONBEKEND_ONDERDELEN[onderdeel];
+        return `${kop}: niet te berekenen. De ${meervoud} in ${aankoop.naam || aankoop.ticker} zijn onbekend.`;
     }
 
     // Top-5-bedrijven van het profiel: {rijen: [{naam, pct}], bronTekst of null}. Zonder holdings zijn de rijen leeg.
@@ -261,7 +269,7 @@
         isWatAlsIsin, watAlsAantal, watAlsGeschatteWaarde, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst,
         watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
         watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst, WAT_ALS_TOP_PROFIEL_BEDRIJVEN,
-        watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsBedrijvenOnvolledigTekst, watAlsProfielBedrijven,
+        watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOverlapToontLijst, watAlsOnbekendTekst, watAlsProfielBedrijven,
         watAlsDividendRegel, watAlsDividendResultaatTekst, watAlsOrderkostenRegels,
     };
 

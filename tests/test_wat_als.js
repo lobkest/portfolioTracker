@@ -9,7 +9,7 @@ const {
     isWatAlsIsin, watAlsAantal, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst, watAlsTypeLabel, watAlsNoteringLabel,
     watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk, watAlsRij, watAlsAlInPortfolioTekst,
     watAlsAlInBezitRegels, watAlsFoutTekst, watAlsDividendRegel, watAlsDividendResultaatTekst,
-    watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsBedrijvenOnvolledigTekst, watAlsProfielBedrijven,
+    watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOnbekendTekst, watAlsOverlapToontLijst, watAlsProfielBedrijven,
     watAlsOrderkostenRegels,
 } = require("../static/js/wat_als.js");
 
@@ -204,10 +204,21 @@ test("overlap per ETF: null is onbekend, geen 0, en top10 is een ondergrens", ()
     assert.equal(watAlsOverlapEtfTekst(0, "volledig"), "0,0%");
 });
 
-test("bedrijven ná de aankoop: melding alleen bij een ETF zonder holdings", () => {
-    assert.equal(watAlsBedrijvenOnvolledigTekst({ ticker: "TDIV.AS", bedrijven_onvolledig: true }),
-        "TDIV.AS is hier niet meegeteld: de bedrijven in dit fonds zijn onbekend");
-    assert.equal(watAlsBedrijvenOnvolledigTekst({ ticker: "AAPL", bedrijven_onvolledig: false }), null);
+test("onbekend: één regel per onderdeel, alleen als het helemaal onbekend is", () => {
+    const aankoop = { ticker: "GDX", naam: "GDX", onbekend: { land: true, sector: true, bedrijven: true } };
+    assert.equal(watAlsOnbekendTekst(aankoop, "land"), "Land: niet te berekenen. De landen in GDX zijn onbekend.");
+    assert.equal(watAlsOnbekendTekst(aankoop, "sector"), "Sector: niet te berekenen. De sectoren in GDX zijn onbekend.");
+    assert.equal(watAlsOnbekendTekst(aankoop, "bedrijven"), "Top 10 bedrijven: niet te berekenen. De bedrijven in GDX zijn onbekend.");
+    assert.equal(watAlsOnbekendTekst({ ...aankoop, onbekend: { land: false, sector: false, bedrijven: false } }, "land"), null);
+    assert.equal(watAlsOnbekendTekst({ ticker: "AAPL" }, "land"), null);
+});
+
+test("overlap bij onbekende holdings: alleen de regel, geen lijst met ETF's", () => {
+    const onbekend = { holdings_status: "onbekend", per_etf: { A: null } };
+    assert.equal(watAlsOverlapRegel(onbekend), "Overlap onbekend: de bedrijven in dit fonds zijn niet beschikbaar");
+    assert.equal(watAlsOverlapToontLijst(onbekend), false);
+    assert.equal(watAlsOverlapToontLijst({ holdings_status: "top10" }), true);
+    assert.equal(watAlsOverlapToontLijst({ holdings_status: "volledig" }), true);
 });
 
 test("profiel: top-5-bedrijven met percentage, bronregel bij top10, leeg zonder holdings", () => {
