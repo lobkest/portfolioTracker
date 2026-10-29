@@ -36,7 +36,7 @@ class _MetLegeCache(unittest.TestCase):
 
     def sector(self, yq, yf):
         with patch.object(tc, "db_get_cached_etf_sector_verdeling", return_value=None), \
-                patch.object(tc, "db_save_etf_sector_verdeling"), \
+                patch.object(tc, "db_save_etf_sector_verdeling"), patch.object(tc, "_sector_uit_provider", return_value={}), \
                 patch.object(tc, "YahooqueryTicker", yq), patch.object(tc.yf, "Ticker", yf), \
                 patch.object(tc, "dprint"):
             return tc.get_etf_sector_verdeling("X")

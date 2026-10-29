@@ -76,6 +76,11 @@
         return Object.hasOwn(WAT_ALS_WAARSCHUWING_TEKSTEN, code) ? WAT_ALS_WAARSCHUWING_TEKSTEN[code] : WAT_ALS_ONBEKENDE_WAARSCHUWING;
     }
 
+    function watAlsSectorBronTekst(profiel) {
+        if (!profiel || profiel.sector_bron !== "provider" || !profiel.sector_aanbieder) return null;
+        return `Sectoren volgens ${profiel.sector_aanbieder} (vertaald naar Morningstar-indeling)`;
+    }
+
     function watAlsTypeLabel(type) {
         return type === "ETF" ? "ETF" : "Aandeel";
     }
@@ -267,7 +272,7 @@
         WAT_ALS_MAX_AANTAL, WAT_ALS_MIN_ZOEKTEKENS, WAT_ALS_MAX_ZOEKTEKENS, WAT_ALS_TOP_LANDEN, WAT_ALS_TOP_SECTOREN,
         WAT_ALS_TOP_HOLDINGS, WAT_ALS_TOP_BEDRIJVEN, WAT_ALS_BALK_MAX_PP, WAT_ALS_WAARSCHUWING_TEKSTEN, WAT_ALS_ONBEKENDE_WAARSCHUWING,
         isWatAlsIsin, watAlsAantal, watAlsGeschatteWaarde, watAlsGeschatteWaardeTekst, watAlsWaarschuwingTekst,
-        watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
+        watAlsSectorBronTekst, watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
         watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst, WAT_ALS_TOP_PROFIEL_BEDRIJVEN,
         watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOverlapToontLijst, watAlsOnbekendTekst, watAlsProfielBedrijven,
         watAlsDividendRegel, watAlsDividendResultaatTekst, watAlsOrderkostenRegels,

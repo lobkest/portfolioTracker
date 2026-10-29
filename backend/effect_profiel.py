@@ -7,7 +7,7 @@ import pandas as pd
 from backend.db import db_get_isins_voor_ticker
 from backend.debug_utils import dprint
 from backend.effect_zoeken import noteringen_voor_isin_zoekopdracht, zoek_gecachet
-from backend.etf_holdings_provider import ETF_HOLDINGS_BRON
+from backend.etf_holdings_provider import ETF_HOLDINGS_BRON, aanbieder_naam
 from backend.etf_proxy import land_proxies_voor_etfs
 from backend.portfolio_verdeling import holdings_lijst_uit, land_pct_uit_holdings, sector_pct_met_restant
 from backend.prijzen import get_prices
@@ -27,7 +27,10 @@ LAND_BRON_PROXY = "proxy"
 BRON_TOP10 = "yfinance_top10"
 BRON_PROVIDER = "provider_csv"
 
-ROUTE_PROVIDER_TICKER = "provider_ticker"
+SECTOR_BRON_YAHOO = "yahoo"
+SECTOR_BRON_PROVIDER = "provider"
+
+ROUTE_PROVIDER_TICKER ="provider_ticker"
 ROUTE_ISIN = "isin"
 ROUTE_TOP10 = "top10"
 
@@ -75,9 +78,9 @@ def haal_koers(ticker):
         return None, None
 
 
-def _haal_sector(ticker):
+def _haal_sector(ticker, isin=None):
     try:
-        verdeling = get_etf_sector_verdeling(ticker)
+        verdeling = get_etf_sector_verdeling(ticker, isin)
     except Exception as e:
         dprint(f"[profiel] WARN sectorverdeling niet opgehaald ({e!a})")
         return None
@@ -155,12 +158,14 @@ def holdings_voor_effect(ticker, isin=None):
 
 
 def _etf_onderdelen(ticker, isin, waarschuwingen):
-    """(land, land_bron, land_proxy, sector, samenvatting, route, fonds, isin_geverifieerd, volledige holdings)."""
-    sector = _haal_sector(ticker)
+    """(land, land_bron, land_proxy, sector, samenvatting, route, fonds, isin_geverifieerd, volledige holdings,
+    sector_bron). Provider-holdings bij de sectoren: die zijn dan uit het fondsbestand afgeleid (zie get_etf_sector_verdeling)."""
+    sector = _haal_sector(ticker, isin)
     if sector is None:
         waarschuwingen.append(WAARSCHUWING_GEEN_SECTOR)
 
     hv = holdings_voor_effect(ticker, isin)
+    sector_bron = None if sector is None else SECTOR_BRON_PROVIDER if hv["bron"] == BRON_PROVIDER else SECTOR_BRON_YAHOO
     waarschuwingen.extend(hv["waarschuwingen"])
     geldig, bron, geverifieerd = hv["holdings"], hv["bron"], hv["isin_geverifieerd"]
 
@@ -182,7 +187,8 @@ def _etf_onderdelen(ticker, isin, waarschuwingen):
             "top": [{"naam": r["naam"], "gewicht": r["gewicht"]} for r in lijst["holdings"][:MAX_TOP_HOLDINGS]],
             "top5": [{"naam": r["naam"], "gewicht": r["gewicht"]} for r in lijst["holdings"][:PROFIEL_TOP_BEDRIJVEN]],
         }
-    return land, land_bron, land_proxy, sector or {}, samenvatting, hv["route"], hv["fonds"], geverifieerd, geldig
+    return (land, land_bron, land_proxy, sector or {}, samenvatting, hv["route"], hv["fonds"], geverifieerd, geldig,
+            sector_bron)
 
 
 def _profiel_en_holdings(ticker, isin, naam=None):
@@ -198,9 +204,10 @@ def _profiel_en_holdings(ticker, isin, naam=None):
 
     is_etf = bool(details.get("is_etf"))
     if is_etf:
-        land, land_bron, land_proxy, sector, holdings, route, fonds, geverifieerd, volledig = _etf_onderdelen(
-            ticker, isin, waarschuwingen)
+        land, land_bron, land_proxy, sector, holdings, route, fonds, geverifieerd, volledig, sector_bron = (
+            _etf_onderdelen(ticker, isin, waarschuwingen))
     else:
+        sector_bron = None
         aandeel_land, aandeel_sector = get_land_sector(ticker)
         geverifieerd = verifieer_isin_bij_ticker(ticker, isin) if isin else None
         volledig = None
@@ -220,6 +227,8 @@ def _profiel_en_holdings(ticker, isin, naam=None):
         "koers_datum": koers_datum,
         "land": land,
         "sector": sector,
+        "sector_bron": sector_bron,
+        "sector_aanbieder": aanbieder_naam(ticker, details.get("long_name")) if sector_bron == SECTOR_BRON_PROVIDER else None,
         "land_bron": land_bron,
         "land_proxy": land_proxy,
         "holdings": holdings,

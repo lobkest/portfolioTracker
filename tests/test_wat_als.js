@@ -10,8 +10,16 @@ const {
     watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk, watAlsRij, watAlsAlInPortfolioTekst,
     watAlsAlInBezitRegels, watAlsFoutTekst, watAlsDividendRegel, watAlsDividendResultaatTekst,
     watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsOnbekendTekst, watAlsOverlapToontLijst, watAlsProfielBedrijven,
-    watAlsOrderkostenRegels,
+    watAlsOrderkostenRegels, watAlsSectorBronTekst,
 } = require("../static/js/wat_als.js");
+
+test("sectorbron: alleen een regel bij sectoren van de fondsmaker", () => {
+    assert.equal(watAlsSectorBronTekst({ sector_bron: "provider", sector_aanbieder: "VanEck" }),
+        "Sectoren volgens VanEck (vertaald naar Morningstar-indeling)");
+    assert.equal(watAlsSectorBronTekst({ sector_bron: "yahoo", sector_aanbieder: null }), null);
+    assert.equal(watAlsSectorBronTekst({ sector_bron: null }), null);
+    assert.equal(watAlsSectorBronTekst(undefined), null);
+});
 
 test("orderkosten: geschat met en zonder periode", () => {
     const basis = { status: "geschat", mediaan_eur: 2.5, aantal_orders: 3, beurs_namen: ["Tradegate", "Xetra"], aansluitingskosten: null };

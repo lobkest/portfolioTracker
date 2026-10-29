@@ -100,6 +100,58 @@ def _holding_rij(naam, gewicht, land, sector, ticker=None):
     }
 
 
+# GICS-namen van de fondsmakers (Engels en Nederlands, gecontroleerd op echte iShares-bestanden) naar de
+# Morningstar/Yahoo-namen van de app; zonder vertaling ontstaan dubbele categorieën in de sectortabellen.
+PROVIDER_SECTOR_NAAR_APP = {
+    "information technology": "Technology", "informatietechnologie": "Technology", "it": "Technology",
+    "financials": "Financial Services", "financiële dienstverlening": "Financial Services",
+    "financiële waarden": "Financial Services",
+    "health care": "Healthcare", "gezondheidszorg": "Healthcare",
+    "consumer discretionary": "Consumer Cyclical", "luxe-consumentengoederen": "Consumer Cyclical",
+    "consumer staples": "Consumer Defensive", "basis-consumentengoederen": "Consumer Defensive",
+    "communication": "Communication Services", "communication services": "Communication Services",
+    "communicatie": "Communication Services",
+    "industrials": "Industrials", "industrie": "Industrials",
+    "materials": "Basic Materials", "materialen": "Basic Materials",
+    "energy": "Energy", "energie": "Energy",
+    "utilities": "Utilities", "nutsbedrijven": "Utilities",
+    "real estate": "Real Estate", "vastgoed": "Real Estate",
+}
+# Bekende niet-sectoren: bewust Unknown, zonder logregel.
+PROVIDER_SECTOR_GEEN = {
+    "-", "cash", "cash and/or derivatives", "derivatives", "derivaten", "liquide middelen en/of derivaten",
+}
+SECTOR_ONBEKEND = "Unknown"
+SECTOR_MIN_HERKEND_PCT = 50.0
+_gelogde_onbekende_sectoren = set()
+
+
+def _app_sector(provider_sector):
+    sleutel = (provider_sector or "").strip().lower()
+    if sleutel in PROVIDER_SECTOR_GEEN or not sleutel:
+        return SECTOR_ONBEKEND
+    app_sector = PROVIDER_SECTOR_NAAR_APP.get(sleutel)
+    if app_sector is None:
+        if sleutel not in _gelogde_onbekende_sectoren:
+            _gelogde_onbekende_sectoren.add(sleutel)
+            dprint(f"[etf-holdings-provider] onbekende sectornaam '{provider_sector}', geteld als Unknown")
+        return SECTOR_ONBEKEND
+    return app_sector
+
+
+def sector_verdeling_uit_holdings(holdings):
+    """{app_sector: fractie 0-1} uit provider-rijen {naam, gewicht (%), land, sector, ticker}; {} als minder dan
+    SECTOR_MIN_HERKEND_PCT van het gewicht een herkende sector heeft. Unknown blijft eruit (restant vult de aanroeper)."""
+    per_sector = {}
+    for h in holdings:
+        app_sector = _app_sector(h.get("sector"))
+        if app_sector != SECTOR_ONBEKEND:
+            per_sector[app_sector] = per_sector.get(app_sector, 0.0) + h["gewicht"]
+    if sum(per_sector.values()) < SECTOR_MIN_HERKEND_PCT:
+        return {}
+    return {sector: gewicht / 100.0 for sector, gewicht in per_sector.items()}
+
+
 def _parse_percentage_waarde(waarde, locale="en"):
     """'10,74%' of 7.68 -> float; zonder opschoning geeft pd.to_numeric stil NaN."""
     if isinstance(waarde, str):

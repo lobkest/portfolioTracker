@@ -452,6 +452,8 @@ function renderWatAlsProfiel() {
         kolommen.append(maakWatAlsLijst(`Bedrijven (top ${WAT_ALS_TOP_PROFIEL_BEDRIJVEN})`, bedrijven.rijen));
     }
     kaart.append(kolommen);
+    const sectorBronTekst = watAlsSectorBronTekst(profiel);
+    if (sectorBronTekst) kaart.append(watAlsMaak("p", "kleineMelding", sectorBronTekst));
     if (bedrijvenBronTekst) kaart.append(watAlsMaak("p", "kleineMelding", bedrijvenBronTekst));
 
     if (profiel.holdings) {

@@ -30,6 +30,11 @@ TOP10 = pd.DataFrame({"symbol": ["AAPL"], "holdingName": ["Apple Inc"], "holding
 
 
 class TestSectorTerugval(unittest.TestCase):
+    def setUp(self):
+        p = patch.object(tc, "_sector_uit_provider", return_value={})
+        p.start()
+        self.addCleanup(p.stop)
+
     def test_yfinance_faalt_yahooquery_geeft_data_en_wordt_gecachet(self):
         with patch.object(tc, "db_get_cached_etf_sector_verdeling", return_value=None), \
              patch.object(tc, "db_save_etf_sector_verdeling") as opslaan, \

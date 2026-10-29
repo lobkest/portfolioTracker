@@ -20,7 +20,7 @@ from backend.yahoo_client import (
 )
 from backend.etf_holdings_provider import (
     ETF_HOLDINGS_BRON, fetch_provider_holdings, fetch_ishares_fondsenlijst, fetch_ishares_holdings_via_productpagina,
-    fetch_vaneck_holdings_via_ticker, is_vaneck_naam, ticker_root,
+    fetch_vaneck_holdings_via_ticker, is_vaneck_naam, sector_verdeling_uit_holdings, ticker_root,
 )
 
 
@@ -159,6 +159,7 @@ ONDERDEEL_SECTOR = "sector"
 ONDERDEEL_HOLDINGS = "holdings"
 ONDERDEEL_CATEGORIE = "categorie"
 ONDERDEEL_VANECK = "vaneck"
+ONDERDEEL_SECTOR_PROVIDER = "sector_provider"
 GEEN_FONDSDATA_CACHE_SECONDEN = 3600
 GEEN_FONDSDATA_CACHE_MAX_ITEMS = 500
 _geen_fondsdata_cache = {}
@@ -407,16 +408,47 @@ def _sector_naam(sector_key):
     return SECTOR_WEERGAVE.get(sleutel) or sector_key.replace("_", " ").title()
 
 
-def get_etf_sector_verdeling(ticker):
+def get_etf_sector_verdeling(ticker, isin=None):
     """{sector: gewicht als fractie 0-1}; leeg bij een fout (dan niet gecachet).
     Eerst yahooquery, daarna yfinance: yfinance's funds_data faalt op Render met 401 Invalid Crumb.
-    Een lege uitkomst van beide wordt kort in het geheugen onthouden."""
+    Geeft Yahoo niets, dan de sectoren uit de holdings van de fondsmaker (_sector_uit_provider; isin voor iShares).
+    Een lege uitkomst wordt kort in het geheugen onthouden."""
     cached = db_get_cached_etf_sector_verdeling(ticker)
     if cached is not None:
         return {_sector_naam(sector): gewicht for sector, gewicht in cached.items()}
-    if _geen_fondsdata_bekend(ticker, ONDERDEEL_SECTOR):
-        return {}
+    if not _geen_fondsdata_bekend(ticker, ONDERDEEL_SECTOR):
+        van_yahoo = _sector_verdeling_van_yahoo(ticker)
+        if van_yahoo:
+            return van_yahoo
+    return _sector_uit_provider(ticker, isin)
 
+
+def _sector_uit_provider(ticker, isin):
+    """Terugval voor holdings die al gecachet zijn zonder sector: de provider-holdings één keer opnieuw ophalen."""
+    if _geen_fondsdata_bekend(ticker, ONDERDEEL_SECTOR_PROVIDER):
+        return {}
+    ishares_fonds = None if ticker in ETF_HOLDINGS_BRON else _ishares_fonds_voor_isin(isin)
+    if ticker in ETF_HOLDINGS_BRON or ishares_fonds is not None:
+        provider_holdings = _haal_provider_holdings(ticker, ishares_fonds)
+    else:
+        provider_holdings = _haal_vaneck_holdings(ticker)
+    verdeling = sector_verdeling_uit_holdings(provider_holdings or [])
+    if not verdeling:
+        dprint(f"[etf-sector] '{ticker}': geen sectorverdeling uit provider-holdings")
+        _onthoud_geen_fondsdata(ticker, ONDERDEEL_SECTOR_PROVIDER)
+        return {}
+    db_save_etf_sector_verdeling(ticker, verdeling)
+    return verdeling
+
+
+def _bewaar_provider_sector(ticker, provider_holdings):
+    """Bij het ophalen van provider-holdings: sectoren erbij opslaan, nooit over een Yahoo-verdeling heen."""
+    verdeling = sector_verdeling_uit_holdings(provider_holdings)
+    if verdeling and db_get_cached_etf_sector_verdeling(ticker) is None:
+        db_save_etf_sector_verdeling(ticker, verdeling)
+
+
+def _sector_verdeling_van_yahoo(ticker):
     weightings = _yq_sector_verdeling(ticker)
     yq_leeg = _yq_was_leeg(weightings)
     if not weightings:
@@ -543,6 +575,7 @@ def get_etf_holdings(ticker, isin=None):
     if provider_holdings:
         holdings = _provider_holdings_naar_cache(provider_holdings)
         db_save_etf_holdings(ticker, holdings)
+        _bewaar_provider_sector(ticker, provider_holdings)
         return holdings
     if cached is not None and not heeft_provider:
         return cached
