@@ -10,11 +10,39 @@ const {
     watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk, watAlsRij, watAlsAlInPortfolioTekst,
     watAlsAlInBezitRegels, watAlsFoutTekst, watAlsDividendRegel, watAlsDividendResultaatTekst,
     watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsBedrijvenOnvolledigTekst, watAlsProfielBedrijven,
+    watAlsOrderkostenRegels,
 } = require("../static/js/wat_als.js");
+
+test("orderkosten: geschat met en zonder periode", () => {
+    const basis = { status: "geschat", mediaan_eur: 2.5, aantal_orders: 3, beurs_namen: ["Tradegate", "Xetra"], aansluitingskosten: null };
+    assert.equal(watAlsOrderkostenRegels({ ...basis, periode_dagen: 365 }).tekst,
+        "Geschatte orderkosten: €2,50 (mediaan van 3 eigen orders op Tradegate en Xetra, laatste 12 maanden)");
+    assert.match(watAlsOrderkostenRegels({ ...basis, periode_dagen: null }).tekst, /, uit al je orders\)$/);
+    assert.equal(watAlsOrderkostenRegels(basis).aansluiting, null);
+    assert.match(watAlsOrderkostenRegels(basis).tip, /tarieven en promoties kunnen veranderen/);
+});
+
+test("orderkosten: geen eigen orders, onbekende beurs en geen transacties", () => {
+    assert.equal(watAlsOrderkostenRegels({ status: "geen_eigen_orders", beurs_namen: ["Euronext Amsterdam"] }).tekst,
+        "Orderkosten onbekend: je hebt nog geen orders op Euronext Amsterdam");
+    assert.equal(watAlsOrderkostenRegels({ status: "beurs_onbekend", beurs_namen: [] }).tekst, "Orderkosten onbekend");
+    assert.equal(watAlsOrderkostenRegels({ status: "geen_transacties" }).tekst, "Orderkosten onbekend");
+    assert.equal(watAlsOrderkostenRegels(undefined).tekst, "Orderkosten onbekend");
+});
+
+test("orderkosten: aansluitingskostenmelding met en zonder eigen bedrag", () => {
+    const orderkosten = { status: "geen_eigen_orders", beurs_namen: ["Xetra"] };
+    const met = watAlsOrderkostenRegels({ ...orderkosten, aansluitingskosten: { jaar: 2025, bedrag_eur: 2.5 } }).aansluiting;
+    assert.match(met, /geen thuisbeurs/);
+    assert.match(met, /Je betaalde hiervoor in 2025 €2,50\./);
+    const zonder = watAlsOrderkostenRegels({ ...orderkosten, aansluitingskosten: { jaar: null, bedrag_eur: null } }).aansluiting;
+    assert.match(zonder, /geen thuisbeurs/);
+    assert.doesNotMatch(zonder, /betaalde/);
+});
 
 // De codes die effect_profiel.py kan teruggeven.
 const BACKEND_WAARSCHUWINGEN = ["geen_koers", "geen_sector", "geen_holdings", "alleen_top10", "isin_gekozen", "land_via_proxy",
-    "geen_dividend_data"];
+    "geen_dividend_data", "valuta_onbekend"];
 
 const DIVIDEND = {
     status: "keert_uit", per_stuk_bruto_eur: 2, per_stuk_netto_eur: 1.7, yield_bruto: 0.02, belasting_fractie: 0.15,

@@ -79,7 +79,7 @@ from backend.portfolio_orchestratie import (
 )
 from backend.portfolio_verdeling import bereken_etf_holdings_lijst, bereken_etf_overlap_detail
 from backend.effect_profiel import bouw_effect_profiel, OnbekendEffect, GeenKoers
-from backend.effect_koers import bouw_effect_koers, PERIODE_JAREN, PER_WAARDEN, STANDAARD_PERIODE, STANDAARD_PER
+from backend.effect_koers import bouw_effect_koers, ValutaOnbekend, PERIODE_JAREN, PER_WAARDEN, STANDAARD_PERIODE, STANDAARD_PER
 from backend.beurs_alternatieven import haal_alternatieven, valideer_alternatieven_invoer, valideer_beurscode
 from backend.vergelijkbare_etfs import (
     FOUT_ALGEMEEN as VERGELIJK_FOUT_ALGEMEEN, FOUT_NIET_ETF, OnbekendeTicker, bron_uit_portfolio,
@@ -787,6 +787,8 @@ def api_effect_koers():
         return jsonify({"error": "Onbekende weergave (per dag of per week)."}), 400
     try:
         return jsonify(bouw_effect_koers(ticker, periode, per))
+    except ValutaOnbekend:
+        return jsonify({"error": "Valuta van dit effect onbekend; geen grafiek in EUR mogelijk"}), 422
     except GeenKoers:
         return jsonify({"error": f"Geen koersen beschikbaar voor '{ticker}'."}), 422
     except Exception:

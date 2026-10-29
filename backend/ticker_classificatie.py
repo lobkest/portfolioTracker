@@ -47,13 +47,18 @@ def haal_long_names(tickers):
 
     long_names = {}
     for t in tickers:
-        # Een fout of onbekende ticker komt als string terug, geen dict.
-        regel = price.get(t)
-        if not isinstance(regel, dict):
-            regel = price.get(t.upper())
-        naam = regel.get("longName") if isinstance(regel, dict) else None
+        regel = _price_regel(price, t)
+        naam = regel.get("longName") if regel else None
         long_names[t] = naam.strip() if isinstance(naam, str) and naam.strip() else None
     return long_names
+
+
+def _price_regel(price, ticker):
+    """De dict van één ticker uit yahooquery's .price; None bij een foutstring of onbekende ticker."""
+    regel = price.get(ticker) if isinstance(price, dict) else None
+    if not isinstance(regel, dict) and isinstance(price, dict):
+        regel = price.get(ticker.upper())
+    return regel if isinstance(regel, dict) else None
 
 
 def bewaar_long_names(long_names):
@@ -96,6 +101,14 @@ def _yq_fonds_data(ticker, eigenschap, teller):
         dprint(f"[yahooquery] '{ticker}': {eigenschap} mislukt: {fout}")
         return None
     return data
+
+
+def _yq_price(ticker):
+    """De .price-dict van één ticker uit yahooquery; None bij een fout of foutstring."""
+    regel = _price_regel(_yq_fonds_data(ticker, "price", "yahooquery.Ticker.price"), ticker)
+    if regel is None:
+        dprint(f"[yahooquery] '{ticker}': geen bruikbare price")
+    return regel
 
 
 def _yq_sector_verdeling(ticker):
@@ -173,12 +186,58 @@ def _yq_was_leeg(resultaat):
     return resultaat is not None and not resultaat
 
 
+def info_is_bruikbaar(info):
+    """False voor None en voor de uitgeklede dict die .info bij een 401 (Invalid Crumb) teruggeeft."""
+    return isinstance(info, dict) and bool(info.get("quoteType") or info.get("currency"))
+
+
+def _zoek_categorie(ticker, categorie_uit_info):
+    """info["category"] ontbreekt bij UCITS-ETF's en mutual funds; yahooquery is de fallback, daarna fund_overview
+    (yfinance's funds_data faalt op Render met 401)."""
+    if categorie_uit_info or _geen_fondsdata_bekend(ticker, ONDERDEEL_CATEGORIE):
+        return categorie_uit_info or None
+    yq_categorie = _yq_categorie(ticker)
+    category = yq_categorie
+    if not category:
+        try:
+            _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
+            category = yf.Ticker(ticker).funds_data.fund_overview.get("categoryName")
+        except Exception as e:
+            dprint(f"[classify] kon funds_data.fund_overview niet ophalen voor '{ticker}' "
+                   f"(category-fallback): {e}")
+    if not category and _yq_was_leeg(yq_categorie):
+        _onthoud_geen_fondsdata(ticker, ONDERDEEL_CATEGORIE)
+    return category or None
+
+
+def _classify_via_price(ticker):
+    """Terugval als .info mislukt of uitgekleed is: alleen wat yahooquery's .price zeker weet, geen heuristiek."""
+    regel = _yq_price(ticker)
+    if not info_is_bruikbaar(regel):
+        return None
+    quote_type = regel.get("quoteType") or ""
+    is_etf = quote_type == "ETF"
+    category = _zoek_categorie(ticker, None) if is_etf or quote_type == "MUTUALFUND" else None
+    return {
+        "is_etf": is_etf,
+        "quote_type": quote_type or None,
+        "valuta": regel.get("currency"),
+        "yahoo_beurs": regel.get("exchange"),
+        "fund_family": regel.get("fundFamily"),
+        "category": category,
+        "long_name": regel.get("longName") or regel.get("shortName"),
+    }
+
+
 def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RATE_LIMIT_WACHTTIJD_BASIS):
     """{is_etf, quote_type, valuta, yahoo_beurs, fund_family, category, long_name}, of None bij een fout.
     Land en sector gaan alleen naar de ticker_land_sector-cache."""
     info = _fetch_yf_info(ticker, pogingen, wachttijd)
-    if info is None:
-        return None  # onbekend, NIET als aandeel cachen — gewoon opnieuw proberen volgende keer
+    if not info_is_bruikbaar(info):
+        sleutels = list(info)[:10] if isinstance(info, dict) else None
+        dprint(f"[classify] '{ticker}': .info onbruikbaar (sleutels: {sleutels}), terugval op yahooquery .price")
+        # Land en sector ontbreken hier bewust en worden niet gecachet: None zou get_land_sector blokkeren.
+        return _classify_via_price(ticker)  # None = onbekend, NIET cachen: volgende keer opnieuw proberen
 
     quote_type = info.get("quoteType", "")
     country = info.get("country")
@@ -203,21 +262,8 @@ def _classify_ticker_uncached(ticker, pogingen=RATE_LIMIT_POGINGEN, wachttijd=RA
     # Scheelt get_land_sector() later een identieke Yahoo-call.
     db_save_land_sector(ticker, country, sector)
 
-    # info["category"] ontbreekt bij UCITS-ETF's en mutual funds; yahooquery is de fallback, daarna fund_overview
-    # (yfinance's funds_data faalt op Render met 401).
-    if not category and (is_etf or quote_type == "MUTUALFUND") and not _geen_fondsdata_bekend(ticker, ONDERDEEL_CATEGORIE):
-        yq_categorie = _yq_categorie(ticker)
-        category = yq_categorie
-        if not category:
-            try:
-                _tel_yahoo_call("yf.Ticker.funds_data.fund_overview")
-                category = yf.Ticker(ticker).funds_data.fund_overview.get("categoryName")
-            except Exception as e:
-                dprint(f"[classify] kon funds_data.fund_overview niet ophalen voor '{ticker}' "
-                       f"(category-fallback): {e}")
-        if not category and _yq_was_leeg(yq_categorie):
-            _onthoud_geen_fondsdata(ticker, ONDERDEEL_CATEGORIE)
-        category = category or None
+    if is_etf or quote_type == "MUTUALFUND":
+        category = _zoek_categorie(ticker, category)
 
     return {
         "is_etf": is_etf,
@@ -496,6 +542,11 @@ def _verwarm_land_sector_cache_parallel(tickers, is_etf_map, isin_per_ticker=Non
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         list(executor.map(_warm, tickers))
+
+
+def valuta_voor_effect(ticker):
+    """De valuta van Yahoo uit de details, of None; bewust geen aanname van EUR (Zoeken & wat als)."""
+    return get_ticker_details(ticker).get("valuta") or None
 
 
 def get_ticker_details(ticker):

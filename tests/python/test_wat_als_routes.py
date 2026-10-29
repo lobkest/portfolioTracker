@@ -366,7 +366,7 @@ class TestRoutes(_MetApp):
             res = self.post("/api/portfolio/ABC/wat-als", {"ticker": "MSFT", "aantal": 1})
         self.assertEqual(res.status_code, 200)
         data = json.loads(res.data, parse_constant=lambda c: self.fail(f"{c} in de JSON"))
-        self.assertEqual(set(data), {"wat_als", "aankoop"})
+        self.assertEqual(set(data), {"wat_als", "aankoop", "orderkosten"})
         self.assertEqual(data["wat_als"]["totaal"], {"voor": 100.0, "na": 200.0})
         self.assertEqual(data["aankoop"]["waarde_eur"], 100.0)
 
@@ -390,8 +390,27 @@ class TestRoutes(_MetApp):
         with patch.object(po, "bouw_aankoop", return_value=(aankoop, samenvatting)):
             res = self.post("/api/wat-als", {"ticker": "MSFT", "aantal": 1, "posities": self.POSITIES})
         self.assertEqual(res.status_code, 200)
-        self.assertEqual(set(res.get_json()), {"wat_als", "aankoop"})
+        self.assertEqual(set(res.get_json()), {"wat_als", "aankoop", "orderkosten"})
+        self.assertEqual(res.get_json()["orderkosten"], {"status": "geen_transacties"})
         self.assertIsNone(res.get_json()["aankoop"]["zelfde_fonds_als"])
+
+    def test_code_route_bevat_orderkosten_uit_de_eigen_transacties(self):
+        aankoop, samenvatting = aankoop_msft()
+        samenvatting.update({"naam": "Microsoft Corp", "koers_eur": 100.0, "waarde_eur": 100.0})
+        transacties = pd.DataFrame([{"datum": pd.Timestamp.today(), "beurs": "EAM", "transactiekosten": -2.0, "aantal": 1.0,
+                                     "order_id": None, "ticker": "AAPL", "product": "Apple"}])
+        self.patch_app("bouw_wat_als_basis", return_value={
+            "waarde_per_ticker": {"AAPL": 100.0}, "is_etf_map": {"AAPL": False},
+            "fracties_per_ticker": {"AAPL": {"land_pct": {"US": 1.0}, "sector_pct": {"Tech": 1.0}, "land_bron": None,
+                                             "land_proxy": None}},
+            "holdings_per_etf": {}, "aandeel_namen": {}, "bron_namen": {}, "extra_aandelen": {},
+            "orderkosten_invoer": {"code": "ABC", "transacties_df": transacties}})
+        with patch.object(po, "bouw_aankoop", return_value=(aankoop, samenvatting)), \
+                patch.object(po, "db_get_ticker_details", return_value={"MSFT": {"yahoo_beurs": "AMS"}}):
+            res = self.post("/api/portfolio/ABC/wat-als", {"ticker": "MSFT", "aantal": 1})
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual((res.get_json()["orderkosten"]["status"], res.get_json()["orderkosten"]["mediaan_eur"]),
+                         ("geschat", 2.0))
 
     def test_beide_routes_vallen_onder_de_externe_bron_limiet(self):
         self.patch_app("bouw_wat_als_basis", return_value=None)

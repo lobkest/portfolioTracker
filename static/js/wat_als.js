@@ -31,6 +31,7 @@
         isin_gekozen: "Je hebt een ISIN gekozen die niet aantoonbaar bij deze notering hoort. Controleer of dit de juiste variant van het fonds is.",
         land_via_proxy: "Het land is afgeleid uit een vergelijkbaar iShares-fonds, omdat van dit fonds alleen de top 10 bekend is.",
         geen_dividend_data: "De dividendgegevens van dit effect konden niet worden opgehaald.",
+        valuta_onbekend: "De valuta van dit effect is onbekend, dus het dividend is niet om te rekenen naar euro's.",
     };
 
     const WAT_ALS_DIVIDEND_BRONNEN = {
@@ -153,6 +154,30 @@
             + `dus de overlap met ${positie} is hoog.`;
     }
 
+    const WAT_ALS_ORDERKOSTEN_ONBEKEND = "Orderkosten onbekend";
+    const WAT_ALS_ORDERKOSTEN_TIP = "Schatting uit je eigen orders; tarieven en promoties kunnen veranderen.";
+
+    // Regels van de orderkosten: {tekst, aansluiting: tekst of null, tip}. Alle bedragen komen van de backend.
+    function watAlsOrderkostenRegels(orderkosten) {
+        const regels = { tekst: WAT_ALS_ORDERKOSTEN_ONBEKEND, aansluiting: null, tip: WAT_ALS_ORDERKOSTEN_TIP };
+        if (!orderkosten) return regels;
+        const beurzen = (orderkosten.beurs_namen || []).join(" en ");
+        if (orderkosten.status === "geschat") {
+            const periode = orderkosten.periode_dagen ? "laatste 12 maanden" : "uit al je orders";
+            regels.tekst = `Geschatte orderkosten: ${formatteerEuro(orderkosten.mediaan_eur)} `
+                + `(mediaan van ${orderkosten.aantal_orders} eigen orders op ${beurzen}, ${periode})`;
+        } else if (orderkosten.status === "geen_eigen_orders") {
+            regels.tekst = `${WAT_ALS_ORDERKOSTEN_ONBEKEND}: je hebt nog geen orders op ${beurzen}`;
+        }
+        const aansluiting = orderkosten.aansluitingskosten;
+        if (aansluiting) {
+            const eigen = Number.isFinite(aansluiting.bedrag_eur) && aansluiting.jaar
+                ? ` Je betaalde hiervoor in ${aansluiting.jaar} ${formatteerEuro(aansluiting.bedrag_eur)}.` : "";
+            regels.aansluiting = `Deze beurs is geen thuisbeurs en je hebt er geen open positie: er kunnen jaarlijkse aansluitingskosten bijkomen.${eigen}`;
+        }
+        return regels;
+    }
+
     function watAlsBalk(verschilPp) {
         if (!Number.isFinite(verschilPp) || verschilPp === 0) return { richting: "geen", breedtePct: 0 };
         const breedtePct = Math.min(Math.abs(verschilPp) / WAT_ALS_BALK_MAX_PP, 1) * 100;
@@ -237,7 +262,7 @@
         watAlsTypeLabel, watAlsNoteringLabel, watAlsIsinTekst, watAlsTopRijen, watAlsMeldingZelfdeFonds, watAlsBalk,
         watAlsRij, watAlsAlInPortfolioTekst, watAlsAlInBezitRegels, watAlsFoutTekst, WAT_ALS_TOP_PROFIEL_BEDRIJVEN,
         watAlsOverlapRegel, watAlsOverlapEtfTekst, watAlsBedrijvenOnvolledigTekst, watAlsProfielBedrijven,
-        watAlsDividendRegel, watAlsDividendResultaatTekst,
+        watAlsDividendRegel, watAlsDividendResultaatTekst, watAlsOrderkostenRegels,
     };
 
     if (typeof module !== "undefined" && module.exports) {

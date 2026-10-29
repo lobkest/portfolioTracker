@@ -75,7 +75,7 @@ class TestBelasting(unittest.TestCase):
 
 
 class TestOphalen(unittest.TestCase):
-    def haal(self, **mocks):
+    def haal(self, valuta="EUR", **mocks):
         standaard = {"haal_yahoo_dividenden": dict(return_value=yahoo(VIER_UITKERINGEN)),
                      "_haal_splits_op": dict(return_value={}), "_fx_actueel": dict(return_value=1.0)}
         patchers = [patch.object(effect_dividend, naam, **{**standaard[naam], **mocks.get(naam, {})}) for naam in standaard]
@@ -83,7 +83,7 @@ class TestOphalen(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
         waarschuwingen = []
-        return haal_dividend_profiel("ABC.AS", "EUR", US_ISIN, 100.0, waarschuwingen), waarschuwingen
+        return haal_dividend_profiel("ABC.AS", valuta, US_ISIN, 100.0, waarschuwingen), waarschuwingen
 
     def test_gelukt_geeft_geen_waarschuwing(self):
         p, waarschuwingen = self.haal()
@@ -92,6 +92,10 @@ class TestOphalen(unittest.TestCase):
     def test_none_van_yahoo_geeft_waarschuwing_en_onbekend(self):
         p, waarschuwingen = self.haal(haal_yahoo_dividenden=dict(return_value=None))
         self.assertEqual((p["status"], waarschuwingen), ("onbekend", ["geen_dividend_data"]))
+
+    def test_valuta_onbekend_geeft_waarschuwing_en_onbekend(self):
+        p, waarschuwingen = self.haal(valuta=None, _fx_actueel=dict(return_value=None))
+        self.assertEqual((p["status"], waarschuwingen), ("onbekend", ["valuta_onbekend"]))
 
     def test_exceptie_bij_ophalen_is_geen_crash(self):
         p, waarschuwingen = self.haal(haal_yahoo_dividenden=dict(side_effect=RuntimeError("boem")),

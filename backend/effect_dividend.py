@@ -14,6 +14,7 @@ STATUS_KEERT_NIET_UIT = "keert_niet_uit"
 STATUS_ONBEKEND = "onbekend"
 
 WAARSCHUWING_GEEN_DIVIDEND_DATA = "geen_dividend_data"
+WAARSCHUWING_VALUTA_ONBEKEND = "valuta_onbekend"
 
 EUR_DECIMALEN = 4
 YIELD_DECIMALEN = 6
@@ -68,6 +69,9 @@ def haal_dividend_profiel(ticker, valuta, isin, koers_eur, waarschuwingen):
     except Exception as e:
         dprint(f"[profiel] WARN splits niet opgehaald ({e!a})")
         splits = {}
+    if not valuta:
+        dprint(f"[profiel] WARN valuta van '{ticker}' onbekend, dividend niet om te rekenen naar EUR")
+        waarschuwingen.append(WAARSCHUWING_VALUTA_ONBEKEND)
     peildatum = date.today()
     fx_actueel = _fx_actueel(valuta, peildatum)
     return dividend_profiel(yahoo, splits, valuta, isin, koers_eur, fx_actueel, peildatum)

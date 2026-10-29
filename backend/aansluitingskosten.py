@@ -2,6 +2,7 @@
 geïnvesteerd, rendement, XIRR, TWR of Box 3; wel in het kassaldo (zie BEHANDELING in rekening_regelsoorten.py)."""
 import datetime
 import re
+import statistics
 
 import pandas as pd
 
@@ -197,6 +198,67 @@ def _gemiddelde_kosten_per_transactie(transacties_df, codes_in_scope, codes, ech
     if not aantal or not kosten["beschikbaar"]:
         return None
     return round(kosten["totaal"] / aantal, 2)
+
+
+ORDERKOSTEN_GESCHAT = "geschat"
+ORDERKOSTEN_GEEN_EIGEN_ORDERS = "geen_eigen_orders"
+ORDERKOSTEN_BEURS_ONBEKEND = "beurs_onbekend"
+ORDERKOSTEN_PERIODE_DAGEN = 365
+
+
+def schat_orderkosten(transacties, degiro_codes, peildatum):
+    """Mediaan van de netto betaalde kosten (na kostenkorting, positief) per aankooporder op `degiro_codes`, over de
+    laatste 365 dagen; zonder orders in die periode over alle orders (periode_dagen None). Een order = alle deeluitvoeringen."""
+    codes = {str(c).strip().upper() for c in degiro_codes}
+    resultaat = {"status": ORDERKOSTEN_BEURS_ONBEKEND, "mediaan_eur": None, "aantal_orders": 0, "periode_dagen": None,
+                 "beurs_namen": sorted({beurs_naam(c) for c in codes})}
+    if not codes:
+        return resultaat
+    orders = {}
+    for volgnummer, rij in enumerate(transacties.to_dict("records")):
+        if _is_corporate_action_row(rij) or pd.isna(rij.get("beurs")) or str(rij["beurs"]).strip().upper() not in codes:
+            continue
+        kosten = rij.get("transactiekosten")
+        if float(rij["aantal"]) <= 0 or kosten is None or pd.isna(kosten):
+            continue
+        sleutel = _order_sleutel(rij, volgnummer)
+        datum, som = orders.get(sleutel, (pd.Timestamp(rij["datum"]), 0.0))
+        orders[sleutel] = (datum, som + float(kosten))
+    resultaat["status"] = ORDERKOSTEN_GEEN_EIGEN_ORDERS
+    if not orders:
+        return resultaat
+    peildatum = pd.Timestamp(peildatum)
+    recent = [som for datum, som in orders.values()
+              if peildatum - pd.Timedelta(days=ORDERKOSTEN_PERIODE_DAGEN) <= datum <= peildatum]
+    gekozen = recent or [som for _, som in orders.values()]
+    resultaat.update(status=ORDERKOSTEN_GESCHAT, mediaan_eur=round(statistics.median(abs(s) for s in gekozen), 2),
+                     aantal_orders=len(gekozen), periode_dagen=ORDERKOSTEN_PERIODE_DAGEN if recent else None)
+    return resultaat
+
+
+def aansluitingskosten_melding_nodig(transacties_df, degiro_codes):
+    """Geen van de beurzen is een thuisbeurs en er staat geen open positie op: dan kost het openen van een positie
+    mogelijk aansluitingskosten."""
+    codes = {str(c).strip().upper() for c in degiro_codes}
+    if not codes or codes & {c for thuis in THUISBEURZEN for c in thuis["codes"]}:
+        return False
+    gewichten = gewichten_per_beurscode(transacties_df)
+    return not any(gewichten.get(t, {}).get(c, 0.0) > 0 for t in _open_tickers(transacties_df) for c in codes)
+
+
+def eigen_jaarbedrag_aansluitingskosten(samenvatting, degiro_codes):
+    """(jaar, bedrag_eur) van het laatste jaar met aansluitingskosten op deze beurzen, of None."""
+    codes = {str(c).strip().upper() for c in degiro_codes}
+    per_jaar = {}
+    for beurs in samenvatting["per_beurs"]:
+        if beurs["code"] in codes:
+            for j in beurs["per_jaar"]:
+                if j["jaar"] is not None:
+                    per_jaar[j["jaar"]] = per_jaar.get(j["jaar"], 0.0) + j["bedrag_eur"]
+    if not per_jaar:
+        return None
+    jaar = max(per_jaar)
+    return jaar, round(per_jaar[jaar], 2)
 
 
 def _isin_per_ticker_laatste(transacties_df):

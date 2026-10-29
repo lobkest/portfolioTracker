@@ -157,6 +157,7 @@ class TestRoute(unittest.TestCase):
             "_ruwe_koersen_in_eur": (pd.DataFrame({"X": self.koersen}), {"X": {}}),
             "haal_yahoo_dividenden": {"dividenden": {"2024-01-04": 1.0}},
             "_valuta_per_ticker": {"X": "EUR"},
+            "valuta_voor_effect": "EUR",
         }.items():
             mock = patch.object(effect_koers, naam, return_value=waarde)
             setattr(self, naam, mock.start())
@@ -197,6 +198,13 @@ class TestRoute(unittest.TestCase):
         res = self.vraag()
         self.assertEqual(res.status_code, 422)
         self.assertIn("error", res.get_json())
+
+    def test_onbekende_valuta_geeft_422_zonder_download(self):
+        self.valuta_voor_effect.return_value = None
+        res = self.vraag()
+        self.assertEqual(res.status_code, 422)
+        self.assertIn("Valuta van dit effect onbekend", res.get_json()["error"])
+        self.download_koersen_met_retry.assert_not_called()
 
     def test_schrijft_niets_naar_de_database(self):
         with patch.object(db, "db_save_koersen", create=True) as opslaan:

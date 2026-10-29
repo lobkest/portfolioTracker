@@ -8,8 +8,10 @@ import pandas as pd
 
 from backend.dividend_verwachting import _naar_eur_factor, haal_yahoo_dividenden
 from backend.effect_profiel import GeenKoers
+from backend.debug_utils import dprint
 from backend.prijzen import _fx_prijzen_serie, _ruwe_koersen_in_eur, _valuta_per_ticker
 from backend.split_correctie import continue_reeks
+from backend.ticker_classificatie import valuta_voor_effect
 from backend.yahoo_client import download_koersen_met_retry
 
 # Volgorde = volgorde van de knoppen (WAT_ALS_KOERS_PERIODES in wat_als.js).
@@ -22,6 +24,10 @@ INDEX_DECIMALEN = 2
 EUR_DECIMALEN = 4
 RENDEMENT_DECIMALEN = 2
 VREEMDE_VALUTA_MET_FX = ("USD", "GBP", "GBp")
+
+
+class ValutaOnbekend(Exception):
+    pass
 
 
 def periode_start(periode, vandaag):
@@ -133,7 +139,7 @@ def dividenden_in_eur(dividenden, valuta, fx_serie):
     return (reeks * factor).dropna()
 
 
-def haal_koersen_en_dividenden(ticker, start):
+def haal_koersen_en_dividenden(ticker, start, valuta):
     """(continue koersreeks in EUR vanaf start, dividend-Series in EUR). Geen koerscache; lege reeks als Yahoo niets geeft."""
     close, splits = download_koersen_met_retry(ticker, start)
     ruw, splits_ok = _ruwe_koersen_in_eur(close, splits, [ticker], True)
@@ -148,7 +154,9 @@ def haal_koersen_en_dividenden(ticker, start):
         print(f"[effect_koers] WARN dividenden van {ticker!a} niet opgehaald ({e!a})")
         data = None
     dividenden = (data or {}).get("dividenden") or {}
-    valuta = _valuta_per_ticker([ticker])[ticker]
+    prijzen_valuta = _valuta_per_ticker([ticker])[ticker]
+    if prijzen_valuta != valuta:
+        dprint(f"[effect_koers] WARN valuta '{valuta}' van {ticker!a} wijkt af van de koersvaluta '{prijzen_valuta}'")
     fx = _fx_prijzen_serie(valuta) if valuta in VREEMDE_VALUTA_MET_FX and dividenden else None
     return koersen, dividenden_in_eur(dividenden, valuta, fx)
 
@@ -159,10 +167,14 @@ def _afgerond(waarde, decimalen):
 
 def bouw_effect_koers(ticker, periode, per, vandaag=None):
     """{periode, per, punten: [{datum, koers_eur, koers_index, totaal_index}], koers_rendement, totaal_rendement,
-    beschikbaar_sinds, heeft_dividend}. Bij periode 1j altijd per dag. Raises GeenKoers."""
+    beschikbaar_sinds, heeft_dividend}. Bij periode 1j altijd per dag.
+    Raises ValutaOnbekend (vóór de download) en GeenKoers."""
     vandaag = vandaag or date.today()
     start = periode_start(periode, vandaag)
-    koersen, dividenden = haal_koersen_en_dividenden(ticker, start)
+    valuta = valuta_voor_effect(ticker)
+    if valuta is None:
+        raise ValutaOnbekend(ticker)
+    koersen, dividenden = haal_koersen_en_dividenden(ticker, start, valuta)
     if _vanaf(koersen, start).empty:
         raise GeenKoers(ticker)
 

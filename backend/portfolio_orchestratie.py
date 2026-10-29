@@ -45,7 +45,11 @@ from backend.portfolio_calc import (
 from backend.split_correctie import bepaal_effectieve_datums, continue_reeks
 from backend.ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
 from backend.dividend import bouw_dividend_samenvatting, promotie_bedragen
-from backend.aansluitingskosten import bouw_aansluitingskosten_samenvatting, bouw_alternatieven_invoer, voeg_beurs_resultaat_toe
+from backend.aansluitingskosten import (
+    bouw_aansluitingskosten_samenvatting, bouw_alternatieven_invoer, voeg_beurs_resultaat_toe, schat_orderkosten,
+    aansluitingskosten_melding_nodig, eigen_jaarbedrag_aansluitingskosten,
+)
+from backend.ticker_matching import degiro_codes_voor_yahoo_beurs
 from backend.statistieken import bereken_statistieken
 from backend.transactiebestand_status import beoordeel_transactiebestand
 from backend.portfolio_verdeling import (
@@ -953,6 +957,7 @@ def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, b
 # Wat-als rekent met land/sector en bedrijven; de overlap heeft het niet nodig.
 WAT_ALS_ONDERDELEN = {ONDERDEEL_LAND_SECTOR, ONDERDEEL_BEDRIJVEN}
 WAT_ALS_TOP_N = BEDRIJVEN_TOP_N_MAX
+ORDERKOSTEN_GEEN_TRANSACTIES = "geen_transacties"
 
 
 def bouw_wat_als_basis(code):
@@ -962,10 +967,11 @@ def bouw_wat_als_basis(code):
     if naam is None:
         return None
     if price_data.empty:
-        return _lege_wat_als_basis()
+        return dict(_lege_wat_als_basis(), orderkosten_invoer={"code": code, "transacties_df": transacties_df})
     is_etf_map, land_proxies = _classificeer_en_verwarm(transacties_df, gebruik_proxy=True)
     basis = bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, land_proxies, WAT_ALS_ONDERDELEN)
     basis["isin_per_ticker"] = _isin_per_ticker(transacties_df)
+    basis["orderkosten_invoer"] = {"code": code, "transacties_df": transacties_df}
     return basis
 
 
@@ -988,8 +994,33 @@ def bouw_wat_als_basis_uit_posities(posities):
     return bouw_verdeling_invoer(transacties_df, price_data, is_etf_map, onderdelen=WAT_ALS_ONDERDELEN)
 
 
+def _aansluitingskosten_voor_orderkosten(code, transacties_df, codes):
+    """None zonder melding; anders {jaar, bedrag_eur} (beide None als het eigen bedrag niet bekend is)."""
+    if not aansluitingskosten_melding_nodig(transacties_df, codes):
+        return None
+    try:
+        samenvatting = bouw_aansluitingskosten_samenvatting(db_get_rekening_regels_eur(code))
+    except Exception as e:
+        dprint(f"[orderkosten] aansluitingskosten niet op te halen ({type(e).__name__}): {e!a}")
+        return {"jaar": None, "bedrag_eur": None}
+    jaar_en_bedrag = eigen_jaarbedrag_aansluitingskosten(samenvatting, codes)
+    return {"jaar": jaar_en_bedrag[0], "bedrag_eur": jaar_en_bedrag[1]} if jaar_en_bedrag else {"jaar": None, "bedrag_eur": None}
+
+
+def bouw_orderkosten(invoer, yahoo_beurs, peildatum):
+    """Geschatte orderkosten van een aankoop op `yahoo_beurs` uit de eigen aankooporders, plus een aansluitingskostenmelding.
+    invoer: {code, transacties_df} uit bouw_wat_als_basis(), of None ('niet opslaan': geen transacties). Wordt niet bij
+    totalen, verdeling of rendement opgeteld."""
+    if invoer is None:
+        return {"status": ORDERKOSTEN_GEEN_TRANSACTIES}
+    codes = degiro_codes_voor_yahoo_beurs(yahoo_beurs)
+    schatting = schat_orderkosten(invoer["transacties_df"], codes, peildatum)
+    schatting["aansluitingskosten"] = _aansluitingskosten_voor_orderkosten(invoer["code"], invoer["transacties_df"], codes)
+    return schatting
+
+
 def bereken_wat_als(basis, ticker, isin, aantal, naam=None):
-    """{wat_als, aankoop} voor het bijkopen van `aantal` stuks. aankoop.zelfde_fonds_als: open posities met dezelfde
+    """{wat_als, aankoop, orderkosten} voor het bijkopen van `aantal` stuks. aankoop.zelfde_fonds_als: open posities met dezelfde
     ISIN en een andere ticker, of None als de basis geen ISIN's kent ('niet opslaan'). Raises OnbekendEffect, GeenKoers."""
     aankoop, samenvatting = bouw_aankoop(ticker, isin, aantal, naam)
     isin_per_ticker = basis.get("isin_per_ticker")
@@ -1000,4 +1031,7 @@ def bereken_wat_als(basis, ticker, isin, aantal, naam=None):
         aankoop_isin = isin if samenvatting["isin_geverifieerd"] else isin_per_ticker.get(ticker)
         samenvatting["zelfde_fonds_als"] = zelfde_fonds_als(
             isin_per_ticker, basis["waarde_per_ticker"], ticker, aankoop_isin)
-    return {"wat_als": simuleer_aankoop(basis, aankoop, WAT_ALS_TOP_N), "aankoop": samenvatting}
+    invoer = basis.get("orderkosten_invoer")
+    yahoo_beurs = (db_get_ticker_details([ticker]).get(ticker) or {}).get("yahoo_beurs") if invoer else None
+    return {"wat_als": simuleer_aankoop(basis, aankoop, WAT_ALS_TOP_N), "aankoop": samenvatting,
+            "orderkosten": bouw_orderkosten(invoer, yahoo_beurs, pd.Timestamp.today().normalize())}

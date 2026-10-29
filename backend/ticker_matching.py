@@ -24,6 +24,11 @@ BEURS_MAP = {
     "TSE": ["TOR"], "ASX": ["ASX"],
 }
 
+
+def degiro_codes_voor_yahoo_beurs(yahoo_beurs):
+    """Alle DeGiro-beurscodes die op deze Yahoo-beurs uitkomen; leeg bij een onbekende beurs."""
+    return {code for code, beurzen in BEURS_MAP.items() if yahoo_beurs in beurzen}
+
 # Handelsvaluta per Yahoo-beurscode, om bij het zoeken kandidaten uit te sluiten die niet bij de valuta van de Excel
 # passen. Een bekende ticker_info.valuta gaat voor; een onbekende beurs doet niet mee.
 EXCHANGE_VALUTA = {

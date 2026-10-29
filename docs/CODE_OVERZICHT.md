@@ -1157,6 +1157,15 @@ warm 0,5 s; gunicorn-timeout 120 s, frontend 55 s. Frontend: `static/js/vergelij
 `tests/test_vergelijkbare_etfs.js`) en de knop/kaarten in `static/js/tabs/beurs_alternatieven.js`; knop bij elke positie met `fase_b_mogelijk`
 (ETF volgens `ticker_info`, anders de zoekuitslag), ook als fase A al een notering vond.
 
+### `wat_als.py`, `effect_profiel.py`, `effect_dividend.py`, `effect_koers.py` — Zoeken & wat als
+
+- `effect_profiel.py`: `bouw_effect_profiel()` (`GET /api/effect-profiel?ticker=&isin=&naam=`) geeft naam, type, valuta, koers, land, sector, `holdings`, `top5` (grootste `PROFIEL_TOP_BEDRIJVEN` = 5 holdings), dividend en `waarschuwingen`. De optionele `naam` (uit het zoekresultaat, alleen weergave, max. 200 tekens) geldt alleen als `long_name` ontbreekt.
+- `effect_dividend.py`: `haal_dividend_profiel()` geeft per stuk bruto/netto in EUR en `status` (`keert_uit`, `keert_niet_uit`, `onbekend`). Is de valuta (uit `get_ticker_details()`) `None`, dan status `onbekend` plus waarschuwing `valuta_onbekend`; geen Yahoo-data geeft `geen_dividend_data`.
+- `effect_koers.py`: `bouw_effect_koers()` (`GET /api/effect-koers?ticker=&periode=1j|3j|7j&per=dag|week`, nooit gecachet) bepaalt eerst `valuta_voor_effect()`; `None` geeft 422 "Valuta van dit effect onbekend; geen grafiek in EUR mogelijk" **vóór** een Yahoo-download. `_valuta_per_ticker()` (`prijzen.py`, houdt de EUR-aanname) moet dezelfde valuta geven; een verschil geeft alleen een `dprint`.
+- `wat_als.py`: `bereken_wat_als()` (`POST /api/wat-als` en `/api/portfolio/<code>/wat-als`, beide met optionele `naam`). `_holdings_dekking()` geeft `holdings_status` (`onbekend`, `top10`, `volledig`) en `gedekt_pct`; `aankoop.bedrijven_onvolledig` is waar bij een ETF zonder holdings.
+- `normaliseer_land()` (`etf_holdings_provider.py`) is de enige plek die "geen land" (`None`, leeg, `-`) naar `"Unknown"` maakt.
+- UI: `static/js/wat_als.js` (`watAlsWaarschuwingTekst()`, getest in `tests/test_wat_als.js`) en `static/js/tabs/wat_als.js`; de 422 van de grafiek verschijnt als melding op de plek van de grafiek.
+
 ### `dividend_verwachting.py` — verwacht dividend voor de Prognose
 
 **Verantwoordelijkheid:** per positie het verwachte jaardividend schatten uit Yahoo (netto, niet herbelegd) en vergelijken met het eigen
@@ -1464,7 +1473,9 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 | `classify_tickers()` | batch-variant: één `db_get_ticker_details()`, daarna Yahoo voor rijen die ontbreken of niet vers zijn (`_rij_is_vers()`), met 1,5 s pauze tussen die calls; mislukt een call, dan de oude `is_etf` uit de cache, anders `False` | lijst tickers → `{ticker: bool}` | `analyze_transacties_verrijking()` |
 | `classify_ticker()` | één ticker: `is_etf` uit `_ticker_details_met_cache()` | ticker → bool | `_land_sector_voor_weergave()`, `_zoek_betere_alternatieven()`, `verifieer_ticker_met_prijs()` |
 | `_rij_is_vers()` | de ene regel wanneer een `ticker_info`-rij als cache-hit telt: de rij bestaat en `valuta` of `quote_type` is gevuld (`long_name` telt niet mee, zie `vul_ontbrekende_long_names()`) | dict of `None` → bool | `classify_tickers()`, `_ticker_details_met_cache()` |
-| `_classify_ticker_uncached()` | de echte yfinance-lookup: `quoteType`, valuta, beurs, fondsfamilie, categorie, `longName`; land en sector gaan alleen naar `ticker_land_sector` | ticker → dict of `None` (rate limit) | `classify_tickers()`, `_ticker_details_met_cache()` |
+| `_classify_ticker_uncached()` | de echte yfinance-lookup: `quoteType`, valuta, beurs, fondsfamilie, categorie, `longName`; land en sector gaan alleen naar `ticker_land_sector`. Is `.info` onbruikbaar (`info_is_bruikbaar()` onwaar), dan `_classify_via_price()`: yahooquery `.price` (`_yq_price()`), zonder heuristiek en zonder land/sector (`db_save_land_sector` wordt niet aangeroepen) | ticker → dict of `None` (rate limit, of ook `.price` onbruikbaar) |
+| `info_is_bruikbaar()` | pure check: `info` is een dict met `quoteType` of `currency`. Op Render geeft `.info` bij 401 (Invalid Crumb) een uitgeklede dict i.p.v. `None` | dict of `None` → bool | `_classify_ticker_uncached()` |
+| `valuta_voor_effect()` | valuta uit `get_ticker_details()` of `None`, **geen** EUR-aanname; de ene bron voor dividend en grafiek in Zoeken & wat als | ticker → tekst of `None` | `bouw_effect_koers()` | `classify_tickers()`, `_ticker_details_met_cache()` |
 | `_fetch_yf_info()` | `yf.Ticker(t).info` met `_met_rate_limit_retry()` | ticker → dict of `None` | `_classify_ticker_uncached()`, `get_land_sector()` |
 | `_ticker_details_met_cache()` | `is_etf`/valuta/beurs/... uit `ticker_info`; een niet-verse rij (`_rij_is_vers()`) opnieuw ophalen; mislukt dat, dan de oude rij | ticker → dict | `classify_ticker()`, `get_valuta()`, `vergelijk_prijs_op_datum()`, `_zoek_betere_alternatieven()`, `verifieer_ticker_met_prijs()` |
 | `haal_long_names()` | Yahoo-`longName` voor een lijst tickers in één yahooquery-batch-call; slaat **niets** op | lijst tickers → `{ticker: naam of None}` | `bepaal_product_per_ticker()`, `bepaal_korte_naam_voorstellen()`, `reset_bijnaam()`, `vul_ontbrekende_long_names()` |
@@ -1483,7 +1494,8 @@ Constanten: `PRIJSCHECK_DREMPEL_OK = 0.02`, `PRIJSCHECK_DREMPEL_WAARSCHUWING = 0
 **Bijzonderheden en valkuilen**
 
 - ETF's hebben **geen** land/sector in `.info`; daarom `sector_weightings`/`top_holdings` voor ETF's en `.info` alleen voor losse aandelen.
-- Is `quoteType` leeg, dan beslist een heuristiek (≥ 2 van 5 signalen → ETF).
+- Is `quoteType` leeg bij een **bruikbare** `.info`, dan beslist een heuristiek (≥ 2 van 5 signalen → ETF). Bij een uitgeklede of mislukte `.info` geldt `.price` (`quoteType == "ETF"`), nooit de heuristiek.
+- Yahoo-volgorde: yahooquery eerst, yfinance als terugval. Een echt lege uitkomst (sector, holdings, categorie) staat 1 uur in `_geen_fondsdata_cache` (alleen geheugen, `_geen_fondsdata_bekend()` / `_onthoud_geen_fondsdata()`); een fout of foutstring wordt niet onthouden.
 - `_classify_ticker_uncached()` schrijft als bijproduct ook `ticker_land_sector` weg, zodat `get_land_sector()` daarna geen tweede identieke call hoeft te doen.
 - `get_etf_holdings()`: een verse `yfinance_top10`-cache telt niet als "goed genoeg" zodra er inmiddels een provider bekend is (`ETF_HOLDINGS_BRON`, of een iShares-fonds op ISIN); dan wordt geprobeerd te upgraden naar `provider_csv`. Zo krijgt elke iShares-ETF volledige holdings zonder eigen regel in `ETF_HOLDINGS_BRON`; de land-proxy is dan niet meer nodig.
 - `ticker_info` heeft **geen** leeftijdscheck en verloopt nooit. Alleen een niet-verse rij (`_rij_is_vers()`: `valuta` én `quote_type` NULL)

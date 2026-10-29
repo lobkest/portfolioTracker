@@ -366,7 +366,8 @@ async function laadWatAlsKoers() {
     }
     if (!actueel()) return;
     if (!res || !res.ok || !data) {
-        zetWatAlsKoersMelding(watAlsFoutTekst(res ? res.status : 0, data && data.error), true);
+        const grafiekFout = res && res.status === 422 && data && data.error;
+        zetWatAlsKoersMelding(grafiekFout || watAlsFoutTekst(res ? res.status : 0, data && data.error), true);
         return;
     }
     zetWatAlsKoersMelding("", false);
@@ -593,6 +594,11 @@ function renderWatAlsUitkomst(data) {
         watAlsMaak("p", null, `Portfolio: ${formatteerEuro(w.totaal.voor)} → ${formatteerEuro(w.totaal.na)}`),
         watAlsMaak("p", null, watAlsDividendResultaatTekst(aankoop)),
     ];
+    const orderkosten = watAlsOrderkostenRegels(data.orderkosten);
+    const orderkostenRegel = watAlsMaak("p", null, orderkosten.tekst);
+    orderkostenRegel.append(" ", watAlsInfoTip("Orderkosten", orderkosten.tip));
+    samenvatting.push(orderkostenRegel);
+    if (orderkosten.aansluiting) samenvatting.push(watAlsMaak("p", "melding", orderkosten.aansluiting));
     if (w.aankoop.bijkopen) samenvatting.push(watAlsMaak("p", "kleineMelding", "Je bezit dit al: de aankoop wordt bij je bestaande positie opgeteld."));
     const zelfdeFonds = watAlsMeldingZelfdeFonds(aankoop.zelfde_fonds_als);
     if (zelfdeFonds) samenvatting.push(watAlsMaak("p", "melding", zelfdeFonds));
