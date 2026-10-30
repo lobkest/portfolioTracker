@@ -182,7 +182,14 @@ body:has(.startPagina) {
 }
 
 .startKaart .schakelaarRij {
+    position: relative; /* anker voor de infoTip-tooltip */
     padding: calc(var(--startRuimte) * 0.4) 0;
+}
+
+.schakelaarTitel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .startKaart button[type="submit"].volleBreedte {

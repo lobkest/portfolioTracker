@@ -32,10 +32,10 @@
             <summary>Wat doet deze app?</summary>
             <p>Upload je DeGiro-export en zie in één dashboard hoe je portfolio ervoor staat:</p>
             <ul>
-                <li>rendement, inclusief XIRR en TWR</li>
-                <li>verdeling naar ETF en aandeel, land, sector en valuta</li>
+                <li>Rendement, inclusief XIRR en TWR</li>
+                <li>Verdeling naar ETF en aandeel, land, sector en valuta</li>
                 <li>ETF-overlap en de grootste onderliggende bedrijven</li>
-                <li>dividend en een prognose voor de toekomst</li>
+                <li>Dividend en een prognose voor de toekomst</li>
             </ul>
             <p>Kies je voor "Niet opslaan", dan worden je transacties niet opgeslagen.</p>
         </details>
@@ -68,7 +68,10 @@
 
                 <div class="schakelaarRij">
                     <span class="schakelaarTekst metSubregel">
-                        <label for="nietOpslaan">Niet opslaan</label>
+                        <span class="schakelaarTitel">
+                            <label for="nietOpslaan">Niet opslaan</label>
+                            <span class="infoTip" data-label="Niet opslaan">Je krijgt geen code, dus je kunt later niet terugkomen. Niet beschikbaar: de tabbladen Koersen, Bestanden bijwerken en Bijnamen. Beperkt: bij Rendement geen €/%-keuze en geen vergelijking met benchmarks of een eigen aandeel; bij Prognose geen rendement uit historie en geen verwacht dividend; de ticker-check is eerst de snelle versie.</span>
+                        </span>
                         <span class="kleineMelding">eenmalig, je transacties worden niet opgeslagen</span>
                     </span>
                     <input type="checkbox" role="switch" class="schakelaar" id="nietOpslaan" name="niet_opslaan">
@@ -80,7 +83,7 @@
                 </div>
 
                 <button type="submit" id="uploadKnop" class="volleBreedte" disabled>Uploaden</button>
-                <p class="kleineMelding">Je transacties worden opgeslagen onder een code en na {{ bewaartermijn_maanden }} maanden zonder gebruik verwijderd. <a href="/privacy">Privacy</a></p>
+                <p class="kleineMelding">Je transacties worden opgeslagen onder een code om later makkelijk porfolio te kunnen laden en na {{ bewaartermijn_maanden }} maanden zonder gebruik verwijderd. <a href="/privacy">Privacy</a></p>
             </form>
         </section>
 

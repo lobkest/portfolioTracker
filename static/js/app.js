@@ -22,7 +22,7 @@ const wisselView = maakTabWisselaar(
     TAB_FADE_MS,
 );
 
-// Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan').
+// Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan'). Wijzig je deze lijst, pas dan ook de infoTip bij "Niet opslaan" in templates/start.html aan.
 const VIEWS_MET_CODE = ["instellingen-bestanden", "instellingen-bijnamen", "koersoverzicht"];
 
 const TOON_PER_VIEW = {
