@@ -107,6 +107,28 @@ class TestMeld(unittest.TestCase):
         self.assertNotIn("actie", zonder)
         self.assertEqual(met["actie"], {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"})
 
+    def test_standaardactie_per_categorie_alleen_bij_fout_en_let_op(self):
+        d = diagnostiek
+        gevallen = [
+            (d.CATEGORIE_ORDER_IDS, LET_OP, "order_ids:rekening:x", d.ACTIE_BESTANDEN_BIJWERKEN),
+            (d.CATEGORIE_REKENINGOVERZICHT, FOUT, "rekening:onbekende_soorten", d.ACTIE_BESTANDEN_BIJWERKEN),
+            (d.CATEGORIE_KOERSEN, LET_OP, "koers_later:AAPL", d.ACTIE_KOERSEN),
+            (d.CATEGORIE_KOERSEN, LET_OP, "yahoo_kern", None),
+            (d.CATEGORIE_KOERSEN, INFO, "koersen_samenvatting", None),
+            (d.CATEGORIE_ORDER_IDS, GOED, "order_ids", None),
+            (d.CATEGORIE_DATA, LET_OP, "data:synthetisch", None),
+        ]
+        with self.app.test_request_context():
+            for categorie, niveau, sleutel, _ in gevallen:
+                meld(categorie, niveau, "t", sleutel=sleutel)
+            acties = [m.get("actie") for m in haal_meldingen()]
+        self.assertEqual(acties, [a for *_, a in gevallen])
+
+    def test_eigen_actie_wint_van_de_standaardactie(self):
+        with self.app.test_request_context():
+            meld(diagnostiek.CATEGORIE_KOERSEN, LET_OP, "t", actie=diagnostiek.ACTIE_TICKER_ZEKERHEID)
+            self.assertEqual(haal_meldingen()[0]["actie"], diagnostiek.ACTIE_TICKER_ZEKERHEID)
+
     def test_actie_is_een_kopie(self):
         actie = {"label": "Ticker-zekerheid", "tab": "instellingen-ticker"}
         with self.app.test_request_context():
@@ -298,6 +320,124 @@ class TestBasisCacheMeldingen(unittest.TestCase):
         # Alleen wat tijdens de basis ontstond, niet de eerdere Excel-melding,
         # en geen laadtijden (die tijd is bij een hit niet besteed).
         self.assertEqual([m["sleutel"] for m in tweede], ["USDEUR=X"])
+
+
+    @patch("backend.portfolio_orchestratie.db_get_rekening_regels_eur", return_value=[])
+    @patch("backend.portfolio_orchestratie._meld_datakwaliteit")
+    @patch("backend.portfolio_orchestratie.get_prices", return_value=pd.DataFrame())
+    @patch("backend.portfolio_orchestratie.db_get_koers_splits", return_value={})
+    @patch("backend.db.db_connect")
+    def test_hit_geeft_controles_opnieuw_mee_zonder_technische(self, mock_conn, _splits, _prijzen, mock_kwaliteit, _promo):
+        mock_conn.side_effect = lambda: _fake_conn()
+        mock_kwaliteit.side_effect = lambda code, df: diagnostiek.draai_controle("Data", "Datakwaliteit", lambda: None)
+
+        with self.app.test_request_context(), redirect_stdout(io.StringIO()):
+            self.po.haal_portfolio_basis(TEST_CODE)
+            eerste = {c["naam"] for c in diagnostiek.haal_controles()}
+        with self.app.test_request_context(), redirect_stdout(io.StringIO()):
+            self.po.haal_portfolio_basis(TEST_CODE)
+            tweede = diagnostiek.haal_controles()
+
+        self.assertIn("Laadtijden", eerste)
+        self.assertIn("Datakwaliteit", eerste)
+        self.assertEqual([c["naam"] for c in tweede if c["naam"] != "Koersdekking" and c["naam"] != "Koersstilstand"],
+                         ["Datakwaliteit"])
+
+
+class TestControles(unittest.TestCase):
+    def setUp(self):
+        self.app = Flask(__name__)
+
+    def test_buiten_context_stille_no_op(self):
+        diagnostiek.registreer_controle("Data", "X", diagnostiek.CONTROLE_GEDRAAID)
+        diagnostiek.draai_controle("Data", "X", lambda: None)
+        self.assertEqual(diagnostiek.haal_controles(), [])
+
+    def test_gedraaid_zonder_bevinding(self):
+        with self.app.test_request_context():
+            diagnostiek.draai_controle("Data", "Kolommen", lambda: meld("Data", GOED, "alles ok"))
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual((c["categorie"], c["naam"], c["status"], c["bevindingen"]),
+                         ("Data", "Kolommen", "gedraaid", 0))
+
+    def test_gedraaid_met_bevindingen_telt_alleen_fout_en_let_op(self):
+        def controleer():
+            meld("Data", FOUT, "a", sleutel="a")
+            meld("Splits", LET_OP, "b", sleutel="b")
+            meld("Data", INFO, "c", sleutel="c")
+            meld("Data", GOED, "d", sleutel="d")
+
+        with self.app.test_request_context():
+            diagnostiek.draai_controle("Data", "Meerdere", controleer)
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual((c["status"], c["bevindingen"]), ("gedraaid", 2))
+
+    def test_een_eerdere_melding_telt_niet_mee(self):
+        with self.app.test_request_context():
+            meld("Data", LET_OP, "oud", sleutel="oud")
+            diagnostiek.draai_controle("Data", "Nieuw", lambda: meld("Data", INFO, "nieuw", sleutel="nieuw"))
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual(c["bevindingen"], 0)
+
+    def test_overgeslagen_met_reden(self):
+        with self.app.test_request_context():
+            diagnostiek.sla_controle_over("Dividend", "Zonder positie", "geen rekeningoverzicht")
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual((c["status"], c["reden"], c["bevindingen"]), ("overgeslagen", "geen rekeningoverzicht", 0))
+
+    def test_exception_wordt_fout_en_andere_controles_draaien_door(self):
+        def stuk():
+            raise ValueError("kapot")
+
+        with self.app.test_request_context():
+            diagnostiek.draai_controle("Data", "Stuk", stuk)
+            diagnostiek.draai_controle("Data", "Heel", lambda: None)
+            controles = {c["naam"]: c for c in diagnostiek.haal_controles()}
+            meldingen = haal_meldingen()
+        self.assertEqual(controles["Stuk"]["status"], "fout")
+        self.assertEqual(controles["Stuk"]["reden"], "ValueError")
+        self.assertEqual(controles["Heel"]["status"], "gedraaid")
+        self.assertEqual([(m["niveau"], m["sleutel"]) for m in meldingen], [(LET_OP, "check_mislukt:Stuk")])
+
+    def test_zelfde_controle_vervangt_de_eerdere(self):
+        with self.app.test_request_context():
+            diagnostiek.sla_controle_over("Data", "X", "reden")
+            diagnostiek.draai_controle("Data", "X", lambda: None)
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual(c["status"], "gedraaid")
+
+    def test_ophogen_telt_op(self):
+        with self.app.test_request_context():
+            for n in (1, 0, 1):
+                diagnostiek.registreer_controle("Laadtijden", "Laadtijden", "gedraaid", bevindingen=n, ophogen=True)
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual(c["bevindingen"], 2)
+
+    def test_laadtijd_registreert_een_technische_controle(self):
+        with self.app.test_request_context():
+            diagnostiek.meld_laadtijd("basis_koersen_ophalen (3 ticker(s))", 12.0)
+            diagnostiek.meld_laadtijd("historisch_rendement", 1.0)
+            diagnostiek.meld_laadtijd("onbekende_fase", 99.0)
+            [c] = diagnostiek.haal_controles()
+        self.assertEqual((c["categorie"], c["technisch"], c["bevindingen"]), ("Laadtijden", True, 1))
+
+    def test_controles_sinds_laat_technische_weg_en_speelt_terug(self):
+        with self.app.test_request_context():
+            voor = diagnostiek.haal_controles()
+            diagnostiek.sla_controle_over("Data", "A", "r")
+            diagnostiek.registreer_controle("Laadtijden", "Laadtijden", "gedraaid", technisch=True)
+            nieuw = diagnostiek.controles_sinds(voor)
+        self.assertEqual([c["naam"] for c in nieuw], ["A"])
+        with self.app.test_request_context():
+            diagnostiek.registreer_controles_opnieuw(nieuw)
+            self.assertEqual(diagnostiek.haal_controles(), nieuw)
+
+    def test_voeg_diagnostiek_toe_stuurt_de_controles_mee(self):
+        with self.app.test_request_context():
+            diagnostiek.draai_controle("Data", "A", lambda: None)
+            uit = diagnostiek.voeg_diagnostiek_toe({"x": 1})
+        self.assertEqual([c["naam"] for c in uit["diagnostiek_controles"]], ["A"])
+        self.assertEqual(uit["diagnostiek"], [])
 
 
 if __name__ == "__main__":

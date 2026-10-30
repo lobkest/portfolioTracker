@@ -9,7 +9,7 @@ import pandas as pd
 import yfinance as yf
 
 from backend.db import db_get_cached_ticker_dividenden, db_save_ticker_dividenden, db_get_dividenden, db_get_kassaldo
-from backend.diagnostiek import meld, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP
+from backend.diagnostiek import meld, draai_controle, CATEGORIE_DIVIDEND, GOED, INFO, LET_OP
 from backend.diagnostiek_checks import _beperk
 from backend.portfolio_calc import bepaal_split_boekingen, holdings_op_datums, huidige_posities_per_keten
 from backend.portfolio_orchestratie import laad_transacties_en_resultaat
@@ -604,8 +604,11 @@ def bereken_dividend_verwachting(code):
         ))
 
     info_mislukt = sum(1 for dividenden, _ in yahoo_data.values() if dividenden and dividenden.get("info_mislukt"))
-    for b in dividend_bevindingen(posities, eigen_data=eigen_data, info_mislukt=info_mislukt):
-        meld(CATEGORIE_DIVIDEND, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"))
+    def controleer_verwachting():
+        for b in dividend_bevindingen(posities, eigen_data=eigen_data, info_mislukt=info_mislukt):
+            meld(CATEGORIE_DIVIDEND, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"))
+
+    draai_controle(CATEGORIE_DIVIDEND, "Verwacht dividend", controleer_verwachting)
 
     meegeteld = [p for p in posities if p["meegeteld"]]
     totaal_bruto = sum(p["bruto_eur_jaar"] for p in meegeteld)

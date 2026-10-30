@@ -3,6 +3,7 @@ verwijderen en code wijzigen (echt tegen de database, alleen localhost)."""
 import datetime
 import io
 import os
+import re
 import sys
 import unittest
 from contextlib import redirect_stdout
@@ -10,14 +11,15 @@ from unittest.mock import patch
 
 from flask import Flask
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, ROOT)
 
 from backend import db
 from backend import upload_verwerking as uv
 from backend.diagnostiek import (
     CATEGORIE_DATA, CATEGORIE_DIVIDEND, CATEGORIE_KOERSEN, CATEGORIE_LAADTIJDEN, CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS,
-    CATEGORIE_REKENINGOVERZICHT, CATEGORIE_TICKERS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, alleen_bij_upload,
-    meld, upload_meldingen_om_te_bewaren,
+    CATEGORIE_REKENINGOVERZICHT, CATEGORIE_TICKERS, CATEGORIE_WISSELKOERSEN, GOED, INFO, LET_OP, MAX_BEWAARDE_UPLOADS,
+    SLEUTEL_KLASSEN, alleen_bij_upload, meld, sleutel_klasse, upload_meldingen_om_te_bewaren,
 )
 
 try:
@@ -70,6 +72,85 @@ class TestAlleenBijUpload(unittest.TestCase):
         uitkomst = {(c, s): alleen_bij_upload(_m(c, s)) for c, s in alleen_bij_upload_verwacht}
         self.assertEqual(uitkomst, alleen_bij_upload_verwacht)
 
+    def test_zelfde_uitkomst_als_de_oude_voorvoegsellogica(self):
+        oud_categorieen = (CATEGORIE_OPSLAAN, CATEGORIE_ORDER_IDS, CATEGORIE_REKENINGOVERZICHT)
+        oud_sleutels = {
+            CATEGORIE_WISSELKOERSEN: ("excel_wisselkoers",),
+            CATEGORIE_TICKERS: ("zoekstappen:", "tickers:valuta:", "check_mislukt:Valuta-consistentie"),
+            CATEGORIE_DIVIDEND: ("dividend_samenvatting", "dividend_zonder_conversie_overig", "dividend:"),
+        }
+        oud_live = {CATEGORIE_DIVIDEND: ("dividend:zonder_positie:",)}
+
+        def oud(categorie, sleutel):
+            if categorie in oud_categorieen:
+                return True
+            if sleutel.startswith(oud_live.get(categorie, ())):
+                return False
+            return sleutel.startswith(oud_sleutels.get(categorie, ()))
+
+        voorbeelden = ["insert_opgeslagen", "excel_wisselkoers", "USDEUR=X", "prijscheck_geen_fx:NESN.SW",
+                       "zoekstappen:NL0010273215:EAM", "tickers:valuta:AAPL", "tickers:valuta:meer",
+                       "check_mislukt:Valuta-consistentie", "check_mislukt:Tickers", "tickers:dis_acc:VWCE.DE",
+                       "tickers:samenvatting", "dividend_samenvatting", "dividend_zonder_conversie_overig",
+                       "dividend:US0378331005:2024-03-01", "dividend:zonder_positie:GB00B10RZP78",
+                       "dividend:zonder_positie:meer", "div_verwachting:ok", "check_mislukt:Dividend zonder positie",
+                       "een_nieuwe_sleutel", "koersen:verversing", ""]
+        categorieen = list(SLEUTEL_KLASSEN) + [CATEGORIE_DATA, CATEGORIE_KOERSEN, CATEGORIE_LAADTIJDEN]
+        with redirect_stdout(io.StringIO()):
+            for categorie in categorieen:
+                for sleutel in voorbeelden:
+                    self.assertEqual(alleen_bij_upload(_m(categorie, sleutel)), oud(categorie, sleutel),
+                                     (categorie, sleutel))
+
+    def test_langste_voorvoegsel_wint_en_onbekend_is_geen_klasse(self):
+        self.assertEqual(sleutel_klasse(CATEGORIE_DIVIDEND, "dividend:zonder_positie:X"), "ook_live")
+        self.assertEqual(sleutel_klasse(CATEGORIE_DIVIDEND, "dividend:NL001:2024-01-01"), "alleen_bij_upload")
+        self.assertIsNone(sleutel_klasse(CATEGORIE_TICKERS, "een_nieuwe_sleutel"))
+        self.assertIsNone(sleutel_klasse(CATEGORIE_DATA, "data:synthetisch"))
+
+    def test_onbekende_sleutel_logt_een_waarschuwing_zonder_details_na_de_dubbele_punt(self):
+        import backend.diagnostiek as d
+        d._ONBEKENDE_SLEUTELS_GEMELD.discard((CATEGORIE_TICKERS, "tickers_nieuw"))
+        uitvoer = io.StringIO()
+        with redirect_stdout(uitvoer):
+            alleen_bij_upload(_m(CATEGORIE_TICKERS, "tickers_nieuw:NL0010273215"))
+            alleen_bij_upload(_m(CATEGORIE_TICKERS, "tickers_nieuw:US0378331005"))
+            alleen_bij_upload(_m(CATEGORIE_DATA, "data:onbekend"))
+        tekst = uitvoer.getvalue()
+        self.assertEqual(tekst.count("WARN sleutel 'tickers_nieuw'"), 1)
+        self.assertNotIn("NL0010273215", tekst)
+        self.assertNotIn("data:onbekend", tekst)
+
+    def test_elk_sleutelvoorvoegsel_uit_de_checks_staat_in_de_tabel(self):
+        bronnen = ["diagnostiek_checks.py", "upload_verwerking.py", "dividend_verwachting.py", "portfolio_orchestratie.py",
+                   "prijzen.py"]
+        familie = {"tickers:": CATEGORIE_TICKERS, "zoekstappen:": CATEGORIE_TICKERS,
+                   "dividend:": CATEGORIE_DIVIDEND, "dividend_samenvatting": CATEGORIE_DIVIDEND,
+                   "dividend_zonder_conversie_overig": CATEGORIE_DIVIDEND,
+                   "div_verwachting:": CATEGORIE_DIVIDEND, "excel_wisselkoers": CATEGORIE_WISSELKOERSEN,
+                   "prijscheck_geen_fx:": CATEGORIE_WISSELKOERSEN}
+        patroon = re.compile(r'f?"((?:tickers:|zoekstappen:|dividend:|dividend_samenvatting|dividend_zonder_conversie_overig|div_verwachting:|excel_wisselkoers'
+                             r'|prijscheck_geen_fx:)[^"{]*)')
+        gevonden = []
+        for bron in bronnen:
+            with open(os.path.join(ROOT, "backend", bron), encoding="utf-8") as f:
+                gevonden += patroon.findall(f.read())
+        self.assertGreater(len(gevonden), 15)
+        for sleutel in gevonden:
+            categorie = next(c for v, c in familie.items() if sleutel.startswith(v))
+            self.assertIsNotNone(sleutel_klasse(categorie, sleutel), sleutel)
+
+    def test_check_mislukt_sleutels_staan_in_de_tabel(self):
+        aanroepen = []
+        for bron in ("portfolio_orchestratie.py", "dividend_verwachting.py", "upload_verwerking.py"):
+            with open(os.path.join(ROOT, "backend", bron), encoding="utf-8") as f:
+                aanroepen += re.findall(r'(?:draai_controle|_meld_check_mislukt)\((CATEGORIE_\w+), f?"([^"{]+)"', f.read())
+        self.assertGreater(len(aanroepen), 8)
+        for naam, wat in aanroepen:
+            categorie = getattr(sys.modules["backend.diagnostiek"], naam)
+            if categorie in (CATEGORIE_TICKERS, CATEGORIE_DIVIDEND):
+                self.assertIsNotNone(sleutel_klasse(categorie, f"check_mislukt:{wat}"), (naam, wat))
+
     def test_leeg_of_none(self):
         self.assertEqual(upload_meldingen_om_te_bewaren(None), [])
         self.assertEqual(upload_meldingen_om_te_bewaren([]), [])
@@ -119,6 +200,12 @@ class TestRoute(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual([u["geupload_op"] for u in res.get_json()["uploads"]],
                          ["2026-10-10T12:00:00Z", "2026-10-01T09:30:00Z"])
+
+    def test_stuurt_max_uploads_mee(self):
+        with patch.object(self.app_module, "db_portfolio_bestaat", return_value=True), \
+                patch.object(self.app_module, "db_get_upload_meldingen", return_value=[]):
+            res = self.client.get("/api/portfolio/abc/upload-meldingen")
+        self.assertEqual(res.get_json()["max_uploads"], MAX_BEWAARDE_UPLOADS)
 
     def test_onbekende_code_404(self):
         with patch.object(self.app_module, "db_portfolio_bestaat", return_value=False):

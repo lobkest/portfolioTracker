@@ -33,7 +33,7 @@ from backend.ticker_zekerheid import (
     controleer_alle_transactieprijzen, bijnaam_na_tickerwissel,
 )
 from backend.debug_utils import meet_tijd, maskeer_codes, print_traceback, maak_foutcode
-from backend.diagnostiek import voeg_diagnostiek_toe
+from backend.diagnostiek import MAX_BEWAARDE_UPLOADS, voeg_diagnostiek_toe
 from backend.voortgang import (
     Voortgang, meld_stap, zet_voortgang, reset_voortgang, huidige_stap_tekst, STAPPEN_UPLOAD_OPSLAAN, STAPPEN_UPLOAD_NIET_OPSLAAN,
     STAPPEN_BIJWERKEN, STAPPEN_OPHALEN, STAPPEN_OPHALEN_ZONDER_HERBEPALEN,
@@ -1233,7 +1233,8 @@ def upload_meldingen(code):
     code = code.strip().upper()
     if not db_portfolio_bestaat(code):
         return _geen_portfolio(code)
-    return jsonify({"uploads": upload_meldingen_voor_api(db_get_upload_meldingen(code))})
+    return jsonify({"uploads": upload_meldingen_voor_api(db_get_upload_meldingen(code)),
+                    "max_uploads": MAX_BEWAARDE_UPLOADS})
 
 
 @app.route("/api/portfolio/<code>/dividend-verwachting")

@@ -703,8 +703,10 @@
             <div id="tab-instellingen-diagnostiek" data-views="instellingen-diagnostiek" style="display: none;">
                 <div class="labelRij diagnostiekKop">
                     <p id="diagnostiekTeller" class="diagnostiekTeller"></p>
-                    <span class="infoTip" data-label="Diagnostiek">Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. De meldingen van een upload (Excel, opslaan, rekeningoverzicht) worden bewaard en staan onder Laatste upload, met de vier uploads daarvoor. Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
+                    <span class="infoTip" data-label="Diagnostiek">Meldingen gelden voor de huidige laadbeurt en verdwijnen bij verversen. De meldingen van een upload (Excel, opslaan, rekeningoverzicht) worden bewaard en staan onder Laatste upload, met de vier uploads daarvoor. Laadtijden gelden per request, worden niet gecachet en ontbreken als de basisgegevens uit de cache kwamen. "Goed"-meldingen staan standaard verborgen; zet de chip aan om ze te zien. Geen meldingen onder Wisselkoersen betekent dat er bij deze laadbeurt niets gedownload of ververst is, niet dat er iets mis is. Controles die parallel draaien (zoals de prijscheck bij het koppelen van tickers) melden hier niets.</span>
                 </div>
+                <div id="diagnostiekActies"></div>
+                <div id="diagnostiekControles"></div>
                 <div id="diagnostiekChips" class="diagnostiekChips"></div>
                 <div id="diagnostiekLijst" class="diagnostiekKolommen"></div>
                 <div id="diagnostiekUploads" class="diagnostiekUploads"></div>

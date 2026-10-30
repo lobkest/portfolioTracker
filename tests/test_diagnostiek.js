@@ -8,7 +8,10 @@ const assert = require("node:assert/strict");
 const {
     voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
     hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen, diagnostiekRijenBlok,
-    deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie, categorieSamenvatting, meldingActie,
+    STANDAARD_ZICHTBARE_NIVEAUS, GEEN_CODE_UITLEG, GOED_CHIP_UITLEG, filterOpNiveaus, wisselNiveau, isStandaardNiveauKeuze, zichtbareMeldingen,
+    deelInBlokken, diagnostiekConclusie, categorieSamenvatting, meldingActie, actielijst,
+    MAX_ACTIELIJST_REGELS, UPLOAD_BLOK_VOORVOEGSEL,
+    voegControlesSamen, zichtbareControles, controleSamenvatting, controleRegels, legeCategorieen,
     formatUploadMoment, uploadBlokken, meldingenVoorTelling, uploadOokLiveTekst,
 } = require("../static/js/diagnostiek.js");
 
@@ -144,18 +147,47 @@ test("deelInBlokken: lege invoer", () => {
     assert.deepEqual(deelInBlokken(undefined), { aandacht: [], inOrde: [], technisch: [] });
 });
 
-test("filterOpNiveau: alleen dat niveau, onbekend telt als INFO; zonder filter alles", () => {
+test("filterOpNiveaus: alleen de zichtbare niveaus, onbekend telt als INFO", () => {
     const lijst = [m("A", "FOUT", "1"), m("A", "INFO", "2"), m("B", "RAAR", "3"), m("B", "GOED", "4")];
-    assert.deepEqual(filterOpNiveau(lijst, "INFO").map(x => x.tekst), ["2", "3"]);
-    assert.deepEqual(filterOpNiveau(lijst, "FOUT").map(x => x.tekst), ["1"]);
-    assert.equal(filterOpNiveau(lijst, null).length, 4);
-    assert.deepEqual(filterOpNiveau(undefined, "FOUT"), []);
+    assert.deepEqual(filterOpNiveaus(lijst, ["INFO"]).map(x => x.tekst), ["2", "3"]);
+    assert.deepEqual(filterOpNiveaus(lijst, ["FOUT", "GOED"]).map(x => x.tekst), ["1", "4"]);
+    assert.deepEqual(filterOpNiveaus(lijst, []), []);
+    assert.deepEqual(filterOpNiveaus(undefined, ["FOUT"]), []);
 });
 
-test("wisselNiveauFilter: aan, nog een keer = uit, andere chip = wisselen", () => {
-    assert.equal(wisselNiveauFilter(null, "FOUT"), "FOUT");
-    assert.equal(wisselNiveauFilter("FOUT", "FOUT"), null);
-    assert.equal(wisselNiveauFilter("FOUT", "INFO"), "INFO");
+test("STANDAARD_ZICHTBARE_NIVEAUS: Goed staat uit, de rest aan", () => {
+    assert.deepEqual(STANDAARD_ZICHTBARE_NIVEAUS, ["FOUT", "LET_OP", "INFO"]);
+    const lijst = [m("A", "FOUT", "1"), m("A", "GOED", "2")];
+    assert.deepEqual(filterOpNiveaus(lijst, STANDAARD_ZICHTBARE_NIVEAUS).map(x => x.tekst), ["1"]);
+});
+
+test("GEEN_CODE_UITLEG: legt uit dat er geen uploadmeldingen bewaard zijn", () => {
+    assert.match(GEEN_CODE_UITLEG, /niet opgeslagen.*geen uploadmeldingen bewaard/);
+});
+
+test("GOED_CHIP_UITLEG: zegt dat Goed standaard verborgen is en dat een klik het toont", () => {
+    assert.match(GOED_CHIP_UITLEG, /standaard verborgen.*Klik om ze te tonen/);
+});
+
+test("wisselNiveau: aan en uit per niveau, volgorde blijft die van de niveaus", () => {
+    assert.deepEqual(wisselNiveau(["FOUT", "LET_OP", "INFO"], "GOED"), ["FOUT", "LET_OP", "INFO", "GOED"]);
+    assert.deepEqual(wisselNiveau(["FOUT", "INFO"], "LET_OP"), ["FOUT", "LET_OP", "INFO"]);
+    assert.deepEqual(wisselNiveau(["FOUT", "LET_OP"], "FOUT"), ["LET_OP"]);
+});
+
+test("isStandaardNiveauKeuze: ongeacht volgorde, alleen de standaardkeuze", () => {
+    assert.equal(isStandaardNiveauKeuze(["INFO", "FOUT", "LET_OP"]), true);
+    assert.equal(isStandaardNiveauKeuze(["FOUT", "LET_OP", "INFO", "GOED"]), false);
+    assert.equal(isStandaardNiveauKeuze(["FOUT"]), false);
+});
+
+test("zichtbareMeldingen: technische meldingen alleen voor de ontwikkelaar", () => {
+    const lijst = [m("Laadtijden", "INFO", "t", "ticker_resolutie"), m("Koersen", "INFO", "y", "yahoo_kern"),
+                   m("Koersen", "LET_OP", "k", "koers_later:X"), m("Data", "GOED", "d")];
+    assert.deepEqual(zichtbareMeldingen(lijst, true).map(x => x.tekst), ["t", "y", "k", "d"]);
+    assert.deepEqual(zichtbareMeldingen(lijst, false).map(x => x.tekst), ["k", "d"]);
+    assert.deepEqual(zichtbareMeldingen(lijst, undefined).map(x => x.tekst), ["k", "d"]);
+    assert.deepEqual(zichtbareMeldingen(undefined, true), []);
 });
 
 test("diagnostiekConclusie: per combinatie van niveaus", () => {
@@ -195,6 +227,125 @@ test("meldingActie: tekst met pijl; null zonder label of tab", () => {
     assert.equal(meldingActie(Object.assign(m("T", "INFO", "x"), { actie: { label: "L" } })), null);
 });
 
+const metActie = (melding, tab, label = "Doel") => Object.assign(melding, { actie: { label, tab } });
+const ALLE_TABS = ["instellingen-bestanden", "koersoverzicht", "instellingen-ticker"];
+
+test("meldingActie: alleen bij fout en let op, nooit bij info of goed", () => {
+    assert.ok(meldingActie(metActie(m("Order ID's", "FOUT", "a"), "instellingen-bestanden"), ALLE_TABS));
+    assert.ok(meldingActie(metActie(m("Order ID's", "LET_OP", "b"), "instellingen-bestanden"), ALLE_TABS));
+    assert.equal(meldingActie(metActie(m("Order ID's", "INFO", "c"), "instellingen-bestanden"), ALLE_TABS), null);
+    assert.equal(meldingActie(metActie(m("Order ID's", "GOED", "d"), "instellingen-bestanden"), ALLE_TABS), null);
+});
+
+test("meldingActie: geen knop naar een tabblad dat deze gebruiker niet heeft (Koersen, of zonder code)", () => {
+    const koers = metActie(m("Koersen", "LET_OP", "k"), "koersoverzicht", "Koersen");
+    assert.ok(meldingActie(koers, ["koersoverzicht"]));
+    assert.equal(meldingActie(koers, ["portfolio", "instellingen-bestanden"]), null);
+    const bestanden = metActie(m("Order ID's", "LET_OP", "b"), "instellingen-bestanden", "Bestanden bijwerken");
+    assert.equal(meldingActie(bestanden, ["portfolio", "instellingen-diagnostiek"]), null);
+});
+
+test("actielijst: alleen fout en let op, ernstigste eerst, daarbinnen de volgorde van de categorieen", () => {
+    const live = [m("Koersen", "INFO", "info"), m("Splits", "LET_OP", "s1"), m("Data", "FOUT", "f1"),
+                  m("Koersen", "GOED", "goed"), m("Dividend", "LET_OP", "d1"), m("Splits", "LET_OP", "s2")];
+    const { regels, meer } = actielijst(live, null, ALLE_TABS);
+    assert.deepEqual(regels.map(r => r.tekst), ["f1", "s1", "s2", "d1"]);
+    assert.equal(meer, 0);
+});
+
+test("actielijst: maximum met 'en X meer'", () => {
+    const live = [];
+    for (let i = 1; i <= MAX_ACTIELIJST_REGELS + 3; i++) live.push(m("Data", "LET_OP", `p${i}`));
+    const { regels, meer } = actielijst(live, null, ALLE_TABS);
+    assert.equal(regels.length, MAX_ACTIELIJST_REGELS);
+    assert.equal(meer, 3);
+    assert.equal(actielijst(live, null, ALLE_TABS, 2).meer, MAX_ACTIELIJST_REGELS + 1);
+});
+
+test("actielijst: leeg zonder fouten of waarschuwingen", () => {
+    assert.deepEqual(actielijst([m("A", "INFO", "i"), m("A", "GOED", "g")], null, ALLE_TABS), { regels: [], meer: 0 });
+    assert.deepEqual(actielijst(undefined, undefined, undefined), { regels: [], meer: 0 });
+});
+
+test("actielijst: technische meldingen komen er nooit in, ook niet met LET_OP", () => {
+    const live = [m("Laadtijden", "LET_OP", "traag", "ticker_resolutie"), m("Koersen", "LET_OP", "retries", "yahoo_kern"),
+                  m("Koersen", "LET_OP", "koers laat", "koers_later:X")];
+    assert.deepEqual(actielijst(live, null, ALLE_TABS).regels.map(r => r.tekst), ["koers laat"]);
+});
+
+test("actielijst: blokSleutel wijst naar het live blok of, voor alleen-upload, naar het uploadblok", () => {
+    const uploadMelding = Object.assign(m("Order ID's", "LET_OP", "alleen upload", "order_ids:x"), { ook_live: false });
+    const live = [m("Data", "LET_OP", "live")];
+    const { regels } = actielijst(live, [{ geupload_op: "2026-10-10T09:05:00", meldingen: [uploadMelding] }], ALLE_TABS);
+    assert.deepEqual(regels.map(r => r.blokSleutel).sort(), ["Data", `${UPLOAD_BLOK_VOORVOEGSEL}Order ID's`].sort());
+});
+
+test("actielijst: de actie volgt meldingActie (geen Koersen-knop zonder dat tabblad)", () => {
+    const live = [metActie(m("Koersen", "LET_OP", "k"), "koersoverzicht", "Koersen")];
+    assert.equal(actielijst(live, null, ["portfolio"]).regels[0].actie, null);
+    assert.equal(actielijst(live, null, ["koersoverzicht"]).regels[0].actie.tekst, "→ Naar Koersen");
+});
+
+const controle = (categorie, naam, status = "gedraaid", bevindingen = 0, extra = {}) =>
+    Object.assign({ categorie, naam, status, bevindingen, reden: null, technisch: false }, extra);
+
+test("controleSamenvatting: gedraaid, met bevindingen, overgeslagen en mislukt", () => {
+    const lijst = [controle("Data", "A"), controle("Data", "B", "gedraaid", 2), controle("Koersen", "C", "gedraaid", 1),
+                   controle("Dividend", "D", "overgeslagen", 0, { reden: "geen rekeningoverzicht" })];
+    assert.equal(controleSamenvatting(lijst), "3 controles gedraaid, 2 met bevindingen, 1 overgeslagen");
+    assert.equal(controleSamenvatting([controle("Data", "A")]), "1 controle gedraaid, 0 met bevindingen");
+    assert.equal(controleSamenvatting([controle("Data", "A", "fout")]), "0 controles gedraaid, 0 met bevindingen, 1 mislukt");
+    assert.equal(controleSamenvatting([]), "");
+    assert.equal(controleSamenvatting(undefined), "");
+});
+
+test("zichtbareControles: technische alleen voor de ontwikkelaar", () => {
+    const lijst = [controle("Data", "A"), controle("Laadtijden", "Laadtijden", "gedraaid", 0, { technisch: true })];
+    assert.deepEqual(zichtbareControles(lijst, true).map(c => c.naam), ["A", "Laadtijden"]);
+    assert.deepEqual(zichtbareControles(lijst, false).map(c => c.naam), ["A"]);
+    assert.deepEqual(zichtbareControles(lijst, undefined).map(c => c.naam), ["A"]);
+    assert.deepEqual(zichtbareControles(undefined, true), []);
+});
+
+test("voegControlesSamen: zelfde categorie + naam -> nieuwste wint op de oude plek", () => {
+    const a = controle("Data", "A", "overgeslagen", 0, { reden: "x" });
+    const b = controle("Data", "B");
+    const nieuweA = controle("Data", "A", "gedraaid", 1);
+    assert.deepEqual(voegControlesSamen([a, b], [nieuweA, controle("Koersen", "A")]),
+                     [nieuweA, b, controle("Koersen", "A")]);
+    assert.deepEqual(voegControlesSamen(null, undefined), []);
+});
+
+test("controleRegels: per categorie, met statustekst", () => {
+    const regels = controleRegels([
+        controle("Koersen", "Verversing", "overgeslagen", 0, { reden: "niet ververst" }),
+        controle("Data", "Datakwaliteit", "gedraaid", 1), controle("Data", "XIRR"),
+        controle("Tickers", "Tickers", "fout", 0, { reden: "ValueError" }),
+    ]);
+    assert.deepEqual(regels.map(r => `${r.categorie}|${r.naam}|${r.tekst}`), [
+        "Data|Datakwaliteit|1 bevinding", "Data|XIRR|niets gevonden",
+        "Koersen|Verversing|overgeslagen: niet ververst", "Tickers|Tickers|mislukt (ValueError)",
+    ]);
+});
+
+test("legeCategorieen: gecontroleerd, niets gevonden versus niet gecontroleerd", () => {
+    const meldingen = [m("Data", "INFO", "x")];
+    const controles = [
+        controle("Data", "Datakwaliteit"),
+        controle("Dividend", "Dividend zonder positie", "gedraaid"),
+        controle("Rekeningoverzicht", "Verrekening", "overgeslagen", 0, { reden: "geen rekeningoverzicht" }),
+        controle("Koersen", "Koersdekking"), controle("Koersen", "Verversing", "overgeslagen", 0, { reden: "niet ververst" }),
+    ];
+    assert.deepEqual(legeCategorieen(meldingen, controles), [
+        { categorie: "Dividend", tekst: "Gecontroleerd, niets gevonden." },
+        { categorie: "Rekeningoverzicht", tekst: "Niet gecontroleerd: Verrekening (geen rekeningoverzicht)." },
+        { categorie: "Koersen", tekst: "Gecontroleerd, niets gevonden. Niet gecontroleerd: Verversing (niet ververst)." },
+    ]);
+    assert.deepEqual(legeCategorieen([], [controle("Data", "A", "fout", 0, { reden: "X" })]),
+                     [{ categorie: "Data", tekst: "Controle mislukt." }]);
+    assert.deepEqual(legeCategorieen(meldingen, []), []);
+});
+
 // Zonder "Z" leest Date de tijd als lokaal: dan hangt de verwachte tekst niet af van de tijdzone van de testmachine.
 test("formatUploadMoment: dd-mm-jjjj hh:mm, leeg bij een ongeldige datum", () => {
     assert.equal(formatUploadMoment("2026-10-10T09:05:00"), "10-10-2026 09:05");
@@ -229,10 +380,10 @@ test("uploadBlokken: oude rij zonder ook_live hoort bij de stand bij upload", ()
     assert.deepEqual(blokken.laatste.standBijUpload, [oud]);
 });
 
-test("uploadBlokken: hooguit 4 eerdere uploads, bijwerken in de titel", () => {
+test("uploadBlokken: eerdere uploads = max_uploads - 1 uit de API, bijwerken in de titel", () => {
     const lijst = [upload("2026-10-10T09:05:00", [], "bijwerken")];
     for (let dag = 9; dag >= 4; dag--) lijst.push(upload(`2026-10-0${dag}T08:00:00`, [m("Opslaan", "INFO", `d${dag}`)]));
-    const blokken = uploadBlokken(lijst, []);
+    const blokken = uploadBlokken(lijst, [], 5);
     assert.equal(blokken.laatste.titel, "Laatste upload (10-10-2026 09:05, bestanden bijgewerkt)");
     assert.deepEqual(blokken.ouder.map(b => b.titel), [
         "Eerdere upload (09-10-2026 08:00)", "Eerdere upload (08-10-2026 08:00)",
@@ -240,6 +391,14 @@ test("uploadBlokken: hooguit 4 eerdere uploads, bijwerken in de titel", () => {
     ]);
     // Eerdere uploads blijven compleet: daar wordt niets weggefilterd.
     assert.equal(blokken.ouder[0].meldingen[0].tekst, "d9");
+    assert.equal(uploadBlokken(lijst, [], 3).ouder.length, 2);
+});
+
+test("uploadBlokken: zonder max_uploads komen alle meegestuurde eerdere uploads", () => {
+    const lijst = [upload("2026-10-10T09:05:00", [])];
+    for (let dag = 9; dag >= 4; dag--) lijst.push(upload(`2026-10-0${dag}T08:00:00`, []));
+    assert.equal(uploadBlokken(lijst, []).ouder.length, 6);
+    assert.equal(uploadBlokken(lijst, [], undefined).ouder.length, 6);
 });
 
 test("meldingenVoorTelling: live plus alleen-bij-upload van de laatste upload, live wint bij dezelfde sleutel", () => {

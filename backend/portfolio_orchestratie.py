@@ -26,7 +26,8 @@ from backend.diagnostiek_checks import (
 )
 from backend.debug_utils import dprint, meet_tijd
 from backend.diagnostiek import (
-    haal_meldingen, meldingen_sinds, meld_opnieuw, meld,
+    haal_meldingen, meldingen_sinds, meld_opnieuw, meld, haal_controles, controles_sinds, registreer_controles_opnieuw,
+    draai_controle, sla_controle_over, meld_check_mislukt,
     ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND,
     CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP,
 )
@@ -137,9 +138,11 @@ def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
         if cached and (nu - cached["op"]) < _BASIS_CACHE_TTL_SECONDEN:
             # get_prices() wordt overgeslagen, dus de bewaarde meldingen opnieuw doorgeven.
             meld_opnieuw(cached.get("diagnostiek"))
+            registreer_controles_opnieuw(cached.get("controles"))
             return cached["naam"], cached["transacties_df"], cached["price_data"]
 
     meldingen_voor = haal_meldingen()
+    controles_voor = haal_controles()
     with meet_tijd("basis_ophalen_db"):
         naam, transacties_df, _promotie = _laad_transacties(code)
         if naam is None:
@@ -168,6 +171,7 @@ def haal_portfolio_basis(code, forceer_vers=False, verversen=True):
             # Laadtijden niet: bij een cache-hit is die tijd niet besteed.
             "diagnostiek": [m for m in meldingen_sinds(meldingen_voor)
                             if m["categorie"] != CATEGORIE_LAADTIJDEN],
+            "controles": controles_sinds(controles_voor),
         }
 
     return naam, transacties_df, price_data
@@ -224,8 +228,7 @@ def splits_voor_grafiek(splits):
 
 
 def _meld_check_mislukt(categorie, wat, e):
-    meld(categorie, LET_OP, f"{wat} niet gecontroleerd door een fout ({type(e).__name__}: {e!a}).",
-         sleutel=f"check_mislukt:{wat}")
+    meld_check_mislukt(categorie, wat, e)
 
 
 def _order_id_sleutel(datum, tijd, isin, aantal, totaal_eur):
@@ -254,7 +257,7 @@ def voeg_order_ids_toe(transacties_df, order_id_rijen):
 def _meld_datakwaliteit(code, transacties_df):
     """Diagnostiek mag het laden nooit breken. code None ('niet opslaan'): zonder de check op synthetische Order ID's
     (die meldt de upload zelf al, in Order ID's) en zonder het advies om opnieuw te uploaden."""
-    try:
+    def controleer():
         opgeslagen = code is not None
         order_id_rijen = db_get_order_id_rijen(code) if opgeslagen else []
         met_order_ids = voeg_order_ids_toe(transacties_df, order_id_rijen) if opgeslagen else transacties_df
@@ -270,13 +273,13 @@ def _meld_datakwaliteit(code, transacties_df):
             meld(CATEGORIE_DATA, b["niveau"], b["tekst"], sleutel=b["sleutel"], rijen=b.get("rijen"))
         for b in check_isin_wissels(transacties_df):
             meld(CATEGORIE_SPLITS, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_DATA, "Datakwaliteit", e)
+
+    draai_controle(CATEGORIE_DATA, "Datakwaliteit", controleer)
 
 
 def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
     """Alleen caches en de prijschecks van de lichte check, geen Yahoo- of OpenFIGI-call. Mag het laden nooit breken."""
-    try:
+    def controleer():
         met_ticker = transacties_df.dropna(subset=["ticker"])
         tickers = met_ticker["ticker"].unique().tolist()
         isins = met_ticker["isin"].dropna().unique().tolist()
@@ -288,8 +291,11 @@ def _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks=None):
         valuta = {t: d.get("valuta") for t, d in details.items()}
         for b in check_prijscheck_zonder_fx(prijs_checks or {}, valuta, _naam_per_ticker(transacties_df)):
             meld(CATEGORIE_WISSELKOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_TICKERS, "Tickers", e)
+
+    draai_controle(CATEGORIE_TICKERS, "Tickers", controleer)
+
+
+NAAM_CONTROLE_ORDER_IDS_REKENING = "Order ID's tegen het rekeningoverzicht"
 
 
 def _meld_order_ids_rekening(transacties_rijen, rekening_rijen):
@@ -299,36 +305,33 @@ def _meld_order_ids_rekening(transacties_rijen, rekening_rijen):
 
 def meld_order_ids_rekening(code):
     """Na opslaan, binnen db_deel_verbinding(): de opgeslagen transacties tegen de opgeslagen rekeningregels."""
-    try:
+    def controleer():
         per_bron = {"transacties": [], "rekening": []}
         for bron, order_id, eerste, laatste, product in db_get_order_id_periodes(code):
             # De laatste datum zonder Order ID: telt alleen mee voor de periode.
             per_bron[bron] += [(order_id, eerste, product), (None, laatste, None)]
         _meld_order_ids_rekening(per_bron["transacties"], per_bron["rekening"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_ORDER_IDS, "Order ID's tegen het rekeningoverzicht", e)
+
+    draai_controle(CATEGORIE_ORDER_IDS, NAAM_CONTROLE_ORDER_IDS_REKENING, controleer)
 
 
 def meld_order_ids_rekening_uit_bestanden(excel_df, rekening_df):
     """'Niet opslaan': beide bestanden uit het geheugen."""
-    try:
-        _meld_order_ids_rekening(
-            list(zip(excel_df["Order ID"], excel_df["Datum"], excel_df["Product"])),
-            list(zip(rekening_df[ORDER_ID_KOLOM_REKENING], rekening_df["Datum"], rekening_df["Product"])))
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_ORDER_IDS, "Order ID's tegen het rekeningoverzicht", e)
+    draai_controle(CATEGORIE_ORDER_IDS, NAAM_CONTROLE_ORDER_IDS_REKENING, lambda: _meld_order_ids_rekening(
+        list(zip(excel_df["Order ID"], excel_df["Datum"], excel_df["Product"])),
+        list(zip(rekening_df[ORDER_ID_KOLOM_REKENING], rekening_df["Datum"], rekening_df["Product"]))))
 
 
 def meld_valuta_consistentie(excel_df, ticker_per_isin_beurs):
     """Alleen direct na een upload, als de Excel er nog is."""
-    try:
+    def controleer():
         tickers = sorted({t for t in ticker_per_isin_beurs.values() if t})
         valuta = {t: d.get("valuta") for t, d in db_get_ticker_details(tickers).items()}
         for b in check_valuta_consistentie(excel_df, ticker_per_isin_beurs, valuta):
             meld(CATEGORIE_TICKERS, b["niveau"], b["tekst"], sleutel=b["sleutel"], actie=ACTIE_TICKER_ZEKERHEID,
                  rijen=b.get("rijen"))
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_TICKERS, "Valuta-consistentie", e)
+
+    draai_controle(CATEGORIE_TICKERS, "Valuta-consistentie", controleer)
 
 
 def ticker_per_isin_beurs_uit_basis(code):
@@ -342,7 +345,7 @@ def ticker_per_isin_beurs_uit_basis(code):
 
 def _meld_plausibiliteit(transacties_df, price_data, per_ticker):
     """Diagnostiek mag het laden nooit breken."""
-    try:
+    def controleer():
         bevindingen = (
             check_transactiekoers_vs_rekenkoers(transacties_df, price_data)
             + check_waarde_vs_inleg(per_ticker, _naam_per_ticker(transacties_df))
@@ -350,63 +353,77 @@ def _meld_plausibiliteit(transacties_df, price_data, per_ticker):
         )
         for b in bevindingen:
             meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_PLAUSIBILITEIT, "Plausibiliteit", e)
+
+    draai_controle(CATEGORIE_PLAUSIBILITEIT, "Plausibiliteit", controleer)
 
 
 def _meld_xirr(transacties_df, statistieken):
-    try:
+    def controleer():
         geavanceerd = statistieken["geavanceerd"]
         eerste_datum = transacties_df.dropna(subset=["ticker"])["datum"].min()
         for b in check_xirr(geavanceerd.get("xirr_niet_berekend"), geavanceerd.get("xirr_pct"),
                             geavanceerd.get("aantal_jaren"), eerste_datum):
             meld(CATEGORIE_PLAUSIBILITEIT, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_PLAUSIBILITEIT, "XIRR", e)
+
+    draai_controle(CATEGORIE_PLAUSIBILITEIT, "XIRR", controleer)
 
 
 def _meld_verversing(price_data, per_ticker):
-    try:
+    def controleer():
         heeft_open_posities = any(reeks["nog_in_bezit"] for reeks in per_ticker.values())
         for b in check_verversing(price_data.index.max(), pd.Timestamp.today(), heeft_open_posities):
             meld(CATEGORIE_KOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_KOERSEN, "Verversing", e)
+
+    draai_controle(CATEGORIE_KOERSEN, "Verversing", controleer)
 
 
 def _meld_dividend_zonder_positie(transacties_df, dividenden):
-    try:
+    if not dividenden:
+        sla_controle_over(CATEGORIE_DIVIDEND, "Dividend zonder positie", "geen dividend in een rekeningoverzicht")
+        return
+
+    def controleer():
         for b in check_dividend_zonder_positie(transacties_df, dividenden):
             meld(CATEGORIE_DIVIDEND, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_DIVIDEND, "Dividend zonder positie", e)
+
+    draai_controle(CATEGORIE_DIVIDEND, "Dividend zonder positie", controleer)
+
+
+NAAM_CONTROLE_KOERSDEKKING = "Koersdekking"
+NAAM_CONTROLE_KOERSSTILSTAND = "Koersstilstand"
 
 
 def _meld_koersdekking(transacties_df, price_data):
     """Meldt tickers waarvan de koersreeks pas na de eerste transactie begint: tot dan waarde 0, inleg wel."""
     if price_data is None or price_data.empty:
+        for naam in (NAAM_CONTROLE_KOERSDEKKING, NAAM_CONTROLE_KOERSSTILSTAND):
+            sla_controle_over(CATEGORIE_KOERSEN, naam, "geen koersen opgehaald")
         return
-    echte = transacties_df.dropna(subset=["ticker"])
-    echte = echte[~echte.apply(_is_corporate_action_row, axis=1)] if not echte.empty else echte
-    for ticker, groep in echte.groupby("ticker"):
-        if ticker not in price_data.columns:
-            continue  # al gemeld in get_prices() ("geen koersdata")
-        eerste_koers = price_data[ticker].first_valid_index()
-        eerste_transactie = pd.Timestamp(groep["datum"].min())
-        if eerste_koers is None or eerste_koers <= eerste_transactie + pd.Timedelta(days=MARGE_EERSTE_KOERS_DAGEN):
-            continue
-        meld(CATEGORIE_KOERSEN, LET_OP,
-             f"Koersen voor '{ticker}' beginnen pas op {formatteer_datum_nl(eerste_koers)}, de "
-             f"eerste transactie was op {formatteer_datum_nl(eerste_transactie)}: tot de eerste koers telt deze "
-             f"positie met waarde 0 mee, terwijl de inleg al meetelt.",
-             sleutel=f"koers_later:{ticker}")
-    try:
+
+    def controleer_dekking():
+        echte = transacties_df.dropna(subset=["ticker"])
+        echte = echte[~echte.apply(_is_corporate_action_row, axis=1)] if not echte.empty else echte
+        for ticker, groep in echte.groupby("ticker"):
+            if ticker not in price_data.columns:
+                continue  # al gemeld in get_prices() ("geen koersdata")
+            eerste_koers = price_data[ticker].first_valid_index()
+            eerste_transactie = pd.Timestamp(groep["datum"].min())
+            if eerste_koers is None or eerste_koers <= eerste_transactie + pd.Timedelta(days=MARGE_EERSTE_KOERS_DAGEN):
+                continue
+            meld(CATEGORIE_KOERSEN, LET_OP,
+                 f"Koersen voor '{ticker}' beginnen pas op {formatteer_datum_nl(eerste_koers)}, de "
+                 f"eerste transactie was op {formatteer_datum_nl(eerste_transactie)}: tot de eerste koers telt deze "
+                 f"positie met waarde 0 mee, terwijl de inleg al meetelt.",
+                 sleutel=f"koers_later:{ticker}")
+
+    def controleer_stilstand():
         with meet_tijd("koersdekking_stilstand_check"):
             bevindingen = check_koers_stilstand(transacties_df, price_data)
         for b in bevindingen:
             meld(CATEGORIE_KOERSEN, b["niveau"], b["tekst"], sleutel=b["sleutel"])
-    except Exception as e:
-        _meld_check_mislukt(CATEGORIE_KOERSEN, "Koersstilstand", e)
+
+    draai_controle(CATEGORIE_KOERSEN, NAAM_CONTROLE_KOERSDEKKING, controleer_dekking)
+    draai_controle(CATEGORIE_KOERSEN, NAAM_CONTROLE_KOERSSTILSTAND, controleer_stilstand)
 
 
 def _pct_nl(waarde):
@@ -699,8 +716,14 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     split_koppeling = transacties_df.attrs.get("split_koppeling")
     if split_koppeling is not None:
         meld_split_koppeling(split_koppeling, verrekeningen if rekening_regels is not None else None)
-    for b in check_verrekening_aandelen(verrekeningen, verrekening_zonder_positie):
-        meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], rijen=b.get("rijen"))
+    if not rekening_regels:
+        sla_controle_over(CATEGORIE_REKENINGOVERZICHT, "Verrekening van aandelen", "geen rekeningoverzicht")
+    else:
+        def controleer_verrekening():
+            for b in check_verrekening_aandelen(verrekeningen, verrekening_zonder_positie):
+                meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], rijen=b.get("rijen"))
+
+        draai_controle(CATEGORIE_REKENINGOVERZICHT, "Verrekening van aandelen", controleer_verrekening)
 
     with meet_tijd("kern_berekeningen"):
         with meet_tijd("kern_waarde_over_tijd"):
@@ -712,6 +735,8 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         # Zonder verversen (na een bijnaam- of codewijziging) zegt een oude laatste koers niets over Yahoo.
         if verversen:
             _meld_verversing(price_data, per_ticker)
+        else:
+            sla_controle_over(CATEGORIE_KOERSEN, "Verversing", "bijnaam of code gewijzigd, niet ververst")
         with meet_tijd("kern_per_ticker_aankoop"):
             per_ticker_aankoop = compute_per_ticker_koers_en_aankopen(transacties_df, price_data)
     splits_per_ticker = transacties_df.attrs.get("koers_splits")
@@ -903,7 +928,8 @@ def analyze_transacties_verrijking(transacties_df, code, prijs_data_al_klaar=Non
 
         with meet_tijd("verrijking_etf_overlap"):
             etf_overlap = bereken_etf_overlap(transacties_df, price_data, is_etf_map)
-    _meld_etf_holdings(land_sector_verdeling, ticker_namen, land_proxies)
+    draai_controle(CATEGORIE_ETF_HOLDINGS, "ETF-holdings",
+                   lambda: _meld_etf_holdings(land_sector_verdeling, ticker_namen, land_proxies))
 
     verdeling = []
     for ticker, aantal in huidige_holdings.items():

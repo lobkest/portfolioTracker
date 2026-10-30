@@ -9,7 +9,7 @@ import pandas as pd
 import yfinance as yf
 from yfinance.cache import get_tz_cache
 
-from backend.diagnostiek import meld, CATEGORIE_KOERSEN, INFO, LET_OP, FOUT
+from backend.diagnostiek import meld, registreer_controle, CATEGORIE_KOERSEN, CONTROLE_GEDRAAID, INFO, LET_OP, FOUT
 from backend.transactie_utils import getal_nl
 
 
@@ -111,6 +111,8 @@ def meld_yahoo_samenvatting(sleutel, omschrijving, vanaf=(0, 0, 0, 0.0)):
          f"Yahoo-calls ({omschrijving}): {calls}, retries: {retries} (wachttijd {getal_nl(wachttijd, 1)} s), "
          f"mislukt (na eventuele retries): {mislukt}.",
          sleutel=sleutel)
+    registreer_controle(CATEGORIE_KOERSEN, f"Yahoo-calls ({omschrijving})", CONTROLE_GEDRAAID,
+                        bevindingen=0 if niveau == INFO else 1, technisch=True)
 
 
 RATE_LIMIT_POGINGEN = 3

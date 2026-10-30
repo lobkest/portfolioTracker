@@ -2,20 +2,28 @@
 
 // Gereset bij een nieuwe portfolio; bijnaam/code wijzigen laat de meldingen staan.
 let diagnostiekMeldingen = [];
+let diagnostiekControles = [];
 // Open/dicht-keuze van de gebruiker per categorie (overschrijft de
 // standaard uit categorieStandaardOpen tot een nieuwe upload/code).
 let diagnostiekOpenKeuze = new Map();
-let diagnostiekNiveauFilter = null;
+let diagnostiekZichtbareNiveaus = STANDAARD_ZICHTBARE_NIVEAUS.slice();
 // Bewaarde meldingen van de laatste uploads (nieuwste eerst), lui opgehaald bij het openen van dit tabblad.
 let diagnostiekUploads = null;
+let diagnostiekMaxUploads = null;
 let diagnostiekUploadsCode = null;
 
 function resetDiagnostiek() {
     diagnostiekMeldingen = [];
+    diagnostiekControles = [];
     diagnostiekOpenKeuze = new Map();
-    diagnostiekNiveauFilter = null;
+    diagnostiekZichtbareNiveaus = STANDAARD_ZICHTBARE_NIVEAUS.slice();
     diagnostiekUploads = null;
+    diagnostiekMaxUploads = null;
     diagnostiekUploadsCode = null;
+}
+
+function diagnostiekIsOntwikkelaar() {
+    return Boolean(huidigeData) && huidigeData.ontwikkelaar === true;
 }
 
 // Eén keer per code; bij "niet opslaan" (geen code) is er niets bewaard.
@@ -29,6 +37,7 @@ async function laadUploadMeldingen() {
         const data = await res.json();
         if (!huidigeData || huidigeData.code !== code) return;
         diagnostiekUploads = data.uploads || [];
+        diagnostiekMaxUploads = data.max_uploads;
         if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
     } catch (e) {
         // Volgende keer opnieuw proberen; de live meldingen staan er wel.
@@ -39,6 +48,7 @@ async function laadUploadMeldingen() {
 
 function voegDiagnostiekToe(data) {
     diagnostiekMeldingen = voegMeldingenSamen(diagnostiekMeldingen, data && data.diagnostiek);
+    diagnostiekControles = voegControlesSamen(diagnostiekControles, data && data.diagnostiek_controles);
     if (actieveViewNaam() === "instellingen-diagnostiek") toonDiagnostiek();
 }
 
@@ -96,15 +106,16 @@ function toonDiagnostiekChips(telling) {
     const plek = document.getElementById("diagnostiekChips");
     plek.replaceChildren();
     DIAGNOSTIEK_NIVEAUS.forEach(niveau => {
-        const actief = diagnostiekNiveauFilter === niveau;
+        const actief = diagnostiekZichtbareNiveaus.includes(niveau);
         const chip = document.createElement("button");
         chip.type = "button";
         chip.className = `diagnostiekChip chip${niveau}` + (actief ? " actief" : "");
         chip.setAttribute("aria-pressed", String(actief));
+        if (niveau === "GOED") chip.title = GOED_CHIP_UITLEG;
         chip.disabled = telling[niveau] === 0 && !actief;
-        chip.textContent = `${DIAGNOSTIEK_NIVEAU_ICOON[niveau]} ${DIAGNOSTIEK_NIVEAU_LABEL[niveau]} ${telling[niveau]}`;
+        chip.textContent = `${DIAGNOSTIEK_NIVEAU_ICOON[niveau]} ${DIAGNOSTIEK_NIVEAU_LABEL[niveau]} (${telling[niveau]})`;
         chip.addEventListener("click", () => {
-            diagnostiekNiveauFilter = wisselNiveauFilter(diagnostiekNiveauFilter, niveau);
+            diagnostiekZichtbareNiveaus = wisselNiveau(diagnostiekZichtbareNiveaus, niveau);
             toonDiagnostiek();
         });
         plek.appendChild(chip);
@@ -131,7 +142,7 @@ function maakDiagnostiekMelding(melding, categorieNiveau) {
     if (tabel) inhoud.appendChild(maakDiagnostiekTabel(tabel));
     const rijenBlok = diagnostiekRijenBlok(melding.rijen);
     if (rijenBlok) inhoud.appendChild(maakDiagnostiekRijen(rijenBlok));
-    const actie = meldingActie(melding);
+    const actie = meldingActie(melding, toegestaneViews());
     if (actie) {
         const knop = document.createElement("button");
         knop.type = "button";
@@ -149,6 +160,7 @@ function maakDiagnostiekCategorie(groep, standaardOpen, keuzePrefix = "") {
     const blok = document.createElement("details");
     blok.className = "diagnostiekBlok";
     const keuzeSleutel = keuzePrefix + groep.categorie;
+    blok.dataset.blok = keuzeSleutel;
     blok.open = diagnostiekOpenKeuze.has(keuzeSleutel) ? diagnostiekOpenKeuze.get(keuzeSleutel) : standaardOpen;
 
     const hoogste = hoogsteNiveau(groep.meldingen);
@@ -191,7 +203,7 @@ function maakDiagnostiekSectie(titel, groepen, standaardOpen, keuzePrefix = "") 
 }
 
 function maakUploadSectie(blok, standaardOpen, keuzePrefix, ookLive = 0) {
-    const groepen = groepeerPerCategorie(filterOpNiveau(blok.meldingen, diagnostiekNiveauFilter));
+    const groepen = groepeerPerCategorie(filterOpNiveaus(blok.meldingen, diagnostiekZichtbareNiveaus));
     const sectie = maakDiagnostiekSectie(blok.titel, groepen, standaardOpen, keuzePrefix);
     const notities = [];
     if (ookLive > 0) notities.push(uploadOokLiveTekst(ookLive));
@@ -208,7 +220,7 @@ function maakUploadSectie(blok, standaardOpen, keuzePrefix, ookLive = 0) {
 function toonUploadMeldingen() {
     const plek = document.getElementById("diagnostiekUploads");
     plek.replaceChildren();
-    const blokken = uploadBlokken(diagnostiekUploads, diagnostiekMeldingen);
+    const blokken = uploadBlokken(diagnostiekUploads, diagnostiekMeldingen, diagnostiekMaxUploads);
     if (!blokken.laatste) return;
     const laatste = maakUploadSectie(blokken.laatste, null, "upload0:", blokken.laatste.aantalOokLive);
     const stand = blokken.laatste.standBijUpload;
@@ -218,7 +230,7 @@ function toonUploadMeldingen() {
         const kop = document.createElement("summary");
         kop.textContent = `Stand bij upload (wordt nu opnieuw berekend) (${stand.length})`;
         groep.appendChild(kop);
-        groepeerPerCategorie(filterOpNiveau(stand, diagnostiekNiveauFilter))
+        groepeerPerCategorie(filterOpNiveaus(stand, diagnostiekZichtbareNiveaus))
             .forEach(g => groep.appendChild(maakDiagnostiekCategorie(g, false, "upload0stand:")));
         laatste.appendChild(groep);
     }
@@ -233,6 +245,102 @@ function toonUploadMeldingen() {
     plek.appendChild(ouder);
 }
 
+function gaNaarDiagnostiekBlok(regel) {
+    diagnostiekOpenKeuze.set(regel.blokSleutel, true);
+    if (!diagnostiekZichtbareNiveaus.includes(regel.niveau)) {
+        diagnostiekZichtbareNiveaus = wisselNiveau(diagnostiekZichtbareNiveaus, regel.niveau);
+    }
+    toonDiagnostiek();
+    const blok = Array.from(document.querySelectorAll("[data-blok]")).find(el => el.dataset.blok === regel.blokSleutel);
+    if (blok) blok.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function toonActielijst() {
+    const plek = document.getElementById("diagnostiekActies");
+    plek.replaceChildren();
+    const { regels, meer } = actielijst(diagnostiekMeldingen, diagnostiekUploads, toegestaneViews());
+    if (regels.length === 0) return;
+    const ul = document.createElement("ul");
+    ul.className = "diagnostiekActielijst";
+    regels.forEach(regel => {
+        const li = document.createElement("li");
+        li.className = "diagnostiekActieRegel";
+        li.appendChild(maakNiveauIcoon(regel.niveau));
+        const knop = document.createElement("button");
+        knop.type = "button";
+        knop.className = "diagnostiekActieTekst";
+        knop.textContent = `${regel.categorie}: ${regel.tekst}`;
+        knop.addEventListener("click", () => gaNaarDiagnostiekBlok(regel));
+        li.appendChild(knop);
+        if (regel.actie) {
+            const ga = document.createElement("button");
+            ga.type = "button";
+            ga.className = "diagnostiekActie";
+            ga.textContent = regel.actie.tekst;
+            ga.addEventListener("click", () => gaNaarView(regel.actie.tab));
+            li.appendChild(ga);
+        }
+        ul.appendChild(li);
+    });
+    plek.appendChild(ul);
+    if (meer > 0) {
+        const p = document.createElement("p");
+        p.className = "gedempt diagnostiekActieMeer";
+        p.textContent = `... en ${meer} meer`;
+        plek.appendChild(p);
+    }
+}
+
+function toonControleOverzicht(controles) {
+    const plek = document.getElementById("diagnostiekControles");
+    plek.replaceChildren();
+    if (controles.length === 0) return;
+    const details = document.createElement("details");
+    details.className = "diagnostiekControleOverzicht";
+    const kop = document.createElement("summary");
+    kop.textContent = controleSamenvatting(controles);
+    details.appendChild(kop);
+    const ul = document.createElement("ul");
+    ul.className = "diagnostiekControleLijst";
+    controleRegels(controles).forEach(regel => {
+        const li = document.createElement("li");
+        li.textContent = `${regel.categorie}: ${regel.naam}, ${regel.tekst}`;
+        ul.appendChild(li);
+    });
+    details.appendChild(ul);
+    plek.appendChild(details);
+}
+
+function maakLegeCategorieSectie(lege) {
+    const sectie = document.createElement("section");
+    sectie.className = "diagnostiekSectie";
+    const kop = document.createElement("h3");
+    kop.className = "diagnostiekSectieKop";
+    kop.textContent = "Zonder meldingen";
+    sectie.appendChild(kop);
+    lege.forEach(categorie => {
+        const rij = document.createElement("p");
+        rij.className = "diagnostiekLeeg";
+        const naam = document.createElement("span");
+        naam.className = "diagnostiekNaam";
+        naam.textContent = categorie.categorie;
+        const tekst = document.createElement("span");
+        tekst.className = "gedempt";
+        tekst.textContent = categorie.tekst;
+        rij.append(naam, tekst);
+        sectie.appendChild(rij);
+    });
+    return sectie;
+}
+
+function toonGeenCodeUitleg() {
+    if (!huidigeData || huidigeData.code) return;
+    const p = document.createElement("p");
+    p.className = "gedempt";
+    p.textContent = GEEN_CODE_UITLEG;
+    document.getElementById("diagnostiekUploads").appendChild(p);
+}
+
 // Conclusie + filterchips bovenaan; op desktop links "Aandacht nodig", rechts "In orde" en "Technisch".
 function toonDiagnostiek() {
     const teller = document.getElementById("diagnostiekTeller");
@@ -241,21 +349,29 @@ function toonDiagnostiek() {
     lijst.replaceChildren();
     lijst.classList.remove("eenKolom");
     document.getElementById("diagnostiekUploads").replaceChildren();
+    document.getElementById("diagnostiekActies").replaceChildren();
+    document.getElementById("diagnostiekControles").replaceChildren();
     laadUploadMeldingen();
 
-    const voorTelling = meldingenVoorTelling(diagnostiekMeldingen, diagnostiekUploads);
-    if (voorTelling.length === 0) {
+    const meldingen = zichtbareMeldingen(diagnostiekMeldingen, diagnostiekIsOntwikkelaar());
+    const voorTelling = meldingenVoorTelling(meldingen, diagnostiekUploads);
+    const controles = zichtbareControles(diagnostiekControles, diagnostiekIsOntwikkelaar());
+    if (voorTelling.length === 0 && controles.length === 0) {
         teller.textContent = "Nog geen meldingen voor deze laadbeurt.";
         chips.replaceChildren();
+        toonGeenCodeUitleg();
         return;
     }
     teller.textContent = diagnostiekConclusie(voorTelling);
+    toonActielijst();
+    toonControleOverzicht(controles);
     toonDiagnostiekChips(telPerNiveau(voorTelling));
     toonUploadMeldingen();
+    toonGeenCodeUitleg();
 
-    const blokken = deelInBlokken(filterOpNiveau(diagnostiekMeldingen, diagnostiekNiveauFilter));
-    // Met een filter staat alles open: je hebt dan zelf gekozen wat je wilt zien.
-    const metFilter = diagnostiekNiveauFilter !== null;
+    const blokken = deelInBlokken(filterOpNiveaus(meldingen, diagnostiekZichtbareNiveaus));
+    // Met een eigen keuze van niveaus staat alles open: je hebt dan zelf gekozen wat je wilt zien.
+    const metFilter = !isStandaardNiveauKeuze(diagnostiekZichtbareNiveaus);
     const links = document.createElement("div");
     links.className = "diagnostiekKolom";
     const rechts = document.createElement("div");
@@ -269,8 +385,10 @@ function toonDiagnostiek() {
     } else {
         lijst.appendChild(links);
     }
+    const lege = legeCategorieen(voorTelling, controles);
+    if (lege.length > 0) rechts.appendChild(maakLegeCategorieSectie(lege));
     if (rechts.childElementCount > 0) lijst.appendChild(rechts);
-    if (lijst.childElementCount === 0 && diagnostiekMeldingen.length > 0) {
+    if (lijst.childElementCount === 0) {
         const leeg = document.createElement("p");
         leeg.className = "gedempt";
         leeg.textContent = "Geen meldingen met dit niveau.";

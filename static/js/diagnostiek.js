@@ -27,8 +27,14 @@
     const TECHNISCHE_GROEP_YAHOO = "Koersen (Yahoo-calls)";
 
     const SAMENVATTING_MAX_TEKENS = 120;
-    // De backend bewaart er 5 (MAX_BEWAARDE_UPLOADS): de laatste plus 4 oudere.
-    const MAX_OUDERE_UPLOADS = 4;
+    const MAX_ACTIELIJST_REGELS = 5;
+    const NIVEAUS_MET_ACTIE = ["FOUT", "LET_OP"];
+    // "Goed" is vooral ruis zolang alles klopt; de chip toont wel het aantal.
+    const STANDAARD_ZICHTBARE_NIVEAUS = ["FOUT", "LET_OP", "INFO"];
+    const UPLOAD_BLOK_VOORVOEGSEL = "upload0:";
+    const GOED_CHIP_UITLEG = "Goed-meldingen staan standaard verborgen. Klik om ze te tonen of weer te verbergen.";
+    const GEEN_CODE_UITLEG = "Je hebt niet opgeslagen, dus er zijn geen uploadmeldingen bewaard. "
+        + "Je ziet alleen de meldingen van nu.";
 
     function ernstIndex(niveau) {
         const i = DIAGNOSTIEK_NIVEAUS.indexOf(niveau);
@@ -133,16 +139,26 @@
         };
     }
 
-    // null = geen filter; een onbekend niveau telt als INFO, net als in telPerNiveau().
-    function filterOpNiveau(meldingen, niveau) {
-        const lijst = meldingen || [];
-        if (!niveau) return lijst.slice();
-        return lijst.filter(m => normaalNiveau(m.niveau) === niveau);
+    // Een onbekend niveau telt als INFO, net als in telPerNiveau().
+    function filterOpNiveaus(meldingen, zichtbaar) {
+        return (meldingen || []).filter(m => zichtbaar.includes(normaalNiveau(m.niveau)));
     }
 
-    // Nog een keer op dezelfde chip zet het filter uit.
-    function wisselNiveauFilter(huidig, aangeklikt) {
-        return huidig === aangeklikt ? null : aangeklikt;
+    // Klik op een chip zet dat niveau aan of uit; de volgorde blijft die van DIAGNOSTIEK_NIVEAUS.
+    function wisselNiveau(zichtbaar, aangeklikt) {
+        const nieuw = zichtbaar.includes(aangeklikt) ? zichtbaar.filter(n => n !== aangeklikt) : [...zichtbaar, aangeklikt];
+        return DIAGNOSTIEK_NIVEAUS.filter(n => nieuw.includes(n));
+    }
+
+    function isStandaardNiveauKeuze(zichtbaar) {
+        return zichtbaar.length === STANDAARD_ZICHTBARE_NIVEAUS.length
+            && STANDAARD_ZICHTBARE_NIVEAUS.every(n => zichtbaar.includes(n));
+    }
+
+    // Technische meldingen (Laadtijden, Yahoo-calls) zijn alleen voor de ontwikkelaar.
+    function zichtbareMeldingen(meldingen, ontwikkelaar) {
+        const lijst = meldingen || [];
+        return ontwikkelaar === true ? lijst.slice() : lijst.filter(m => !technischeGroep(m));
     }
 
     function meervoud(aantal, enkel, meer) {
@@ -162,20 +178,48 @@
         return "Alles in orde";
     }
 
+    function kortTekst(tekst, maxTekens) {
+        const hele = String(tekst || "");
+        return hele.length > maxTekens ? hele.slice(0, maxTekens - 1).trimEnd() + "…" : hele;
+    }
+
     // De tekst van de ernstigste melding (bij gelijk niveau de eerste), ingekort met een ellips.
     function categorieSamenvatting(meldingen, maxTekens = SAMENVATTING_MAX_TEKENS) {
         const lijst = meldingen || [];
         if (lijst.length === 0) return "";
         const ernstigste = lijst.reduce((beste, m) => (ernstIndex(m.niveau) < ernstIndex(beste.niveau) ? m : beste));
-        const tekst = String(ernstigste.tekst || "");
-        return tekst.length > maxTekens ? tekst.slice(0, maxTekens - 1).trimEnd() + "…" : tekst;
+        return kortTekst(ernstigste.tekst, maxTekens);
     }
 
-    // null als label of tab ontbreekt.
-    function meldingActie(melding) {
+    // Alleen bij fout en let op, en alleen naar een tabblad dat deze gebruiker nu heeft (toegestaneViews; zonder lijst
+    // geen controle). null als label of tab ontbreekt.
+    function meldingActie(melding, toegestaneViews) {
         const actie = melding && melding.actie;
         if (!actie || !actie.label || !actie.tab) return null;
+        if (!NIVEAUS_MET_ACTIE.includes(normaalNiveau(melding.niveau))) return null;
+        if (Array.isArray(toegestaneViews) && !toegestaneViews.includes(actie.tab)) return null;
         return { label: actie.label, tab: actie.tab, tekst: `→ Naar ${actie.label}` };
+    }
+
+    // Fouten en let-op-punten (niet de technische), ernstigste eerst; binnen een niveau in de volgorde waarin de
+    // categorieën voorkomen. blokSleutel wijst naar het categorieblok: live, of bij een melding die alleen in de laatste
+    // upload staat het blok van de upload (voorvoegsel zoals in toonUploadMeldingen).
+    function actielijst(live, uploads, toegestaneViews, maxRegels = MAX_ACTIELIJST_REGELS) {
+        const liveSleutels = new Set((live || []).map(meldingSleutel));
+        const alle = meldingenVoorTelling(live, uploads)
+            .filter(m => !technischeGroep(m) && NIVEAUS_MET_ACTIE.includes(normaalNiveau(m.niveau)));
+        const categorieVolgorde = [];
+        alle.forEach(m => { if (!categorieVolgorde.includes(m.categorie)) categorieVolgorde.push(m.categorie); });
+        const gesorteerd = alle.slice().sort((a, b) => ernstIndex(a.niveau) - ernstIndex(b.niveau)
+            || categorieVolgorde.indexOf(a.categorie) - categorieVolgorde.indexOf(b.categorie));
+        const regels = gesorteerd.slice(0, maxRegels).map(m => ({
+            niveau: normaalNiveau(m.niveau),
+            categorie: m.categorie,
+            tekst: kortTekst(m.tekst, SAMENVATTING_MAX_TEKENS),
+            actie: meldingActie(m, toegestaneViews),
+            blokSleutel: (liveSleutels.has(meldingSleutel(m)) ? "" : UPLOAD_BLOK_VOORVOEGSEL) + m.categorie,
+        }));
+        return { regels, meer: Math.max(0, gesorteerd.length - regels.length) };
     }
 
     // Cellen als tekst; de kolom "Weging" (getal in %) met 1 decimaal, bv. "76,3%". null zonder rijen.
@@ -226,7 +270,8 @@
     // uploads nieuwste eerst, zoals /upload-meldingen. {laatste: {titel, meldingen, standBijUpload, aantalOokLive} of
     // null, ouder: [{titel, meldingen}]}. meldingen: alleen-bij-upload, zonder wat ook live bestaat (de live versie wint);
     // standBijUpload: wat gewoon laden opnieuw berekent (ook_live), zoals het bij de upload was.
-    function uploadBlokken(uploads, live) {
+    // maxUploads = MAX_BEWAARDE_UPLOADS uit de API; ontbreekt hij, dan komen alle meegestuurde uploads.
+    function uploadBlokken(uploads, live, maxUploads) {
         const lijst = uploads || [];
         if (lijst.length === 0) return { laatste: null, ouder: [] };
         const liveSleutels = new Set((live || []).map(meldingSleutel));
@@ -239,7 +284,7 @@
                 titel: uploadTitel(laatste, "Laatste upload"), meldingen: eigen,
                 standBijUpload: alle.filter(m => !alleenBijUpload(m)), aantalOokLive: uploadEigen.length - eigen.length,
             },
-            ouder: ouder.slice(0, MAX_OUDERE_UPLOADS).map(u => ({ titel: uploadTitel(u, "Eerdere upload"), meldingen: u.meldingen || [] })),
+            ouder: (Number.isInteger(maxUploads) && maxUploads > 0 ? ouder.slice(0, maxUploads - 1) : ouder).map(u => ({ titel: uploadTitel(u, "Eerdere upload"), meldingen: u.meldingen || [] })),
         };
     }
 
@@ -254,9 +299,93 @@
             + "hierboven, met de stand van nu.";
     }
 
+    function controleSleutel(c) {
+        return `${c.categorie}\u0000${c.naam}`;
+    }
+
+    // Zoals voegMeldingenSamen(): de nieuwste wint, op de plek van de oude.
+    function voegControlesSamen(bestaand, nieuw) {
+        const resultaat = (bestaand || []).slice();
+        const positie = new Map(resultaat.map((c, i) => [controleSleutel(c), i]));
+        (nieuw || []).forEach(c => {
+            const sleutel = controleSleutel(c);
+            if (positie.has(sleutel)) {
+                resultaat[positie.get(sleutel)] = c;
+            } else {
+                positie.set(sleutel, resultaat.length);
+                resultaat.push(c);
+            }
+        });
+        return resultaat;
+    }
+
+    // Technische controles (Laadtijden, Yahoo-calls) zijn alleen voor de ontwikkelaar.
+    function zichtbareControles(controles, ontwikkelaar) {
+        const lijst = controles || [];
+        return ontwikkelaar === true ? lijst.slice() : lijst.filter(c => !c.technisch);
+    }
+
+    // Bv. "14 controles gedraaid, 2 met bevindingen, 1 overgeslagen"; "" zonder controles.
+    function controleSamenvatting(controles) {
+        const lijst = controles || [];
+        if (lijst.length === 0) return "";
+        const gedraaid = lijst.filter(c => c.status === "gedraaid");
+        const delen = [
+            `${meervoud(gedraaid.length, "controle", "controles")} gedraaid`,
+            `${gedraaid.filter(c => c.bevindingen > 0).length} met bevindingen`,
+        ];
+        const overgeslagen = lijst.filter(c => c.status === "overgeslagen").length;
+        const mislukt = lijst.filter(c => c.status === "fout").length;
+        if (overgeslagen > 0) delen.push(`${overgeslagen} overgeslagen`);
+        if (mislukt > 0) delen.push(`${mislukt} mislukt`);
+        return delen.join(", ");
+    }
+
+    function controleStatusTekst(c) {
+        if (c.status === "overgeslagen") return `overgeslagen: ${c.reden || "voorwaarde ontbreekt"}`;
+        if (c.status === "fout") return `mislukt (${c.reden || "onbekende fout"})`;
+        return c.bevindingen > 0 ? meervoud(c.bevindingen, "bevinding", "bevindingen") : "niets gevonden";
+    }
+
+    // [{categorie, naam, tekst}] op categorie, daarbinnen in de volgorde van binnenkomst.
+    function controleRegels(controles) {
+        const lijst = (controles || []).map((c, i) => ({ c, i }));
+        lijst.sort((a, b) => a.c.categorie.localeCompare(b.c.categorie, "nl") || a.i - b.i);
+        return lijst.map(({ c }) => ({ categorie: c.categorie, naam: c.naam, tekst: controleStatusTekst(c) }));
+    }
+
+    // Categorieën met wel controles maar zonder enkele melding: [{categorie, tekst}]. Gedraaid wint van overgeslagen;
+    // is er van beide, dan staat wat is overgeslagen erachter.
+    function legeCategorieen(meldingen, controles) {
+        const metMelding = new Set((meldingen || []).map(m => m.categorie));
+        const perCategorie = new Map();
+        (controles || []).forEach(c => {
+            if (metMelding.has(c.categorie)) return;
+            if (!perCategorie.has(c.categorie)) perCategorie.set(c.categorie, []);
+            perCategorie.get(c.categorie).push(c);
+        });
+        return Array.from(perCategorie, ([categorie, lijst]) => {
+            const gedraaid = lijst.filter(c => c.status === "gedraaid");
+            const overgeslagen = lijst.filter(c => c.status === "overgeslagen");
+            const reden = c => `${c.naam} (${c.reden || "voorwaarde ontbreekt"})`;
+            let tekst;
+            if (gedraaid.length === 0) {
+                tekst = overgeslagen.length > 0
+                    ? `Niet gecontroleerd: ${overgeslagen.map(reden).join(", ")}.` : "Controle mislukt.";
+            } else {
+                tekst = "Gecontroleerd, niets gevonden."
+                    + (overgeslagen.length > 0 ? ` Niet gecontroleerd: ${overgeslagen.map(reden).join(", ")}.` : "");
+            }
+            return { categorie, tekst };
+        });
+    }
+
     const exportsObj = {
         DIAGNOSTIEK_NIVEAUS, DIAGNOSTIEK_NIVEAU_LABEL, DIAGNOSTIEK_NIVEAU_ICOON,
-        normaalNiveau, deelInBlokken, filterOpNiveau, wisselNiveauFilter, diagnostiekConclusie,
+        STANDAARD_ZICHTBARE_NIVEAUS, GEEN_CODE_UITLEG, GOED_CHIP_UITLEG, UPLOAD_BLOK_VOORVOEGSEL, MAX_ACTIELIJST_REGELS,
+        actielijst, voegControlesSamen, zichtbareControles, controleSamenvatting, controleRegels, legeCategorieen,
+        normaalNiveau, deelInBlokken, filterOpNiveaus, wisselNiveau, isStandaardNiveauKeuze, zichtbareMeldingen,
+        diagnostiekConclusie,
         categorieSamenvatting, meldingActie,
         voegMeldingenSamen, telPerNiveau, groepeerPerCategorie, diagnostiekTellerTekst,
         hoogsteNiveau, categorieStandaardOpen, diagnostiekTabelRijen, diagnostiekRijenBlok,

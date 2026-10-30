@@ -11,7 +11,7 @@ from backend.voortgang import meld_stap
 from backend.diagnostiek import (
     meld, ACTIE_TICKER_ZEKERHEID, CATEGORIE_WISSELKOERSEN, CATEGORIE_ORDER_IDS, CATEGORIE_OPSLAAN, CATEGORIE_DIVIDEND, CATEGORIE_TICKERS,
     CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP, FOUT, MAX_BEWAARDE_UPLOADS, haal_meldingen,
-    upload_meldingen_om_te_bewaren,
+    upload_meldingen_om_te_bewaren, draai_controle,
 )
 from backend.diagnostiek_checks import aantal_tekst, check_rekening_regelsoorten
 from backend.split_correctie import isin_ketens, vind_wisselparen
@@ -589,14 +589,12 @@ def sla_rekening_regels_op(cur, code, rekening_df):
 
 
 def _meld_rekening_regelsoorten(rekening_df):
-    """Diagnostiek mag de upload nooit breken."""
-    try:
+    def controleer():
         for b in check_rekening_regelsoorten(rekening_df):
             meld(CATEGORIE_REKENINGOVERZICHT, b["niveau"], b["tekst"], sleutel=b["sleutel"], tabel=b.get("tabel"),
                  rijen=b.get("rijen"))
-    except Exception as e:
-        meld(CATEGORIE_REKENINGOVERZICHT, LET_OP, f"Regelsoorten niet gecontroleerd door een fout ({type(e).__name__}).",
-             sleutel="check_mislukt:regelsoorten")
+
+    draai_controle(CATEGORIE_REKENINGOVERZICHT, "Regelsoorten", controleer)
 
 
 def sla_kassaldo_op(cur, code, rekening_df):
