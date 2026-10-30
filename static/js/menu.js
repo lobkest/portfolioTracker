@@ -27,11 +27,7 @@
             id: "samenstelling", label: "Samenstelling", icoon: "◔",
             views: [
                 { view: "verdeling", label: "Verdeling" },
-                { view: "bedrijven", label: "Top 10 bedrijven" },
-                { view: "land", label: "Land" },
-                { view: "sector", label: "Sector" },
-                { view: "valuta", label: "Valuta" },
-                { view: "beurs", label: "Beurs" },
+                { view: "bedrijven", label: "Bedrijven" },
                 { view: "etfoverlap", label: "ETF-overlap" },
                 { view: "watals", label: "Zoeken & wat als" },
             ],

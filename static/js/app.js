@@ -22,7 +22,7 @@ const wisselView = maakTabWisselaar(
     TAB_FADE_MS,
 );
 
-// Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan'). Wijzig je deze lijst, pas dan ook de infoTip bij "Niet opslaan" in templates/start.html aan.
+// Tabbladen die een opgeslagen code nodig hebben (verborgen bij 'niet opslaan'). Wijzig je deze lijst, pas dan ook de infoTip bij "Niet opslaan" in templates/start.html aan (instellingen-tabbladen daar niet noemen).
 const VIEWS_MET_CODE = ["instellingen-bestanden", "instellingen-bijnamen", "koersoverzicht"];
 
 const TOON_PER_VIEW = {
@@ -31,11 +31,7 @@ const TOON_PER_VIEW = {
     "peraandeel": () => toonPerAandeel(document.getElementById("aandeelSelect").value),
     "peraandeelaankoop": () => toonPerAandeelAankoop(document.getElementById("aandeelSelect").value),
     "koersoverzicht": toonKoersoverzicht,
-    "verdeling": toonVerdeling,
-    "land": toonLand,
-    "sector": toonSector,
-    "valuta": toonValuta,
-    "beurs": toonBeurs,
+    "verdeling": toonVerdelingMetAs,
     "bedrijven": toonBedrijven,
     "etfoverlap": renderEtfOverlapTabel,
     "watals": toonWatAls,
@@ -144,17 +140,20 @@ function pasViewToe(view) {
     actieveView = view;
     ververMenu(view);
 
+    // Verdeling toont per as het blok van die as (land, sector, ...); het menu kent alleen "verdeling".
+    const blokView = view === "verdeling" ? domViewVoorAs(verdelingAs) : view;
+
     // data-views / data-vereist-code bepalen de zichtbaarheid; data-verberg-buiten: de toon-functie zet het zelf aan als dat nodig is.
     const heeftCode = Boolean(huidigeData.code);
     document.querySelectorAll("[data-views], [data-vereist-code]").forEach(el => {
-        el.style.display = elementZichtbaar(el.dataset.views, el.dataset.vereistCode, view, heeftCode) ? "block" : "none";
+        el.style.display = elementZichtbaar(el.dataset.views, el.dataset.vereistCode, blokView, heeftCode) ? "block" : "none";
     });
     document.querySelectorAll("[data-verberg-buiten]").forEach(el => {
-        if (!viewInLijst(el.dataset.verbergBuiten, view)) el.style.display = "none";
+        if (!viewInLijst(el.dataset.verbergBuiten, blokView)) el.style.display = "none";
     });
 
     zetBestandsmeldingCompact(view);
-    plaatsGrafiek(view);
+    plaatsGrafiek(blokView);
 
     TOON_PER_VIEW[view]?.();
 
@@ -202,11 +201,7 @@ function actieveViewNaam() {
 // Anders gebeurt het tekenen vanzelf bij de volgende tabwissel.
 function herTekenVerrijkingTabbladIndienActief() {
     const view = actieveViewNaam();
-    if (view === "verdeling") toonVerdeling();
-    else if (view === "land") toonLand();
-    else if (view === "sector") toonSector();
-    else if (view === "valuta") toonValuta();
-    else if (view === "beurs") toonBeurs();
+    if (view === "verdeling") toonVerdelingMetAs();
     else if (view === "bedrijven") toonBedrijven();
     else if (view === "etfoverlap") renderEtfOverlapTabel();
     else if (view === "peraandeel") toonPositieLandSector(document.getElementById("aandeelSelect").value);

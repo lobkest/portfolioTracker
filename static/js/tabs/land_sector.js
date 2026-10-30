@@ -440,9 +440,5 @@ function toonBeurs() {
 // De keuze geldt voor Land, Sector, Valuta én Beurs; de data staat al in huidigeData.
 document.getElementById("weergaveToggleBtn").addEventListener("click", () => {
     landSectorWeergave = landSectorWeergave === "taart" ? "staaf" : "taart";
-    const view = actieveViewNaam();
-    if (view === "land") toonLand();
-    else if (view === "sector") toonSector();
-    else if (view === "valuta") toonValuta();
-    else if (view === "beurs") toonBeurs();
+    toonVerdelingMetAs();
 });

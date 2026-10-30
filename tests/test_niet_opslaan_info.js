@@ -19,7 +19,7 @@ function viewsMetCode() {
 
 function infoTipTekst() {
     const html = fs.readFileSync(path.join(BASIS, "templates", "start.html"), "utf8");
-    const tips = [...html.matchAll(/<span class="infoTip" data-label="Niet opslaan">([^<]*)<\/span>/g)];
+    const tips = [...html.matchAll(/<span class="infoTip" data-label="Niet opslaan">(.*?)<\/span>/g)];
     assert.equal(tips.length, 1, "precies één infoTip met data-label=\"Niet opslaan\"");
     return tips[0][1];
 }
@@ -35,7 +35,8 @@ test("infoTip bij Niet opslaan noemt elk tabblad uit VIEWS_MET_CODE", () => {
     const tekst = infoTipTekst();
     const views = viewsMetCode();
     assert.ok(views.length > 0);
-    for (const view of views) {
+    // Instellingen-tabbladen zijn alleen relevant voor een opgeslagen portfolio en staan dus niet in de tekst.
+    for (const view of views.filter(v => !v.startsWith("instellingen-"))) {
         const label = labelVanView(view);
         assert.ok(tekst.includes(label), `label "${label}" (view ${view}) ontbreekt in de infoTip`);
     }

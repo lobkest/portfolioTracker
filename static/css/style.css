@@ -1472,6 +1472,23 @@ input.schakelaar:focus-visible {
     gap: 10px;
 }
 
+/* As-keuze Verdeling: mobiel een compacte rij die wrapt (geen horizontaal scrollen), desktop een kolom links van de grafiek. */
+.verdelingAsKeuze {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+}
+
+.verdelingAsKeuze .keuzeKnop {
+    padding: 5px 10px;
+    font-size: 0.9em;
+}
+
+.verdelingAsInhoud {
+    min-width: 0;
+}
+
 .verdelingUitleg {
     gap: 16px;
     margin-top: 12px;
@@ -2558,6 +2575,25 @@ input.watAlsRadio {
     .tabInfo,
     .tabGrafiek {
         min-width: 0;
+    }
+
+    .verdelingAsLayout {
+        display: grid;
+        grid-template-columns: max-content minmax(0, 1fr);
+        gap: 24px;
+        align-items: start;
+    }
+
+    .verdelingAsKeuze {
+        flex-direction: column;
+        flex-wrap: nowrap;
+        margin-bottom: 0;
+    }
+
+    .verdelingAsKeuze .keuzeKnop {
+        padding: 6px 18px;
+        font-size: 1em;
+        text-align: left;
     }
 
     /* Verdeling → Beurs: taart links, aansluitingskosten rechts, bovenaan uitgelijnd. */

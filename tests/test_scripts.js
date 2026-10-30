@@ -85,6 +85,7 @@ test("de startpagina laadt geen dashboard-scripts", () => {
 // Tabbladen met toestand die bewust over portfolio's heen blijft staan (een weergavekeuze, geen data).
 const BEWUST_ZONDER_RESET = {
     "land_sector.js": "taart/staaf-keuze",
+    "verdeling.js": "gekozen as; voorkeur per browser in localStorage",
     "bedrijven.js": "gekozen top-N; de grafiek wordt bij elk tekenen opnieuw gemaakt",
 };
 

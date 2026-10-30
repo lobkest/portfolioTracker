@@ -24,12 +24,20 @@ function resetVerdelingOverTijd() {
 // Zet de knoppen en de uitleg voor dit tabblad; true als "Over tijd" gekozen is (de aanroeper tekent dan niets zelf).
 function toonOverTijdIndienGekozen(dimensie, europaSamenvoegen = false, azieSamenvoegen = false) {
     const mogelijk = Boolean(huidigeData.code);
+    const as = asVoorDimensie(dimensie);
+    const tijdreeks = heeftTijdreeks(as);
     if (!mogelijk) overTijdModus = "nu";
+    overTijdModus = effectieveModus(as, overTijdModus);
     const overTijd = overTijdModus === "tijd";
     document.getElementById("overTijdKeuze").style.display = mogelijk ? "flex" : "none";
     document.getElementById("overTijdWeergave").style.display = overTijd ? "" : "none";
     document.querySelectorAll("#overTijdKeuze .segmentKnop[data-modus]").forEach(knop => {
         knop.classList.toggle("actief", knop.dataset.modus === overTijdModus);
+        knop.setAttribute("aria-pressed", String(knop.dataset.modus === overTijdModus));
+        if (knop.dataset.modus === "tijd") {
+            knop.disabled = !tijdreeks;
+            knop.title = tijdreeks ? "" : "Over tijd is voor deze verdeling niet beschikbaar.";
+        }
     });
     document.querySelectorAll("#overTijdWeergave .segmentKnop").forEach(knop => {
         knop.classList.toggle("actief", knop.dataset.weergave === overTijdWeergave);

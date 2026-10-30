@@ -10,7 +10,7 @@
 
     const WEETJES = [
         "Rente-op-rente: rendement levert zelf ook weer rendement op. Hoe langer je belegt, hoe groter dat effect.",
-        "Een wereldwijde ETF zoals MSCI World bevat ruim 1.300 bedrijven. Op de pagina \"Top 10 bedrijven\" zie je welke je via je ETF's het meest bezit.",
+        "Een wereldwijde ETF zoals MSCI World bevat ruim 1.300 bedrijven. Op de pagina \"Bedrijven\" zie je welke je via je ETF's het meest bezit.",
         "De lopende kosten (TER) van een fonds lijken klein, maar tellen over tientallen jaren flink op.",
         "XIRR houdt rekening met wanneer je geld inlegt. TWR meet de prestatie los van je stortingen. Beide staan onder \"XIRR & rendement\".",
         "Na een aandelensplitsing heb je meer aandelen tegen een lagere koers, maar je bezit blijft even veel waard. Deze app corrigeert daar automatisch voor.",

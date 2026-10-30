@@ -233,10 +233,6 @@
         return aantal > BEDRIJVEN_HORIZONTAAL_VANAF || schermBreedte <= BEDRIJVEN_SMAL_SCHERM_MAX_BREEDTE;
     }
 
-    function bedrijvenTitel(n) {
-        return n === 1 ? "Top 1 bedrijf" : `Top ${n} bedrijven`;
-    }
-
     const exportsObj = {
         BEDRIJVEN_TOP_N_KNOPPEN,
         maakBedrijfsnaamLeesbaar,
@@ -246,7 +242,6 @@
         kiesTopN,
         snijTopBedrijven,
         gebruikHorizontaleStaven,
-        bedrijvenTitel,
     };
 
     if (typeof module !== "undefined" && module.exports) {

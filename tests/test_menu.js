@@ -12,9 +12,12 @@ const {
 
 const ALLE_VIEWS = MENU_GROEPEN.flatMap(g => g.views.map(v => v.view));
 
+// Blokken van de assen op Verdeling: geen eigen subtab, ze horen bij view "verdeling".
+const AS_BLOKKEN = ["land", "sector", "valuta", "beurs"];
+
 test("elke tabblad-view uit portfolio.html (behalve xirr-rendement) zit in precies één groep", () => {
     const html = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "templates", "portfolio.html"), "utf8");
-    const views = [...html.matchAll(/<div id="tab-([\w-]+)" data-views="/g)].map(m => m[1]);
+    const views = [...html.matchAll(/<div id="tab-([\w-]+)" data-views="/g)].map(m => m[1]).filter(v => !AS_BLOKKEN.includes(v));
     assert.ok(views.length > 0);
     assert.ok(!views.includes("xirr-rendement"));
     for (const view of views) {
@@ -25,8 +28,8 @@ test("elke tabblad-view uit portfolio.html (behalve xirr-rendement) zit in preci
 
 test("groepVanView: view naar groep, instellingen-views naar instellingen, onbekend naar null", () => {
     assert.equal(groepVanView("dividend"), "overzicht");
-    assert.equal(groepVanView("land"), "samenstelling");
-    assert.equal(groepVanView("beurs"), "samenstelling");
+    assert.equal(groepVanView("verdeling"), "samenstelling");
+    assert.equal(groepVanView("land"), null);
     assert.equal(groepVanView("instellingen-diagnostiek"), "instellingen");
     assert.equal(groepVanView("xirr-rendement"), null);
 });
@@ -80,7 +83,7 @@ test("scrollFades: helemaal rechts (ook met een halve pixel afronding): alleen l
 });
 
 test("zichtbareGroepen: alleen groepen met minstens één toegestane view", () => {
-    assert.deepEqual(zichtbareGroepen(["land", "instellingen-ticker"]).map(g => g.id), ["samenstelling", "instellingen"]);
+    assert.deepEqual(zichtbareGroepen(["verdeling", "instellingen-ticker"]).map(g => g.id), ["samenstelling", "instellingen"]);
     assert.deepEqual(zichtbareGroepen([]), []);
 });
 

@@ -1,4 +1,4 @@
-const CACHE_NAAM = 'laadscherm-v4';
+const CACHE_NAAM = 'laadscherm-v5';
 const LAADSCHERM = '/static/laden.html';
 const BESTANDEN = [LAADSCHERM, '/static/js/laadscherm.js'];
 const DOORLAAT_PARAM = '_wakker';

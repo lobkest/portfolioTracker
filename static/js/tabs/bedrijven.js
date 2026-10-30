@@ -89,8 +89,6 @@ function tekenBedrijven() {
     const n = bedrijvenTopN;
     const { getoond, overigPct } = snijTopBedrijven(data, n);
 
-    const subTab = document.querySelector('#subTabs [data-view="bedrijven"]');
-    if (subTab) subTab.textContent = bedrijvenTitel(n);
     document.getElementById("bedrijvenDekkingTekst").textContent =
         `Dekking: ${formatPct(data.dekking_pct * 100, 1)} van de portfoliowaarde is toegewezen aan een bekend bedrijf. Het restant (bedrijven buiten de top ${n} + niet-gedekte ETF-holdings, samen ${formatPct(overigPct, 1)}) is hier niet in weergegeven.`;
 

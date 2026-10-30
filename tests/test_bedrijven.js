@@ -14,7 +14,6 @@ const {
     kiesTopN,
     snijTopBedrijven,
     gebruikHorizontaleStaven,
-    bedrijvenTitel,
 } = require("../static/js/bedrijven.js");
 
 // --- maakBedrijfsnaamLeesbaar: de bekende voorbeelden uit de ETF-bestanden ---
@@ -168,11 +167,6 @@ test("effectieveTopN: klemt tussen 1 en het beschikbare aantal", () => {
     assert.equal(effectieveTopN(10, 50), 10);
     assert.equal(effectieveTopN(50, 14), 14);
     assert.equal(effectieveTopN(0, 50), 1);
-});
-
-test("bedrijvenTitel: enkelvoud en meervoud", () => {
-    assert.equal(bedrijvenTitel(10), "Top 10 bedrijven");
-    assert.equal(bedrijvenTitel(1), "Top 1 bedrijf");
 });
 
 // --- snijTopBedrijven: restant opnieuw berekend bij een andere N ---

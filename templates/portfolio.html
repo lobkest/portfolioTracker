@@ -290,6 +290,10 @@
                 </div>
             </div>
 
+            <div data-views="verdeling land sector valuta beurs" style="display: none;">
+            <div class="verdelingAsLayout">
+            <div id="verdelingAsKeuze" class="verdelingAsKeuze" role="group" aria-label="Verdeling naar"></div>
+            <div class="verdelingAsInhoud">
             <div id="tab-verdeling" data-views="verdeling" style="display: none;">
                 <p id="verdelingTekst" data-verberg-buiten="verdeling" style="display: none;"></p>
                 <div data-grafiek-plek></div>
@@ -358,6 +362,9 @@
                         <div id="aansluitingskostenAlternatieven" class="alternatievenPaneel" hidden></div>
                     </div>
                 </div>
+            </div>
+            </div>
+            </div>
             </div>
 
             <div id="tab-bedrijven" data-views="bedrijven" style="display: none;">
@@ -719,6 +726,7 @@
     <script src="{{ url_for('static', filename='js/getallen.js') }}"></script>
     <script src="{{ url_for('static', filename='js/prognose.js') }}"></script>
     <script src="{{ url_for('static', filename='js/menu.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/verdeling_as.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bestandskeuze.js') }}"></script>
     <script src="{{ url_for('static', filename='js/diagnostiek.js') }}"></script>
     <script src="{{ url_for('static', filename='js/bedrijven.js') }}"></script>

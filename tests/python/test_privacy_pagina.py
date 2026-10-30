@@ -22,7 +22,7 @@ LAAD_ATTRIBUTEN = {"script": "src", "link": "href", "img": "src", "iframe": "src
 # Bestanden in static/js die browseropslag noemen (menu.js alleen in een comment); de rest gaat via sessieOpslag()
 # en lokaleOpslag() uit gedeeld.js.
 BROWSEROPSLAG_BESTANDEN = {"gedeeld.js", "overdracht.js", "menu.js"}
-BROWSEROPSLAG_GEBRUIKERS = {"sessieOpslag(": {"start.js", "app.js"}, "lokaleOpslag(": {"instellingen.js"}}
+BROWSEROPSLAG_GEBRUIKERS = {"sessieOpslag(": {"start.js", "app.js"}, "lokaleOpslag(": {"instellingen.js", "verdeling.js"}}
 # <link rel=...> die zelf iets ophaalt (canonical is alleen een verwijzing).
 LAAD_REL = ("stylesheet", "icon", "manifest", "preload", "prefetch")
 

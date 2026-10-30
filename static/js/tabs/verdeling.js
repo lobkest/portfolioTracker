@@ -1,5 +1,38 @@
-// Tabblad Verdeling: taart van de posities, ETF's met een streeppatroon; de uitleg ETF/Aandeel staat in HTML onder de grafiek.
-// "Over tijd": zie tabs/verdeling_over_tijd.js.
+// Tabblad Verdeling: as Fonds = taart van de posities, ETF's met een streeppatroon; de uitleg ETF/Aandeel staat in HTML onder de grafiek.
+// De andere assen (Land, Sector, Valuta, Beurs) staan in tabs/land_sector.js; "Over tijd": zie tabs/verdeling_over_tijd.js.
+
+// Een voorkeur per browser, dus niet in RESET_PER_TAB.
+let verdelingAs = leesOpgeslagenAs(lokaleOpslag());
+
+function toonVerdelingMetAs() {
+    ververVerdelingAsKnoppen();
+    const toon = { fonds: toonVerdeling, land: toonLand, sector: toonSector, valuta: toonValuta, beurs: toonBeurs }[verdelingAs];
+    toon();
+}
+
+function ververVerdelingAsKnoppen() {
+    document.querySelectorAll("#verdelingAsKeuze .keuzeKnop").forEach(knop => {
+        const actief = knop.dataset.as === verdelingAs;
+        knop.classList.toggle("actief", actief);
+        knop.setAttribute("aria-pressed", String(actief));
+    });
+}
+
+function kiesVerdelingAs(as) {
+    verdelingAs = geldigeAs(as);
+    bewaarAs(lokaleOpslag(), verdelingAs);
+    pasViewToe("verdeling");
+}
+
+VERDELING_ASSEN.forEach(({ as, label }) => {
+    const knop = document.createElement("button");
+    knop.type = "button";
+    knop.className = "keuzeKnop";
+    knop.dataset.as = as;
+    knop.textContent = label;
+    knop.addEventListener("click", () => kiesVerdelingAs(as));
+    document.getElementById("verdelingAsKeuze").appendChild(knop);
+});
 
 function toonVerdeling() {
     if (chart) chart.destroy();
