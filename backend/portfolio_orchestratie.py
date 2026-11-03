@@ -772,7 +772,7 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     with meet_tijd(f"kern_ticker_waarschuwingen ({len(tickers)} ticker(s))"):
         ticker_waarschuwingen, prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
         tickers_gewijzigd = False
-        if automatisch_wisselen and code and any("koers" in w["redenen"] for w in ticker_waarschuwingen):
+        if automatisch_wisselen and code:
             ticker_waarschuwingen, aantal_wissels = verwerk_automatische_wissels(
                 code, ticker_waarschuwingen, ticker_zekerheid_groepen(code) or [])
             if aantal_wissels:

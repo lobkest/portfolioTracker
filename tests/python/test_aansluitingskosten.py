@@ -333,6 +333,7 @@ class TestRoutes(unittest.TestCase):
             ("db_get_koers_splits", {}),
             ("db_get_laatste_koers_update", (None, None)),
             ("ticker_waarschuwingen_voor_transacties", ([], {})),
+            ("verwerk_automatische_wissels", ([], 0)),
             ("analyze_transacties_verrijking", {}),
             ("db_get_ticker_details", {}),
             ("db_get_cached_openfigi_voor_isins", {}),

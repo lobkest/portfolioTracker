@@ -385,6 +385,13 @@ def _reken_alternatief_door(alt, steekproef, verwachte_beurzen=()):
         "aantal_matches": sum(1 for m in alt_matches if m),
         "aantal_gecontroleerd": len(alt_matches),
         "valuta_gelijk": valuta_gelijk,
+        "vergelijkingen": [
+            {"datum": str(t["datum"]), "excel_koers_eur": c.get("bekende_koers"), "yahoo_koers": c.get("yahoo_koers"),
+             "yahoo_valuta": c.get("valuta_omgerekend") or alt_details.get("valuta"),
+             "yahoo_koers_eur": c.get("yahoo_koers_gecorrigeerd") or c.get("yahoo_koers"),
+             "binnen_dagrange": c.get("binnen_dagrange")}
+            for t, c in zip(steekproef, alt_checks)
+        ],
     }
 
 

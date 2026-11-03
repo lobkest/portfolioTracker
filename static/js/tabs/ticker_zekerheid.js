@@ -144,7 +144,15 @@ function maakAlternatievenTabel(alternatieven, aanbevolenAlternatief, isEtf) {
             label: "Binnen dagrange",
             uitleg: `Op hoeveel van de gecontroleerde datums de Excel-koers binnen de dagrange van deze kandidaat valt. ${DAGRANGE_UITLEG}`,
             mobielRol: "waarde",
-            renderTd: alt => maakCel(alternatiefDagrangeTekst(alt)),
+            renderTd: alt => {
+                const td = maakCel(alternatiefDagrangeTekst(alt));
+                const regels = (alt.vergelijkingen || []).map(v =>
+                    `${formatDatum(v.datum)}: Excel ${bekendeWaarde(v.excel_koers_eur) ? Number(v.excel_koers_eur).toFixed(2) : "?"} EUR`
+                    + ` vs Yahoo ${bekendeWaarde(v.yahoo_koers) ? Number(v.yahoo_koers).toFixed(2) : "?"} ${v.yahoo_valuta || "?"}`
+                    + ` (${bekendeWaarde(v.yahoo_koers_eur) ? Number(v.yahoo_koers_eur).toFixed(2) : "?"} EUR)`);
+                if (regels.length) td.title = regels.join("\n");
+                return td;
+            },
         },
         { label: "Prijscontrole", alleenMobiel: true, renderTd: alt => maakCel(alternatiefControleTekst(alt)) },
         { label: "Uitkeringsvorm", alleenMobiel: true, renderTd: alt => maakCel(alternatiefUitkeringsvormTekst(alt) || "") },

@@ -3,9 +3,12 @@ from backend.db import (
     db_transactie, db_wijzig_ticker_voor_isins, db_voeg_ticker_wissel_toe, db_get_ticker_wissels, db_wijzig_bijnaam,
 )
 from backend.debug_utils import maskeer_codes
+from backend.ticker_classificatie import _ticker_details_met_cache
 from backend.ticker_matching import BEURS_MAP
 from backend.ticker_prijscheck import _prijscheck_is_probleem
-from backend.ticker_zekerheid import verifieer_ticker_met_prijs, bijnaam_na_tickerwissel, bepaal_handelsvaluta
+from backend.ticker_zekerheid import (
+    verifieer_ticker_met_prijs, bijnaam_na_tickerwissel, bepaal_handelsvaluta, beurs_status,
+)
 
 SOORT_AUTO = "auto"
 SOORT_HANDMATIG = "handmatig"
@@ -137,20 +140,31 @@ def _probeer_wissel_voor_positie(code, info, koers_valuta, wissels):
     return True
 
 
+def heeft_beurs_mismatch(info):
+    """Zelfde oordeel als de kaart (beurs_status op Yahoo's beurs uit de cache). Een fout telt als geen mismatch."""
+    try:
+        yahoo_beurs = _ticker_details_met_cache(info["ticker"]).get("yahoo_beurs")
+        return beurs_status(info["beurs"], yahoo_beurs, []) is False
+    except Exception:
+        return False
+
+
 def verwerk_automatische_wissels(code, waarschuwingen, groepen):
-    """Voor elke ticker met een koerswaarschuwing in dit portfolio: automatisch wisselen als de beslisregel het
-    toestaat. Geeft (waarschuwingen zonder de gewisselde posities, aantal wissels); geen banner voor een gewisselde
-    positie. De aanroeper wist de basis-cache bij aantal > 0."""
-    if not code or not waarschuwingen:
+    """Voor elke ticker met een koerswaarschuwing of een beurs-mismatch in dit portfolio: automatisch wisselen als de
+    beslisregel het toestaat. Geeft (waarschuwingen zonder de gewisselde posities, aantal wissels); geen banner voor
+    een gewisselde positie. De aanroeper wist de basis-cache bij aantal > 0."""
+    if not code or not groepen:
         return waarschuwingen, 0
     koers_tickers = {w["ticker"] for w in waarschuwingen if "koers" in w.get("redenen", [])}
-    if not koers_tickers:
+
+    kandidaten = [info for _sleutel, info in groepen if info["ticker"] in koers_tickers or heeft_beurs_mismatch(info)]
+    if not kandidaten:
         return waarschuwingen, 0
 
     wissels = db_get_ticker_wissels(code)
     gewisseld_tickers = set()
-    for _sleutel, info in groepen:
-        if info["ticker"] not in koers_tickers:
+    for info in kandidaten:
+        if not mag_automatisch_wisselen(wissels_van_positie(wissels, info["isin"], info["beurs"])):
             continue
         valuta = bepaal_handelsvaluta(info["transacties"], BEURS_MAP.get(info["beurs"], []))
         if _probeer_wissel_voor_positie(code, info, valuta, wissels):

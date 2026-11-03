@@ -238,8 +238,8 @@ test("dividendKnop: met code naar instellingen, zonder code terug naar upload", 
     assert.deepEqual(dividendKnop(false), { tekst: "Terug naar upload", naarInstellingen: false });
 });
 
-test("geenRekeningoverzichtMelding: zeven punten en precies één punt dat met Dividend en haakje begint", () => {
+test("geenRekeningoverzichtMelding: zes punten en precies één punt dat met Dividend en haakje begint", () => {
     const lijst = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, true).ontbreekt;
-    assert.equal(lijst.length, 7);
+    assert.equal(lijst.length, 6);
     assert.equal(lijst.filter(item => item.startsWith("Dividend (")).length, 1);
 });
