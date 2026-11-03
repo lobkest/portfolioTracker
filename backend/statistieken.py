@@ -223,6 +223,20 @@ def bereken_jaren_overzicht(resultaat, eerste_datum=None):
     return jaren
 
 
+MIN_JAREN_VOOR_ANNUALISATIE = 1
+
+def bereken_gemiddeld_jaarrendement(jaren):
+    # Lineair annualiseren (gewicht = jaarfractie); onder 1 jaar totaal niet omrekenen: voorkomt opgeblazen getallen.
+    geldig = [j for j in jaren if j["winst_pct"] is not None]
+    if not geldig:
+        return None
+    totaal_fractie = sum(
+        j["dagen_verstreken"] / (366 if pd.Timestamp(year=j["jaar"], month=12, day=31).is_leap_year else 365)
+        for j in geldig
+    )
+    return round(sum(j["winst_pct"] for j in geldig) / max(totaal_fractie, MIN_JAREN_VOOR_ANNUALISATIE), 2)
+
+
 def _bouw_xirr_cashflows(transacties_df, resultaat):
     """Echte transacties plus als laatste een fictieve 'verkoop vandaag' van de huidige waarde."""
     if resultaat.empty:
@@ -514,8 +528,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
 
     with meet_tijd("statistieken_jaren"):
         jaren = bereken_jaren_overzicht(resultaat, eerste_datum=eerste_datum)
-    geldige_pcts = [j["winst_pct"] for j in jaren if j["winst_pct"] is not None]
-    gemiddeld_jaarrendement = round(sum(geldige_pcts) / len(geldige_pcts), 2) if geldige_pcts else None
+    gemiddeld_jaarrendement = bereken_gemiddeld_jaarrendement(jaren)
 
     with meet_tijd("statistieken_xirr_en_twr"):
         cashflows = _bouw_xirr_cashflows(transacties_df, resultaat)

@@ -21,6 +21,7 @@ from backend.statistieken import (
     bereken_xirr,
     bereken_holdings_en_gesloten,
     bereken_jaren_overzicht,
+    bereken_gemiddeld_jaarrendement,
     bereken_totale_transactiekosten,
     bereken_statistieken,
 )
@@ -285,6 +286,41 @@ class TestJarenOverzicht(unittest.TestCase):
         j = jaren[0]
         self.assertAlmostEqual(j["winst_eur"], 799.20, places=2)
         self.assertAlmostEqual(j["winst_pct"], 8.90, places=2)
+
+
+def _jaar(jaar, dagen, pct):
+    return {"jaar": jaar, "dagen_verstreken": dagen, "winst_pct": pct}
+
+
+class TestGemiddeldJaarrendement(unittest.TestCase):
+    def test_twee_volle_jaren(self):
+        jaren = [_jaar(2022, 365, 10.0), _jaar(2023, 365, 20.0)]
+        self.assertEqual(bereken_gemiddeld_jaarrendement(jaren), 15.0)
+
+    def test_vol_jaar_plus_half_deeljaar(self):
+        jaren = [_jaar(2022, 365, 10.0), _jaar(2023, 182.5, 5.0)]
+        self.assertEqual(bereken_gemiddeld_jaarrendement(jaren), 10.0)
+
+    def test_enkel_deeljaar_niet_geannualiseerd(self):
+        self.assertEqual(bereken_gemiddeld_jaarrendement([_jaar(2023, 91.25, 3.0)]), 3.0)
+
+    def test_twee_deeljaren_onder_een_jaar_geeft_som(self):
+        jaren = [_jaar(2022, 61, 2.0), _jaar(2023, 90, 4.0)]
+        self.assertEqual(bereken_gemiddeld_jaarrendement(jaren), 6.0)
+
+    def test_jaar_zonder_pct_telt_niet_mee_in_noemer(self):
+        jaren = [_jaar(2021, 365, None), _jaar(2022, 365, 10.0), _jaar(2023, 365, 20.0)]
+        self.assertEqual(bereken_gemiddeld_jaarrendement(jaren), 15.0)
+
+    def test_leeg_of_alleen_none(self):
+        self.assertIsNone(bereken_gemiddeld_jaarrendement([]))
+        self.assertIsNone(bereken_gemiddeld_jaarrendement([_jaar(2023, 365, None)]))
+
+    def test_schrikkeljaar_telt_als_366_dagen(self):
+        jaren = [_jaar(2023, 365, 10.0), _jaar(2024, 183, 5.0)]
+        self.assertEqual(bereken_gemiddeld_jaarrendement(jaren), round(15.0 / 1.5, 2))
+        self.assertEqual(bereken_gemiddeld_jaarrendement([_jaar(2024, 366, 8.0), _jaar(2025, 183, 4.0)]),
+                         round(12.0 / (1 + 183 / 365), 2))
 
 
 class TestTotaleTransactiekosten(unittest.TestCase):

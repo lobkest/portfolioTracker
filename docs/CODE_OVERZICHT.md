@@ -997,6 +997,7 @@ getallen uit, geen DB/netwerk), daardoor met de hand na te rekenen en goed te te
 | `bereken_holdings_en_gesloten()` | **GAK/kostprijs**: per ticker één pas door de transacties; geeft open én gesloten posities | `transacties_df` → `(open, gesloten)` | `bereken_statistieken()` |
 | `waarde_op_of_voor()` | laatste waarde van een kolom op of vóór een datum, 0.0 als er nog niets was | `resultaat, datum, kolom` → float | `bereken_jaren_overzicht()`, `bouw_box3_basis()` |
 | `bereken_jaren_overzicht()` | per kalenderjaar: start/eind, ingelegd, winst, dagen verstreken | `resultaat, eerste_datum` → lijst dicts | `bereken_statistieken()` |
+| `bereken_gemiddeld_jaarrendement()` | tijdgewogen gemiddelde van `winst_pct` (gewicht = dagen/dagen in jaar, min. 1 jaar noemer) | jaren-lijst → float of `None` | `bereken_statistieken()` |
 | `_bouw_xirr_cashflows()` | cashflow-lijst (echte transacties + fictieve eindwaarde) | `transacties_df, resultaat` → lijst | `bereken_statistieken()`, `bereken_benchmark_vergelijking()`, `bereken_rendement_over_tijd()` |
 | `bereken_benchmark_vergelijking()` | simuleert dezelfde cashflows in een benchmark | `transacties_df, resultaat, koersen` → dict of `None` | `benchmark_vergelijking()` |
 | `bereken_rendement_over_tijd()` | rendement%/XIRR%/TWR% per maandeinde (+ laatste datum) | `transacties_df, resultaat` → dict met lijsten | `rendement_over_tijd()` |
@@ -1018,7 +1019,7 @@ Constante: `BENCHMARK_TICKERS = {"S&P 500": "VUSA.AS", "Nasdaq 100": "CNDX.AS", 
   verkoopkant wel.
 - **XIRR** gebruikt `totaal_eur` (inclusief kosten) plus één fictieve verkoop van de huidige waarde op de laatste datum.
 - **All-time high** is de hoogste waarde van `rendement` (waarde − geïnvesteerd), niet de hoogste portefeuillewaarde.
-- `gemiddeld_jaarrendement_pct` is het **rekenkundig gemiddelde** van de jaarlijkse `winst_pct`; `aantal_jaren` = dagen / 365,25.
+- `gemiddeld_jaarrendement_pct` is **tijdgewogen** (`bereken_gemiddeld_jaarrendement()`): som(`winst_pct`) / max(som(jaarfractie), 1); onder 1 jaar totaal niet geannualiseerd; `aantal_jaren` = dagen / 365,25.
 - `bereken_rendement_over_tijd()` herrekent XIRR én TWR voor elke maandstap vanaf het begin; dat is de reden dat dit een apart, lui endpoint is. Elke stap
   krijgt een eigen fictieve eind-cashflow (de waarde op die datum). Vlak na een storting lopen XIRR en TWR duidelijk uiteen; dat is verwacht, geen bug.
 - **TWR**: de cashflow telt mee in de noemer van de sub-periode die op die datum eindigt; corporate-action-rijen tellen niet als cashflow; sub-periodes
