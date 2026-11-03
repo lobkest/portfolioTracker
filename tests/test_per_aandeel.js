@@ -4,7 +4,25 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { aandeelLandSectorRegels, etfPositieWaarde, etfHoldingsBijschrift } = require("../static/js/per_aandeel.js");
+const { aandeelLandSectorRegels, etfPositieWaarde, etfHoldingsBijschrift, koersOpDatums } = require("../static/js/per_aandeel.js");
+
+const KOERS_LABELS = ["2024-01-01", "2024-01-02", "2024-01-03"];
+
+test("koersOpDatums: één match geeft koers op die index", () => {
+    assert.deepEqual(koersOpDatums(KOERS_LABELS, [10, 11, 12], ["2024-01-02"]), [null, 11, null]);
+});
+
+test("koersOpDatums: datum buiten labels wordt overgeslagen", () => {
+    assert.deepEqual(koersOpDatums(KOERS_LABELS, [10, 11, 12], ["2024-01-01", "2024-01-06"]), [10, null, null]);
+});
+
+test("koersOpDatums: null-koers blijft null", () => {
+    assert.deepEqual(koersOpDatums(KOERS_LABELS, [10, null, 12], ["2024-01-02", "2024-01-03"]), [null, null, 12]);
+});
+
+test("koersOpDatums: lege datums geeft overal null", () => {
+    assert.deepEqual(koersOpDatums(KOERS_LABELS, [10, 11, 12], []), [null, null, null]);
+});
 
 test("bekend land en sector", () => {
     const regels = aandeelLandSectorRegels({ SHOP: { land: "Canada", sector: "Technology" } }, "SHOP");

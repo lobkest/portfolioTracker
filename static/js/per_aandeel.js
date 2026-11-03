@@ -61,7 +61,13 @@
         return `Inclusief ${extra} ${extra === 1 ? "boekingsrij" : "boekingsrijen"} van DEGIRO (split/productwijziging), zonder kosten.`;
     }
 
-    const exportsObj = { aandeelLandSectorRegels, etfPositieWaarde, etfHoldingsBijschrift, aandeelKostenTekst, transactiesVoorTicker, boekingsrijenTekst };
+    // Koers op de labels waarvan de ISO-datum in `datums` zit, anders null (één punt per aan-/verkoopdag).
+    function koersOpDatums(labels, koers, datums) {
+        const set = new Set(datums || []);
+        return labels.map((label, i) => (set.has(label) && koers[i] != null ? koers[i] : null));
+    }
+
+    const exportsObj = { aandeelLandSectorRegels, etfPositieWaarde, etfHoldingsBijschrift, aandeelKostenTekst, transactiesVoorTicker, boekingsrijenTekst, koersOpDatums };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

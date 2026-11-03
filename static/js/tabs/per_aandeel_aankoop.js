@@ -107,19 +107,31 @@ function toonPerAandeelAankoop(ticker) {
                 // Dummy-datasets: annotaties komen anders niet in de legenda.
                 {
                     label: "Aankoop",
-                    data: [],
+                    data: koersOpDatums(d.labels, d.koers, d.aankoop_datums),
+                    yAxisID: "y",
+                    showLine: false,
                     borderColor: AANKOOP_KLEUR,
                     borderDash: [5, 5],
                     borderWidth: 1.5,
-                    pointRadius: 0,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: AANKOOP_KLEUR,
+                    pointBorderColor: "#fff",
+                    pointBorderWidth: 1.5,
                 },
                 {
                     label: "Verkoop",
-                    data: [],
+                    data: koersOpDatums(d.labels, d.koers, d.verkoop_datums),
+                    yAxisID: "y",
+                    showLine: false,
                     borderColor: VERKOOP_KLEUR,
                     borderDash: [5, 5],
                     borderWidth: 1.5,
-                    pointRadius: 0,
+                    pointRadius: 5,
+                    pointHoverRadius: 7,
+                    pointBackgroundColor: VERKOOP_KLEUR,
+                    pointBorderColor: "#fff",
+                    pointBorderWidth: 1.5,
                 },
                 ...splitLegenda,
             ],
@@ -135,11 +147,13 @@ function toonPerAandeelAankoop(ticker) {
             plugins: {
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => ctx.dataset.yAxisID === "y"
-                            ? `Koers: ${ctx.parsed.y === null ? "—" : formatteerEuro(ctx.parsed.y)}`
-                            : ctx.dataset.yAxisID === "y1"
-                                ? `Aantal aandelen: ${ctx.parsed.y}`
-                                : null
+                        label: (ctx) => ctx.dataset.label === "Aankoop" || ctx.dataset.label === "Verkoop"
+                            ? `${ctx.dataset.label}: ${formatteerEuro(ctx.parsed.y)}`
+                            : ctx.dataset.yAxisID === "y"
+                                ? `Koers: ${ctx.parsed.y === null ? "—" : formatteerEuro(ctx.parsed.y)}`
+                                : ctx.dataset.yAxisID === "y1"
+                                    ? `Aantal aandelen: ${ctx.parsed.y}`
+                                    : null
                     },
                     filter: (ctx) => ctx.dataset.yAxisID === "y" || ctx.dataset.yAxisID === "y1",
                 },
