@@ -152,7 +152,6 @@
         "Totaal W/V (DEGIRO-definitie)",
         "Dividend (bedrag op Overzicht en tab Dividend)",
         "Dividendvergelijking (Prognose)",
-        "Dividend in Box 3",
         "Aansluitingskosten",
     ];
     const VINDPLAATS_REKENINGOVERZICHT = "Te vinden in DeGiro: Inbox → Rekeningoverzicht, exporteer vanaf het begin van je beleggen.";

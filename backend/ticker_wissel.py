@@ -5,7 +5,7 @@ from backend.db import (
 from backend.debug_utils import maskeer_codes
 from backend.ticker_matching import BEURS_MAP
 from backend.ticker_prijscheck import _prijscheck_is_probleem
-from backend.ticker_zekerheid import verifieer_ticker_met_prijs, bijnaam_na_tickerwissel
+from backend.ticker_zekerheid import verifieer_ticker_met_prijs, bijnaam_na_tickerwissel, bepaal_handelsvaluta
 
 SOORT_AUTO = "auto"
 SOORT_HANDMATIG = "handmatig"
@@ -152,7 +152,7 @@ def verwerk_automatische_wissels(code, waarschuwingen, groepen):
     for _sleutel, info in groepen:
         if info["ticker"] not in koers_tickers:
             continue
-        valuta = next((t.get("koers_valuta") for t in info["transacties"] if t.get("koers_valuta")), None)
+        valuta = bepaal_handelsvaluta(info["transacties"], BEURS_MAP.get(info["beurs"], []))
         if _probeer_wissel_voor_positie(code, info, valuta, wissels):
             gewisseld_tickers.add(info["ticker"])
     return [w for w in waarschuwingen if w["ticker"] not in gewisseld_tickers], len(gewisseld_tickers)

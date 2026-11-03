@@ -244,8 +244,28 @@ def valuta_vergelijkbaar(transactie_valuta, kandidaat_valuta):
     return None if a is None or b is None else a == b
 
 
-def _transactievaluta(steekproef):
-    return next((normaliseer_transactievaluta(t.get("koers_valuta")) for t in steekproef if t.get("koers_valuta")), None)
+def _valuta_van_beurzen(yahoo_beurzen):
+    """De ene niet-EUR-valuta van deze Yahoo-beurzen (NSY -> NYQ -> USD), anders None."""
+    valutas = {EXCHANGE_VALUTA.get(b) for b in yahoo_beurzen} - {None, "EUR"}
+    return valutas.pop() if len(valutas) == 1 else None
+
+
+def bepaal_handelsvaluta(transacties, verwachte_beurzen=()):
+    """De ene bron voor de handelsvaluta van een positie: de valutakolom bij de koers; staat daar EUR of niets maar
+    heeft de rij een Wisselkoers (niet 0 of 1), dan rekende DeGiro niet in EUR en volgt de valuta uit de beurs.
+    verwachte_beurzen: Yahoo-beurzen van de DeGiro-beurs (BEURS_MAP). None als niets het zegt."""
+    for t in transacties:
+        valuta = normaliseer_transactievaluta(t.get("koers_valuta"))
+        wisselkoers = pd.to_numeric(t.get("wisselkoers"), errors="coerce")
+        if pd.notna(wisselkoers) and float(wisselkoers) not in (0.0, 1.0) and valuta in (None, "EUR"):
+            valuta = _valuta_van_beurzen(verwachte_beurzen)
+        if valuta:
+            return valuta
+    return None
+
+
+def _transactievaluta(steekproef, verwachte_beurzen=()):
+    return bepaal_handelsvaluta(steekproef, verwachte_beurzen)
 
 
 def _beurs_valuta_wijkt_af(transactie_valuta, yahoo_beurs):
@@ -322,9 +342,9 @@ def bijnaam_na_tickerwissel(bijnaam, oude_ticker, nieuwe_ticker):
     return _long_name(nieuwe_ticker)
 
 
-def _reken_alternatief_door(alt, steekproef):
+def _reken_alternatief_door(alt, steekproef, verwachte_beurzen=()):
     alt_ticker = alt["symbol"]
-    transactie_valuta = _transactievaluta(steekproef)
+    transactie_valuta = _transactievaluta(steekproef, verwachte_beurzen)
     valuta_gelijk = None
     if transactie_valuta:
         vooraf = _ticker_details_met_cache(alt_ticker)
@@ -378,7 +398,7 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
     reserve = None
     gekozen = None
     batches = itertools.chain([alternatieven_kandidaten], (bron() for bron in extra_bronnen))
-    transactie_valuta = _transactievaluta(steekproef)
+    transactie_valuta = _transactievaluta(steekproef, verwachte_beurzen)
     for batch in batches:
         for alt in _sorteer_kandidaten(batch, verwachte_beurzen, openfigi, transactie_valuta):
             alt_ticker = alt.get("symbol")
@@ -387,7 +407,7 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
             if not alt_ticker or (reserve and not beurs_klopt):
                 continue
 
-            resultaat_alt = _reken_alternatief_door(alt, steekproef)
+            resultaat_alt = _reken_alternatief_door(alt, steekproef, verwachte_beurzen)
             alternatieven.append(resultaat_alt)
             if not _alternatief_acceptabel(resultaat_alt, len(steekproef), verwachte_beurzen, openfigi, prijsprobleem):
                 continue

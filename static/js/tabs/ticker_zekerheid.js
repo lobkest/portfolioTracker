@@ -70,13 +70,14 @@ function maakPrijscontroleTabel(prijsChecks) {
             alleenTabel: true,
             renderTd: c => {
                 const td = maakCel(prijscontroleYahooTekst(c));
-                if (c.yahoo_koers_gecorrigeerd != null) {
-                    td.title = `Ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}, gecorrigeerd voor een split sinds deze `
-                        + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`
-                        + (c.split_uitleg ? ` ${c.split_uitleg}` : "");
-                } else if (c.split_uitleg) {
-                    td.title = c.split_uitleg;
+                const delen = [];
+                if (c.valuta_omgerekend) delen.push(`Yahoo-koers in ${c.valuta_omgerekend} omgerekend naar EUR.`);
+                if (c.split_gecorrigeerd) {
+                    delen.push(`Ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}, gecorrigeerd voor een split sinds deze `
+                        + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`);
                 }
+                if (c.split_uitleg) delen.push(c.split_uitleg);
+                if (delen.length) td.title = delen.join(" ");
                 return td;
             },
         },
@@ -107,7 +108,7 @@ function maakPrijscontroleTabel(prijsChecks) {
 
     const geheel = maakSorteerbareTabel(kolommen, prijsChecks, { klasse: "kleineTabel", compactOpMobiel: true });
 
-    if (prijsChecks.some(c => c.yahoo_koers_gecorrigeerd != null)) {
+    if (prijsChecks.some(c => c.split_gecorrigeerd)) {
         const voetnoot = document.createElement("p");
         voetnoot.className = "tickerNotitie tickerVoetnoot";
         voetnoot.textContent = "* gecorrigeerd voor een aandelensplitsing die na deze datum heeft plaatsgevonden "

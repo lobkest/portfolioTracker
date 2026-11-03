@@ -313,6 +313,8 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
         "yahoo_koers": yahoo_koers,
         "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if toon_gecorrigeerd else None,
         "split_factor": split_factor,
+        "split_gecorrigeerd": split_factor != 1.0,
+        "valuta_omgerekend": valuta if valuta_conversie_toegepast else None,
         "split_variant": split_variant,
         "split_uitleg": split_uitleg,
         "bekende_koers": bekende_koers,

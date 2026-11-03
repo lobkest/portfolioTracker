@@ -105,9 +105,15 @@ test("prijscontrole-subregel zonder split-correctie", () => {
 });
 
 test("prijscontrole-subregel met split-correctie: gecorrigeerde koers met *, split in de details", () => {
-    const c = { bekende_koers: 100, yahoo_koers: 25, yahoo_koers_gecorrigeerd: 100, split_factor: 4 };
+    const c = { bekende_koers: 100, yahoo_koers: 25, yahoo_koers_gecorrigeerd: 100, split_factor: 4, split_gecorrigeerd: true };
     assert.equal(prijscontroleSubregel(c), "Excel 100,000 · Yahoo 100,000 *");
     assert.equal(prijscontroleSplitTekst(c), "×4, ruwe Yahoo-koers 25,000");
+});
+
+test("prijscontrole-subregel met alleen valutaomrekening: geen * en geen split-tekst", () => {
+    const c = { bekende_koers: 90, yahoo_koers: 100, yahoo_koers_gecorrigeerd: 90, split_factor: 1, split_gecorrigeerd: false, valuta_omgerekend: "USD" };
+    assert.equal(prijscontroleSubregel(c), "Excel 90,000 · Yahoo 90,000");
+    assert.equal(prijscontroleSplitTekst(c), null);
 });
 
 test("prijscontrole-subregel zonder koersen", () => {

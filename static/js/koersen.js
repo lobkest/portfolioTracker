@@ -81,7 +81,8 @@
 
     function prijscontroleYahooTekst(c) {
         if (c.yahoo_koers == null) return "onbekend";
-        return c.yahoo_koers_gecorrigeerd != null ? `${formatGetal(c.yahoo_koers_gecorrigeerd, 3)} *` : formatGetal(c.yahoo_koers, 3);
+        if (c.yahoo_koers_gecorrigeerd == null) return formatGetal(c.yahoo_koers, 3);
+        return `${formatGetal(c.yahoo_koers_gecorrigeerd, 3)}${c.split_gecorrigeerd ? " *" : ""}`;
     }
 
     function prijscontroleSubregel(c) {
@@ -95,7 +96,7 @@
             const factor = c.split_factor !== 1 ? `×${formatGetal(c.split_factor, 4, 0)}. ` : "";
             return `${factor}${c.split_uitleg}`;
         }
-        if (c.yahoo_koers_gecorrigeerd == null) return null;
+        if (!c.split_gecorrigeerd) return null;
         return `×${formatGetal(c.split_factor, 4, 0)}, ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}`;
     }
 
