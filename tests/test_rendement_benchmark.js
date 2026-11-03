@@ -35,30 +35,39 @@ function bouwKnoppen() {
     return { houder, activeerd, context };
 }
 
-test("elke sleutel in BENCHMARK_UITLEG bestaat ook in BENCHMARK_KLEUREN", () => {
+function pythonBenchmarkSleutels() {
+    const py = fs.readFileSync(path.join(__dirname, "..", "backend", "statistieken.py"), "utf8");
+    const blok = py.match(/^BENCHMARK_TICKERS = \{([\s\S]*?)^\}/m)[1];
+    return [...blok.matchAll(/^\s*"([^"]+)":/gm)].map(m => m[1]);
+}
+
+test("elke sleutel in BENCHMARK_UITLEG zit ook in BENCHMARK_KLEUREN en BENCHMARK_TICKERS", () => {
     const { context } = bouwKnoppen();
     const kleuren = vm.runInContext("Object.keys(BENCHMARK_KLEUREN)", context);
     const uitleg = vm.runInContext("Object.keys(BENCHMARK_UITLEG)", context);
-    assert.ok(uitleg.length > 0);
-    uitleg.forEach(sleutel => assert.ok(kleuren.includes(sleutel), sleutel));
+    const tickers = pythonBenchmarkSleutels();
+    assert.ok(tickers.includes("Congres D (NANC)") && tickers.includes("Congres R (GOP)"));
+    assert.deepEqual([...kleuren], tickers);
+    uitleg.forEach(sleutel => assert.ok(kleuren.includes(sleutel) && tickers.includes(sleutel), sleutel));
 });
 
-test("NANC heeft een eigen kleur", () => {
+test("elke benchmark heeft een eigen kleur", () => {
     const { context } = bouwKnoppen();
     const kleuren = vm.runInContext("Object.values(BENCHMARK_KLEUREN)", context);
     assert.equal(new Set(kleuren).size, kleuren.length);
 });
 
-test("precies een infoTip, naast (niet in) de NANC-knop", () => {
+test("precies twee infoTips, elk naast (niet in) de juiste knop", () => {
     const { houder, activeerd } = bouwKnoppen();
-    const tips = houder.alle("infoTip");
-    assert.equal(tips.length, 1);
-    assert.equal(activeerd.length, 1);
-    const wrapper = houder.alle("benchmarkKnopMetInfo")[0];
-    const knop = wrapper.children[0];
-    assert.equal(knop.dataset.waarde, "Congres (NANC)");
-    assert.equal(knop.children.length, 0);
-    assert.equal(wrapper.children[1], tips[0]);
-    assert.equal(tips[0].dataset.label, "NANC");
-    assert.equal(houder.alle("vergelijkKnop").length, 4);
+    assert.equal(houder.alle("infoTip").length, 2);
+    assert.equal(activeerd.length, 2);
+    const wrappers = houder.alle("benchmarkKnopMetInfo");
+    assert.deepEqual(wrappers.map(w => w.children[0].dataset.waarde), ["Congres D (NANC)", "Congres R (GOP)"]);
+    wrappers.forEach(w => {
+        const [knop, tip] = w.children;
+        assert.equal(knop.children.length, 0);
+        assert.equal(tip.className, "infoTip");
+        assert.equal(tip.dataset.label, knop.dataset.waarde);
+    });
+    assert.equal(houder.alle("vergelijkKnop").length, 5);
 });

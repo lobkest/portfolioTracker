@@ -1,8 +1,9 @@
 // Tabblad Rendement: in € optioneel naast een benchmark of eigen aandeel, in % met XIRR en TWR (alleen met code).
 
-const BENCHMARK_KLEUREN = { "S&P 500": "#eb6834", "Nasdaq 100": "#0f9d9a", "AEX": "#b8860b", "Congres (NANC)": "#c2185b" };
+const BENCHMARK_KLEUREN = { "S&P 500": "#eb6834", "Nasdaq 100": "#0f9d9a", "AEX": "#b8860b", "Congres D (NANC)": "#c2185b", "Congres R (GOP)": "#5e35b1" };
 const BENCHMARK_UITLEG = {
-    "Congres (NANC)": "Unusual Whales Subversive Democratic Trading ETF. Volgt de openbaar gemelde aandelentransacties van Democratische Congresleden en hun partners, dus niet alleen Nancy Pelosi; de ticker is een knipoog naar haar. Meldingen komen met vertraging binnen, dus het fonds loopt achter op de echte transacties. Kosten 0,76% per jaar. Amerikaans fonds in USD (hier omgerekend naar EUR), geen UCITS. Vergelijking op koers, uitgekeerd dividend niet meegenomen. Koersen vanaf februari 2023.",
+    "Congres D (NANC)": "Subversive Congressional Democrats Trading ETF. Volgt de openbaar gemelde aandelentransacties van Democratische Congresleden en hun partners, dus niet alleen Nancy Pelosi; de ticker is een knipoog naar haar. Meldingen komen met vertraging binnen, dus het fonds loopt achter op de echte transacties. Amerikaans fonds in USD (hier omgerekend naar EUR), geen UCITS. Vergelijking op koers, uitgekeerd dividend niet meegenomen.",
+    "Congres R (GOP)": "Subversive Congressional Republicans Trading ETF, tot maart 2025 ticker KRUZ. Volgt de openbaar gemelde aandelentransacties van Republikeinse Congresleden en hun partners; de Republikeinse tegenhanger van NANC. Meldingen komen met vertraging binnen, dus het fonds loopt achter op de echte transacties. Amerikaans fonds in USD (hier omgerekend naar EUR), geen UCITS. Vergelijking op koers, uitgekeerd dividend niet meegenomen.",
 };
 // Per gekozen benchmark de opgehaalde vergelijking, op naam.
 let benchmarkVergelijkingen = {};
@@ -125,7 +126,7 @@ function bouwBenchmarkKnoppen() {
         if (!BENCHMARK_UITLEG[naam]) return knop;
         const tip = document.createElement("span");
         tip.className = "infoTip";
-        tip.dataset.label = "NANC";
+        tip.dataset.label = naam;
         tip.textContent = BENCHMARK_UITLEG[naam];
         activeerInfoTip(tip);
         const wrapper = document.createElement("span");

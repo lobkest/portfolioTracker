@@ -10,12 +10,13 @@ from backend.verrekening import verrekeningen_van
 from backend.transactie_utils import KOSTENKORTING_KOLOM, _is_corporate_action_row, _sorteer_chronologisch
 
 # Accumulerende UCITS-ETF's in EUR: geen dividend-boekhouding nodig. IAEA.AS heeft pas koersen vanaf 2020-07-29.
-# NANC is USD en uitkerend (koersrendement, dividend niet meegenomen), met koersen vanaf feb 2023.
+# NANC en GOP (ex-KRUZ, ticker sinds 21-03-2025) zijn USD en uitkerend: koersrendement, dividend niet meegenomen.
 BENCHMARK_TICKERS = {
     "S&P 500": "VUSA.AS",
     "Nasdaq 100": "CNDX.AS",
     "AEX": "IAEA.AS",
-    "Congres (NANC)": "NANC",
+    "Congres D (NANC)": "NANC",
+    "Congres R (GOP)": "GOP",
 }
 
 

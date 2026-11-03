@@ -101,11 +101,13 @@ class TestBenchmarkVergelijking(unittest.TestCase):
         self.assertIsNone(r)
 
 
-class TestBenchmarkNanc(unittest.TestCase):
-    def test_nanc_staat_in_benchmark_tickers(self):
-        self.assertEqual(BENCHMARK_TICKERS["Congres (NANC)"], "NANC")
+class TestBenchmarkCongres(unittest.TestCase):
+    def test_sleutels_en_tickers(self):
+        self.assertEqual(BENCHMARK_TICKERS["Congres D (NANC)"], "NANC")
+        self.assertEqual(BENCHMARK_TICKERS["Congres R (GOP)"], "GOP")
+        self.assertNotIn("Congres (NANC)", BENCHMARK_TICKERS)
 
-    def test_route_met_nanc_geeft_onvolledige_dekking_bij_late_koersen(self):
+    def _route(self, naam, ticker):
         import app as app_module
         transacties_df = pd.DataFrame({
             "ticker": ["VWCE.AS"], "datum": [pd.Timestamp("2022-12-01")], "aantal": [10.0], "koers": [0.0],
@@ -113,13 +115,23 @@ class TestBenchmarkNanc(unittest.TestCase):
         })
         datums = pd.to_datetime(["2023-02-01", "2023-02-02"])
         resultaat = pd.DataFrame({"waarde": [100.0, 110.0], "geinvesteerd": [100.0, 100.0]}, index=datums)
-        prices = pd.DataFrame({"NANC": [10.0, 11.0]}, index=datums)
+        prices = pd.DataFrame({ticker: [10.0, 11.0]}, index=datums)
         with patch.object(app_module, "laad_transacties_en_resultaat", return_value=(transacties_df, resultaat)),              patch.object(app_module, "get_prices", return_value=prices),              patch("backend.portfolio_orchestratie.db_get_koers_splits", return_value={}):
-            res = app_module.app.test_client().get("/api/portfolio/TESTBV/benchmark-vergelijking?benchmark=Congres (NANC)")
+            return app_module.app.test_client().get(f"/api/portfolio/TESTBV/benchmark-vergelijking?benchmark={naam}")
+
+    def test_route_nanc_geeft_onvolledige_dekking_bij_late_koersen(self):
+        res = self._route("Congres D (NANC)", "NANC")
         self.assertEqual(res.status_code, 200)
-        data = res.get_json()
-        self.assertTrue(data["onvolledige_dekking"])
-        self.assertEqual(data["vanaf_datum"], "2023-02-01")
+        self.assertTrue(res.get_json()["onvolledige_dekking"])
+        self.assertEqual(res.get_json()["vanaf_datum"], "2023-02-01")
+
+    def test_route_gop_geeft_onvolledige_dekking_bij_late_koersen(self):
+        res = self._route("Congres R (GOP)", "GOP")
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.get_json()["onvolledige_dekking"])
+
+    def test_oude_sleutel_geeft_400(self):
+        self.assertEqual(self._route("Congres (NANC)", "NANC").status_code, 400)
 
 
 if __name__ == "__main__":
