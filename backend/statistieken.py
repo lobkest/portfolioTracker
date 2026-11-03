@@ -566,6 +566,7 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "kassaldo_per_datum": kassaldo["per_datum"].isoformat() if kassaldo else None,
             "totaal_degiro_eur": bereken_totaal_degiro(totaal_waarde, kassaldo),
             "overige_kassabewegingen_eur": overige_kassa,
+            "rekeningoverzicht_aanwezig": bool(rekening_regels) or kassaldo is not None,
             # Ontbreekt zonder rekeningoverzicht (None).
             "rekeningoverzicht_status": beoordeel_rekeningoverzicht(
                 transacties_df, rekening_regels, kassaldo, totaal_geinvesteerd, totaal_waarde,
