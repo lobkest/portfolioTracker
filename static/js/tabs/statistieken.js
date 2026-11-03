@@ -27,7 +27,15 @@ function maakTickerKolom() {
     return { label: "Ticker", alleenMobiel: true, renderTd: p => maakCel(p.ticker) };
 }
 
-function maakPositieTabel(posities, tickerNamen, dividendBekend, sorteerPlek) {
+function maakKostenKolom(kostenPerTicker) {
+    return {
+        label: "Transactiekosten",
+        waarde: p => positieKosten(kostenPerTicker, p.ticker),
+        renderTd: p => maakCel(kostenTekst(positieKosten(kostenPerTicker, p.ticker))),
+    };
+}
+
+function maakPositieTabel(posities, tickerNamen, dividendBekend, sorteerPlek, kostenPerTicker) {
     const naam = p => (tickerNamen && tickerNamen[p.ticker]) || p.ticker;
     const kolommen = [
         {
@@ -74,11 +82,12 @@ function maakPositieTabel(posities, tickerNamen, dividendBekend, sorteerPlek) {
             waarde: p => positieDividend(p, dividendBekend),
             renderTd: p => maakDividendCel(positieDividend(p, dividendBekend)),
         },
+        maakKostenKolom(kostenPerTicker),
     ];
     return maakSorteerbareTabel(kolommen, posities, { legeTekst: "Geen open posities.", compactOpMobiel: true, sorteerPlek });
 }
 
-function maakGeslotenPositiesTabel(geslotenPosities, dividendBekend, sorteerPlek) {
+function maakGeslotenPositiesTabel(geslotenPosities, dividendBekend, sorteerPlek, kostenPerTicker) {
     const kolommen = [
         {
             label: "Status",
@@ -146,6 +155,7 @@ function maakGeslotenPositiesTabel(geslotenPosities, dividendBekend, sorteerPlek
                 return td;
             },
         },
+        maakKostenKolom(kostenPerTicker),
     ];
     return maakSorteerbareTabel(kolommen, geslotenPosities, {
         legeTekst: "Geen verkochte of deels verkochte posities.",
@@ -242,9 +252,9 @@ function toonStatistieken() {
 
     document.getElementById("statistiekenTotalen").replaceChildren(maakTotalenSectie(stats.totalen));
     document.getElementById("statistiekenPosities").replaceChildren(
-        maakPositieTabel(stats.posities, tickerNamen, dividendBekend, document.getElementById("statistiekenPositiesSorteer")));
+        maakPositieTabel(stats.posities, tickerNamen, dividendBekend, document.getElementById("statistiekenPositiesSorteer"), stats.kosten_per_ticker));
     document.getElementById("statistiekenGesloten").replaceChildren(
-        maakGeslotenPositiesTabel(stats.gesloten_posities, dividendBekend, document.getElementById("statistiekenGeslotenSorteer")));
+        maakGeslotenPositiesTabel(stats.gesloten_posities, dividendBekend, document.getElementById("statistiekenGeslotenSorteer"), stats.kosten_per_ticker));
     document.getElementById("statistiekenJaren").replaceChildren(maakJarenTabel(stats.jaren));
     document.getElementById("statistiekenGeavanceerd").replaceChildren(maakGeavanceerdSectie(stats.geavanceerd));
 }

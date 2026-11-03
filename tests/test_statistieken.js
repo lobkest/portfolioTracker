@@ -51,3 +51,13 @@ test("gemengd: alleen echt ontbrekende posities worden een streepje", () => {
     assert.deepEqual(posities.map(p => dividendTekst(positieDividend(p, true))), ["€10,00", "€0,00", "–"]);
     assert.deepEqual(posities.map(p => dividendTekst(positieDividend(p, false))), ["–", "–", "–"]);
 });
+
+const { positieKosten, kostenTekst } = require("../static/js/statistieken.js");
+
+test("positieKosten en kostenTekst: totaal uit kosten_per_ticker, streepje bij onbekend", () => {
+    const kosten = { A: { totaal: 4.5 }, B: { totaal: null } };
+    assert.equal(kostenTekst(positieKosten(kosten, "A")), "€4,50");
+    assert.equal(kostenTekst(positieKosten(kosten, "B")), "—");
+    assert.equal(kostenTekst(positieKosten(kosten, "ONBEKEND")), "—");
+    assert.equal(kostenTekst(positieKosten(undefined, "A")), "—");
+});

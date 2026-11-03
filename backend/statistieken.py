@@ -5,6 +5,7 @@ from pyxirr import xirr
 from backend.debug_utils import meet_tijd
 from backend.rekening_regelsoorten import OVERIGE_KASSA_SOORTEN, regelsoort
 from backend.rekeningoverzicht_status import beoordeel_rekeningoverzicht
+from backend.split_correctie import vind_wisselparen
 from backend.verrekening import verrekeningen_van
 from backend.transactie_utils import KOSTENKORTING_KOLOM, _is_corporate_action_row, _sorteer_chronologisch
 
@@ -356,6 +357,42 @@ def bereken_totale_transactiekosten(transacties_df):
             "beschikbaar": True}
 
 
+def _positieve_som_of_none(df, kolom, labels):
+    """Som van |kolom| over de rijen; None als de kolom ontbreekt of voor deze rijen helemaal leeg is."""
+    if kolom not in df.columns:
+        return None
+    waarden = pd.to_numeric(df.loc[labels, kolom], errors="coerce").dropna()
+    return None if waarden.empty else abs(float(waarden.sum()))
+
+
+def bereken_transactiekosten_per_ticker(transacties_df):
+    """{ticker: {transactiekosten_betaald, kostenkorting, transactiekosten, autofx_kosten, totaal, aantal_transacties}},
+    positieve bedragen, open en gesloten posities; alleen informatie, aansluitingskosten horen er bewust niet bij.
+    Zelfde conventies als bereken_totale_transactiekosten(): een leeg of ontbrekend bronveld is None, nooit €0,00.
+    De som van `transactiekosten` sluit aan op totale_transactiekosten, behalve voor rijen zonder ticker (die slaan we over).
+    aantal_transacties telt geen corporate-action-rijen en geen omboekingsrijen van een ISIN-wissel."""
+    if "ticker" not in transacties_df.columns:
+        return {}
+    wisselrijen = {label for paar in vind_wisselparen(transacties_df)[0] for label in paar.oud_rijen + paar.nieuw_rijen}
+    resultaat = {}
+    for ticker, groep in transacties_df.dropna(subset=["ticker"]).groupby("ticker"):
+        netto = _positieve_som_of_none(groep, "transactiekosten", groep.index)
+        autofx = _positieve_som_of_none(groep, "autofx_kosten", groep.index)
+        korting = float(groep[KOSTENKORTING_KOLOM].sum()) if KOSTENKORTING_KOLOM in groep.columns else 0.0
+        bronnen = [x for x in (netto, autofx) if x is not None]
+        aantal = sum(1 for label, rij in groep.iterrows()
+                     if label not in wisselrijen and not _is_corporate_action_row(rij))
+        resultaat[ticker] = {
+            "transactiekosten_betaald": round(netto + korting, 2) if netto is not None else None,
+            "kostenkorting": round(korting, 2),
+            "transactiekosten": round(netto, 2) if netto is not None else None,
+            "autofx_kosten": round(autofx, 2) if autofx is not None else None,
+            "totaal": round(sum(bronnen), 2) if bronnen else None,
+            "aantal_transacties": aantal,
+        }
+    return resultaat
+
+
 def bereken_totaal_degiro(waarde_eur, kassaldo):
     """DeGiro's "Totaal W/V": waarde posities + saldo - netto gestort. None zonder rekeningoverzicht.
     Dividend en promo zitten al in het saldo, dus niet apart optellen."""
@@ -527,4 +564,5 @@ def bereken_statistieken(transacties_df, price_data, resultaat, dividend_per_tic
             "twr_pct": round(twr_fractie * 100, 2) if twr_fractie is not None else None,
             "aantal_jaren": aantal_jaren,
         },
+        "kosten_per_ticker": bereken_transactiekosten_per_ticker(transacties_df),
     }

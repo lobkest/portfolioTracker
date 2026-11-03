@@ -4,6 +4,8 @@
 let transactiesRuweLijst = null;
 // promotie uit /transacties of het upload-antwoord; null zonder promotie.
 let transactiesPromotie = null;
+// Lopende fetch van laadTransacties(), zodat twee tabbladen niet tegelijk dezelfde lijst ophalen.
+let transactiesLaadBelofte = null;
 // Bewaard tussen tabwissels; maakSorteerbareTabel() werkt dit object bij.
 const transactiesStaat = { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1, paginaGrootte: 25 };
 
@@ -11,6 +13,7 @@ const transactiesStaat = { sorteerKolom: "datum_tijd", sorteerRichting: "desc", 
 function resetTransacties() {
     transactiesRuweLijst = null;
     transactiesPromotie = null;
+    transactiesLaadBelofte = null;
     Object.assign(transactiesStaat, { sorteerKolom: "datum_tijd", sorteerRichting: "desc", pagina: 1 });
 }
 
@@ -104,27 +107,42 @@ const TRANSACTIES_KOLOMMEN = [
     { label: "Promotie", alleenMobiel: true, mobielRol: "subwaarde", renderTd: maakPromotieTekenCel },
 ].map(kol => (kol.mobielRol ? kol : { ...kol, mobielRol: transactieMobielRol(kol.sleutel) }));
 
-async function toonTransacties() {
+// Gedeeld met Per aandeel, zodat de lijst één keer per portfolio wordt opgehaald. Geeft de lijst, of null als de
+// portfolio inmiddels is gewisseld; gooit bij een fout.
+async function laadTransacties() {
     // Zonder code (niet opslaan) staat de lijst al in het upload-antwoord.
     if (!huidigeData.code) {
         ({ lijst: transactiesRuweLijst, promotie: transactiesPromotie } = leesTransactiesAntwoord(huidigeData));
-    } else if (transactiesRuweLijst === null) {
-        toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesLaden");
-        let res, data;
-        try {
-            res = await fetch(`/api/portfolio/${huidigeData.code}/transacties`);
-            data = await res.json();
-        } catch (e) {
-            toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesFout");
-            return;
-        }
-        if (!res.ok) {
-            toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesFout");
-            return;
-        }
-        ({ lijst: transactiesRuweLijst, promotie: transactiesPromotie } = leesTransactiesAntwoord(data));
+        return transactiesRuweLijst;
     }
+    if (transactiesRuweLijst !== null) return transactiesRuweLijst;
 
+    const code = huidigeData.code;
+    transactiesLaadBelofte ??= (async () => {
+        const res = await fetch(`/api/portfolio/${code}/transacties`);
+        const data = await res.json();
+        if (!res.ok) throw new Error("transacties ophalen mislukt");
+        return leesTransactiesAntwoord(data);
+    })();
+    const belofte = transactiesLaadBelofte;
+    try {
+        const antwoord = await belofte;
+        if (huidigeData.code !== code) return null;
+        ({ lijst: transactiesRuweLijst, promotie: transactiesPromotie } = antwoord);
+        return transactiesRuweLijst;
+    } finally {
+        if (transactiesLaadBelofte === belofte) transactiesLaadBelofte = null;
+    }
+}
+
+async function toonTransacties() {
+    if (huidigeData.code && transactiesRuweLijst === null) toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesLaden");
+    try {
+        if (await laadTransacties() === null) return;
+    } catch (e) {
+        toonAlleen(TRANSACTIES_TOESTANDEN, "transactiesFout");
+        return;
+    }
     renderTransactiesTabel();
 }
 

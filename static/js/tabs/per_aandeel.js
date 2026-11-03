@@ -5,8 +5,15 @@ const ETF_HOLDINGS_PAGINA_GROOTTE = 25;
 // Per ticker het antwoord van /api/etf-holdings; weg bij een nieuwe portfolio.
 const etfHoldingsCache = new Map();
 
+const AANDEEL_KOSTEN_UITLEG = "Kosten zoals in het DEGIRO-transactiebestand, na promotiekorting. Aansluitingskosten staan per "
+    + "beurs op Verdeling → Beurs en zijn hier niet meegeteld. De kosten zitten niet in het rendement.";
+const AANDEEL_TRANSACTIES_PAGINA_GROOTTE = 25;
+
 function resetPerAandeel() {
     etfHoldingsCache.clear();
+    document.getElementById("aandeelKostenRegel").replaceChildren();
+    document.getElementById("aandeelTransactiesTabel").replaceChildren();
+    document.getElementById("aandeelTransactiesNoot").hidden = true;
 }
 
 function ververAandeelSelect() {
@@ -60,6 +67,68 @@ function toonPerAandeel(ticker) {
         { label: "Geïnvesteerd (€)", data: d.geinvesteerd, borderColor: "#3182bd" }
     ]);
     toonPositieLandSector(ticker);
+    toonAandeelTransacties(ticker);
+}
+
+function toonAandeelKostenRegel(kostenInfo) {
+    const { tekst, onbekend } = aandeelKostenTekst(kostenInfo);
+    const regel = document.getElementById("aandeelKostenRegel");
+    regel.className = onbekend ? "kleineMelding grijsTekst" : "kleineMelding";
+    const tip = document.createElement("span");
+    tip.className = "infoTip";
+    tip.dataset.label = "transactiekosten";
+    tip.textContent = AANDEEL_KOSTEN_UITLEG;
+    regel.replaceChildren(tekst, " ", tip);
+    activeerInfoTip(tip);
+}
+
+// Kolommen van het tabblad Transacties, zonder Product (staat al in de keuze) en zonder ISIN als die overal gelijk is.
+function aandeelTransactieKolommen(rijen) {
+    const isinGelijk = new Set(rijen.map(r => r.isin)).size === 1;
+    return TRANSACTIES_KOLOMMEN
+        .filter(kol => kol.sleutel !== "product" && !(isinGelijk && kol.sleutel === "isin"))
+        .map(kol => (kol.sleutel === "datum_tijd" ? { ...kol, mobielRol: "titel", mobielTekst: datumTijdTekst } : kol));
+}
+
+async function toonAandeelTransacties(ticker) {
+    const blok = document.getElementById("aandeelTransacties");
+    const tabelPlek = document.getElementById("aandeelTransactiesTabel");
+    const noot = document.getElementById("aandeelTransactiesNoot");
+    const kostenInfo = huidigeData.statistieken?.kosten_per_ticker?.[ticker];
+    const toonMelding = (tekst, klasse) => {
+        const p = document.createElement("p");
+        p.className = klasse;
+        p.textContent = tekst;
+        tabelPlek.replaceChildren(p);
+    };
+    const nogActueel = () => document.getElementById("aandeelSelect").value === ticker;
+
+    blok.style.display = "block";
+    noot.hidden = true;
+    toonAandeelKostenRegel(kostenInfo);
+    if (transactiesRuweLijst === null && huidigeData.code) toonMelding("Transacties ophalen...", "grijsTekst");
+
+    let lijst;
+    try {
+        lijst = await laadTransacties();
+    } catch (e) {
+        if (nogActueel()) toonMelding("Transacties ophalen is mislukt.", "foutTekst");
+        return;
+    }
+    if (lijst === null || !nogActueel()) return;
+
+    const rijen = transactiesVoorTicker(lijst, ticker);
+    if (rijen.length === 0) {
+        toonMelding("Geen transacties gevonden voor deze positie.", "grijsTekst");
+        return;
+    }
+    const staat = { sorteerKolom: "datum_tijd", sorteerRichting: "asc", pagina: 1, paginaGrootte: AANDEEL_TRANSACTIES_PAGINA_GROOTTE };
+    tabelPlek.replaceChildren(maakSorteerbareTabel(aandeelTransactieKolommen(rijen), rijen, {
+        staat, sorteer: sorteerTransacties, compactOpMobiel: true,
+    }));
+    const notitie = boekingsrijenTekst(rijen.length, kostenInfo);
+    noot.textContent = notitie ?? "";
+    noot.hidden = notitie === null;
 }
 
 function toonPositieLandSector(ticker) {

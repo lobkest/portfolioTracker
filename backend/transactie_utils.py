@@ -96,13 +96,15 @@ def pas_kostenkorting_toe(transacties, korting):
 
 
 def formatteer_transacties_overzicht(rows):
-    """rows: (datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers); tijd en kosten mogen None zijn."""
+    """rows: (datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers, ticker);
+    tijd, kosten en ticker mogen None zijn."""
     return [
         {
             "datum": datum.strftime("%Y-%m-%d"),
             "tijd": tijd.strftime("%H:%M") if tijd is not None else None,
             "product": product,
             "isin": isin,
+            "ticker": ticker,
             "beurs": beurs,
             "wisselkoers": float(wisselkoers) if wisselkoers is not None else None,
             "aantal": float(aantal),
@@ -110,7 +112,7 @@ def formatteer_transacties_overzicht(rows):
             "totaal_eur": float(totaal_eur),
             "transactiekosten": float(transactiekosten) if transactiekosten is not None else None,
         }
-        for datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers in rows
+        for datum, tijd, product, aantal, koers, totaal_eur, transactiekosten, isin, beurs, wisselkoers, ticker in rows
     ]
 
 
@@ -134,13 +136,15 @@ def transacties_overzicht_uit_df(transacties_df, resultaten=None):
     de promotiekorting apart in kostenkorting_eur."""
     korting = (transacties_df[KOSTENKORTING_KOLOM] if KOSTENKORTING_KOLOM in transacties_df.columns
                else pd.Series(0.0, index=transacties_df.index))
+    tickers = transacties_df["ticker"] if "ticker" in transacties_df.columns else pd.Series(None, index=transacties_df.index)
     rows = [
         (label, (rij.datum, _naar_tijd_of_none(rij.tijd), rij.echte_naam if pd.notna(rij.echte_naam) else rij.product,
                  rij.aantal, _getal_of_none(rij.koers), float(rij.totaal_eur) - k,
                  None if pd.isna(rij.transactiekosten) else float(rij.transactiekosten) - k,
                  rij.isin if pd.notna(rij.isin) else None, rij.beurs if pd.notna(rij.beurs) else None,
-                 _getal_of_none(rij.wisselkoers)))
-        for label, rij, k in zip(transacties_df.index, transacties_df.itertuples(index=False), korting.astype(float))
+                 _getal_of_none(rij.wisselkoers), ticker if pd.notna(ticker) else None))
+        for label, rij, k, ticker in zip(transacties_df.index, transacties_df.itertuples(index=False),
+                                         korting.astype(float), tickers)
     ]
     korting_per_label = dict(zip(transacties_df.index, korting.astype(float)))
     # Zoals Postgres bij ORDER BY ... DESC: een ontbrekende tijd komt bovenaan.

@@ -12,7 +12,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 from backend.dividend import bereken_kassaldo
 from backend.rekening_regelsoorten import REGELSOORT_PROMOTIE, OMSCHRIJVINGEN_PROMOTIE, regelsoort
 from backend.portfolio_calc import compute_value_over_time
-from backend.statistieken import bereken_holdings_en_gesloten, bereken_totale_transactiekosten, bereken_totaal_rendement
+from backend.statistieken import (
+    bereken_holdings_en_gesloten, bereken_statistieken, bereken_totale_transactiekosten,
+    bereken_transactiekosten_per_ticker, bereken_totaal_rendement,
+)
 from backend.transactie_utils import (
     KOSTENKORTING_KOLOM, pas_kostenkorting_toe, transacties_overzicht_uit_df, verdeel_kostenkorting,
 )
@@ -147,6 +150,86 @@ class TestOverzichtMetKorting(unittest.TestCase):
     def test_zonder_kortingkolom_nul(self):
         lijst = transacties_overzicht_uit_df(_vijf_plus_een())
         self.assertTrue(all(r[KOSTENKORTING_KOLOM] == 0.0 for r in lijst))
+
+
+class TestKostenPerTicker(unittest.TestCase):
+    def _df(self, rijen, autofx=None):
+        df = pd.DataFrame(rijen)
+        if autofx is not None:
+            df["autofx_kosten"] = autofx
+        return df
+
+    def test_twee_tickers_positieve_bedragen(self):
+        df = self._df([_rij("2024-01-10", "10:00", -1.0, ticker="A"), _rij("2024-01-11", "10:00", -2.0, ticker="A"),
+                       _rij("2024-01-12", "10:00", -3.0, ticker="B")])
+        r = bereken_transactiekosten_per_ticker(df)
+        self.assertEqual(r["A"]["transactiekosten"], 3.0)
+        self.assertEqual(r["A"]["aantal_transacties"], 2)
+        self.assertEqual(r["B"]["transactiekosten"], 3.0)
+        self.assertEqual(r["B"]["transactiekosten_betaald"], 3.0)
+        self.assertEqual(r["B"]["kostenkorting"], 0.0)
+
+    def test_promotiekorting_op_de_eerste_transactie(self):
+        df = _vijf_plus_een()
+        korting, _ = verdeel_kostenkorting(df, [(date(2024, 1, 10), 1.0)])
+        r = bereken_transactiekosten_per_ticker(pas_kostenkorting_toe(df, korting))["TST.AS"]
+        self.assertEqual(r["transactiekosten_betaald"], 10.0)
+        self.assertEqual(r["kostenkorting"], 1.0)
+        self.assertEqual(r["transactiekosten"], 9.0)
+
+    def test_autofx_bij_een_ticker_en_totaal_is_som(self):
+        df = self._df([_rij("2024-01-10", "10:00", -1.0, ticker="A"), _rij("2024-01-12", "10:00", -3.0, ticker="B")],
+                      autofx=[-0.5, None])
+        r = bereken_transactiekosten_per_ticker(df)
+        self.assertEqual(r["A"]["autofx_kosten"], 0.5)
+        self.assertEqual(r["A"]["totaal"], 1.5)
+        self.assertIsNone(r["B"]["autofx_kosten"])
+        self.assertEqual(r["B"]["totaal"], 3.0)
+
+    def test_zonder_autofx_kolom_is_autofx_none(self):
+        r = bereken_transactiekosten_per_ticker(self._df([_rij("2024-01-10", "10:00", -2.0)]))["TST.AS"]
+        self.assertIsNone(r["autofx_kosten"])
+        self.assertEqual(r["totaal"], 2.0)
+
+    def test_lege_kosten_blijven_none(self):
+        df = self._df([_rij("2024-01-10", "10:00", 0.0)], autofx=[None])
+        df["transactiekosten"] = None
+        r = bereken_transactiekosten_per_ticker(df)["TST.AS"]
+        self.assertIsNone(r["transactiekosten"])
+        self.assertIsNone(r["transactiekosten_betaald"])
+        self.assertIsNone(r["totaal"])
+        self.assertEqual(r["aantal_transacties"], 1)
+
+    def test_gesloten_positie_staat_erin_en_zonder_ticker_en_corporate_action_tellen_niet(self):
+        ca = _rij("2024-02-01", "10:00", 0.0, ticker="A")
+        ca["beurs"] = "DEG"
+        df = self._df([_rij("2024-01-10", "10:00", -1.0, ticker="A"), _rij("2024-01-20", "10:00", -1.0, aantal=-1.0, ticker="A"),
+                       ca, _rij("2024-01-15", "10:00", -4.0, ticker=None)])
+        r = bereken_transactiekosten_per_ticker(df)
+        self.assertEqual(list(r), ["A"])
+        self.assertEqual(r["A"]["aantal_transacties"], 2)
+        self.assertEqual(r["A"]["transactiekosten"], 2.0)
+
+    def test_omboekingsrijen_van_isin_wissel_tellen_niet_mee(self):
+        uit = _rij("2024-03-01", "00:00", 0.0, aantal=-5.0, ticker="A")
+        in_ = _rij("2024-03-01", "00:00", 0.0, aantal=5.0, ticker="A")
+        in_["isin"] = "XX0000000002"
+        df = self._df([_rij("2024-01-10", "10:00", -1.0, ticker="A"), uit, in_])
+        self.assertEqual(bereken_transactiekosten_per_ticker(df)["A"]["aantal_transacties"], 1)
+
+    def test_som_sluit_aan_op_totaal(self):
+        df = pas_kostenkorting_toe(_vijf_plus_een(), verdeel_kostenkorting(_vijf_plus_een(), PROMO)[0])
+        df.loc[0:2, "ticker"] = "B"
+        som = sum(v["transactiekosten"] for v in bereken_transactiekosten_per_ticker(df).values())
+        self.assertAlmostEqual(som, bereken_totale_transactiekosten(df)["totaal"])
+
+    def test_bereken_statistieken_bevat_kosten_per_ticker(self):
+        df = _vijf_plus_een()
+        resultaat = pd.DataFrame({"waarde": [600.0], "geinvesteerd": [600.0], "rendement": [0.0]},
+                                 index=[pd.Timestamp("2024-12-01")])
+        prijzen = pd.DataFrame({"TST.AS": [100.0]}, index=[pd.Timestamp("2024-12-01")])
+        stat = bereken_statistieken(df, prijzen, resultaat)
+        self.assertEqual(stat["kosten_per_ticker"]["TST.AS"]["transactiekosten"], 10.0)
 
 
 class TestPromotieRegel(unittest.TestCase):

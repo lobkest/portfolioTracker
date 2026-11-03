@@ -25,7 +25,17 @@
         return bedrag == null ? "–" : formatteerEuro(bedrag);
     }
 
-    const exportsObj = { jaarSubregel, dividendIsBekend, positieDividend, dividendTekst };
+    // Totaal (transactiekosten + AutoFX) uit statistieken.kosten_per_ticker; null als onbekend.
+    function positieKosten(kostenPerTicker, ticker) {
+        const info = kostenPerTicker && kostenPerTicker[ticker];
+        return info && info.totaal != null ? Number(info.totaal) : null;
+    }
+
+    function kostenTekst(bedrag) {
+        return bedrag == null ? "—" : formatteerEuro(bedrag);
+    }
+
+    const exportsObj = { jaarSubregel, dividendIsBekend, positieDividend, dividendTekst, positieKosten, kostenTekst };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

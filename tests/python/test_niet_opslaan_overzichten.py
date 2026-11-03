@@ -12,13 +12,14 @@ from backend.transactie_utils import formatteer_transacties_overzicht, transacti
 class TestFormatteerTransactiesOverzicht(unittest.TestCase):
     def test_none_blijft_none_en_tijd_wordt_hh_mm(self):
         rows = [
-            (datetime.date(2024, 3, 5), datetime.time(9, 7, 30), "ASML", Decimal("2"), Decimal("700.5"), Decimal("-1401"), Decimal("1"), "NL0010273215", "EAM", Decimal("1.0857")),
-            (datetime.date(2024, 3, 4), None, "ASML", 1, None, 10, None, None, None, None),
+            (datetime.date(2024, 3, 5), datetime.time(9, 7, 30), "ASML", Decimal("2"), Decimal("700.5"), Decimal("-1401"), Decimal("1"), "NL0010273215", "EAM", Decimal("1.0857"), "ASML.AS"),
+            (datetime.date(2024, 3, 4), None, "ASML", 1, None, 10, None, None, None, None, None),
         ]
         a, b = formatteer_transacties_overzicht(rows)
-        self.assertEqual(a, {"datum": "2024-03-05", "tijd": "09:07", "product": "ASML", "isin": "NL0010273215", "beurs": "EAM", "wisselkoers": 1.0857, "aantal": 2.0,
+        self.assertEqual(a, {"datum": "2024-03-05", "tijd": "09:07", "product": "ASML", "isin": "NL0010273215", "ticker": "ASML.AS", "beurs": "EAM", "wisselkoers": 1.0857, "aantal": 2.0,
                              "koers": 700.5, "totaal_eur": -1401.0, "transactiekosten": 1.0})
         self.assertIsNone(b["tijd"])
+        self.assertIsNone(b["ticker"])
         self.assertIsNone(b["koers"])
         self.assertIsNone(b["transactiekosten"])
 
@@ -59,6 +60,13 @@ class TestTransactiesUitDf(unittest.TestCase):
         self.assertIsNone(r["transactiekosten"])
         self.assertIsNone(r["wisselkoers"])
         self.assertEqual(r["datum"], "2024-01-01")
+
+    def test_ticker_per_rij_en_none_bij_ontbrekende_ticker(self):
+        df = self._df([(pd.Timestamp("2024-01-02"), "10:00", "A", 1.0, 1.0, 1.0, 0.0),
+                       (pd.Timestamp("2024-01-01"), "10:00", "B", 1.0, 1.0, 1.0, 0.0)])
+        df["ticker"] = ["A.AS", float("nan")]
+        self.assertEqual([r["ticker"] for r in transacties_overzicht_uit_df(df)], ["A.AS", None])
+        self.assertIsNone(transacties_overzicht_uit_df(df.drop(columns="ticker"))[0]["ticker"])
 
     def test_geen_nan_in_json(self):
         import json
