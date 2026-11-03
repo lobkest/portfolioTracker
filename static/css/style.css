@@ -1576,10 +1576,17 @@ input.schakelaar:focus-visible {
 }
 
 .benchmarkKnoppen {
+    position: relative; /* anker voor de infoTip-tooltip */
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 6px;
+}
+
+.benchmarkKnopMetInfo {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
 }
 
 .vergelijkKnop.benchmark {

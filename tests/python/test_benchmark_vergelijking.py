@@ -16,7 +16,9 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from backend.statistieken import bereken_benchmark_vergelijking
+from unittest.mock import patch
+
+from backend.statistieken import BENCHMARK_TICKERS, bereken_benchmark_vergelijking
 
 
 class TestBenchmarkVergelijking(unittest.TestCase):
@@ -97,6 +99,27 @@ class TestBenchmarkVergelijking(unittest.TestCase):
         transacties_df = self._transacties([self._rij("2023-01-01", 10.0, -100.0)])
         r = bereken_benchmark_vergelijking(transacties_df, pd.DataFrame(), pd.Series(dtype=float))
         self.assertIsNone(r)
+
+
+class TestBenchmarkNanc(unittest.TestCase):
+    def test_nanc_staat_in_benchmark_tickers(self):
+        self.assertEqual(BENCHMARK_TICKERS["Congres (NANC)"], "NANC")
+
+    def test_route_met_nanc_geeft_onvolledige_dekking_bij_late_koersen(self):
+        import app as app_module
+        transacties_df = pd.DataFrame({
+            "ticker": ["VWCE.AS"], "datum": [pd.Timestamp("2022-12-01")], "aantal": [10.0], "koers": [0.0],
+            "totaal_eur": [-100.0], "beurs": ["EAM"], "product": ["VWCE.AS"],
+        })
+        datums = pd.to_datetime(["2023-02-01", "2023-02-02"])
+        resultaat = pd.DataFrame({"waarde": [100.0, 110.0], "geinvesteerd": [100.0, 100.0]}, index=datums)
+        prices = pd.DataFrame({"NANC": [10.0, 11.0]}, index=datums)
+        with patch.object(app_module, "laad_transacties_en_resultaat", return_value=(transacties_df, resultaat)),              patch.object(app_module, "get_prices", return_value=prices),              patch("backend.portfolio_orchestratie.db_get_koers_splits", return_value={}):
+            res = app_module.app.test_client().get("/api/portfolio/TESTBV/benchmark-vergelijking?benchmark=Congres (NANC)")
+        self.assertEqual(res.status_code, 200)
+        data = res.get_json()
+        self.assertTrue(data["onvolledige_dekking"])
+        self.assertEqual(data["vanaf_datum"], "2023-02-01")
 
 
 if __name__ == "__main__":

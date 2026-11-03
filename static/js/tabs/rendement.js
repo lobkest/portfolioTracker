@@ -1,6 +1,9 @@
 // Tabblad Rendement: in € optioneel naast een benchmark of eigen aandeel, in % met XIRR en TWR (alleen met code).
 
-const BENCHMARK_KLEUREN = { "S&P 500": "#eb6834", "Nasdaq 100": "#0f9d9a", "AEX": "#b8860b" };
+const BENCHMARK_KLEUREN = { "S&P 500": "#eb6834", "Nasdaq 100": "#0f9d9a", "AEX": "#b8860b", "Congres (NANC)": "#c2185b" };
+const BENCHMARK_UITLEG = {
+    "Congres (NANC)": "Unusual Whales Subversive Democratic Trading ETF. Volgt de openbaar gemelde aandelentransacties van Democratische Congresleden en hun partners, dus niet alleen Nancy Pelosi; de ticker is een knipoog naar haar. Meldingen komen met vertraging binnen, dus het fonds loopt achter op de echte transacties. Kosten 0,76% per jaar. Amerikaans fonds in USD (hier omgerekend naar EUR), geen UCITS. Vergelijking op koers, uitgekeerd dividend niet meegenomen. Koersen vanaf februari 2023.",
+};
 // Per gekozen benchmark de opgehaalde vergelijking, op naam.
 let benchmarkVergelijkingen = {};
 // Los van de benchmark: beide vergelijkingslijnen kunnen tegelijk zichtbaar zijn.
@@ -119,7 +122,16 @@ function bouwBenchmarkKnoppen() {
         knop.style.setProperty("--kleur", kleur);
         knop.textContent = naam;
         knop.addEventListener("click", () => wisselBenchmark(naam));
-        return knop;
+        if (!BENCHMARK_UITLEG[naam]) return knop;
+        const tip = document.createElement("span");
+        tip.className = "infoTip";
+        tip.dataset.label = "NANC";
+        tip.textContent = BENCHMARK_UITLEG[naam];
+        activeerInfoTip(tip);
+        const wrapper = document.createElement("span");
+        wrapper.className = "benchmarkKnopMetInfo";
+        wrapper.append(knop, tip);
+        return wrapper;
     });
     document.getElementById("benchmarkKnoppen").replaceChildren(...knoppen);
 }
