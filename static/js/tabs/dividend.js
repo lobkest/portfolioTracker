@@ -145,6 +145,9 @@ function toonDividendChart(cumulatief) {
 function toonGeenRekeningoverzicht() {
     if (chart) { chart.destroy(); chart = null; }
     document.getElementById("chartWrapper").style.display = "none";
+    const knop = dividendKnop(Boolean(huidigeData.code));
+    document.getElementById("dividendNaarUploadBtn").textContent = knop.tekst;
+    document.getElementById("dividendVindplaats").textContent = VINDPLAATS_REKENINGOVERZICHT;
     toonAlleen(DIVIDEND_TOESTANDEN, "dividendGeenOverzicht");
 }
 
@@ -183,4 +186,11 @@ async function toonDividend() {
     renderDividend(data);
 }
 
-document.getElementById("dividendNaarUploadBtn").addEventListener("click", () => location.assign(START_PAD));
+document.getElementById("dividendNaarUploadBtn").addEventListener("click", () => {
+    if (!dividendKnop(Boolean(huidigeData.code)).naarInstellingen) {
+        location.assign(START_PAD);
+        return;
+    }
+    scrollNaarBijwerkMarkering = true;
+    gaNaarView("instellingen-bestanden");
+});

@@ -11,7 +11,7 @@ function resetBestandenBijwerken() {
 
 function toonBestandenBijwerken() {
     const totalen = huidigeData.statistieken && huidigeData.statistieken.totalen;
-    const { velden, eerste } = bestandNiveaus(totalen && totalen.rekeningoverzicht_status, totalen && totalen.transactiebestand_status);
+    const { velden, eerste } = bestandNiveaus(totalen && totalen.rekeningoverzicht_status, totalen && totalen.transactiebestand_status, totalen && totalen.rekeningoverzicht_aanwezig);
     Object.entries(velden).forEach(([veld, info]) => {
         const blok = document.getElementById(`${veld}Markering`);
         blok.hidden = info.niveau === "geen";

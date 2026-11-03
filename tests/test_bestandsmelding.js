@@ -182,3 +182,64 @@ test("bestandNiveaus: alles in orde of status ontbreekt: geen markering", () => 
 test("bestandNiveaus: geen rekeningoverzicht geüpload is geen 'opnieuw'", () => {
     assert.equal(bestandNiveaus(null, { ...TRANSACTIES, controle: "geen_aanwijzingen" }).velden.bestand2.niveau, "geen");
 });
+
+const { geenRekeningoverzichtMelding, dividendKnop } = require("../static/js/bestandsmelding.js");
+
+test("geenRekeningoverzichtMelding: null bij aanwezig true of ontbrekend veld", () => {
+    assert.equal(geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: true }, true), null);
+    assert.equal(geenRekeningoverzichtMelding({}, true), null);
+    assert.equal(geenRekeningoverzichtMelding(undefined, true), null);
+});
+
+test("geenRekeningoverzichtMelding: met code een knop, zonder code geen knop en 'bij de volgende analyse'", () => {
+    const met = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, true);
+    assert.equal(met.knopTekst, "Alsnog uploaden");
+    assert.equal(met.linkNaarInstellingen, true);
+    assert.ok(!met.kop.includes("bij de volgende analyse"));
+    const zonder = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, false);
+    assert.equal(zonder.knopTekst, null);
+    assert.equal(zonder.linkNaarInstellingen, false);
+    assert.ok(zonder.kop.includes("bij de volgende analyse"));
+});
+
+test("geenRekeningoverzichtMelding: lijst gevuld en vindplaats noemt Inbox", () => {
+    const melding = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, true);
+    assert.ok(melding.ontbreekt.length > 0);
+    assert.ok(melding.vindplaats.includes("Inbox"));
+});
+
+test("bestandNiveaus: bestand2 aanbevolen bij aanwezig false; bestand1 blijft eerste als die opnieuw is", () => {
+    const alleen = bestandNiveaus(null, null, false);
+    assert.equal(alleen.velden.bestand2.niveau, "aanbevolen");
+    assert.equal(alleen.velden.bestand2.tekst, "Nog geen rekeningoverzicht geüpload.");
+    assert.equal(alleen.eerste, "bestand2");
+    assert.equal(bestandNiveaus(null, null, true).velden.bestand2.niveau, "geen");
+    const samen = bestandNiveaus(null, AANWIJZING, false);
+    assert.equal(samen.velden.bestand1.niveau, "opnieuw");
+    assert.equal(samen.eerste, "bestand1");
+});
+
+test("geenRekeningoverzichtMelding: korte kop met code", () => {
+    const melding = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, true);
+    assert.equal(melding.kop, "Geen rekeningoverzicht geüpload; sommige bedragen en analyses ontbreken.");
+});
+
+test("geenRekeningoverzichtMelding: Netto gestort eerst, Aansluitingskosten na de Overzicht-items", () => {
+    const lijst = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, true).ontbreekt;
+    assert.equal(lijst[0], "Netto gestort");
+    const aansluiting = lijst.indexOf("Aansluitingskosten");
+    ["Netto gestort", "Vrije ruimte (cash)", "Totaal W/V (DEGIRO-definitie)", "Dividend (bedrag op Overzicht en tab Dividend)"].forEach(item => {
+        assert.ok(lijst.indexOf(item) >= 0 && lijst.indexOf(item) < aansluiting);
+    });
+});
+
+test("dividendKnop: met code naar instellingen, zonder code terug naar upload", () => {
+    assert.deepEqual(dividendKnop(true), { tekst: "Alsnog uploaden", naarInstellingen: true });
+    assert.deepEqual(dividendKnop(false), { tekst: "Terug naar upload", naarInstellingen: false });
+});
+
+test("geenRekeningoverzichtMelding: zeven punten en precies één punt dat met Dividend en haakje begint", () => {
+    const lijst = geenRekeningoverzichtMelding({ rekeningoverzicht_aanwezig: false }, true).ontbreekt;
+    assert.equal(lijst.length, 7);
+    assert.equal(lijst.filter(item => item.startsWith("Dividend (")).length, 1);
+});

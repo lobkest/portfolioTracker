@@ -114,7 +114,8 @@
 
     const GEEN_NIVEAU = bestandNiveau("geen", null, null);
 
-    function rekeningNiveau(status) {
+    function rekeningNiveau(status, aanwezig) {
+        if (!status && aanwezig === false) return bestandNiveau("aanbevolen", "Nog geen rekeningoverzicht geüpload.", null);
         if (!status || status.volledig !== false) return GEEN_NIVEAU;
         const huidig = periode(status.eerste_regel_datum, status.laatste_regel_datum);
         const tekst = status.eerste_regel_datum
@@ -137,13 +138,43 @@
     }
 
     // Per uploadveld (bestand1 = transacties, bestand2 = rekeningoverzicht); `eerste` is het veld om naartoe te scrollen: sterk vóór zacht, dan veldvolgorde.
-    function bestandNiveaus(rekening, transactie) {
-        const velden = { bestand1: transactieNiveau(transactie, rekening), bestand2: rekeningNiveau(rekening) };
+    function bestandNiveaus(rekening, transactie, aanwezig) {
+        const velden = { bestand1: transactieNiveau(transactie, rekening), bestand2: rekeningNiveau(rekening, aanwezig) };
         const eerste = ["opnieuw", "aanbevolen"].map(niveau => Object.keys(velden).find(v => velden[v].niveau === niveau)).find(Boolean) || null;
         return { velden, eerste };
     }
 
-    const exportsObj = { bestandsmelding, bestandNiveaus };
+    const GEEN_REKENING_KOP = "Geen rekeningoverzicht geüpload; sommige bedragen en analyses ontbreken.";
+    const GEEN_REKENING_KOP_ZONDER_CODE = `${GEEN_REKENING_KOP} Upload Account.xlsx bij de volgende analyse.`;
+    const GEEN_REKENING_ONTBREEKT = [
+        "Netto gestort",
+        "Vrije ruimte (cash)",
+        "Totaal W/V (DEGIRO-definitie)",
+        "Dividend (bedrag op Overzicht en tab Dividend)",
+        "Dividendvergelijking (Prognose)",
+        "Dividend in Box 3",
+        "Aansluitingskosten",
+    ];
+    const VINDPLAATS_REKENINGOVERZICHT = "Te vinden in DeGiro: Inbox → Rekeningoverzicht, exporteer vanaf het begin van je beleggen.";
+
+    // null tenzij het rekeningoverzicht aantoonbaar ontbreekt (oude data zonder het veld geeft ook null).
+    function geenRekeningoverzichtMelding(totalen, metCode) {
+        if (!totalen || totalen.rekeningoverzicht_aanwezig !== false) return null;
+        return {
+            kop: metCode ? GEEN_REKENING_KOP : GEEN_REKENING_KOP_ZONDER_CODE,
+            ontbreekt: GEEN_REKENING_ONTBREEKT,
+            vindplaats: VINDPLAATS_REKENINGOVERZICHT,
+            knopTekst: metCode ? "Alsnog uploaden" : null,
+            linkNaarInstellingen: Boolean(metCode),
+        };
+    }
+
+    // Knop op de Dividend-tab zonder rekeningoverzicht: met code naar Bestanden bijwerken, anders terug naar de uploadpagina.
+    function dividendKnop(metCode) {
+        return metCode ? { tekst: "Alsnog uploaden", naarInstellingen: true } : { tekst: "Terug naar upload", naarInstellingen: false };
+    }
+
+    const exportsObj = { bestandsmelding, bestandNiveaus, geenRekeningoverzichtMelding, dividendKnop, VINDPLAATS_REKENINGOVERZICHT };
 
     if (typeof module !== "undefined" && module.exports) {
         module.exports = exportsObj;

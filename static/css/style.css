@@ -438,6 +438,35 @@ body:has(.startPagina) {
     text-decoration: underline;
 }
 
+.infoBanner {
+    background: #eef3f8;
+    color: #2b3a4a;
+    border: 1px solid #cfdae6;
+    border-radius: 4px;
+    padding: 8px 14px;
+    margin-bottom: 15px;
+}
+
+.infoBanner p {
+    margin: 0 0 4px;
+}
+
+.infoBanner .bannerKop {
+    font-weight: bold;
+}
+
+.infoBanner .bannerLijst {
+    margin: 0 0 6px;
+    padding-left: 20px;
+    columns: 2;
+}
+
+.infoBanner .kleineKnop {
+    margin: 4px 0 0;
+    padding: 4px 10px;
+    font-size: 0.9em;
+}
+
 .bestandMarkering {
     margin: 4px 0 8px;
     padding: 8px 12px;

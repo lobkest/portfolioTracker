@@ -52,6 +52,32 @@ function toonBestandsmelding() {
     banner.style.display = "block";
 }
 
+function toonGeenRekeningMelding() {
+    const banner = document.getElementById("geenRekeningBanner");
+    const totalen = huidigeData.statistieken && huidigeData.statistieken.totalen;
+    const melding = geenRekeningoverzichtMelding(totalen, Boolean(huidigeData.code));
+    if (!melding) {
+        banner.style.display = "none";
+        return;
+    }
+    document.getElementById("geenRekeningKop").textContent = melding.kop;
+    document.getElementById("geenRekeningVindplaats").textContent = melding.vindplaats;
+    document.getElementById("geenRekeningLijst").replaceChildren(...melding.ontbreekt.map(tekst => {
+        const li = document.createElement("li");
+        li.textContent = tekst;
+        return li;
+    }));
+    const knop = document.getElementById("geenRekeningKnop");
+    knop.textContent = melding.knopTekst || "";
+    knop.style.display = melding.linkNaarInstellingen ? "inline-block" : "none";
+    banner.style.display = "block";
+}
+
+document.getElementById("geenRekeningKnop").addEventListener("click", () => {
+    scrollNaarBijwerkMarkering = true;
+    gaNaarView("instellingen-bestanden");
+});
+
 // Compact buiten Overzicht (kop en link op één regel); Details klapt de blokken uit, de banner blijft staan.
 function zetBestandsmeldingCompact(view) {
     document.getElementById("bestandsBannerDetails").open = view === "portfolio";

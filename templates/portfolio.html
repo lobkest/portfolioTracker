@@ -170,6 +170,18 @@
                 </details>
             </div>
 
+            <div id="geenRekeningBanner" class="infoBanner bestandsBanner" style="display: none;">
+                <div class="bestandsBannerBovenste">
+                    <p id="geenRekeningKop" class="bannerKop"></p>
+                    <button id="geenRekeningKnop" type="button" class="kleineKnop"></button>
+                </div>
+                <details id="geenRekeningDetails" class="bestandsBannerDetails">
+                    <summary>Wat ontbreekt er?</summary>
+                    <ul id="geenRekeningLijst" class="bannerLijst"></ul>
+                    <p id="geenRekeningVindplaats" class="kleineMelding"></p>
+                </details>
+            </div>
+
             <!-- Gedeeld door meerdere tabbladen, daarom boven de tabblad-blokken. -->
             <p id="instellingenMsg" class="melding positief" data-verberg-buiten="instellingen-bijnamen" style="display: none;"></p>
             <select id="aandeelSelect" class="margeOnder15" data-views="peraandeel peraandeelaankoop" style="display: none;"></select>
@@ -532,7 +544,8 @@
                 <p id="dividendLaden" hidden>Bezig met laden...</p>
                 <p id="dividendFout" class="foutTekst" hidden>Kon dividendgegevens niet ophalen.</p>
                 <div id="dividendGeenOverzicht" hidden>
-                    <p>Dividendgegevens niet beschikbaar — upload eerst je Account-overzicht (Excel) om dit te kunnen zien.</p>
+                    <p>Dividendgegevens niet beschikbaar zonder rekeningoverzicht (Account.xlsx).</p>
+                    <p id="dividendVindplaats" class="kleineMelding"></p>
                     <button id="dividendNaarUploadBtn" type="button">Terug naar upload</button>
                 </div>
                 <div id="dividendStatsSectie" class="margeOnder20" hidden>

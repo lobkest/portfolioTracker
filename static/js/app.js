@@ -174,6 +174,7 @@ function toonDashboard(data) {
     toonTickerWaarschuwingBanner(data.ticker_waarschuwingen || []);
     toonKoersenBanner(data);
     toonBestandsmelding();
+    toonGeenRekeningMelding();
 
     if (!data.chart_data) {
         document.getElementById("geenData").style.display = "block";
