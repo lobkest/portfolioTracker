@@ -29,7 +29,7 @@ class TestTweedePogingVangnet(unittest.TestCase):
         def fake_parallel(posities, bekende_tickers):
             return [{"ticker": None if isin == "ISINB" else f"T-{isin}"} for _, isin, _b, _t in posities]
 
-        with patch.object(upload_verwerking, "vind_tickers_met_snelle_prijscheck_parallel", side_effect=fake_parallel), \
+        with patch.object(upload_verwerking, "vind_tickers_met_snelle_prijscheck_parallel", side_effect=fake_parallel),              patch.object(upload_verwerking, "db_get_ticker_wissels", return_value=[]), \
              patch.object(upload_verwerking, "_probeer_andere_productnamen",
                           side_effect=AttributeError("'NoneType' object has no attribute 'items'")), \
              Flask(__name__).test_request_context(), redirect_stdout(io.StringIO()):

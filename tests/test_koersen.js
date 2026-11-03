@@ -141,3 +141,16 @@ test("alternatief: dagrangetekst en details", () => {
     assert.equal(alternatiefDagrangeTekst(leeg), "geen prijsdata");
     assert.equal(alternatiefControleTekst(leeg), "geen koersdata om te controleren");
 });
+
+test("alternatief in andere valuta: n.v.t. in plaats van een x/y-score", () => {
+    const alt = { prijscheck_nvt: true, aantal_matches: 0, aantal_gecontroleerd: 0 };
+    assert.equal(alternatiefDagrangeTekst(alt), "n.v.t.");
+    assert.match(alternatiefControleTekst(alt), /^n\.v\.t\./);
+});
+
+test("splituitleg uit de backend komt in de tooltip, met factor als er teruggerekend is", () => {
+    assert.equal(prijscontroleSplitTekst({ split_factor: 1, split_uitleg: "Zonder correctie lag dichterbij." }),
+        "Zonder correctie lag dichterbij.");
+    assert.equal(prijscontroleSplitTekst({ split_factor: 2, split_uitleg: "Met correctie lag dichterbij." }),
+        "×2. Met correctie lag dichterbij.");
+});

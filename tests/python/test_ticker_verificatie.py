@@ -231,6 +231,7 @@ def _mock_yahoo_omgeving(yahoo_koers, splits=None):
     stack.enter_context(patch.object(ticker_prijscheck, "_ticker_details_met_cache", return_value={"valuta": "EUR"}))
     stack.enter_context(patch.object(ticker_prijscheck, "db_save_prijscheck"))
     stack.enter_context(patch.object(ticker_prijscheck, "_haal_splits_op", return_value=splits or {}))
+    stack.enter_context(patch.object(ticker_prijscheck, "_haal_split_sprong", return_value=None))
     return stack
 
 

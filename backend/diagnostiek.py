@@ -277,6 +277,18 @@ def registreer_controles_opnieuw(controles):
                             c.get("reden"), c.get("technisch", False))
 
 
+def herstel_diagnostiek(meldingen, controles):
+    """Zet meldingen en controles terug op een eerdere haal_meldingen()/haal_controles(): wat daarna kwam vervalt.
+    Voor een tweede rekenronde, zodat de meldingen van de eerste (met de oude ticker) niet blijven staan."""
+    verzameling, controle_verzameling = _verzameling(), _controle_verzameling()
+    if verzameling is None or controle_verzameling is None:
+        return
+    verzameling[:] = [dict(m) for m in meldingen]
+    controle_verzameling.clear()
+    for c in controles:
+        controle_verzameling[(c["categorie"], c["naam"])] = dict(c)
+
+
 def sla_controle_over(categorie, naam, reden):
     registreer_controle(categorie, naam, CONTROLE_OVERGESLAGEN, reden=reden)
 

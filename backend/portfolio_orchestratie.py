@@ -26,7 +26,7 @@ from backend.diagnostiek_checks import (
 )
 from backend.debug_utils import dprint, meet_tijd
 from backend.diagnostiek import (
-    haal_meldingen, meldingen_sinds, meld_opnieuw, meld, haal_controles, controles_sinds, registreer_controles_opnieuw,
+    haal_meldingen, herstel_diagnostiek, meldingen_sinds, meld_opnieuw, meld, haal_controles, controles_sinds, registreer_controles_opnieuw,
     draai_controle, sla_controle_over, meld_check_mislukt,
     ACTIE_TICKER_ZEKERHEID, CATEGORIE_LAADTIJDEN, CATEGORIE_DATA, CATEGORIE_PLAUSIBILITEIT, CATEGORIE_TICKERS, CATEGORIE_SPLITS, CATEGORIE_KOERSEN, CATEGORIE_ETF_HOLDINGS, CATEGORIE_DIVIDEND,
     CATEGORIE_ORDER_IDS, CATEGORIE_WISSELKOERSEN, CATEGORIE_REKENINGOVERZICHT, GOED, INFO, LET_OP,
@@ -44,7 +44,10 @@ from backend.portfolio_calc import (
     compute_per_ticker_koers_en_aankopen, bepaal_split_boekingen, meld_split_koppeling, waarde_per_ticker_per_dag,
 )
 from backend.split_correctie import bepaal_effectieve_datums, continue_reeks
-from backend.ticker_zekerheid import groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties
+from backend.ticker_wissel import verwerk_automatische_wissels
+from backend.ticker_zekerheid import (
+    groepeer_posities_per_keten, ticker_waarschuwingen_voor_transacties, koers_valuta_per_positie,
+)
 from backend.dividend import bouw_dividend_samenvatting, promotie_bedragen
 from backend.aansluitingskosten import (
     bouw_aansluitingskosten_samenvatting, bouw_alternatieven_invoer, voeg_beurs_resultaat_toe, schat_orderkosten,
@@ -586,7 +589,7 @@ def ticker_zekerheid_groepen(code):
     if naam_portfolio is None:
         return None
 
-    return groepeer_posities_per_keten(rows)
+    return groepeer_posities_per_keten(rows, koers_valuta_per_positie(code))
 
 
 def bepaal_korte_naam_voorstellen(code):
@@ -667,10 +670,22 @@ def bouw_verdeling_over_tijd(code, dimensie, samenvoegen=False, azie_samenvoegen
 
 
 def build_portfolio_response(code, verversen=True):
+    meldingen_begin, controles_begin = haal_meldingen(), haal_controles()
     naam, transacties_df, price_data = haal_portfolio_basis(code, verversen=verversen)
     if naam is None:
         return None
-    return analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
+    antwoord = analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data)
+    if not antwoord.get("tickers_gewijzigd"):
+        return antwoord
+    # Een automatische wissel gebeurt pas na de berekening: nog één keer met de nieuwe ticker (de cache is gewist),
+    # zonder opnieuw te wisselen, zodat er nooit een lus ontstaat.
+    # Alleen de meldingen en controles van die tweede ronde tellen: die van de eerste gingen over de oude ticker.
+    herstel_diagnostiek(meldingen_begin, controles_begin)
+    naam, transacties_df, price_data = haal_portfolio_basis(code, verversen=verversen)
+    antwoord = analyze_transacties_kern(transacties_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data,
+                                        automatisch_wisselen=False)
+    antwoord["tickers_gewijzigd"] = True
+    return antwoord
 
 
 def _split_correctie_en_koersen(transacties_df, verversen=True):
@@ -686,7 +701,8 @@ def _split_correctie_en_koersen(transacties_df, verversen=True):
 
 
 def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_data_al_klaar=None, kassaldo=None,
-                             box3=False, box3_dividenden=None, dividenden=None, rekening_regels=None):
+                             box3=False, box3_dividenden=None, dividenden=None, rekening_regels=None,
+                             automatisch_wisselen=True):
     """Met `prijs_data_al_klaar` moet transacties_df al split-gecorrigeerd zijn. `kassaldo`, `dividenden` (records uit
     het rekeningoverzicht) en `rekening_regels` (bouw_rekening_regels()) alleen bij 'niet opslaan'; met een code komen
     ze uit de database.
@@ -755,6 +771,13 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
     # Leest alleen de prijscheck-cache: normaal geen nieuwe Yahoo-calls.
     with meet_tijd(f"kern_ticker_waarschuwingen ({len(tickers)} ticker(s))"):
         ticker_waarschuwingen, prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
+        tickers_gewijzigd = False
+        if automatisch_wisselen and code and any("koers" in w["redenen"] for w in ticker_waarschuwingen):
+            ticker_waarschuwingen, aantal_wissels = verwerk_automatische_wissels(
+                code, ticker_waarschuwingen, ticker_zekerheid_groepen(code) or [])
+            if aantal_wissels:
+                wis_portfolio_basis_cache(code)
+                tickers_gewijzigd = True
     with meet_tijd("kern_meld_tickers"):
         _meld_tickers(transacties_df, ticker_waarschuwingen, prijs_checks)
 
@@ -818,6 +841,8 @@ def analyze_transacties_kern(transacties_df, code, naam, verversen=True, prijs_d
         "laatst_opgehaald_op": laatst_opgehaald_op.isoformat() + "Z" if laatst_opgehaald_op else None,
         **koersstatus,
     }
+    if tickers_gewijzigd:
+        antwoord["tickers_gewijzigd"] = True
     # Zonder rekeningoverzicht geen veld: 0 zou "geen kosten" suggereren.
     if rekening_regels:
         antwoord["aansluitingskosten"] = _aansluitingskosten(rekening_regels, transacties_df, statistieken, ticker_namen)
@@ -972,7 +997,8 @@ def analyze_transacties(transacties_df, code, naam, kassaldo=None, box3=False, b
     split_df, price_data = _split_correctie_en_koersen(transacties_df, verversen)
     resultaat = analyze_transacties_kern(split_df, code, naam, verversen=verversen, prijs_data_al_klaar=price_data,
                                          kassaldo=kassaldo, box3=box3, box3_dividenden=box3_dividenden,
-                                         dividenden=box3_dividenden, rekening_regels=rekening_regels)
+                                         dividenden=box3_dividenden, rekening_regels=rekening_regels,
+                                         automatisch_wisselen=False)
     resultaat["transacties_lijst"] = _transacties_lijst(transacties_df, split_df, price_data, None)
     resultaat["transacties_promotie"] = promotie
     if resultaat.get("chart_data") is None:

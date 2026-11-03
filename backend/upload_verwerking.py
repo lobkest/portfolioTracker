@@ -24,8 +24,9 @@ from backend.portfolio_admin import find_matching_code, maak_portfolio_met_nieuw
 from backend.db import (
     db_save_dividenden, db_save_kassaldo, db_zet_portfolio_naam, db_get_bekende_tickers, db_insert_transactie,
     db_get_product_per_ticker, db_vul_bronkolommen_aan, db_vul_transactiekosten_aan, db_get_synthetische_transacties,
-    db_save_rekening_regels, db_save_upload_meldingen,
+    db_save_rekening_regels, db_save_upload_meldingen, db_get_ticker_wissels,
 )
+from backend.ticker_wissel import laatste_per_positie
 from backend.ticker_classificatie import haal_long_names, bewaar_long_names
 from backend.dividend import (
     verwerk_rekeningoverzicht_df, bereken_kassaldo, bouw_rekening_regels,
@@ -171,7 +172,8 @@ def _bouw_posities(df):
         markt = groep[~groep.index.isin(list(wisselrijen))].sort_values("Datum", kind="stable")
         posities.append((product, eind, beurs, [
             {"datum": row["Datum"].strftime("%Y-%m-%d"), "koers": float(row["_koers_eur"]),
-             "wisselkoers": _getal_of_none(row.get(WISSELKOERS_KOLOM))}
+             "wisselkoers": _getal_of_none(row.get(WISSELKOERS_KOLOM)),
+             "koers_valuta": _tekst_of_none(row.get("_koers_valuta"))}
             for _, row in markt.iterrows()
         ]))
     return posities
@@ -443,6 +445,11 @@ def _ticker_resolutie_opslaan(cur, code, rows_to_insert, herbepaal_alle_tickers)
         # De keten komt alleen uit deze upload: zat het wisselpaar in een eerdere upload, dan erft de nieuwe ISIN niets
         # (behalve als de omboekingsrij van de nieuwe ISIN toen zelf een ticker kreeg).
         bekende_tickers = _bekende_ticker_per_positie(db_get_bekende_tickers(cur, code), eind_van)
+
+    # Een eerdere wissel (knop, Terugzetten of automatisch) gaat voor, ook bij "opnieuw bepalen" en voor nieuwe rijen.
+    for sleutel, wissel in laatste_per_positie(db_get_ticker_wissels(code)).items():
+        if sleutel in groepen:
+            bekende_tickers[sleutel] = wissel["nieuwe_ticker"]
 
     resultaten = vind_tickers_met_snelle_prijscheck_parallel(posities, bekende_tickers=bekende_tickers)
 

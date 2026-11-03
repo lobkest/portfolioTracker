@@ -20,7 +20,9 @@ BEURS_MAP = {
     # Yahoo splitst Nasdaq in Global Select (NMS), Global Market (NGM) en Capital Market (NCM).
     "NYSE": ["NYQ"], "NSY": ["NYQ"], "NASDAQ": ["NMS", "NGM", "NCM"], "NDQ": ["NMS", "NGM", "NCM"],
     "ARCA": ["PCX"], "EPA": ["PAR"],
-    "EBR": ["BRU"], "BME": ["MCE"], "BIT": ["MIL"], "SWX": ["SWX"],
+    "EBR": ["BRU"], "BME": ["MCE"], "MAD": ["MCE"], "BIT": ["MIL"], "MIL": ["MIL"],
+    # Yahoo meldt de SIX Swiss Exchange als SWX of EBS.
+    "SWX": ["SWX", "EBS"], "VIE": ["VIE"], "ASE": ["ASE"],
     "TSE": ["TOR"], "ASX": ["ASX"],
 }
 
@@ -40,7 +42,7 @@ EXCHANGE_VALUTA = {
     "NMS": "USD", "NGM": "USD", "NCM": "USD", "NYQ": "USD", "PCX": "USD", "ASE": "USD",
     "GER": "EUR", "FRA": "EUR", "MUN": "EUR", "STU": "EUR", "DUS": "EUR", "HAM": "EUR", "BER": "EUR", "HAN": "EUR",
     "AMS": "EUR", "PAR": "EUR", "BRU": "EUR", "MIL": "EUR", "MCE": "EUR", "HEL": "EUR", "LIS": "EUR", "VIE": "EUR",
-    "LSE": "GBP", "SWX": "CHF", "TOR": "CAD", "ASX": "AUD",
+    "LSE": "GBP", "SWX": "CHF", "EBS": "CHF", "TOR": "CAD", "ASX": "AUD",
 }
 RECHTSVORMEN = {"INC", "CORP", "CORPORATION", "CO", "COMPANY", "LTD", "LIMITED", "PLC", "NV", "SA", "AG", "SE", "LLC",
                 "LP", "SPA", "OYJ", "AB", "ASA"}

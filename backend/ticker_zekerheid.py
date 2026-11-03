@@ -12,11 +12,11 @@ from contextlib import contextmanager
 import pandas as pd
 
 from backend.db import (
-    db_connect, db_get_portfolio_naam_en_transacties, db_wijzig_ticker_voor_isins, db_verbinding_teller_stand,
+    db_connect, db_get_portfolio_naam_en_transacties, db_get_koers_valuta_per_positie, db_wijzig_ticker_voor_isins, db_verbinding_teller_stand,
     TRANSACTIE_KOLOMMEN,
 )
 from backend.ticker_matching import (
-    find_ticker_detailed, BEURS_MAP, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
+    find_ticker_detailed, BEURS_MAP, EXCHANGE_VALUTA, AMERIKAANSE_BEURZEN, OTC_BEURZEN, _yahoo_search, haal_openfigi_resultaten, _openfigi_root_matches,
 )
 from backend.ticker_prijscheck import vergelijk_prijs_op_datum, vergelijk_prijzen_op_datums, _prijscheck_is_probleem
 from backend.split_correctie import isin_ketens, vind_wisselparen
@@ -230,10 +230,40 @@ def _verrijk_met_openfigi_kandidaten(alternatieven_kandidaten, gekozen_ticker, i
     return extra, debug
 
 
-def _sorteer_kandidaten(kandidaten, verwachte_beurzen, openfigi):
-    """Verwachte beurs eerst, daarbinnen een root die OpenFIGI kent; verder Yahoo's volgorde."""
+def normaliseer_transactievaluta(valuta):
+    """DeGiro noemt pence GBX, Yahoo GBp; pence en pond blijven bewust verschillende valuta's."""
+    if not valuta or not str(valuta).strip():
+        return None
+    valuta = str(valuta).strip()
+    return "GBp" if valuta.upper() == "GBX" or valuta == "GBp" else valuta.upper()
+
+
+def valuta_vergelijkbaar(transactie_valuta, kandidaat_valuta):
+    """True/False, of None als een van beide valuta's onbekend is (dan wordt wel vergeleken)."""
+    a, b = normaliseer_transactievaluta(transactie_valuta), normaliseer_transactievaluta(kandidaat_valuta)
+    return None if a is None or b is None else a == b
+
+
+def _transactievaluta(steekproef):
+    return next((normaliseer_transactievaluta(t.get("koers_valuta")) for t in steekproef if t.get("koers_valuta")), None)
+
+
+def _beurs_valuta_wijkt_af(transactie_valuta, yahoo_beurs):
+    """Voorlopige schatting voor de volgorde: EXCHANGE_VALUTA kent alleen GBP, dus pence en pond tellen hier als gelijk."""
+    beurs_valuta = EXCHANGE_VALUTA.get(yahoo_beurs)
+    pond = {"GBp", "GBP"}
+    if transactie_valuta in pond and beurs_valuta in pond:
+        return False
+    return valuta_vergelijkbaar(transactie_valuta, beurs_valuta) is False
+
+
+def _sorteer_kandidaten(kandidaten, verwachte_beurzen, openfigi, transactie_valuta=None):
+    """Verwachte beurs eerst, dan een valuta die niet afwijkt (naar de beurs, zonder netwerk), dan een root die
+    OpenFIGI kent; verder Yahoo's volgorde."""
     return sorted(kandidaten, key=lambda k: (
-        k.get("exchange") not in verwachte_beurzen, not _root_in_openfigi(k.get("symbol"), openfigi),
+        k.get("exchange") not in verwachte_beurzen,
+        _beurs_valuta_wijkt_af(transactie_valuta, k.get("exchange")),
+        not _root_in_openfigi(k.get("symbol"), openfigi),
     ))
 
 
@@ -257,7 +287,11 @@ def kies_alternatief(alternatieven, aantal_steekproef, verwachte_beurzen, openfi
         a for a in alternatieven
         if _alternatief_acceptabel(a, aantal_steekproef, verwachte_beurzen, openfigi, prijsprobleem)
     ]
-    return next((a for a in acceptabel if a.get("beurs") in verwachte_beurzen), None) or next(iter(acceptabel), None)
+    # Beurs, dan valuta, dan prijsmatch; sorted is stabiel, dus verder Yahoo's volgorde.
+    acceptabel.sort(key=lambda a: (
+        a.get("beurs") not in verwachte_beurzen, a.get("valuta_gelijk") is False, -a.get("aantal_matches", 0),
+    ))
+    return acceptabel[0] if acceptabel else None
 
 
 def _long_name(ticker):
@@ -290,6 +324,17 @@ def bijnaam_na_tickerwissel(bijnaam, oude_ticker, nieuwe_ticker):
 
 def _reken_alternatief_door(alt, steekproef):
     alt_ticker = alt["symbol"]
+    transactie_valuta = _transactievaluta(steekproef)
+    valuta_gelijk = None
+    if transactie_valuta:
+        vooraf = _ticker_details_met_cache(alt_ticker)
+        valuta_gelijk = valuta_vergelijkbaar(transactie_valuta, vooraf.get("valuta"))
+        if valuta_gelijk is False:
+            return {
+                "ticker": alt_ticker, "beurs": alt.get("exchange"), "is_etf": None, "land": None, "sector": None,
+                "valuta": vooraf.get("valuta"), "aantal_matches": 0, "aantal_gecontroleerd": 0,
+                "valuta_gelijk": False, "prijscheck_nvt": True,
+            }
     t_alt, y_alt = time.time(), _tz_stand()
     alt_checks = []
     for t in steekproef:
@@ -319,19 +364,23 @@ def _reken_alternatief_door(alt, steekproef):
         "valuta": alt_details.get("valuta"),
         "aantal_matches": sum(1 for m in alt_matches if m),
         "aantal_gecontroleerd": len(alt_matches),
+        "valuta_gelijk": valuta_gelijk,
     }
 
 
 def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_beurzen, openfigi=None,
-                               prijsprobleem=True, degiro_naam=None, extra_bronnen=()):
+                               prijsprobleem=True, degiro_naam=None, extra_bronnen=(), doorzoek_alles=False):
     """Rekent kandidaten in _sorteer_kandidaten()-volgorde door, daarna die uit extra_bronnen (pas opgehaald als ze
     aan de beurt zijn), tot een acceptabele op de verwachte beurs; DIS/ACC pas als laatste. Een acceptabele op een
-    andere beurs is de reserve. Geeft (alternatieven, aanbevolen_alternatief of None)."""
+    andere beurs is de reserve. Met doorzoek_alles worden ook na de eerste goede alle kandidaten op de verwachte
+    beurs doorgerekend (voor "precies één geschikte kandidaat"). Geeft (alternatieven, aanbevolen_alternatief of None)."""
     alternatieven = []
     reserve = None
+    gekozen = None
     batches = itertools.chain([alternatieven_kandidaten], (bron() for bron in extra_bronnen))
+    transactie_valuta = _transactievaluta(steekproef)
     for batch in batches:
-        for alt in _sorteer_kandidaten(batch, verwachte_beurzen, openfigi):
+        for alt in _sorteer_kandidaten(batch, verwachte_beurzen, openfigi, transactie_valuta):
             alt_ticker = alt.get("symbol")
             beurs_klopt = alt.get("exchange") in verwachte_beurzen
             # Na een reserve kan alleen een kandidaat op de verwachte beurs nog winnen.
@@ -349,21 +398,63 @@ def _zoek_betere_alternatieven(alternatieven_kandidaten, steekproef, verwachte_b
                       f"-> verder zoeken")
                 continue
             if beurs_klopt or not verwachte_beurzen:
-                return alternatieven, alt_ticker
+                if not doorzoek_alles:
+                    return alternatieven, alt_ticker
+                gekozen = gekozen or alt_ticker
+                continue
             reserve = alt_ticker
 
-    return alternatieven, reserve
+    return alternatieven, gekozen or reserve
 
 
 def _leeg_resultaat(zekerheid, beurs):
     """Alle velden die de kaart op de Ticker-zekerheid-pagina toont, nog zonder inhoud."""
     return {
-        "ticker": None, "zekerheid": zekerheid, "waarschuwing": None,
+        "ticker": None, "zekerheid": zekerheid, "waarschuwing": None, "opmerking": None,
         "is_etf": None, "land": None, "sector": None, "top_holding_land": None, "valuta": None,
         "fondsfamilie": None, "category": None, "quote_type": None,
         "excel_beurs": beurs, "yahoo_beurs": None, "beurs_klopt": None,
         "prijs_checks": [], "alternatieven": [],
     }
+
+
+def beoordeel_prijschecks(ticker, prijs_checks, zekerheid="zeker"):
+    """(zekerheid, waarschuwing, opmerking): het prijsoordeel van de kaart op Ticker-zekerheid, ook voor de banner."""
+    bekende_checks = [c for c in prijs_checks if c["match"] is not None]
+    problemen = [c for c in bekende_checks if _prijscheck_is_probleem(c)]
+
+    waarschuwing = None
+    opmerking = None
+    if zekerheid == "zeker" and not bekende_checks:
+        zekerheid = "onzeker"
+        waarschuwing = (
+            f"Geen koersdata gevonden bij Yahoo voor '{ticker}' — "
+            f"mogelijk een verkeerde of niet-bestaande ticker."
+        )
+    elif zekerheid == "zeker" and len(problemen) == 1 and len(bekende_checks) >= MIN_CHECKS_VOOR_ENKELE_UITSCHIETER:
+        # Beurs, valuta en ISIN worden hierna nog beoordeeld en maken de kaart zo nodig alsnog "onzeker".
+        opmerking = (
+            f"Eén datum ({formatteer_datum_nl(problemen[0]['datum'])}) wijkt af van Yahoo's dagrange; de overige "
+            f"{len(bekende_checks) - 1} kloppen. Waarschijnlijk een afwijkende koers op die dag, geen verkeerde ticker."
+        )
+    elif zekerheid == "zeker" and problemen:
+        zekerheid = "onzeker"
+        buiten = [c for c in problemen if c.get("binnen_dagrange") is False]
+        if buiten:
+            vroegste = min(buiten, key=lambda c: c["datum"])
+            waarschuwing = (
+                f"Beurs komt overeen, maar {len(buiten)} van de {len(bekende_checks)} gecontroleerde "
+                f"datums valt buiten de dagrange (o.a. op {formatteer_datum_nl(vroegste['datum'])}) "
+                f"— mogelijk toch de verkeerde ticker."
+            )
+        else:
+            grootste = max(problemen, key=lambda c: c["afwijking_pct"])
+            waarschuwing = (
+                f"Beurs komt overeen, maar de koers wijkt op {len(problemen)} van de {len(bekende_checks)} "
+                f"gecontroleerde datums af van Yahoo (grootste afwijking {grootste['afwijking_pct']:.1f}% op "
+                f"{formatteer_datum_nl(grootste['datum'])}) — mogelijk toch de verkeerde ticker."
+            )
+    return zekerheid, waarschuwing, opmerking
 
 
 def _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin):
@@ -386,37 +477,12 @@ def _voeg_prijsoordeel_toe(resultaat, steekproef, transacties_van_dit_isin):
                 prijs_checks.append(check)
             prijs_checks.sort(key=lambda c: c["datum"])
 
-    bekende_checks = [c for c in prijs_checks if c["match"] is not None]
-    problemen = [c for c in bekende_checks if _prijscheck_is_probleem(c)]
-
-    zekerheid = resultaat["zekerheid"]
-    waarschuwing = None
-    if zekerheid == "zeker" and not bekende_checks:
-        zekerheid = "onzeker"
-        waarschuwing = (
-            f"Geen koersdata gevonden bij Yahoo voor '{ticker}' — "
-            f"mogelijk een verkeerde of niet-bestaande ticker."
-        )
-    elif zekerheid == "zeker" and problemen:
-        zekerheid = "onzeker"
-        buiten = [c for c in problemen if c.get("binnen_dagrange") is False]
-        if buiten:
-            vroegste = min(buiten, key=lambda c: c["datum"])
-            waarschuwing = (
-                f"Beurs komt overeen, maar {len(buiten)} van de {len(bekende_checks)} gecontroleerde "
-                f"datums valt buiten de dagrange (o.a. op {formatteer_datum_nl(vroegste['datum'])}) "
-                f"— mogelijk toch de verkeerde ticker."
-            )
-        else:
-            grootste = max(problemen, key=lambda c: c["afwijking_pct"])
-            waarschuwing = (
-                f"Beurs komt overeen, maar de koers wijkt op {len(problemen)} van de {len(bekende_checks)} "
-                f"gecontroleerde datums af van Yahoo (grootste afwijking {grootste['afwijking_pct']:.1f}% op "
-                f"{formatteer_datum_nl(grootste['datum'])}) — mogelijk toch de verkeerde ticker."
-            )
-    return {**resultaat, "prijs_checks": prijs_checks, "zekerheid": zekerheid, "waarschuwing": waarschuwing}
+    zekerheid, waarschuwing, opmerking = beoordeel_prijschecks(ticker, prijs_checks, resultaat["zekerheid"])
+    return {**resultaat, "prijs_checks": prijs_checks, "zekerheid": zekerheid, "waarschuwing": waarschuwing,
+            "opmerking": opmerking}
 
 
+MIN_CHECKS_VOOR_ENKELE_UITSCHIETER = 3
 BEURS_OTC_NA_DELISTING = "otc_na_delisting"
 BEURS_GEEN_KOERSHISTORIE = "geen_koershistorie_verwachte_beurs"
 
@@ -433,7 +499,9 @@ def beurs_status(excel_beurs, yahoo_beurs, prijs_checks, alternatieven=None):
     klopt = prijs_klopt(prijs_checks)
     if klopt and excel_beurs in AMERIKAANSE_BEURZEN and yahoo_beurs in OTC_BEURZEN:
         return BEURS_OTC_NA_DELISTING
-    op_verwachte_beurs = [a for a in alternatieven or [] if a.get("beurs") in verwachte_beurzen]
+    op_verwachte_beurs = [
+        a for a in alternatieven or [] if a.get("beurs") in verwachte_beurzen and not a.get("prijscheck_nvt")
+    ]
     if klopt and op_verwachte_beurs and not any(a.get("aantal_gecontroleerd") for a in op_verwachte_beurs):
         return BEURS_GEEN_KOERSHISTORIE
     return False
@@ -490,7 +558,7 @@ def _voeg_kaartvelden_toe(resultaat, beurs):
     }
 
 
-def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi=None):
+def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi=None, doorzoek_alles=False):
     """Extra Yahoo-calls, dus alleen als de ticker niet "zeker" is."""
     # __TIJDELIJK, diagnostisch__: samen met maakOpenfigiKandidatenDebugBlok (tabs/ticker_zekerheid.js) verwijderen.
     if resultaat["zekerheid"] == "zeker":
@@ -507,6 +575,7 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, 
     prijsprobleem = not bekende_checks or any(_prijscheck_is_probleem(c) for c in bekende_checks)
     alternatieven, aanbevolen_alternatief = _zoek_betere_alternatieven(
         kandidaten, steekproef, BEURS_MAP.get(beurs, []), openfigi, prijsprobleem, product, bronnen,
+        doorzoek_alles=doorzoek_alles,
     )
     uitgebreid = {
         **resultaat,
@@ -518,11 +587,13 @@ def _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, 
     return uitgebreid
 
 
-def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker=None):
+def verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker=None,
+                               doorzoek_alles=False):
     """Volledige check (duur; alleen op de Ticker-zekerheid-pagina): alles wat de kaart toont, inclusief
     doorgerekende alternatieven. Met opgeslagen_ticker wordt die gecontroleerd in plaats van opnieuw gezocht."""
     with _tz_profiel(isin):
-        return _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker)
+        return _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker,
+                                           doorzoek_alles)
 
 
 def _met_waarschuwing(resultaat, tekst):
@@ -550,7 +621,8 @@ def handelt_in_eur(transacties):
     return not any(pd.notna(t.get("wisselkoers")) and float(t["wisselkoers"]) != 0 for t in transacties)
 
 
-def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker=None):
+def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, opgeslagen_ticker=None,
+                                doorzoek_alles=False):
     print(f"[ticker-zekerheid] {isin}: start '{product}' op {beurs}, {len(transacties_van_dit_isin)} transacties")
     t0, y0 = time.time(), _tz_stand()
     if opgeslagen_ticker:
@@ -590,7 +662,8 @@ def _verifieer_ticker_met_prijs(product, isin, beurs, transacties_van_dit_isin, 
     _tz_print(isin, f"DIS/ACC (strijdig {resultaat['uitkeringsvorm_strijdig']}, {resultaat['zekerheid']}, "
                     f"longName {resultaat['yahoo_long_name']!a})", t, y)
     t, y = time.time(), _tz_stand()
-    resultaat = _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi)
+    resultaat = _voeg_alternatieven_toe(resultaat, basis, product, isin, beurs, steekproef, openfigi,
+                                        doorzoek_alles)
     _tz_print(isin, f"alternatieven ({len(resultaat['alternatieven'])} doorgerekend)", t, y)
     resultaat = _beurs_zonder_koershistorie(resultaat, beurs, beurs_waarschuwing)
     _tz_print(isin, "TOTAAL", t0, y0)
@@ -771,10 +844,12 @@ def _getal_of_none(waarde):
     return float(getal) if pd.notna(getal) else None
 
 
-def groepeer_posities_per_keten(rijen):
+def groepeer_posities_per_keten(rijen, valuta_per_positie=None):
     """rijen in volgorde van TRANSACTIE_KOLOMMEN -> [((eind_isin, beurs), {naam, echte_naam, beurs, isin, isins, ticker,
     transacties})] zonder corporate-action- en wisselrijen. Een ISIN-wissel (ook een keten) is één groep onder de
-    nieuwste ISIN; isins = de hele keten, oudste eerst. Zoek op echte_naam: product kan een bijnaam zijn."""
+    nieuwste ISIN; isins = de hele keten, oudste eerst. Zoek op echte_naam: product kan een bijnaam zijn.
+    valuta_per_positie ({(isin, beurs): valuta}) komt als koers_valuta op elke transactie."""
+    valuta_per_positie = valuta_per_positie or {}
     transacties_df = pd.DataFrame(rijen, columns=TRANSACTIE_KOLOMMEN)
     for kolom in ("aantal", "koers", "transactiekosten"):
         transacties_df[kolom] = transacties_df[kolom].astype(float)
@@ -806,11 +881,23 @@ def groepeer_posities_per_keten(rijen):
                 "ticker": rij["ticker"] if pd.notna(rij["ticker"]) else None, "transacties": [],
             }
         )
-        groep["transacties"].append({"datum": datum, "koers": koers, "wisselkoers": _getal_of_none(rij["wisselkoers"])})
+        groep["transacties"].append({
+            "datum": datum, "koers": koers, "wisselkoers": _getal_of_none(rij["wisselkoers"]),
+            "koers_valuta": valuta_per_positie.get((rij["isin"], beurs)),
+        })
 
     for groep in per_groep.values():
         groep["transacties"].sort(key=lambda t: t["datum"])
     return list(per_groep.items())
+
+
+def koers_valuta_per_positie(code):
+    """db_get_koers_valuta_per_positie(), maar een fout geeft {}: de valutacontrole van alternatieven vervalt dan."""
+    try:
+        return db_get_koers_valuta_per_positie(code)
+    except Exception as e:
+        print(f"[ticker-zekerheid] WARN koers_valuta niet gelezen: {type(e).__name__}")
+        return {}
 
 
 def backfill_verouderde_tickers(code):
@@ -819,7 +906,7 @@ def backfill_verouderde_tickers(code):
     naam_portfolio, rows = db_get_portfolio_naam_en_transacties(code)
     if naam_portfolio is None:
         return 0
-    groepen = groepeer_posities_per_keten(rows)
+    groepen = groepeer_posities_per_keten(rows, koers_valuta_per_positie(code))
 
     conn = db_connect()
     cur = conn.cursor()
@@ -916,6 +1003,21 @@ def prijswaarschuwing_voor_ticker(ticker, transacties_van_dit_isin, isin=None):
     return "\n".join(t for t in delen.values() if t) or None
 
 
+def _koers_banner_tekst(ticker, transacties_van_ticker):
+    """Tekst als de kaart op Ticker-zekerheid (zelfde steekproef, beoordeel_prijschecks()) "onzeker" zou zijn door de
+    koers, anders None: ook bij een opmerking of zonder koersdata (netwerk) geen banner."""
+    steekproef = _kies_steekproef_transacties(_geldige_transacties(transacties_van_ticker))
+    if not steekproef:
+        return None
+    checks = vergelijk_prijzen_op_datums(ticker, steekproef)
+    for t, check in zip(steekproef, checks):
+        check["datum"] = str(t["datum"])
+    if not any(c["match"] is not None for c in checks):
+        return None
+    zekerheid, waarschuwing, _opmerking = beoordeel_prijschecks(ticker, checks)
+    return waarschuwing if zekerheid == "onzeker" else None
+
+
 def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
     """(waarschuwingen, prijs_checks). waarschuwingen: [{ticker, naam, boodschap, redenen}], redenen ⊆
     ["koers", "openfigi"]; prijs_checks: {ticker: [prijscheck_laatste()]} voor Diagnostiek.
@@ -934,6 +1036,7 @@ def ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen):
         check = prijscheck_laatste(ticker, transacties_van_ticker)
         prijs_checks[ticker] = [check] if check else []
         delen = prijswaarschuwing_delen(ticker, transacties_van_ticker, isin, check=check)
+        delen["koers"] = _koers_banner_tekst(ticker, transacties_van_ticker)
         redenen = [reden for reden, tekst in delen.items() if tekst]
         if redenen:
             waarschuwingen.append({

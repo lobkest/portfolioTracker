@@ -72,7 +72,10 @@ function maakPrijscontroleTabel(prijsChecks) {
                 const td = maakCel(prijscontroleYahooTekst(c));
                 if (c.yahoo_koers_gecorrigeerd != null) {
                     td.title = `Ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}, gecorrigeerd voor een split sinds deze `
-                        + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`;
+                        + `datum (factor ×${formatGetal(c.split_factor, 4, 0)}).`
+                        + (c.split_uitleg ? ` ${c.split_uitleg}` : "");
+                } else if (c.split_uitleg) {
+                    td.title = c.split_uitleg;
                 }
                 return td;
             },
@@ -242,6 +245,13 @@ function maakTickerZekerheidKaart(p) {
         banner.textContent = `⚠️ ${p.waarschuwing}`;
         banner.className = "tickerKaartWaarschuwing";
         rij.appendChild(banner);
+    }
+
+    if (p.opmerking) {
+        const opmerking = document.createElement("div");
+        opmerking.textContent = `ℹ️ ${p.opmerking}`;
+        opmerking.className = "tickerNotitie";
+        rij.appendChild(opmerking);
     }
 
     const titel = document.createElement("div");
@@ -416,6 +426,89 @@ function toonTickerZekerheidPositieFout(kaart, tekst, p) {
     kaart.appendChild(knop);
 }
 
+// Posities zonder afwijking staan ingeklapt in "Alle posities (n)"; alleen afwijkende kaarten staan open in beeld.
+function tickerKaartIsGroen(p) {
+    return p.zekerheid === "zeker" && !p.waarschuwing && p.beurs_klopt !== false;
+}
+
+function maakGegroepeerdeKaartenBlok() {
+    const afwijkend = document.createElement("div");
+    afwijkend.className = "tickerAfwijkendBlok";
+    const groen = document.createElement("details");
+    groen.className = "tickerGroenBlok";
+    groen.appendChild(document.createElement("summary"));
+    const blok = document.createElement("div");
+    blok.appendChild(afwijkend);
+    blok.appendChild(groen);
+    werkGroenBlokBij(groen);
+    return blok;
+}
+
+function tickerAfwijkendBlok() {
+    return document.querySelector(".tickerAfwijkendBlok");
+}
+
+function tickerGroenBlok() {
+    return document.querySelector(".tickerGroenBlok");
+}
+
+function werkGroenBlokBij(groen = tickerGroenBlok()) {
+    const aantal = groen.querySelectorAll(".tickerKaart").length;
+    groen.firstChild.textContent = `Alle posities (${aantal})`;
+    groen.style.display = aantal > 0 ? "" : "none";
+}
+
+function plaatsTickerKaart(oudeKaart, p) {
+    const nieuw = maakTickerZekerheidKaart(p);
+    if (tickerKaartIsGroen(p)) {
+        oudeKaart.remove();
+        tickerGroenBlok().appendChild(nieuw);
+    } else {
+        oudeKaart.replaceWith(nieuw);
+    }
+    werkGroenBlokBij();
+}
+
+function vulGegroepeerdeKaarten(posities) {
+    posities.forEach(p => (tickerKaartIsGroen(p) ? tickerGroenBlok() : tickerAfwijkendBlok()).appendChild(maakTickerZekerheidKaart(p)));
+    werkGroenBlokBij();
+}
+
+// Logregel per automatische wissel (de backend beslist en legt vast), met Terugzetten.
+function maakAutomatischeWisselRegel(w) {
+    const regel = document.createElement("div");
+    regel.className = "tickerWijzigBlok";
+
+    const tekst = document.createElement("span");
+    tekst.className = "kleinLabel";
+    tekst.textContent = `ℹ️ ${w.naam}: automatisch gewijzigd van ${w.oude_ticker} naar ${w.nieuwe_ticker} (${w.reden})`;
+    regel.appendChild(tekst);
+
+    const knop = document.createElement("button");
+    knop.textContent = "Terugzetten";
+    regel.appendChild(knop);
+
+    knop.addEventListener("click", async () => {
+        knop.disabled = true;
+        try {
+            const res = await fetch(`/api/portfolio/${huidigeData.code}/ticker-zekerheid/terugzetten`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ isin: w.isin, beurs: w.beurs }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Kon niet terugzetten.");
+            knop.remove();
+            tekst.textContent = `✓ Teruggezet van ${data.oude_ticker} naar ${data.ticker}; er wisselt niet meer automatisch. `
+                + "Herlaad de pagina om alle tabbladen bij te werken.";
+        } catch (e) {
+            tekst.textContent = `⚠️ ${e.message}`;
+            knop.disabled = false;
+        }
+    });
+    return regel;
+}
+
 async function controleerTickerZekerheidPositie(p, kaart) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TICKER_POSITIE_TIMEOUT_MS);
@@ -428,7 +521,7 @@ async function controleerTickerZekerheidPositie(p, kaart) {
             toonTickerZekerheidPositieFout(kaart, resultaat.error || "Kon deze positie niet controleren.", p);
             return;
         }
-        kaart.replaceWith(maakTickerZekerheidKaart(resultaat));
+        plaatsTickerKaart(kaart, resultaat);
     } catch (e) {
         toonTickerZekerheidPositieFout(
             kaart,
@@ -483,6 +576,8 @@ async function toonInstellingenTicker() {
         return;
     }
 
+    (data.automatische_wissels || []).forEach(w => sectie.appendChild(maakAutomatischeWisselRegel(w)));
+
     const alleKnop = document.createElement("button");
     alleKnop.textContent = ALLE_PRIJZEN_KNOPTEKST;
     alleKnop.className = "tickerCheckKnop";
@@ -492,10 +587,11 @@ async function toonInstellingenTicker() {
     sectie.appendChild(alleKnop);
     sectie.appendChild(alleResultaten);
 
+    sectie.appendChild(maakGegroepeerdeKaartenBlok());
     const kaarten = {};
     posities.forEach(p => {
         const kaart = maakTickerZekerheidPlaceholder(p);
-        sectie.appendChild(kaart);
+        tickerAfwijkendBlok().appendChild(kaart);
         kaarten[`${p.isin}|${p.beurs}`] = kaart;
     });
 
@@ -600,7 +696,8 @@ function toonInstellingenTickerBasis() {
     foutEl.style.display = "none";
 
     const lijst = document.createElement("div");
-    (huidigeData.ticker_zekerheid || []).forEach(p => lijst.appendChild(maakTickerZekerheidKaart(p)));
+    lijst.appendChild(maakGegroepeerdeKaartenBlok());
+    vulGegroepeerdeKaarten(huidigeData.ticker_zekerheid || []);
 
     const knop = document.createElement("button");
     knop.textContent = "Controleer ticker-zekerheid (uitgebreid)";
@@ -634,7 +731,8 @@ async function controleerTickerZekerheidUitgebreid(knop, foutEl, lijst) {
         }
         huidigeData.ticker_zekerheid = data.posities;
         lijst.innerHTML = "";
-        data.posities.forEach(p => lijst.appendChild(maakTickerZekerheidKaart(p)));
+        lijst.appendChild(maakGegroepeerdeKaartenBlok());
+        vulGegroepeerdeKaarten(data.posities);
         knop.style.display = "none";
     } catch (e) {
         foutEl.textContent = e.name === "AbortError"

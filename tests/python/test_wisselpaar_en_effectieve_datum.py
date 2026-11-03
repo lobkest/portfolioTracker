@@ -251,9 +251,9 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         posities = self._posities(self._excel(_xela_rijen("NSQ", "XELA")))
         # De -14 @ 0,72 en +4 @ 2,16 tellen niet mee; de aankopen van de oude en de verkoop van de nieuwe ISIN wel.
         self.assertEqual(posities, {(NIEUW_ISIN, "NSQ"): [
-            {"datum": "2021-01-08", "koers": 0.41, "wisselkoers": None},
-            {"datum": "2021-01-25", "koers": 0.71, "wisselkoers": None},
-            {"datum": "2021-01-27", "koers": 1.91, "wisselkoers": None}]})
+            {"datum": "2021-01-08", "koers": 0.41, "wisselkoers": None, "koers_valuta": None},
+            {"datum": "2021-01-25", "koers": 0.71, "wisselkoers": None, "koers_valuta": None},
+            {"datum": "2021-01-27", "koers": 1.91, "wisselkoers": None, "koers_valuta": None}]})
 
     def test_upload_zonder_tijd_blijven_twee_posities(self):
         rijen = _xela_rijen("NSQ", "XELA")
@@ -274,7 +274,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         def fake_check(posities, bekende_tickers):
             return [{"ticker": bekende_tickers.get((isin, beurs))} for _, isin, beurs, _t in posities]
 
-        with patch.object(upload_verwerking, "db_get_bekende_tickers", return_value={(OUD_ISIN, "NSQ"): "XELA"}), \
+        with patch.object(upload_verwerking, "db_get_bekende_tickers", return_value={(OUD_ISIN, "NSQ"): "XELA"}),              patch.object(upload_verwerking, "db_get_ticker_wissels", return_value=[]), \
              patch.object(upload_verwerking, "vind_tickers_met_snelle_prijscheck_parallel", side_effect=fake_check) as mock:
             tickers, _meldingen = self._in_request(upload_verwerking._ticker_resolutie_opslaan, None, "ZZTEST", excel, False)
 
@@ -309,7 +309,7 @@ class TestWisselrijenUitDePrijscheck(_MetRequest):
         df["autofx_kosten"] = None
         df["datum"] = df["datum"].dt.date
         rijen = [tuple(r) for r in df[portfolio_orchestratie.TRANSACTIE_KOLOMMEN].itertuples(index=False)]
-        with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", rijen)),              patch.object(portfolio_orchestratie, "db_get_rekening_regels_eur", return_value=[]),              patch.object(portfolio_orchestratie, "get_prices", side_effect=AssertionError("koersen opgehaald")),              patch.object(portfolio_orchestratie, "haal_portfolio_basis", side_effect=AssertionError("basis geladen")):
+        with patch.object(portfolio_orchestratie, "db_get_portfolio_naam_en_transacties", return_value=("Test", rijen)),              patch.object(portfolio_orchestratie, "koers_valuta_per_positie", return_value={}),              patch.object(portfolio_orchestratie, "db_get_rekening_regels_eur", return_value=[]),              patch.object(portfolio_orchestratie, "get_prices", side_effect=AssertionError("koersen opgehaald")),              patch.object(portfolio_orchestratie, "haal_portfolio_basis", side_effect=AssertionError("basis geladen")):
             return dict(portfolio_orchestratie.ticker_zekerheid_groepen("ZZTEST"))
 
     def test_ticker_zekerheid_groepen_voegen_wissel_samen_zonder_wisselrijen(self):

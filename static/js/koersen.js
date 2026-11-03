@@ -91,6 +91,10 @@
 
     // null zonder split-correctie.
     function prijscontroleSplitTekst(c) {
+        if (c.split_uitleg) {
+            const factor = c.split_factor !== 1 ? `×${formatGetal(c.split_factor, 4, 0)}. ` : "";
+            return `${factor}${c.split_uitleg}`;
+        }
         if (c.yahoo_koers_gecorrigeerd == null) return null;
         return `×${formatGetal(c.split_factor, 4, 0)}, ruwe Yahoo-koers ${formatGetal(c.yahoo_koers, 3)}`;
     }
@@ -106,6 +110,7 @@
     }
 
     function alternatiefDagrangeTekst(alt) {
+        if (alt.prijscheck_nvt) return "n.v.t.";
         if (!alt.aantal_gecontroleerd) return "geen prijsdata";
         return `${alt.aantal_matches}/${alt.aantal_gecontroleerd}${alt.uitkeringsvorm_strijdig ? " (DIS/ACC wijkt af)" : ""}`;
     }
@@ -117,6 +122,7 @@
     }
 
     function alternatiefControleTekst(alt) {
+        if (alt.prijscheck_nvt) return "n.v.t.: andere valuta dan de transactiekoers";
         if (!alt.aantal_gecontroleerd) return "geen koersdata om te controleren";
         return `${alt.aantal_matches} van ${alt.aantal_gecontroleerd} datums binnen de dagrange`;
     }

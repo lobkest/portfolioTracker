@@ -295,6 +295,8 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
             return {"koers": None, "openfigi": None}
 
         with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None), \
+                patch.object(ticker_zekerheid, "_koers_banner_tekst",
+                             side_effect=lambda t, tr: fake_delen(t, tr)["koers"]), \
                 patch.object(ticker_zekerheid, "prijswaarschuwing_delen", side_effect=fake_delen):
             waarschuwingen, _prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, ticker_namen)
 
@@ -307,7 +309,7 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
     def _openfigi_isin(self, rijen):
         kolommen = ["ticker", "datum", "tijd", "isin", "aantal", "koers", "transactiekosten"]
         transacties_df = pd.DataFrame(rijen, columns=kolommen)
-        with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None),                 patch.object(ticker_zekerheid, "prijswaarschuwing_delen",
+        with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None),                 patch.object(ticker_zekerheid, "_koers_banner_tekst", return_value=None),                 patch.object(ticker_zekerheid, "prijswaarschuwing_delen",
                              return_value={"koers": None, "openfigi": None}) as mock_delen:
             ticker_waarschuwingen_voor_transacties(transacties_df, {})
         return mock_delen.call_args.args[2]
@@ -337,6 +339,7 @@ class TestTickerWaarschuwingenVoorTransacties(unittest.TestCase):
             "ticker": ["AAPL"], "datum": [date(2023, 6, 10)], "koers": [100.0],
         })
         with patch.object(ticker_zekerheid, "prijscheck_laatste", return_value=None), \
+                patch.object(ticker_zekerheid, "_koers_banner_tekst", return_value=None), \
                 patch.object(ticker_zekerheid, "prijswaarschuwing_delen", return_value={"koers": None, "openfigi": None}):
             waarschuwingen, _prijs_checks = ticker_waarschuwingen_voor_transacties(transacties_df, {})
         self.assertEqual(waarschuwingen, [])

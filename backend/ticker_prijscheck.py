@@ -1,4 +1,6 @@
 """Yahoo-slotkoers vs. DeGiro-transactieprijs voor één (ticker, datum), na FX- en split-correctie."""
+import math
+
 import pandas as pd
 import yfinance as yf
 
@@ -112,6 +114,92 @@ def _cumulatieve_split_factor(ticker, vanaf_datum):
     return _split_factor_uit(_haal_splits_op(ticker), vanaf_datum)
 
 
+SPLIT_ONGECORRIGEERD = "ongecorrigeerd"
+SPLIT_ONDUIDELIJK = "onduidelijk"
+SPLIT_VARIANT_GEEN = "geen_split"
+SPLIT_VARIANT_MET = "met_correctie"
+SPLIT_VARIANT_ZONDER = "zonder_correctie"
+# Een sprong telt als "ruw" als hij binnen dit deel van de splitgrootte (in log) op 1/ratio uitkomt.
+SPLIT_SPRONG_TOLERANTIE = 0.35
+# Onder deze splitgrootte (ln) verschilt "ruw" te weinig van "doorlopend" om aan de sprong te zien.
+SPLIT_MIN_GROOTTE = 0.08
+
+_split_sprong_cache = {}
+
+
+def classificeer_split_sprong(ratio, close_voor, close_na):
+    """SPLIT_ONGECORRIGEERD als de reeks de ruwe sprong (na/voor ~ 1/ratio) toont. Een doorlopende reeks is bewust
+    SPLIT_ONDUIDELIJK: dat is ook wat een extra bedrijfsactie (afsplitsing, Unilever) op dezelfde dag geeft."""
+    if not ratio or ratio <= 0 or not close_voor or not close_na or close_voor <= 0 or close_na <= 0:
+        return SPLIT_ONDUIDELIJK
+    grootte = abs(math.log(ratio))
+    if grootte < SPLIT_MIN_GROOTTE:
+        return SPLIT_ONDUIDELIJK
+    afstand_tot_ruw = abs(math.log(close_na / close_voor * ratio))
+    return SPLIT_ONGECORRIGEERD if afstand_tot_ruw < SPLIT_SPRONG_TOLERANTIE * grootte else SPLIT_ONDUIDELIJK
+
+
+def kies_split_variant(splits_na, yahoo_koers_eur, bekende_koers):
+    """splits_na: [(ratio, status)] voor de splits na de transactiedatum. Geeft (factor, variant, uitleg).
+    Splits met een zichtbare ruwe sprong worden nooit teruggerekend; voor de rest wint de variant (met of zonder
+    correctie) die het dichtst bij de transactiekoers ligt, bij gelijk spel die met correctie."""
+    if not splits_na:
+        return 1.0, SPLIT_VARIANT_GEEN, None
+    onduidelijk = [ratio for ratio, status in splits_na if status != SPLIT_ONGECORRIGEERD]
+    if not onduidelijk:
+        return 1.0, SPLIT_VARIANT_ZONDER, "Yahoo's reeks toont de ruwe koerssprong rond de split: niet teruggerekend."
+    factor_met = math.prod(onduidelijk)
+    d_met = abs(math.log(yahoo_koers_eur * factor_met / bekende_koers))
+    d_zonder = abs(math.log(yahoo_koers_eur / bekende_koers))
+    if d_zonder < d_met:
+        return 1.0, SPLIT_VARIANT_ZONDER, (
+            f"Splitcorrectie onduidelijk in Yahoo's reeks: zonder correctie ({yahoo_koers_eur:.3f}) lag dichter bij "
+            f"de Excel-koers {bekende_koers:.3f} dan met correctie ({yahoo_koers_eur * factor_met:.3f}).")
+    return factor_met, SPLIT_VARIANT_MET, (
+        f"Splitcorrectie onduidelijk in Yahoo's reeks: met correctie ({yahoo_koers_eur * factor_met:.3f}) lag dichter "
+        f"bij de Excel-koers {bekende_koers:.3f} dan zonder ({yahoo_koers_eur:.3f}).")
+
+
+def _haal_split_sprong(ticker, split_datum, dagen=10):
+    """(slot voor, slot op/na) de splitdatum uit Yahoo's reeks, of None. Alleen een geslaagde fetch wordt onthouden."""
+    sleutel = (ticker, split_datum)
+    if sleutel in _split_sprong_cache:
+        return _split_sprong_cache[sleutel]
+    datum = pd.Timestamp(split_datum)
+
+    def _actie():
+        _tel_yahoo_call("yf.download(splitsprong)")
+        return yf.download(ticker, start=datum - pd.Timedelta(days=dagen), end=datum + pd.Timedelta(days=dagen),
+                           auto_adjust=False, progress=False)[["Close"]]
+
+    raw, fout = _met_rate_limit_retry(_actie, RATE_LIMIT_POGINGEN, RATE_LIMIT_WACHTTIJD_BASIS)
+    if fout is not None:
+        return None
+    if isinstance(raw.columns, pd.MultiIndex):
+        raw.columns = raw.columns.get_level_values(0)
+    reeks = raw["Close"].dropna()
+    reeks.index = pd.to_datetime(reeks.index).tz_localize(None)
+    voor, na = reeks[reeks.index < datum], reeks[reeks.index >= datum]
+    if voor.empty or na.empty:
+        return None
+    resultaat = (float(voor.iloc[-1]), float(na.iloc[0]))
+    _split_sprong_cache[sleutel] = resultaat
+    return resultaat
+
+
+def _splits_na_met_status(ticker, splits, vanaf_datum):
+    """[(ratio, status)] voor elke split na 'vanaf_datum'; de enige plek die per split de reeks rond de split bekijkt."""
+    vanaf = pd.Timestamp(vanaf_datum)
+    resultaat = []
+    for datum_str, ratio in sorted((splits or {}).items()):
+        if pd.Timestamp(datum_str) <= vanaf:
+            continue
+        sprong = _haal_split_sprong(ticker, datum_str)
+        status = classificeer_split_sprong(ratio, *sprong) if sprong else SPLIT_ONDUIDELIJK
+        resultaat.append((ratio, status))
+    return resultaat
+
+
 def _split_factor_uit(splits, vanaf_datum):
     if not splits:
         return 1.0
@@ -154,12 +242,13 @@ def vergelijk_prijs_op_datum(ticker, datum, bekende_koers):
         valuta = _ticker_details_met_cache(ticker).get("valuta")
         db_save_prijscheck(ticker, datum, yahoo_koers, valuta, high, low)
 
-    split_factor = _cumulatieve_split_factor(ticker, datum) if yahoo_koers is not None and bekende_koers else 1.0
-    return _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor)
+    splits_na = _splits_na_met_status(ticker, _haal_splits_op(ticker), datum) if yahoo_koers is not None and bekende_koers else []
+    return _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, 1.0, splits_na)
 
 
-def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor):
-    """reden: waarom er niet vergeleken is (PRIJSCHECK_REDEN_*), None als dat wel gelukt is."""
+def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor, splits_na=None):
+    """reden: waarom er niet vergeleken is (PRIJSCHECK_REDEN_*), None als dat wel gelukt is. Met splits_na kiest
+    kies_split_variant() de factor (de enige plek waar een splitcorrectie wordt toegepast); anders geldt split_factor."""
     if yahoo_koers is None or not bekende_koers:
         return {
             "yahoo_koers": yahoo_koers, "yahoo_koers_gecorrigeerd": None, "split_factor": 1.0,
@@ -195,6 +284,9 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
             low_eur = low_eur / divisor * fx_koers
         valuta_conversie_toegepast = True
 
+    split_variant, split_uitleg = SPLIT_VARIANT_GEEN, None
+    if splits_na:
+        split_factor, split_variant, split_uitleg = kies_split_variant(splits_na, yahoo_koers_eur, bekende_koers)
     yahoo_koers_gecorrigeerd = yahoo_koers_eur * split_factor
     if high_eur is not None and low_eur is not None:
         high_eur = high_eur * split_factor
@@ -221,6 +313,8 @@ def _beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, lo
         "yahoo_koers": yahoo_koers,
         "yahoo_koers_gecorrigeerd": yahoo_koers_gecorrigeerd if toon_gecorrigeerd else None,
         "split_factor": split_factor,
+        "split_variant": split_variant,
+        "split_uitleg": split_uitleg,
         "bekende_koers": bekende_koers,
         "afwijking_pct": afwijking_pct,
         "niveau": niveau,
@@ -296,8 +390,8 @@ def vergelijk_prijzen_op_datums(ticker, transacties):
         datum = pd.Timestamp(t["datum"]).date()
         bekende_koers = float(t["koers"])
         yahoo_koers, valuta, high, low = cache[datum]
-        split_factor = _split_factor_uit(splits, datum) if yahoo_koers is not None and bekende_koers else 1.0
-        checks.append(_beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, split_factor))
+        splits_na = _splits_na_met_status(ticker, splits, datum) if yahoo_koers is not None and bekende_koers else []
+        checks.append(_beoordeel_prijs(ticker, datum, bekende_koers, yahoo_koers, valuta, high, low, 1.0, splits_na))
     return checks
 
 

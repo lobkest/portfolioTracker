@@ -490,6 +490,22 @@ def db_init():
         );
     """)
     cur.execute("CREATE INDEX IF NOT EXISTS upload_meldingen_code_idx ON upload_meldingen (code, geupload_op)")
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS ticker_wissels (
+            id SERIAL PRIMARY KEY,
+            code TEXT NOT NULL,
+            -- eind-ISIN van de positie (bij een ISIN-keten de nieuwste)
+            isin TEXT NOT NULL,
+            beurs TEXT NOT NULL,
+            oude_ticker TEXT,
+            nieuwe_ticker TEXT NOT NULL,
+            -- 'auto' of 'handmatig' (de knop en Terugzetten); de laatste rij per positie is de geldende keuze
+            soort TEXT NOT NULL,
+            reden TEXT,
+            gewijzigd_op TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cur.execute("CREATE INDEX IF NOT EXISTS ticker_wissels_positie_idx ON ticker_wissels (code, isin, beurs)")
     conn.commit()
     cur.close()
     conn.close()
@@ -847,6 +863,7 @@ def db_delete_portfolio(code):
     cur.execute("DELETE FROM kassaldo WHERE code = %s", (code,))
     cur.execute("DELETE FROM rekening_regels WHERE code = %s", (code,))
     cur.execute("DELETE FROM upload_meldingen WHERE code = %s", (code,))
+    cur.execute("DELETE FROM ticker_wissels WHERE code = %s", (code,))
     cur.execute("DELETE FROM portfolios WHERE code = %s", (code,))
     conn.commit()
     cur.close()
@@ -878,6 +895,7 @@ def db_wijzig_portfolio_code(oude_code, nieuwe_code):
         cur.execute("UPDATE kassaldo SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE rekening_regels SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("UPDATE upload_meldingen SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
+        cur.execute("UPDATE ticker_wissels SET code = %s WHERE code = %s", (nieuwe_code, oude_code))
         cur.execute("DELETE FROM portfolios WHERE code = %s", (oude_code,))
         conn.commit()
         return True, None
@@ -1153,6 +1171,25 @@ def db_get_portfolio_naam_en_transacties(code):
     return result[0] or "", rows
 
 
+def db_get_koers_valuta_per_positie(code):
+    """{(isin, beurs): DeGiro-valuta van de koers}, de meest voorkomende per positie; leeg als niets bekend is."""
+    conn = db_connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT DISTINCT ON (isin, beurs) isin, beurs, koers_valuta
+               FROM (SELECT isin, beurs, koers_valuta, COUNT(*) AS aantal FROM transacties
+                     WHERE code = %s AND koers_valuta IS NOT NULL GROUP BY isin, beurs, koers_valuta) t
+               ORDER BY isin, beurs, aantal DESC""",
+            (code,),
+        )
+        resultaat = {(isin, beurs): valuta for isin, beurs, valuta in cur.fetchall()}
+        cur.close()
+        return resultaat
+    finally:
+        conn.close()
+
+
 ORDER_ID_KOLOMMEN = ["order_id", "datum", "tijd", "product", "isin", "beurs", "aantal", "koers", "transactiekosten",
                       "totaal_eur", "echte_naam"]
 
@@ -1421,6 +1458,32 @@ def db_wijzig_ticker_voor_isins(cur, code, isins, beurs, ticker):
         "UPDATE transacties SET ticker = %s WHERE code = %s AND isin = ANY(%s) AND beurs = %s",
         (ticker, code, list(isins), beurs),
     )
+
+
+def db_voeg_ticker_wissel_toe(cur, code, isin, beurs, oude_ticker, nieuwe_ticker, soort, reden=None):
+    cur.execute(
+        """INSERT INTO ticker_wissels (code, isin, beurs, oude_ticker, nieuwe_ticker, soort, reden)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (code, isin, beurs, oude_ticker, nieuwe_ticker, soort, reden),
+    )
+
+
+def db_get_ticker_wissels(code):
+    """Alle wissels van een portfolio, oudste eerst: [{id, isin, beurs, oude_ticker, nieuwe_ticker, soort, reden}]."""
+    conn = db_connect()
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """SELECT id, isin, beurs, oude_ticker, nieuwe_ticker, soort, reden FROM ticker_wissels
+               WHERE code = %s ORDER BY id""",
+            (code,),
+        )
+        kolommen = ["id", "isin", "beurs", "oude_ticker", "nieuwe_ticker", "soort", "reden"]
+        rijen = [dict(zip(kolommen, rij)) for rij in cur.fetchall()]
+        cur.close()
+        return rijen
+    finally:
+        conn.close()
 
 
 def db_get_isin_ticker_product(code):

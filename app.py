@@ -17,7 +17,7 @@ from werkzeug.datastructures import FileStorage
 from xml.sax.saxutils import escape as xml_escape
 import pandas as pd
 from backend.db import (
-    db_transactie, db_init, db_delete_portfolio, db_wijzig_portfolio_code,
+    db_transactie, db_init, db_delete_portfolio, db_get_ticker_wissels, db_wijzig_portfolio_code,
     db_portfolio_bestaat, db_wijzig_bijnaam, db_wijzig_bijnamen, db_herstel_echte_naam,
     db_wis_etf_proxies_voor_portfolio, db_get_order_ids, db_get_order_ids_bij_andere_portfolios,
     db_reset_verbinding_teller, db_log_verbinding_samenvatting, db_deel_verbinding, db_wijzig_ticker_voor_isins,
@@ -66,6 +66,9 @@ from backend.upload_verwerking import (
     sla_kassaldo_op, vul_bronkolommen_aan, sluit_hernoemde_synthetische_rijen_uit, sla_rekening_regels_op,
     meld_portfolio_opslaan, bewaar_upload_meldingen, upload_meldingen_voor_api, UPLOAD_SOORT_UPLOAD,
     UPLOAD_SOORT_BIJWERKEN,
+)
+from backend.ticker_wissel import (
+    pas_ticker_wissel_toe, zet_automatische_wissel_terug, actieve_automatische_wissels, SOORT_HANDMATIG,
 )
 from backend.portfolio_orchestratie import (
     haal_portfolio_basis, wis_portfolio_basis_cache, laad_transacties_en_resultaat,
@@ -1075,7 +1078,8 @@ def ticker_zekerheid_lijst(code):
         {"isin": isin, "isins": info["isins"], "beurs": beurs, "naam": info["naam"], "echte_naam": info["echte_naam"]}
         for (isin, beurs), info in groepen
     ]
-    return jsonify({"posities": posities})
+    wissels = actieve_automatische_wissels(db_get_ticker_wissels(code), groepen)
+    return jsonify({"posities": posities, "automatische_wissels": wissels})
 
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/positie")
@@ -1131,22 +1135,31 @@ def ticker_zekerheid_wijzig(code):
     if info is None:
         return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
 
-    with db_transactie() as cur:
-        db_wijzig_ticker_voor_isins(cur, code, info["isins"], beurs, ticker)
-    print(f"[ticker-zekerheid] {', '.join(info['isins'])}: ticker {info['ticker']} -> {ticker} (via de knop)")
-
-    bijnaam = None
-    try:
-        bijnaam = bijnaam_na_tickerwissel(info["naam"], info["ticker"], ticker)
-        if bijnaam:
-            db_wijzig_bijnaam(code, ticker, bijnaam)
-            print(f"[ticker-zekerheid] {isin}: bijnaam -> {bijnaam!a}")
-    except Exception as e:
-        # De ticker staat er al; de bijnaam is bijzaak.
-        print(f"[ticker-zekerheid] {isin}: WARN bijnaam niet aangepast ({maskeer_codes(e)!a})")
-        bijnaam = None
+    bijnaam = pas_ticker_wissel_toe(code, info, ticker, SOORT_HANDMATIG, "Gekozen via de knop")
     wis_portfolio_basis_cache(code)
     return jsonify({"ticker": ticker, "oude_ticker": info["ticker"], "bijnaam": bijnaam})
+
+
+@app.route("/api/portfolio/<code>/ticker-zekerheid/terugzetten", methods=["POST"])
+def ticker_zekerheid_terugzetten(code):
+    """Zet een automatische wissel terug; geldt daarna als handmatige keuze (nooit meer automatisch wisselen)."""
+    code = code.strip().upper()
+    data = request.get_json(silent=True) or {}
+    isin, beurs = data.get("isin") or "", data.get("beurs") or ""
+
+    groepen = ticker_zekerheid_groepen(code)
+    if groepen is None:
+        return _geen_portfolio(code)
+    info = dict(groepen).get((isin, beurs))
+    if info is None:
+        return jsonify({"error": f"Geen positie gevonden voor ISIN '{isin}' op beurs '{beurs}'."}), 404
+
+    uitkomst = zet_automatische_wissel_terug(code, info, db_get_ticker_wissels(code))
+    if uitkomst is None:
+        return jsonify({"error": "Er is geen automatische wissel om terug te zetten."}), 409
+    wis_portfolio_basis_cache(code)
+    van, naar, bijnaam = uitkomst
+    return jsonify({"ticker": naar, "oude_ticker": van, "bijnaam": bijnaam})
 
 
 @app.route("/api/portfolio/<code>/ticker-zekerheid/alle-prijzen")
